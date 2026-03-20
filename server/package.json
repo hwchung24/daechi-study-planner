@@ -4,6 +4,7 @@
   "main": "index.js",
   "type": "commonjs",
   "scripts": {
+    "migrate": "node migrate.js",
     "start": "node index.js"
   },
   "dependencies": {

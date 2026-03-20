@@ -10,6 +10,10 @@ async function query(text, params) {
   return res;
 }
 
+async function ensureConnected() {
+  await query("SELECT 1", []);
+}
+
 async function findUserByEmail(email) {
   const trimmed = String(email).trim().toLowerCase();
   const res = await query("SELECT * FROM users WHERE email = $1", [trimmed]);
@@ -19,8 +23,8 @@ async function findUserByEmail(email) {
 async function createUser(email, passwordHash, role = "student") {
   const trimmed = String(email).trim().toLowerCase();
   const res = await query(
-    "INSERT INTO users (email, role) VALUES ($1, $2) RETURNING id",
-    [trimmed, role]
+    "INSERT INTO users (email, password_hash, role) VALUES ($1, $2, $3) RETURNING id",
+    [trimmed, passwordHash, role]
   );
   const id = res.rows[0].id;
   if (role === "student") {
@@ -94,24 +98,33 @@ async function parentHasStudent(parentUserId, studentId) {
   return res.rows.length > 0;
 }
 
-async function getOrCreateStudyDay(userId, date) {
-  let res = await query(
+async function getOrCreateStudyDayWithClient(client, userId, date) {
+  let res = await client.query(
     "SELECT * FROM study_days WHERE user_id = $1 AND date = $2",
     [userId, date]
   );
   if (res.rows[0]) return res.rows[0];
-  res = await query(
+  res = await client.query(
     "INSERT INTO study_days (user_id, date) VALUES ($1, $2) RETURNING *",
     [userId, date]
   );
   return res.rows[0];
 }
 
+async function getOrCreateStudyDay(userId, date) {
+  const client = await pool.connect();
+  try {
+    return await getOrCreateStudyDayWithClient(client, userId, date);
+  } finally {
+    client.release();
+  }
+}
+
 async function replaceStudyBlocks(userId, date, blocks) {
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
-    const day = await getOrCreateStudyDay(userId, date);
+    const day = await getOrCreateStudyDayWithClient(client, userId, date);
     await client.query("DELETE FROM study_blocks WHERE study_day_id = $1", [
       day.id
     ]);
@@ -140,7 +153,7 @@ async function upsertStudyPlans(userId, date, plans) {
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
-    const day = await getOrCreateStudyDay(userId, date);
+    const day = await getOrCreateStudyDayWithClient(client, userId, date);
 
     for (const p of plans) {
       const bookRes = await client.query(
@@ -208,6 +221,7 @@ async function getWeekData(userId, weekStart, weekEnd) {
 module.exports = {
   pool,
   query,
+  ensureConnected,
   findUserByEmail,
   createUser,
   getMe,

@@ -13,7 +13,8 @@ const {
   getMe,
   listParentStudents,
   linkParentStudent,
-  parentHasStudent
+  parentHasStudent,
+  ensureConnected
 } = require("./db");
 const {
   computeWeeklyStats,
@@ -244,7 +245,19 @@ app.get("/api/parent/week", authMiddleware, async (req, res) => {
   }
 });
 
-app.listen(PORT, () => {
-  console.log(`Daechi Planner API listening on http://localhost:${PORT}`);
-});
+async function start() {
+  try {
+    await ensureConnected();
+  } catch (e) {
+    console.error("DB 연결 실패:", e.message);
+    console.error("server/.env 의 DATABASE_URL 값을 확인해 주세요.");
+    process.exit(1);
+  }
+
+  app.listen(PORT, () => {
+    console.log(`Daechi Planner API listening on http://localhost:${PORT}`);
+  });
+}
+
+start();
 
