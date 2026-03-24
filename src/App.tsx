@@ -42,8 +42,9 @@ type ProgressPlan = {
   [bookId: number]: ProgressPlanValue;
 };
 
-const API_BASE =
-  (import.meta as any).env?.VITE_API_BASE || "http://localhost:3000";
+const API_BASE = String(
+  (import.meta as any).env?.VITE_API_BASE || "http://localhost:3000"
+).replace(/\/+$/, "");
 
 type AppRoute = "student" | "parent" | "auth";
 
@@ -821,6 +822,7 @@ const App: React.FC = () => {
                   id="auth-email"
                   type="email"
                   className="auth-input"
+                  autoComplete="username"
                   value={authEmail}
                   onChange={e => setAuthEmail(e.target.value)}
                   placeholder="student@example.com"
@@ -832,6 +834,7 @@ const App: React.FC = () => {
                   id="auth-password"
                   type="password"
                   className="auth-input"
+                  autoComplete="current-password"
                   value={authPassword}
                   onChange={e => setAuthPassword(e.target.value)}
                   placeholder="4자 이상"
