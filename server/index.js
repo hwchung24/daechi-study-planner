@@ -39,6 +39,8 @@ const PORT = process.env.PORT || 3000;
 const WEB_APP_URL =
   (process.env.WEB_APP_URL || "http://localhost:5173").replace(/\/+$/, "");
 const WEBCLIP_COOKIE_NAME = "daechi_device_session";
+let dbConnected = false;
+let cronStarted = false;
 
 const app = express();
 app.use(
@@ -50,7 +52,10 @@ app.use(
 app.use(express.json({ limit: "2mb" }));
 
 app.get("/health", (_req, res) => {
-  res.status(200).json({ status: "ok" });
+  res.status(200).json({
+    status: "ok",
+    db: dbConnected ? "up" : "down"
+  });
 });
 
 function parseCookieHeader(cookieHeader = "") {
@@ -535,18 +540,27 @@ app.post("/api/parent/ai-daily-report/refresh", authMiddleware, async (req, res)
   }
 });
 
-async function start() {
+async function connectDbWithRetry() {
   try {
     await ensureConnected();
+    dbConnected = true;
+    if (!cronStarted) {
+      startDailyAiReportCron();
+      cronStarted = true;
+    }
+    console.log("DB 연결 성공");
   } catch (e) {
+    dbConnected = false;
     console.error("DB 연결 실패:", e.message);
-    console.error("server/.env 의 DATABASE_URL 값을 확인해 주세요.");
-    process.exit(1);
+    console.error("30초 후 DB 재시도합니다. DATABASE_URL 값을 확인해 주세요.");
+    setTimeout(connectDbWithRetry, 30000);
   }
+}
 
+async function start() {
   app.listen(PORT, () => {
     console.log(`Daechi Planner API listening on http://localhost:${PORT}`);
-    startDailyAiReportCron();
+    connectDbWithRetry();
   });
 }
 
