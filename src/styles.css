@@ -20,6 +20,12 @@
   --shadow-soft: 0 2px 8px rgba(15, 23, 42, 0.08);
   --radius-xl: 22px;
   --radius-lg: 16px;
+  --ease-standard: cubic-bezier(0.22, 1, 0.36, 1);
+  --ease-press: cubic-bezier(0.2, 0, 0, 1);
+  --dur-fast: 160ms;
+  --dur-med: 260ms;
+  --dur-slow: 420ms;
+  --dur-haptic: 130ms;
 }
 
 *,
@@ -320,10 +326,13 @@ select {
   padding: 4px 2px 72px;
   overflow-y: auto;
   -webkit-overflow-scrolling: touch;
+  scroll-behavior: smooth;
 }
 
 .section {
   margin-bottom: 18px;
+  animation: section-fade-up var(--dur-med) var(--ease-standard) both;
+  will-change: transform, opacity;
 }
 
 .section-header {
@@ -361,12 +370,15 @@ select {
   background: #ffffff;
   box-shadow: var(--shadow-soft);
   cursor: pointer;
-  transition: transform 0.12s ease-out, box-shadow 0.16s ease-out,
-    border-color 0.12s ease-out, background 0.16s ease-out;
+  transition: transform var(--dur-fast) var(--ease-press),
+    box-shadow var(--dur-med) var(--ease-standard),
+    border-color var(--dur-fast) var(--ease-press),
+    background var(--dur-med) var(--ease-standard);
+  will-change: transform, box-shadow;
 }
 
 .timeline-item:active {
-  transform: scale(0.985);
+  transform: scale(0.982);
   box-shadow: none;
 }
 
@@ -556,8 +568,10 @@ select {
   letter-spacing: 0.02em;
   cursor: pointer;
   box-shadow: var(--shadow-soft);
-  transition: transform 0.12s ease-out, box-shadow 0.16s ease-out,
-    opacity 0.12s ease-out;
+  transition: transform var(--dur-fast) var(--ease-press),
+    box-shadow var(--dur-med) var(--ease-standard),
+    opacity var(--dur-fast) var(--ease-press),
+    background var(--dur-fast) var(--ease-press);
 }
 
 .primary-button:hover {
@@ -592,10 +606,13 @@ select {
   justify-content: center;
   box-shadow: var(--shadow-soft);
   cursor: pointer;
+  transition: transform var(--dur-fast) var(--ease-press),
+    box-shadow var(--dur-med) var(--ease-standard),
+    background var(--dur-fast) var(--ease-press);
 }
 
 .floating-add-button:active {
-  transform: translateY(1px);
+  transform: translateY(1px) scale(0.97);
   box-shadow: none;
 }
 
@@ -618,9 +635,9 @@ select {
   background: #f9fafb;
   padding: 14px 16px 18px;
   box-shadow: 0 -2px 12px rgba(15, 23, 42, 0.25);
-  transform: translateY(20px);
+  transform: translateY(22px) scale(0.985);
   opacity: 0;
-  animation: modal-sheet-slide 200ms ease-out forwards;
+  animation: modal-sheet-slide 300ms var(--ease-standard) forwards;
 }
 
 .modal-header {
@@ -682,8 +699,8 @@ select {
   flex-direction: column;
   background: var(--bg);
   box-sizing: border-box;
-  transition: opacity 0.42s cubic-bezier(0.4, 0, 0.2, 1),
-    transform 0.42s cubic-bezier(0.4, 0, 0.2, 1);
+  transition: opacity var(--dur-slow) var(--ease-standard),
+    transform var(--dur-slow) var(--ease-standard);
 }
 
 .auth-page--leaving {
@@ -833,6 +850,10 @@ select {
   .app-shell--enter {
     animation: app-shell-enter-reduced 0.2s ease both;
   }
+
+  .section {
+    animation: none;
+  }
 }
 
 .auth-form {
@@ -855,10 +876,15 @@ select {
   padding: 9px 12px;
   font-size: 14px;
   outline: none;
+  transition: border-color var(--dur-fast) var(--ease-press),
+    box-shadow var(--dur-fast) var(--ease-press),
+    transform var(--dur-fast) var(--ease-press);
 }
 
 .auth-input:focus {
   border-color: var(--accent-strong);
+  box-shadow: 0 0 0 1px var(--accent-ring);
+  transform: translateY(-0.5px);
 }
 
 .auth-error {
@@ -878,6 +904,9 @@ select {
   font-size: 14px;
   font-weight: 600;
   cursor: pointer;
+  transition: transform var(--dur-fast) var(--ease-press),
+    background var(--dur-fast) var(--ease-press),
+    box-shadow var(--dur-med) var(--ease-standard);
 }
 
 .auth-submit:hover {
@@ -908,12 +937,23 @@ select {
 
 @keyframes modal-sheet-slide {
   from {
-    transform: translateY(22px);
+    transform: translateY(22px) scale(0.985);
     opacity: 0;
   }
   to {
-    transform: translateY(0);
+    transform: translateY(0) scale(1);
     opacity: 1;
+  }
+}
+
+@keyframes section-fade-up {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
   }
 }
 
@@ -1226,6 +1266,7 @@ select {
   justify-content: space-between;
   gap: 4px;
   backdrop-filter: blur(24px);
+  box-shadow: 0 8px 20px rgba(15, 23, 42, 0.1);
 }
 
 @supports (padding-bottom: env(safe-area-inset-bottom)) {
@@ -1247,11 +1288,35 @@ select {
   gap: 2px;
   font-size: 10px;
   cursor: pointer;
+  transition: transform var(--dur-fast) var(--ease-press),
+    background var(--dur-fast) var(--ease-press),
+    color var(--dur-fast) var(--ease-press);
 }
 
 .nav-item-active {
   background: var(--accent-strong);
   color: #f9fafb;
+  transform: translateY(-0.5px);
+}
+
+/* Visual Haptics: 진동이 없어도 눌림 타격감을 주는 초단기 탄성 */
+@keyframes visual-haptic-press {
+  0% {
+    transform: scale(1);
+  }
+  45% {
+    transform: scale(0.965);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+
+button:active:not(:disabled),
+.timeline-item:active,
+.settings-item:active,
+.chip:active {
+  animation: visual-haptic-press var(--dur-haptic) var(--ease-press);
 }
 
 .nav-icon {
