@@ -39,6 +39,33 @@ CREATE TABLE IF NOT EXISTS parents_students (
 
 CREATE INDEX IF NOT EXISTS idx_parents_students_student ON parents_students(student_id);
 
+-- 3b. Parent–student link requests (양쪽 확인 후에만 parents_students에 반영)
+CREATE TABLE IF NOT EXISTS parent_student_link_requests (
+  id BIGSERIAL PRIMARY KEY,
+  parent_user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  student_user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  initiated_by TEXT NOT NULL CHECK (initiated_by IN ('parent', 'student')),
+  parent_confirmed_at TIMESTAMPTZ,
+  student_confirmed_at TIMESTAMPTZ,
+  status TEXT NOT NULL DEFAULT 'pending'
+    CHECK (status IN ('pending', 'active', 'rejected')),
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+-- 동일 부모–자녀 쌍에 대해 'pending' 요청은 하나만 (거절 후에는 다시 요청 가능)
+CREATE UNIQUE INDEX IF NOT EXISTS uq_pslr_pending_pair
+  ON parent_student_link_requests (parent_user_id, student_user_id)
+  WHERE status = 'pending';
+
+CREATE INDEX IF NOT EXISTS idx_pslr_parent_pending
+  ON parent_student_link_requests (parent_user_id)
+  WHERE status = 'pending';
+
+CREATE INDEX IF NOT EXISTS idx_pslr_student_pending
+  ON parent_student_link_requests (student_user_id)
+  WHERE status = 'pending';
+
 -- 4. Study days (per student, per date)
 CREATE TABLE IF NOT EXISTS study_days (
   id         BIGSERIAL PRIMARY KEY,
@@ -98,4 +125,61 @@ CREATE TABLE IF NOT EXISTS study_plans (
 
 CREATE INDEX IF NOT EXISTS idx_study_plans_day ON study_plans(study_day_id);
 CREATE INDEX IF NOT EXISTS idx_study_plans_book ON study_plans(book_id);
+
+-- 8. 학부모용 AI 일일 리포트 (자정 배치로 생성)
+CREATE TABLE IF NOT EXISTS parent_ai_reports (
+  id BIGSERIAL PRIMARY KEY,
+  parent_user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  student_user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  report_date DATE NOT NULL,
+  summary_text TEXT NOT NULL,
+  model TEXT NOT NULL DEFAULT 'gpt-4o-mini',
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  UNIQUE (parent_user_id, student_user_id, report_date)
+);
+
+CREATE INDEX IF NOT EXISTS idx_parent_ai_reports_lookup
+  ON parent_ai_reports (parent_user_id, student_user_id, report_date DESC);
+
+-- 9. Managed device inventory + user mapping (for MDM serial/webclip onboarding)
+CREATE TABLE IF NOT EXISTS managed_devices (
+  id BIGSERIAL PRIMARY KEY,
+  serial_number TEXT NOT NULL UNIQUE,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS user_device_links (
+  id BIGSERIAL PRIMARY KEY,
+  user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  serial_number TEXT NOT NULL REFERENCES managed_devices(serial_number) ON DELETE RESTRICT,
+  is_active BOOLEAN NOT NULL DEFAULT true,
+  unlink_reason TEXT,
+  linked_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  unlinked_at TIMESTAMPTZ
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS uq_user_device_links_active_pair
+  ON user_device_links (user_id, serial_number, is_active);
+
+CREATE INDEX IF NOT EXISTS idx_user_device_links_active_user
+  ON user_device_links (user_id)
+  WHERE is_active = true;
+
+CREATE INDEX IF NOT EXISTS idx_user_device_links_active_serial
+  ON user_device_links (serial_number)
+  WHERE is_active = true;
+
+-- 10. One-time webclip entry sessions (query serial -> secure cookie)
+CREATE TABLE IF NOT EXISTS webclip_device_sessions (
+  id BIGSERIAL PRIMARY KEY,
+  token_hash TEXT NOT NULL UNIQUE,
+  serial_number TEXT NOT NULL REFERENCES managed_devices(serial_number) ON DELETE CASCADE,
+  expires_at TIMESTAMPTZ NOT NULL,
+  consumed_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_webclip_device_sessions_lookup
+  ON webclip_device_sessions (token_hash, consumed_at, expires_at);
 

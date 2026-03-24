@@ -2,6 +2,7 @@ const express = require("express");
 const cors = require("cors");
 const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
+const crypto = require("crypto");
 require("dotenv").config();
 
 const {
@@ -12,21 +13,91 @@ const {
   getWeekData,
   getMe,
   listParentStudents,
-  linkParentStudent,
+  parentRequestLink,
+  studentRequestParent,
+  listParentLinkRequests,
+  listStudentLinkRequests,
+  studentConfirmLinkRequest,
+  parentConfirmLinkRequest,
+  rejectLinkRequest,
   parentHasStudent,
-  ensureConnected
+  getLatestParentAiReport,
+  ensureConnected,
+  createWebclipSession,
+  consumeWebclipSession,
+  linkDeviceToUserBySerial
 } = require("./db");
 const {
   computeWeeklyStats,
   buildWeeklySummaryLines
 } = require("./analytics");
+const { startDailyAiReportCron } = require("./dailyReportCron");
+const { runOnePair } = require("./aiReportService");
 
 const JWT_SECRET = process.env.JWT_SECRET || "daechi-dev-secret";
 const PORT = process.env.PORT || 3000;
+const WEB_APP_URL =
+  (process.env.WEB_APP_URL || "http://localhost:5173").replace(/\/+$/, "");
+const WEBCLIP_COOKIE_NAME = "daechi_device_session";
 
 const app = express();
-app.use(cors({ origin: true }));
+app.use(
+  cors({
+    origin: WEB_APP_URL,
+    credentials: true
+  })
+);
 app.use(express.json({ limit: "2mb" }));
+
+app.get("/health", (_req, res) => {
+  res.status(200).json({ status: "ok" });
+});
+
+function parseCookieHeader(cookieHeader = "") {
+  const map = {};
+  for (const piece of String(cookieHeader).split(";")) {
+    const idx = piece.indexOf("=");
+    if (idx <= 0) continue;
+    const k = piece.slice(0, idx).trim();
+    const v = piece.slice(idx + 1).trim();
+    if (!k) continue;
+    map[k] = decodeURIComponent(v);
+  }
+  return map;
+}
+
+function isLikelySerial(serial) {
+  const s = String(serial || "").trim();
+  return /^[A-Za-z0-9._-]{6,80}$/.test(s);
+}
+
+function hashToken(raw) {
+  return crypto.createHash("sha256").update(raw).digest("hex");
+}
+
+async function attachDeviceByCookieIfPresent(req, userId) {
+  const cookies = parseCookieHeader(req.headers.cookie || "");
+  const raw = cookies[WEBCLIP_COOKIE_NAME];
+  if (!raw) return;
+  const serial = await consumeWebclipSession(hashToken(raw));
+  if (!serial) return;
+  await linkDeviceToUserBySerial(userId, serial);
+}
+
+function resolveWebRedirect(raw) {
+  const fallback = `${WEB_APP_URL}/student`;
+  const str = String(raw || "").trim();
+  if (!str) return fallback;
+  if (str.startsWith("/")) return `${WEB_APP_URL}${str}`;
+  try {
+    const parsed = new URL(str);
+    const base = new URL(WEB_APP_URL);
+    if (parsed.origin !== base.origin) return fallback;
+    return parsed.toString();
+  } catch {
+    return fallback;
+  }
+}
 
 function authMiddleware(req, res, next) {
   const auth = req.headers.authorization;
@@ -72,6 +143,9 @@ app.post("/auth/register", async (req, res) => {
     const safeRole =
       role === "parent" || role === "student" ? role : "student";
     const userId = await createUser(trimmedEmail, hash, safeRole);
+    await attachDeviceByCookieIfPresent(req, userId).catch(err => {
+      console.warn("device link skipped on register:", err.message);
+    });
     const token = jwt.sign({ userId }, JWT_SECRET, { expiresIn: "30d" });
     res.json({ token, userId, email: trimmedEmail });
   } catch (e) {
@@ -103,10 +177,44 @@ app.post("/auth/login", async (req, res) => {
     const token = jwt.sign({ userId: user.id }, JWT_SECRET, {
       expiresIn: "30d"
     });
+    await attachDeviceByCookieIfPresent(req, user.id).catch(err => {
+      console.warn("device link skipped on login:", err.message);
+    });
     res.json({ token, userId: user.id, email: user.email });
   } catch (e) {
     console.error("/auth/login error", e);
     res.status(500).json({ error: "로그인에 실패했습니다." });
+  }
+});
+
+/**
+ * WebClip 진입점:
+ * /webclip/entry?serial=%SerialNumber%&next=/student
+ * - serial 쿼리값은 1회용 HttpOnly 쿠키 세션으로 교체
+ * - URL은 next(기본 /student)로 즉시 리다이렉트하여 노출 최소화
+ */
+app.get("/webclip/entry", async (req, res) => {
+  const serial = String(req.query.serial || "").trim();
+  const nextUrl = resolveWebRedirect(req.query.next);
+  if (!isLikelySerial(serial)) {
+    return res.redirect(302, nextUrl);
+  }
+  try {
+    const rawToken = crypto.randomBytes(32).toString("hex");
+    const expiresAt = new Date(Date.now() + 10 * 60 * 1000).toISOString();
+    await createWebclipSession(hashToken(rawToken), serial, expiresAt);
+    const isHttps = req.secure || req.headers["x-forwarded-proto"] === "https";
+    res.cookie(WEBCLIP_COOKIE_NAME, rawToken, {
+      httpOnly: true,
+      secure: isHttps,
+      sameSite: "lax",
+      maxAge: 10 * 60 * 1000,
+      path: "/"
+    });
+    return res.redirect(302, nextUrl);
+  } catch (e) {
+    console.error("/webclip/entry error", e);
+    return res.redirect(302, nextUrl);
   }
 });
 
@@ -193,8 +301,8 @@ app.get("/api/parent/students", authMiddleware, async (req, res) => {
   }
 });
 
-// 학부모가 학생 계정을 연결
-app.post("/api/parent/link-student", authMiddleware, async (req, res) => {
+// 학부모 → 학생 연결 요청 (학생 승인 필요)
+app.post("/api/parent/link-request", authMiddleware, async (req, res) => {
   try {
     const me = await getMe(req.userId);
     if (!me || me.role !== "parent") {
@@ -204,14 +312,128 @@ app.post("/api/parent/link-student", authMiddleware, async (req, res) => {
     if (!studentEmail) {
       return res.status(400).json({ error: "studentEmail이 필요합니다." });
     }
-    const result = await linkParentStudent(req.userId, studentEmail);
+    const result = await parentRequestLink(req.userId, studentEmail);
     if (!result.ok) {
-      return res.status(400).json({ error: result.error || "연결에 실패했습니다." });
+      return res.status(400).json({ error: result.error || "연결 요청에 실패했습니다." });
+    }
+    res.json({ ok: true, requestId: result.requestId });
+  } catch (e) {
+    console.error("/api/parent/link-request error", e);
+    res.status(500).json({ error: "연결 요청에 실패했습니다." });
+  }
+});
+
+// 학부모: 대기 중인 연결 요청 목록
+app.get("/api/parent/link-requests", authMiddleware, async (req, res) => {
+  try {
+    const me = await getMe(req.userId);
+    if (!me || me.role !== "parent") {
+      return res.status(403).json({ error: "권한이 없습니다." });
+    }
+    const data = await listParentLinkRequests(req.userId);
+    res.json(data);
+  } catch (e) {
+    console.error("/api/parent/link-requests error", e);
+    res.status(500).json({ error: "목록을 불러오지 못했습니다." });
+  }
+});
+
+// 학부모: 자녀가 보낸 요청 승인
+app.post("/api/parent/link-confirm", authMiddleware, async (req, res) => {
+  try {
+    const me = await getMe(req.userId);
+    if (!me || me.role !== "parent") {
+      return res.status(403).json({ error: "권한이 없습니다." });
+    }
+    const requestId = Number((req.body || {}).requestId || 0);
+    if (!requestId) {
+      return res.status(400).json({ error: "requestId가 필요합니다." });
+    }
+    const result = await parentConfirmLinkRequest(req.userId, requestId);
+    if (!result.ok) {
+      return res.status(400).json({ error: result.error || "승인에 실패했습니다." });
     }
     res.json({ ok: true });
   } catch (e) {
-    console.error("/api/parent/link-student error", e);
-    res.status(500).json({ error: "연결에 실패했습니다." });
+    console.error("/api/parent/link-confirm error", e);
+    res.status(500).json({ error: "승인에 실패했습니다." });
+  }
+});
+
+// 학생 → 학부모 연결 요청 (학부모 승인 필요)
+app.post("/api/student/request-parent", authMiddleware, async (req, res) => {
+  try {
+    const me = await getMe(req.userId);
+    if (!me || me.role !== "student") {
+      return res.status(403).json({ error: "권한이 없습니다." });
+    }
+    const { parentEmail } = req.body || {};
+    if (!parentEmail) {
+      return res.status(400).json({ error: "parentEmail이 필요합니다." });
+    }
+    const result = await studentRequestParent(req.userId, parentEmail);
+    if (!result.ok) {
+      return res.status(400).json({ error: result.error || "연결 요청에 실패했습니다." });
+    }
+    res.json({ ok: true, requestId: result.requestId });
+  } catch (e) {
+    console.error("/api/student/request-parent error", e);
+    res.status(500).json({ error: "연결 요청에 실패했습니다." });
+  }
+});
+
+// 학생: 대기 중인 연결 요청 목록
+app.get("/api/student/link-requests", authMiddleware, async (req, res) => {
+  try {
+    const me = await getMe(req.userId);
+    if (!me || me.role !== "student") {
+      return res.status(403).json({ error: "권한이 없습니다." });
+    }
+    const data = await listStudentLinkRequests(req.userId);
+    res.json(data);
+  } catch (e) {
+    console.error("/api/student/link-requests error", e);
+    res.status(500).json({ error: "목록을 불러오지 못했습니다." });
+  }
+});
+
+// 학생: 학부모가 보낸 요청 승인
+app.post("/api/student/link-confirm", authMiddleware, async (req, res) => {
+  try {
+    const me = await getMe(req.userId);
+    if (!me || me.role !== "student") {
+      return res.status(403).json({ error: "권한이 없습니다." });
+    }
+    const requestId = Number((req.body || {}).requestId || 0);
+    if (!requestId) {
+      return res.status(400).json({ error: "requestId가 필요합니다." });
+    }
+    const result = await studentConfirmLinkRequest(req.userId, requestId);
+    if (!result.ok) {
+      return res.status(400).json({ error: result.error || "승인에 실패했습니다." });
+    }
+    res.json({ ok: true });
+  } catch (e) {
+    console.error("/api/student/link-confirm error", e);
+    res.status(500).json({ error: "승인에 실패했습니다." });
+  }
+});
+
+// 양쪽 모두: 대기 중 요청 거절
+app.post("/api/link/reject", authMiddleware, async (req, res) => {
+  try {
+    const requestId = Number((req.body || {}).requestId || 0);
+    if (!requestId) {
+      return res.status(400).json({ error: "requestId가 필요합니다." });
+    }
+    const result = await rejectLinkRequest(req.userId, requestId);
+    if (!result.ok) {
+      return res.status(400).json({ error: result.error || "거절에 실패했습니다." });
+    }
+    res.json({ ok: true });
+  } catch (e) {
+    console.error("/api/link/reject error", e);
+    res.status(500).json({ error: "거절에 실패했습니다." });
   }
 });
 
@@ -245,6 +467,74 @@ app.get("/api/parent/week", authMiddleware, async (req, res) => {
   }
 });
 
+// 학부모: 저장된 최신 AI 일일 리포트 (자정 배치로 생성)
+app.get("/api/parent/ai-daily-report", authMiddleware, async (req, res) => {
+  try {
+    const me = await getMe(req.userId);
+    if (!me || me.role !== "parent") {
+      return res.status(403).json({ error: "권한이 없습니다." });
+    }
+    const studentId = Number(req.query.studentId || 0);
+    if (!studentId) {
+      return res.status(400).json({ error: "studentId가 필요합니다." });
+    }
+    const has = await parentHasStudent(req.userId, studentId);
+    if (!has) {
+      return res.status(403).json({ error: "연결된 학생이 아닙니다." });
+    }
+    const row = await getLatestParentAiReport(req.userId, studentId);
+    if (!row) {
+      return res.json({
+        report: null,
+        message:
+          "아직 생성된 AI 리포트가 없습니다. 매일 자정(한국시간)에 자동으로 생성됩니다. OPENAI_API_KEY가 서버에 설정되어 있어야 합니다."
+      });
+    }
+    res.json({
+      report: {
+        summary_text: row.summary_text,
+        report_date: row.report_date,
+        model: row.model,
+        created_at: row.created_at
+      }
+    });
+  } catch (e) {
+    console.error("/api/parent/ai-daily-report error", e);
+    res.status(500).json({ error: "AI 리포트를 불러오지 못했습니다." });
+  }
+});
+
+// 학부모: 지금 즉시 AI 리포트 생성 (테스트·수동 갱신, OPENAI_API_KEY 필요)
+app.post("/api/parent/ai-daily-report/refresh", authMiddleware, async (req, res) => {
+  try {
+    if (!process.env.OPENAI_API_KEY) {
+      return res.status(503).json({
+        error: "서버에 OPENAI_API_KEY가 없습니다."
+      });
+    }
+    const me = await getMe(req.userId);
+    if (!me || me.role !== "parent") {
+      return res.status(403).json({ error: "권한이 없습니다." });
+    }
+    const studentId = Number((req.body || {}).studentId || 0);
+    if (!studentId) {
+      return res.status(400).json({ error: "studentId가 필요합니다." });
+    }
+    const has = await parentHasStudent(req.userId, studentId);
+    if (!has) {
+      return res.status(403).json({ error: "연결된 학생이 아닙니다." });
+    }
+    const result = await runOnePair(req.userId, studentId);
+    const row = await getLatestParentAiReport(req.userId, studentId);
+    res.json({ ok: true, result, report: row });
+  } catch (e) {
+    console.error("/api/parent/ai-daily-report/refresh error", e);
+    res.status(500).json({
+      error: e.message || "AI 리포트 생성에 실패했습니다."
+    });
+  }
+});
+
 async function start() {
   try {
     await ensureConnected();
@@ -256,6 +546,7 @@ async function start() {
 
   app.listen(PORT, () => {
     console.log(`Daechi Planner API listening on http://localhost:${PORT}`);
+    startDailyAiReportCron();
   });
 }
 
