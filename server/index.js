@@ -90,9 +90,11 @@ async function attachDeviceByCookieIfPresent(req, userId) {
 }
 
 function resolveWebRedirect(raw) {
-  const fallback = `${WEB_APP_URL}/student`;
+  const fallback = `${WEB_APP_URL}/`;
   const str = String(raw || "").trim();
   if (!str) return fallback;
+  // Front SPA uses hash routing; direct /student can 404 on static hosting.
+  if (str === "/student") return fallback;
   if (str.startsWith("/")) return `${WEB_APP_URL}${str}`;
   try {
     const parsed = new URL(str);
