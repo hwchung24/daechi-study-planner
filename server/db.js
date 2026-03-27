@@ -513,6 +513,43 @@ async function linkDeviceToUserBySerial(userId, serial) {
   }
 }
 
+async function getParentPlannerRule(parentUserId, studentUserId) {
+  const res = await query(
+    `SELECT enabled, lock_time, updated_at
+     FROM parent_planner_rules
+     WHERE parent_user_id = $1 AND student_user_id = $2`,
+    [parentUserId, studentUserId]
+  );
+  return (
+    res.rows[0] || {
+      enabled: true,
+      lock_time: "21:00",
+      updated_at: null
+    }
+  );
+}
+
+async function upsertParentPlannerRule(
+  parentUserId,
+  studentUserId,
+  enabled,
+  lockTime
+) {
+  const res = await query(
+    `INSERT INTO parent_planner_rules
+      (parent_user_id, student_user_id, enabled, lock_time, updated_at)
+     VALUES ($1, $2, $3, $4, now())
+     ON CONFLICT (parent_user_id, student_user_id)
+     DO UPDATE SET
+       enabled = EXCLUDED.enabled,
+       lock_time = EXCLUDED.lock_time,
+       updated_at = now()
+     RETURNING enabled, lock_time, updated_at`,
+    [parentUserId, studentUserId, enabled, lockTime]
+  );
+  return res.rows[0];
+}
+
 module.exports = {
   pool,
   query,
@@ -535,6 +572,8 @@ module.exports = {
   createWebclipSession,
   consumeWebclipSession,
   linkDeviceToUserBySerial,
+  getParentPlannerRule,
+  upsertParentPlannerRule,
   getOrCreateStudyDay,
   replaceStudyBlocks,
   upsertStudyPlans,

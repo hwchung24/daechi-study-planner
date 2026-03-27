@@ -25,7 +25,9 @@ const {
   ensureConnected,
   createWebclipSession,
   consumeWebclipSession,
-  linkDeviceToUserBySerial
+  linkDeviceToUserBySerial,
+  getParentPlannerRule,
+  upsertParentPlannerRule
 } = require("./db");
 const {
   computeWeeklyStats,
@@ -539,6 +541,80 @@ app.post("/api/parent/ai-daily-report/refresh", authMiddleware, async (req, res)
     res.status(500).json({
       error: e.message || "AI 리포트 생성에 실패했습니다."
     });
+  }
+});
+
+// 학부모: 자녀별 계획표 작성 강제 시간 조회
+app.get("/api/parent/planner-rule", authMiddleware, async (req, res) => {
+  try {
+    const me = await getMe(req.userId);
+    if (!me || me.role !== "parent") {
+      return res.status(403).json({ error: "권한이 없습니다." });
+    }
+    const studentId = Number(req.query.studentId || 0);
+    if (!studentId) {
+      return res.status(400).json({ error: "studentId가 필요합니다." });
+    }
+    const has = await parentHasStudent(req.userId, studentId);
+    if (!has) {
+      return res.status(403).json({ error: "연결된 학생이 아닙니다." });
+    }
+    const rule = await getParentPlannerRule(req.userId, studentId);
+    res.json({
+      rule: {
+        enabled: Boolean(rule.enabled),
+        lockTime: String(rule.lock_time || "21:00").slice(0, 5),
+        updatedAt: rule.updated_at
+      }
+    });
+  } catch (e) {
+    console.error("/api/parent/planner-rule GET error", e);
+    res.status(500).json({ error: "설정 정보를 불러오지 못했습니다." });
+  }
+});
+
+// 학부모: 자녀별 계획표 작성 강제 시간 저장
+app.put("/api/parent/planner-rule", authMiddleware, async (req, res) => {
+  try {
+    const me = await getMe(req.userId);
+    if (!me || me.role !== "parent") {
+      return res.status(403).json({ error: "권한이 없습니다." });
+    }
+    const studentId = Number((req.body || {}).studentId || 0);
+    const enabled = Boolean((req.body || {}).enabled);
+    const lockTime = String((req.body || {}).lockTime || "").slice(0, 5);
+    if (!studentId) {
+      return res.status(400).json({ error: "studentId가 필요합니다." });
+    }
+    if (!/^\d{2}:\d{2}$/.test(lockTime)) {
+      return res.status(400).json({ error: "lockTime 형식(HH:MM)이 올바르지 않습니다." });
+    }
+    const hh = Number(lockTime.slice(0, 2));
+    const mm = Number(lockTime.slice(3, 5));
+    if (hh < 0 || hh > 23 || mm < 0 || mm > 59) {
+      return res.status(400).json({ error: "lockTime 값이 올바르지 않습니다." });
+    }
+    const has = await parentHasStudent(req.userId, studentId);
+    if (!has) {
+      return res.status(403).json({ error: "연결된 학생이 아닙니다." });
+    }
+    const saved = await upsertParentPlannerRule(
+      req.userId,
+      studentId,
+      enabled,
+      lockTime
+    );
+    res.json({
+      ok: true,
+      rule: {
+        enabled: Boolean(saved.enabled),
+        lockTime: String(saved.lock_time).slice(0, 5),
+        updatedAt: saved.updated_at
+      }
+    });
+  } catch (e) {
+    console.error("/api/parent/planner-rule PUT error", e);
+    res.status(500).json({ error: "설정 저장에 실패했습니다." });
   }
 });
 

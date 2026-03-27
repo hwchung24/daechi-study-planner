@@ -143,6 +143,10 @@ const App: React.FC = () => {
     model: string;
     created_at: string;
   } | null>(null);
+  const [parentPlannerEnabled, setParentPlannerEnabled] = useState(true);
+  const [parentPlannerTime, setParentPlannerTime] = useState("21:00");
+  const [parentPlannerSaving, setParentPlannerSaving] = useState(false);
+  const [parentPlannerMessage, setParentPlannerMessage] = useState("");
   const [parentTab, setParentTab] = useState<ParentTabKey>(() =>
     parseParentTabFromHash()
   );
@@ -575,6 +579,31 @@ const App: React.FC = () => {
         setParentAiDaily(data.report ?? null);
       } catch {
         setParentAiDaily(null);
+      }
+    };
+    run();
+  }, [authToken, meRole, parentStudentId]);
+
+  // 학부모: 자녀별 계획표 시간 설정 조회
+  useEffect(() => {
+    const run = async () => {
+      if (!authToken || meRole !== "parent" || !parentStudentId) return;
+      try {
+        const res = await fetch(
+          `${API_BASE}/api/parent/planner-rule?studentId=${parentStudentId}`,
+          {
+            headers: { Authorization: `Bearer ${authToken}` }
+          }
+        );
+        if (!res.ok) return;
+        const data = await res.json();
+        const rule = data?.rule;
+        if (!rule) return;
+        setParentPlannerEnabled(Boolean(rule.enabled));
+        setParentPlannerTime(String(rule.lockTime || "21:00").slice(0, 5));
+        setParentPlannerMessage("");
+      } catch {
+        // ignore
       }
     };
     run();
@@ -1207,6 +1236,96 @@ const App: React.FC = () => {
 
                       {parentStudents.length > 0 && parentStudentId && (
                         <div style={{ marginTop: 14 }}>
+                          <div className="section-header">
+                            <h3 className="section-title" style={{ fontSize: 16 }}>
+                              계획표 작성 시간 설정
+                            </h3>
+                          </div>
+                          <div className="progress-card" style={{ marginBottom: 12 }}>
+                            <div
+                              className="settings-item"
+                              style={{ cursor: "default", padding: 0, borderBottom: "none" }}
+                            >
+                              <span className="settings-label">강제 작성 활성화</span>
+                              <label style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+                                <input
+                                  type="checkbox"
+                                  checked={parentPlannerEnabled}
+                                  onChange={e =>
+                                    setParentPlannerEnabled(e.target.checked)
+                                  }
+                                />
+                                <span className="settings-value">
+                                  {parentPlannerEnabled ? "켜짐" : "꺼짐"}
+                                </span>
+                              </label>
+                            </div>
+                            <div
+                              className="settings-item"
+                              style={{ cursor: "default", padding: "10px 0 0", borderBottom: "none" }}
+                            >
+                              <span className="settings-label">자녀가 계획표를 쓰는 시각</span>
+                              <input
+                                type="time"
+                                className="field-input"
+                                value={parentPlannerTime}
+                                onChange={e =>
+                                  setParentPlannerTime(e.target.value || "21:00")
+                                }
+                                style={{ maxWidth: 150, padding: "7px 10px" }}
+                              />
+                            </div>
+                            <button
+                              type="button"
+                              className="progress-footer-btn"
+                              style={{ marginTop: 10 }}
+                              disabled={parentPlannerSaving}
+                              onClick={async () => {
+                                if (!authToken || !parentStudentId) return;
+                                setParentPlannerSaving(true);
+                                setParentPlannerMessage("");
+                                try {
+                                  const res = await fetch(
+                                    `${API_BASE}/api/parent/planner-rule`,
+                                    {
+                                      method: "PUT",
+                                      headers: {
+                                        "Content-Type": "application/json",
+                                        Authorization: `Bearer ${authToken}`
+                                      },
+                                      body: JSON.stringify({
+                                        studentId: parentStudentId,
+                                        enabled: parentPlannerEnabled,
+                                        lockTime: parentPlannerTime
+                                      })
+                                    }
+                                  );
+                                  const data = await res.json().catch(() => ({}));
+                                  if (!res.ok) {
+                                    setParentPlannerMessage(
+                                      data.error || "시간 설정 저장에 실패했습니다."
+                                    );
+                                    return;
+                                  }
+                                  setParentPlannerMessage("설정이 저장되었습니다.");
+                                } catch {
+                                  setParentPlannerMessage(
+                                    "서버와 통신 중 오류가 발생했습니다."
+                                  );
+                                } finally {
+                                  setParentPlannerSaving(false);
+                                }
+                              }}
+                            >
+                              {parentPlannerSaving ? "저장 중..." : "시간 설정 저장"}
+                            </button>
+                            {parentPlannerMessage && (
+                              <p className="settings-hint" style={{ marginTop: 8 }}>
+                                {parentPlannerMessage}
+                              </p>
+                            )}
+                          </div>
+
                           <div className="section-header">
                             <h3 className="section-title" style={{ fontSize: 16 }}>
                               AI 일일 리포트 (GPT)

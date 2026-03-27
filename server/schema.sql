@@ -183,3 +183,13 @@ CREATE TABLE IF NOT EXISTS webclip_device_sessions (
 CREATE INDEX IF NOT EXISTS idx_webclip_device_sessions_lookup
   ON webclip_device_sessions (token_hash, consumed_at, expires_at);
 
+-- 11. 학부모가 자녀별로 설정하는 계획표 작성 시간 규칙
+CREATE TABLE IF NOT EXISTS parent_planner_rules (
+  parent_user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  student_user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  enabled BOOLEAN NOT NULL DEFAULT true,
+  lock_time TEXT NOT NULL DEFAULT '21:00',
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  PRIMARY KEY (parent_user_id, student_user_id)
+);
+
