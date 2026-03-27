@@ -45,9 +45,33 @@ let dbConnected = false;
 let cronStarted = false;
 
 const app = express();
+
+function isAllowedCorsOrigin(origin) {
+  if (!origin) return true;
+  const extra = String(process.env.CORS_EXTRA_ORIGINS || "")
+    .split(",")
+    .map(s => s.trim())
+    .filter(Boolean);
+  const allowlist = new Set([WEB_APP_URL, ...extra]);
+  if (allowlist.has(origin)) return true;
+  try {
+    const u = new URL(origin);
+    // Vercel preview/prod domains
+    if (u.hostname.endsWith(".vercel.app")) return true;
+    // local dev
+    if (u.hostname === "localhost" || u.hostname === "127.0.0.1") return true;
+  } catch {
+    return false;
+  }
+  return false;
+}
+
 app.use(
   cors({
-    origin: WEB_APP_URL,
+    origin(origin, cb) {
+      if (isAllowedCorsOrigin(origin)) return cb(null, true);
+      return cb(new Error("CORS origin not allowed"));
+    },
     credentials: true
   })
 );
