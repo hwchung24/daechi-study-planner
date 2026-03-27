@@ -22,7 +22,7 @@ const presetSubjects = ["수학", "국어", "영어", "과탐", "사탐", "논�
 const getTodayLabel = () => {
   const now = new Date();
   const weekday = ["일", "월", "화", "수", "목", "금", "토"][now.getDay()];
-  return `${now.getMonth() + 1}월 ${now.getDate()}일 (${weekday})`;
+  return `${now.getMonth() + 1}월 ${now.getDate()}일 ${weekday}`;
 };
 
 type TabKey = "today" | "week" | "settings";
@@ -1037,7 +1037,7 @@ const App: React.FC = () => {
                             }
                           }}
                         >
-                          연결 요청 보내기 (자녀 승인 필요)
+                          연결 요청 보내기
                         </button>
                       </div>
 
@@ -1342,7 +1342,7 @@ const App: React.FC = () => {
 
                           <div className="section-header">
                             <h3 className="section-title" style={{ fontSize: 16 }}>
-                              AI 일일 리포트 (GPT)
+                              AI 일일 리포트
                             </h3>
                           </div>
                           {parentAiDaily ? (
@@ -1357,13 +1357,13 @@ const App: React.FC = () => {
                               </div>
                               <p className="settings-hint" style={{ marginTop: 10 }}>
                                 기준일{" "}
-                                {String(parentAiDaily.report_date).slice(0, 10)} · 매일
-                                자정(한국시간)에 자녀 학습 데이터로 자동 생성
+                                {String(parentAiDaily.report_date).slice(0, 10)} ·
+                                한국시간 매일 자정 자동 생성
                               </p>
                             </div>
                           ) : (
                             <p className="settings-hint">
-                              매일 자정(한국시간)에 자동 생성됩니다. 서버에 OPENAI_API_KEY가
+                              한국시간 매일 자정 자동 생성됩니다. 서버에 OPENAI_API_KEY가
                               있어야 하며, 자녀 계정에 학습 기록이 있으면 더 풍부해집니다.
                             </p>
                           )}
@@ -1431,7 +1431,7 @@ const App: React.FC = () => {
                             {parentReport.stats?.focusDistribution && (
                               <div className="progress-meta-row" style={{ marginTop: 10 }}>
                                 <span className="progress-meta">
-                                  집중도 분포(◎/○/△/✕):{" "}
+                                  집중도 분포 ◎/○/△/✕:{" "}
                                   {parentReport.stats.focusDistribution.best}/
                                   {parentReport.stats.focusDistribution.good}/
                                   {parentReport.stats.focusDistribution.ok}/
@@ -1661,7 +1661,7 @@ const App: React.FC = () => {
                     setRequestSent(false);
                   }}
                 >
-                  <span className="settings-label">오늘 플랜 수정 승인 (시뮬레이션)</span>
+                  <span className="settings-label">오늘 플랜 수정 승인</span>
                   <span className="settings-value">
                     {editUnlocked ? "승인됨" : "대기"}
                   </span>
@@ -1735,7 +1735,7 @@ const App: React.FC = () => {
                           }
                         }}
                       >
-                        연결 요청 보내기 (학부모 승인 필요)
+                        연결 요청 보내기
                       </button>
                     </div>
                     {studentWaitingOnParent.length > 0 && (
@@ -1759,7 +1759,7 @@ const App: React.FC = () => {
                         }}
                       >
                         <span className="settings-label">
-                          학부모 연결 요청 (승인)
+                          학부모 연결 요청
                         </span>
                         {studentWaitingOnMe.map(row => (
                           <div
