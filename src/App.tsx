@@ -620,6 +620,20 @@ const App: React.FC = () => {
     });
   };
 
+  const handleLogout = () => {
+    try {
+      localStorage.removeItem("daechi_planner_token");
+      localStorage.removeItem("daechi_planner_user_email");
+    } catch {
+      // ignore
+    }
+    setAuthToken(null);
+    setUserEmail(null);
+    setMeRole(null);
+    setRoute("auth");
+    window.location.hash = "#/auth";
+  };
+
   const handleAdd = () => {
     if (!subjectInput.trim()) return;
     hapticImpactLight();
@@ -1430,6 +1444,22 @@ const App: React.FC = () => {
                       </div>
                     </section>
                   )}
+
+                  <section className="section">
+                    <div className="settings-list">
+                      <button
+                        type="button"
+                        className="settings-item"
+                        onClick={() => {
+                          hapticWarning();
+                          handleLogout();
+                        }}
+                      >
+                        <span className="settings-label">로그아웃</span>
+                        <span className="settings-value">계정 전환</span>
+                      </button>
+                    </div>
+                  </section>
                 </>
               )}
             </>
@@ -1817,6 +1847,17 @@ const App: React.FC = () => {
                     )}
                   </>
                 )}
+                <button
+                  type="button"
+                  className="settings-item"
+                  onClick={() => {
+                    hapticWarning();
+                    handleLogout();
+                  }}
+                >
+                  <span className="settings-label">로그아웃</span>
+                  <span className="settings-value">계정 전환</span>
+                </button>
               </div>
               {requestSent && (
                 <p className="settings-hint">
