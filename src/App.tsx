@@ -1629,9 +1629,6 @@ const App: React.FC = () => {
 
           {showStudentShell && tab === "settings" && (
             <section className="section">
-              <div className="section-header">
-                <h2 className="section-title">설정</h2>
-              </div>
               <div className="settings-list">
                 <button className="settings-item">
                   <span className="settings-label">이메일</span>

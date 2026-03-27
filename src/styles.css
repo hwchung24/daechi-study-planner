@@ -160,7 +160,7 @@ select {
 }
 
 .status-bar-safe {
-  height: 10px;
+  height: max(10px, env(safe-area-inset-top));
 }
 
 .app-header {
@@ -177,14 +177,7 @@ select {
 .header-title-group {
   display: flex;
   flex-direction: column;
-  gap: 2px;
-}
-
-.header-sub {
-  font-size: 13px;
-  letter-spacing: -0.02em;
-  color: var(--text-sub);
-  font-weight: 500;
+  gap: 0;
 }
 
 .header-title {
