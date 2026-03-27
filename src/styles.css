@@ -1360,24 +1360,57 @@ button:active:not(:disabled),
     align-self: stretch;
     justify-self: stretch;
     margin: 0;
-    border-radius: 26px;
+    border-radius: 18px;
     padding: 10px 8px;
     display: flex;
     flex-direction: column;
     justify-content: flex-start;
-    gap: 8px;
+    gap: 4px;
     background: rgba(249, 249, 251, 0.96);
   }
 
   .nav-item {
-    min-height: 56px;
-    padding: 10px 6px;
-    gap: 4px;
-    font-size: 11px;
+    min-height: 48px;
+    padding: 10px 12px;
+    gap: 8px;
+    font-size: 13px;
+    flex-direction: row;
+    justify-content: flex-start;
+    align-items: center;
+    text-align: left;
+    color: var(--text-sub);
+    border-radius: 12px;
+    position: relative;
+  }
+
+  .nav-item::before {
+    content: "";
+    width: 3px;
+    height: 18px;
+    border-radius: 999px;
+    background: transparent;
+    transition: background var(--dur-fast) var(--ease-press);
   }
 
   .nav-label {
-    font-size: 11px;
+    font-size: 13px;
+    font-weight: 600;
+    letter-spacing: -0.01em;
+  }
+
+  .nav-icon {
+    font-size: 10px;
+    opacity: 0.8;
+  }
+
+  .nav-item-active {
+    transform: none;
+    background: rgba(36, 59, 107, 0.1);
+    color: var(--accent-strong);
+  }
+
+  .nav-item-active::before {
+    background: var(--accent-strong);
   }
 
   .floating-add-button {
