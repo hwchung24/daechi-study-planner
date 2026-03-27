@@ -19,12 +19,6 @@ type StudyBlock = {
 
 const presetSubjects = ["수학", "국어", "영어", "과탐", "사탐", "논술", "자습"];
 
-const getTodayLabel = () => {
-  const now = new Date();
-  const weekday = ["일", "월", "화", "수", "목", "금", "토"][now.getDay()];
-  return `${now.getMonth() + 1}월 ${now.getDate()}일 ${weekday}`;
-};
-
 type TabKey = "today" | "week" | "settings";
 
 type ProgressBook = {
@@ -110,6 +104,7 @@ const App: React.FC = () => {
   const [endInput, setEndInput] = useState("19:00");
   const [showAddModal, setShowAddModal] = useState(false);
   const [showRequestModal, setShowRequestModal] = useState(false);
+  const [showGuideModal, setShowGuideModal] = useState(false);
   const [requestReason, setRequestReason] = useState("");
   const [editUnlocked, setEditUnlocked] = useState(false);
   const [requestSent, setRequestSent] = useState(false);
@@ -910,7 +905,6 @@ const App: React.FC = () => {
           <div className="status-bar-safe" />
           <div className="header-top">
             <div className="header-title-group">
-              <span className="header-sub">{getTodayLabel()}</span>
               <h1 className="header-title">
                 {roleLoading && "불러오는 중…"}
                 {!roleLoading &&
@@ -934,15 +928,6 @@ const App: React.FC = () => {
               )}
             </div>
           </div>
-
-          {showStudentShell && tab === "today" && (
-            <div className="lock-row">
-              <span className="lock-badge">자정 락다운 플래너</span>
-              <span className="lock-text">
-                {isLocked ? "오늘은 수정 불가 · 요청 필요" : "지금은 계획 세팅 시간"}
-              </span>
-            </div>
-          )}
 
           {showStudentShell && tab === "today" && (
             <div className="progress-card">
@@ -1645,7 +1630,7 @@ const App: React.FC = () => {
           {showStudentShell && tab === "settings" && (
             <section className="section">
               <div className="section-header">
-                <h2 className="section-title">프로필</h2>
+                <h2 className="section-title">설정</h2>
               </div>
               <div className="settings-list">
                 <button className="settings-item">
@@ -1674,6 +1659,14 @@ const App: React.FC = () => {
                 >
                   <span className="settings-label">학부모 리포트 보기</span>
                   <span className="settings-value">열기</span>
+                </button>
+                <button
+                  type="button"
+                  className="settings-item"
+                  onClick={() => setShowGuideModal(true)}
+                >
+                  <span className="settings-label">앱 사용 설명서</span>
+                  <span className="settings-value">보기</span>
                 </button>
                 {meRole === "student" && (
                   <>
@@ -1902,7 +1895,7 @@ const App: React.FC = () => {
               setTab("settings");
             }}
           >
-            <span className="nav-label">프로필</span>
+            <span className="nav-label">설정</span>
           </button>
           </nav>
         )}
@@ -2086,6 +2079,49 @@ const App: React.FC = () => {
                   disabled={!requestReason.trim()}
                 >
                   요청 보내기
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {showGuideModal && (
+          <div
+            className="modal-backdrop"
+            onClick={() => setShowGuideModal(false)}
+          >
+            <div className="modal-sheet" onClick={e => e.stopPropagation()}>
+              <div className="modal-header">
+                <span className="modal-title">앱 사용 설명서</span>
+              </div>
+              <div className="modal-body">
+                <div className="field">
+                  <label className="field-label">핵심 안내</label>
+                  <div className="settings-hint" style={{ marginTop: 0, lineHeight: 1.6 }}>
+                    매일 정해진 시간 이후에는 오늘 계획 수정이 제한됩니다. 수정이 필요하면
+                    요청을 보내고 승인 후에 편집할 수 있습니다.
+                  </div>
+                </div>
+                <div className="field">
+                  <label className="field-label">오늘 공부</label>
+                  <div className="settings-hint" style={{ marginTop: 0, lineHeight: 1.6 }}>
+                    타임라인을 등록하고 완료 체크를 하며 진행률을 확인합니다.
+                  </div>
+                </div>
+                <div className="field">
+                  <label className="field-label">이번 주</label>
+                  <div className="settings-hint" style={{ marginTop: 0, lineHeight: 1.6 }}>
+                    주간 카드에서 계획과 진도를 확인하고 필요한 입력을 저장합니다.
+                  </div>
+                </div>
+              </div>
+              <div className="modal-footer">
+                <button
+                  type="button"
+                  className="modal-secondary"
+                  onClick={() => setShowGuideModal(false)}
+                >
+                  닫기
                 </button>
               </div>
             </div>
