@@ -19,7 +19,53 @@ type StudyBlock = {
 
 const presetSubjects = ["수학", "국어", "영어", "과탐", "사탐", "논술", "자습"];
 
-type TabKey = "today" | "week" | "settings";
+type TabKey = "today" | "week" | "store" | "settings";
+
+type StudyStoreApp = {
+  id: string;
+  name: string;
+  category: string;
+  description: string;
+  url: string;
+};
+
+const studyStoreApps: StudyStoreApp[] = [
+  {
+    id: "youtube-learning",
+    name: "YouTube",
+    category: "강의",
+    description: "개념 강의와 문제 풀이 영상을 빠르게 찾아볼 수 있어요.",
+    url: "https://www.youtube.com"
+  },
+  {
+    id: "khan-academy",
+    name: "Khan Academy",
+    category: "수학/과학",
+    description: "기초부터 심화까지 단계별 학습이 가능한 무료 강의 플랫폼입니다.",
+    url: "https://www.khanacademy.org"
+  },
+  {
+    id: "quizlet",
+    name: "Quizlet",
+    category: "암기",
+    description: "단어장과 플래시카드로 반복 암기 루틴을 만들 수 있어요.",
+    url: "https://quizlet.com"
+  },
+  {
+    id: "notion",
+    name: "Notion",
+    category: "정리",
+    description: "과목별 개념 노트와 학습 체크리스트를 체계적으로 관리할 수 있어요.",
+    url: "https://www.notion.so"
+  },
+  {
+    id: "google-drive",
+    name: "Google Drive",
+    category: "자료관리",
+    description: "학습 자료를 저장하고 기기 간 동기화할 수 있어요.",
+    url: "https://drive.google.com"
+  }
+];
 
 type ProgressBook = {
   id: number;
@@ -916,6 +962,7 @@ const App: React.FC = () => {
                     : "학부모")}
                 {showStudentShell && tab === "today" && "오늘 공부"}
                 {showStudentShell && tab === "week" && "이번 주"}
+                {showStudentShell && tab === "store" && "학습 앱스토어"}
                 {showStudentShell && tab === "settings" && "설정"}
               </h1>
             </div>
@@ -1627,6 +1674,36 @@ const App: React.FC = () => {
             </section>
           )}
 
+          {showStudentShell && tab === "store" && (
+            <section className="section">
+              <div className="section-header">
+                <h2 className="section-title">추천 학습 앱</h2>
+                <span className="section-caption">학습 전용으로 선별된 앱 목록</span>
+              </div>
+              <div className="store-grid">
+                {studyStoreApps.map(app => (
+                  <article key={app.id} className="store-card">
+                    <div className="store-card-top">
+                      <span className="store-chip">{app.category}</span>
+                      <h3 className="store-title">{app.name}</h3>
+                    </div>
+                    <p className="store-desc">{app.description}</p>
+                    <button
+                      type="button"
+                      className="store-open-btn"
+                      onClick={() => {
+                        hapticImpactLight();
+                        window.open(app.url, "_blank", "noopener,noreferrer");
+                      }}
+                    >
+                      앱 열기
+                    </button>
+                  </article>
+                ))}
+              </div>
+            </section>
+          )}
+
           {showStudentShell && tab === "settings" && (
             <section className="section">
               <div className="settings-list">
@@ -1882,6 +1959,17 @@ const App: React.FC = () => {
             }}
           >
             <span className="nav-label">주간</span>
+          </button>
+          <button
+            className={
+              "nav-item" + (tab === "store" ? " nav-item-active" : "")
+            }
+            onClick={() => {
+              hapticSelection();
+              setTab("store");
+            }}
+          >
+            <span className="nav-label">앱스토어</span>
           </button>
           <button
             className={
