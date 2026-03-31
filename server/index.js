@@ -3,6 +3,8 @@ const cors = require("cors");
 const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
 const crypto = require("crypto");
+const fs = require("fs");
+const path = require("path");
 require("dotenv").config();
 
 const {
@@ -57,8 +59,19 @@ const WEB_APP_URL =
 const WEBCLIP_COOKIE_NAME = "daechi_device_session";
 let dbConnected = false;
 let cronStarted = false;
+let schemaApplied = false;
 
 const app = express();
+
+async function applySchemaIfNeeded() {
+  if (schemaApplied) return;
+  const schemaPath = path.join(__dirname, "schema.sql");
+  const sql = fs.readFileSync(schemaPath, "utf8");
+  await ensureConnected();
+  const { pool } = require("./db");
+  await pool.query(sql);
+  schemaApplied = true;
+}
 
 function isAllowedCorsOrigin(origin) {
   if (!origin) return true;
@@ -764,7 +777,7 @@ app.put("/api/student/store-apps/:appId", authMiddleware, async (req, res) => {
 
 async function connectDbWithRetry() {
   try {
-    await ensureConnected();
+    await applySchemaIfNeeded();
     dbConnected = true;
     if (!cronStarted) {
       startDailyAiReportCron();
