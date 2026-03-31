@@ -33,6 +33,7 @@ const {
   upsertParentPlannerRule,
   listStoreAppsForUser,
   getStoreAppByKey,
+  updateStoreAppSimpleMdmId,
   setStoreAppInstalled,
   getStudentMdmGroup,
   upsertStudentMdmGroup
@@ -45,6 +46,7 @@ const { startDailyAiReportCron } = require("./dailyReportCron");
 const { runOnePair } = require("./aiReportService");
 const {
   findDeviceBySerial,
+  findAppByName,
   createAssignmentGroup,
   assignAppToGroup,
   unassignAppFromGroup,
@@ -712,11 +714,6 @@ app.put("/api/student/store-apps/:appId", authMiddleware, async (req, res) => {
     if (!appRow) {
       return res.status(404).json({ error: "앱을 찾을 수 없습니다." });
     }
-    if (!appRow.simplemdm_app_id) {
-      return res.status(400).json({
-        error: "이 앱은 아직 SimpleMDM 앱 카탈로그와 연결되지 않았습니다."
-      });
-    }
     const serial = await getActiveDeviceSerialForUser(req.userId);
     if (!serial) {
       return res.status(400).json({
@@ -728,6 +725,17 @@ app.put("/api/student/store-apps/:appId", authMiddleware, async (req, res) => {
       return res.status(404).json({
         error: "SimpleMDM에서 해당 기기를 찾지 못했습니다."
       });
+    }
+    let simpleMdmAppId = Number(appRow.simplemdm_app_id || 0);
+    if (!simpleMdmAppId) {
+      const matchedApp = await findAppByName(appRow.name);
+      if (!matchedApp?.id) {
+        return res.status(404).json({
+          error: "SimpleMDM 앱 카탈로그에서 같은 이름의 앱을 찾지 못했습니다."
+        });
+      }
+      simpleMdmAppId = Number(matchedApp.id);
+      await updateStoreAppSimpleMdmId(appRow.app_key, simpleMdmAppId);
     }
     let group = await getStudentMdmGroup(req.userId);
     if (!group) {
@@ -743,16 +751,10 @@ app.put("/api/student/store-apps/:appId", authMiddleware, async (req, res) => {
     }
     await assignDeviceToGroup(group.assignment_group_id, Number(device.id));
     if (installed) {
-      await assignAppToGroup(
-        group.assignment_group_id,
-        Number(appRow.simplemdm_app_id)
-      );
+      await assignAppToGroup(group.assignment_group_id, simpleMdmAppId);
       await pushApps(group.assignment_group_id);
     } else {
-      await unassignAppFromGroup(
-        group.assignment_group_id,
-        Number(appRow.simplemdm_app_id)
-      );
+      await unassignAppFromGroup(group.assignment_group_id, simpleMdmAppId);
     }
     const saved = await setStoreAppInstalled(req.userId, appId, installed);
     res.json({

@@ -68,6 +68,41 @@ async function createAssignmentGroup(name) {
   return data?.data || null;
 }
 
+async function listApps() {
+  const all = [];
+  let startingAfter = null;
+
+  while (true) {
+    const query = new URLSearchParams({ limit: "100" });
+    if (startingAfter) query.set("starting_after", String(startingAfter));
+    const data = await simpleMdmRequest(`/apps?${query.toString()}`);
+    const rows = Array.isArray(data?.data) ? data.data : [];
+    all.push(...rows);
+    if (!data?.has_more || rows.length === 0) break;
+    startingAfter = rows[rows.length - 1]?.id;
+    if (!startingAfter) break;
+  }
+
+  return all;
+}
+
+function normalizeSimpleMdmText(value) {
+  return String(value || "")
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, " ");
+}
+
+async function findAppByName(name) {
+  const apps = await listApps();
+  const target = normalizeSimpleMdmText(name);
+  return (
+    apps.find(
+      app => normalizeSimpleMdmText(app?.attributes?.name) === target
+    ) || null
+  );
+}
+
 async function assignAppToGroup(groupId, appId) {
   await simpleMdmRequest(`/assignment_groups/${groupId}/apps/${appId}`, {
     method: "POST",
@@ -95,6 +130,7 @@ async function pushApps(groupId) {
 
 module.exports = {
   findDeviceBySerial,
+  findAppByName,
   createAssignmentGroup,
   assignAppToGroup,
   unassignAppFromGroup,

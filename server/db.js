@@ -719,6 +719,18 @@ async function getStoreAppByKey(appKey) {
   return res.rows[0] || null;
 }
 
+async function updateStoreAppSimpleMdmId(appKey, simpleMdmAppId) {
+  const res = await query(
+    `UPDATE store_apps
+     SET simplemdm_app_id = $2,
+         updated_at = now()
+     WHERE app_key = $1
+     RETURNING id, app_key, name, category, description, url, simplemdm_app_id, sort_order`,
+    [appKey, simpleMdmAppId]
+  );
+  return res.rows[0] || null;
+}
+
 async function getStudentMdmGroup(userId) {
   const res = await query(
     `SELECT assignment_group_id, assignment_group_name
@@ -775,6 +787,7 @@ module.exports = {
   upsertParentPlannerRule,
   listStoreAppsForUser,
   getStoreAppByKey,
+  updateStoreAppSimpleMdmId,
   setStoreAppInstalled,
   getStudentMdmGroup,
   upsertStudentMdmGroup,
