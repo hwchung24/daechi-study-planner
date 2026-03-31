@@ -161,6 +161,28 @@ function resolveWebRedirect(raw) {
   }
 }
 
+function getWebclipCookieOptions(req) {
+  const isHttps = req.secure || req.headers["x-forwarded-proto"] === "https";
+  // Frontend and backend are deployed on different origins, so the device
+  // session cookie must allow cross-site credentialed requests.
+  if (isHttps) {
+    return {
+      httpOnly: true,
+      secure: true,
+      sameSite: "none",
+      maxAge: 10 * 60 * 1000,
+      path: "/"
+    };
+  }
+  return {
+    httpOnly: true,
+    secure: false,
+    sameSite: "lax",
+    maxAge: 10 * 60 * 1000,
+    path: "/"
+  };
+}
+
 function authMiddleware(req, res, next) {
   const auth = req.headers.authorization;
   if (!auth || !auth.startsWith("Bearer ")) {
@@ -265,14 +287,7 @@ app.get("/webclip/entry", async (req, res) => {
     const rawToken = crypto.randomBytes(32).toString("hex");
     const expiresAt = new Date(Date.now() + 10 * 60 * 1000).toISOString();
     await createWebclipSession(hashToken(rawToken), serial, expiresAt);
-    const isHttps = req.secure || req.headers["x-forwarded-proto"] === "https";
-    res.cookie(WEBCLIP_COOKIE_NAME, rawToken, {
-      httpOnly: true,
-      secure: isHttps,
-      sameSite: "lax",
-      maxAge: 10 * 60 * 1000,
-      path: "/"
-    });
+    res.cookie(WEBCLIP_COOKIE_NAME, rawToken, getWebclipCookieOptions(req));
     return res.redirect(302, nextUrl);
   } catch (e) {
     console.error("/webclip/entry error", e);
