@@ -193,3 +193,48 @@ CREATE TABLE IF NOT EXISTS parent_planner_rules (
   PRIMARY KEY (parent_user_id, student_user_id)
 );
 
+-- 12. Student study app store catalog
+CREATE TABLE IF NOT EXISTS store_apps (
+  id BIGSERIAL PRIMARY KEY,
+  app_key TEXT NOT NULL UNIQUE,
+  name TEXT NOT NULL,
+  category TEXT NOT NULL,
+  description TEXT NOT NULL,
+  url TEXT NOT NULL,
+  simplemdm_app_id BIGINT,
+  is_active BOOLEAN NOT NULL DEFAULT true,
+  sort_order INTEGER NOT NULL DEFAULT 0,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_store_apps_active_order
+  ON store_apps (is_active, sort_order, name);
+
+-- 13. Student-specific installed app status
+CREATE TABLE IF NOT EXISTS student_store_app_status (
+  user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  store_app_id BIGINT NOT NULL REFERENCES store_apps(id) ON DELETE CASCADE,
+  is_installed BOOLEAN NOT NULL DEFAULT false,
+  installed_at TIMESTAMPTZ,
+  removed_at TIMESTAMPTZ,
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  PRIMARY KEY (user_id, store_app_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_student_store_app_status_user
+  ON student_store_app_status (user_id, updated_at DESC);
+
+ALTER TABLE store_apps
+ADD COLUMN IF NOT EXISTS simplemdm_app_id BIGINT;
+
+-- 14. Student-specific SimpleMDM assignment groups
+CREATE TABLE IF NOT EXISTS student_mdm_groups (
+  user_id BIGINT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+  provider TEXT NOT NULL DEFAULT 'simplemdm',
+  assignment_group_id BIGINT NOT NULL,
+  assignment_group_name TEXT NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+

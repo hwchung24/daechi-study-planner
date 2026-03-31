@@ -513,6 +513,19 @@ async function linkDeviceToUserBySerial(userId, serial) {
   }
 }
 
+async function getActiveDeviceSerialForUser(userId) {
+  const res = await query(
+    `SELECT serial_number
+     FROM user_device_links
+     WHERE user_id = $1
+       AND is_active = true
+     ORDER BY linked_at DESC
+     LIMIT 1`,
+    [userId]
+  );
+  return res.rows[0]?.serial_number || null;
+}
+
 async function getParentPlannerRule(parentUserId, studentUserId) {
   const res = await query(
     `SELECT enabled, lock_time, updated_at
@@ -550,6 +563,191 @@ async function upsertParentPlannerRule(
   return res.rows[0];
 }
 
+const defaultStoreApps = [
+  {
+    appKey: "youtube-learning",
+    name: "YouTube",
+    category: "강의",
+    description: "개념 강의와 문제 풀이 영상을 빠르게 찾아볼 수 있어요.",
+    url: "https://www.youtube.com",
+    simplemdmAppId: null,
+    sortOrder: 1
+  },
+  {
+    appKey: "khan-academy",
+    name: "Khan Academy",
+    category: "수학/과학",
+    description: "기초부터 심화까지 단계별 학습이 가능한 무료 강의 플랫폼입니다.",
+    url: "https://www.khanacademy.org",
+    simplemdmAppId: null,
+    sortOrder: 2
+  },
+  {
+    appKey: "quizlet",
+    name: "Quizlet",
+    category: "암기",
+    description: "단어장과 플래시카드로 반복 암기 루틴을 만들 수 있어요.",
+    url: "https://quizlet.com",
+    simplemdmAppId: null,
+    sortOrder: 3
+  },
+  {
+    appKey: "notion",
+    name: "Notion",
+    category: "정리",
+    description: "과목별 개념 노트와 학습 체크리스트를 체계적으로 관리할 수 있어요.",
+    url: "https://www.notion.so",
+    simplemdmAppId: null,
+    sortOrder: 4
+  },
+  {
+    appKey: "google-drive",
+    name: "Google Drive",
+    category: "자료관리",
+    description: "학습 자료를 저장하고 기기 간 동기화할 수 있어요.",
+    url: "https://drive.google.com",
+    simplemdmAppId: null,
+    sortOrder: 5
+  }
+];
+
+async function ensureDefaultStoreApps() {
+  for (const app of defaultStoreApps) {
+    await query(
+      `INSERT INTO store_apps (app_key, name, category, description, url, simplemdm_app_id, sort_order, is_active, updated_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, true, now())
+       ON CONFLICT (app_key)
+       DO UPDATE SET
+         name = EXCLUDED.name,
+         category = EXCLUDED.category,
+         description = EXCLUDED.description,
+         url = EXCLUDED.url,
+         simplemdm_app_id = COALESCE(store_apps.simplemdm_app_id, EXCLUDED.simplemdm_app_id),
+         sort_order = EXCLUDED.sort_order,
+         updated_at = now()`,
+      [
+        app.appKey,
+        app.name,
+        app.category,
+        app.description,
+        app.url,
+        app.simplemdmAppId,
+        app.sortOrder
+      ]
+    );
+  }
+}
+
+async function listStoreAppsForUser(userId) {
+  await ensureDefaultStoreApps();
+  const res = await query(
+    `SELECT sa.id,
+            sa.app_key,
+            sa.name,
+            sa.category,
+            sa.description,
+            sa.url,
+            sa.simplemdm_app_id,
+            sa.sort_order,
+            COALESCE(ss.is_installed, false) AS is_installed,
+            ss.installed_at,
+            ss.removed_at,
+            ss.updated_at
+     FROM store_apps sa
+     LEFT JOIN student_store_app_status ss
+       ON ss.store_app_id = sa.id
+      AND ss.user_id = $1
+     WHERE sa.is_active = true
+     ORDER BY sa.sort_order ASC, sa.name ASC`,
+    [userId]
+  );
+  return res.rows;
+}
+
+async function setStoreAppInstalled(userId, appKey, isInstalled) {
+  await ensureDefaultStoreApps();
+  const appRes = await query(
+    `SELECT id, app_key, name, category, description, url, sort_order
+            , simplemdm_app_id
+     FROM store_apps
+     WHERE app_key = $1
+       AND is_active = true
+     LIMIT 1`,
+    [appKey]
+  );
+  const app = appRes.rows[0];
+  if (!app) return null;
+  const statusRes = await query(
+    `INSERT INTO student_store_app_status
+      (user_id, store_app_id, is_installed, installed_at, removed_at, updated_at)
+     VALUES (
+      $1,
+      $2,
+      $3,
+      CASE WHEN $3 THEN now() ELSE NULL END,
+      CASE WHEN $3 THEN NULL ELSE now() END,
+      now()
+     )
+     ON CONFLICT (user_id, store_app_id)
+     DO UPDATE SET
+       is_installed = EXCLUDED.is_installed,
+       installed_at = CASE
+         WHEN EXCLUDED.is_installed THEN now()
+         ELSE student_store_app_status.installed_at
+       END,
+       removed_at = CASE
+         WHEN EXCLUDED.is_installed THEN NULL
+         ELSE now()
+       END,
+       updated_at = now()
+     RETURNING is_installed, installed_at, removed_at, updated_at`,
+    [userId, app.id, isInstalled]
+  );
+  return { ...app, ...statusRes.rows[0] };
+}
+
+async function getStoreAppByKey(appKey) {
+  await ensureDefaultStoreApps();
+  const res = await query(
+    `SELECT id, app_key, name, category, description, url, simplemdm_app_id, sort_order
+     FROM store_apps
+     WHERE app_key = $1
+       AND is_active = true
+     LIMIT 1`,
+    [appKey]
+  );
+  return res.rows[0] || null;
+}
+
+async function getStudentMdmGroup(userId) {
+  const res = await query(
+    `SELECT assignment_group_id, assignment_group_name
+     FROM student_mdm_groups
+     WHERE user_id = $1
+       AND provider = 'simplemdm'
+     LIMIT 1`,
+    [userId]
+  );
+  return res.rows[0] || null;
+}
+
+async function upsertStudentMdmGroup(userId, assignmentGroupId, assignmentGroupName) {
+  const res = await query(
+    `INSERT INTO student_mdm_groups
+      (user_id, provider, assignment_group_id, assignment_group_name, updated_at)
+     VALUES ($1, 'simplemdm', $2, $3, now())
+     ON CONFLICT (user_id)
+     DO UPDATE SET
+       provider = 'simplemdm',
+       assignment_group_id = EXCLUDED.assignment_group_id,
+       assignment_group_name = EXCLUDED.assignment_group_name,
+       updated_at = now()
+     RETURNING assignment_group_id, assignment_group_name`,
+    [userId, assignmentGroupId, assignmentGroupName]
+  );
+  return res.rows[0];
+}
+
 module.exports = {
   pool,
   query,
@@ -572,8 +770,14 @@ module.exports = {
   createWebclipSession,
   consumeWebclipSession,
   linkDeviceToUserBySerial,
+  getActiveDeviceSerialForUser,
   getParentPlannerRule,
   upsertParentPlannerRule,
+  listStoreAppsForUser,
+  getStoreAppByKey,
+  setStoreAppInstalled,
+  getStudentMdmGroup,
+  upsertStudentMdmGroup,
   getOrCreateStudyDay,
   replaceStudyBlocks,
   upsertStudyPlans,

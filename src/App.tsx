@@ -27,45 +27,10 @@ type StudyStoreApp = {
   category: string;
   description: string;
   url: string;
+  installed: boolean;
+  installedAt?: string | null;
+  removedAt?: string | null;
 };
-
-const studyStoreApps: StudyStoreApp[] = [
-  {
-    id: "youtube-learning",
-    name: "YouTube",
-    category: "강의",
-    description: "개념 강의와 문제 풀이 영상을 빠르게 찾아볼 수 있어요.",
-    url: "https://www.youtube.com"
-  },
-  {
-    id: "khan-academy",
-    name: "Khan Academy",
-    category: "수학/과학",
-    description: "기초부터 심화까지 단계별 학습이 가능한 무료 강의 플랫폼입니다.",
-    url: "https://www.khanacademy.org"
-  },
-  {
-    id: "quizlet",
-    name: "Quizlet",
-    category: "암기",
-    description: "단어장과 플래시카드로 반복 암기 루틴을 만들 수 있어요.",
-    url: "https://quizlet.com"
-  },
-  {
-    id: "notion",
-    name: "Notion",
-    category: "정리",
-    description: "과목별 개념 노트와 학습 체크리스트를 체계적으로 관리할 수 있어요.",
-    url: "https://www.notion.so"
-  },
-  {
-    id: "google-drive",
-    name: "Google Drive",
-    category: "자료관리",
-    description: "학습 자료를 저장하고 기기 간 동기화할 수 있어요.",
-    url: "https://drive.google.com"
-  }
-];
 
 type ProgressBook = {
   id: number;
@@ -218,6 +183,10 @@ const App: React.FC = () => {
     StudentLinkRow[]
   >([]);
   const [studentParentEmail, setStudentParentEmail] = useState("");
+  const [storeApps, setStoreApps] = useState<StudyStoreApp[]>([]);
+  const [storeLoading, setStoreLoading] = useState(false);
+  const [storeSavingId, setStoreSavingId] = useState<string | null>(null);
+  const [storeError, setStoreError] = useState("");
 
   const isLocked = !isSetupWindow && !editUnlocked;
 
@@ -573,6 +542,31 @@ const App: React.FC = () => {
         setStudentWaitingOnMe(data.waitingOnMe || []);
       } catch {
         // ignore
+      }
+    };
+    run();
+  }, [authToken, meRole, tab]);
+
+  // 학생: 학습 앱스토어 목록 + 설치 상태
+  useEffect(() => {
+    const run = async () => {
+      if (!authToken || meRole !== "student" || tab !== "store") return;
+      setStoreLoading(true);
+      setStoreError("");
+      try {
+        const res = await fetch(`${API_BASE}/api/student/store-apps`, {
+          headers: { Authorization: `Bearer ${authToken}` }
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          setStoreError(data.error || "앱 목록을 불러오지 못했습니다.");
+          return;
+        }
+        setStoreApps(Array.isArray(data.apps) ? data.apps : []);
+      } catch {
+        setStoreError("앱 목록을 불러오지 못했습니다.");
+      } finally {
+        setStoreLoading(false);
       }
     };
     run();
@@ -1680,27 +1674,89 @@ const App: React.FC = () => {
                 <h2 className="section-title">추천 학습 앱</h2>
                 <span className="section-caption">학습 전용으로 선별된 앱 목록</span>
               </div>
+              {storeError && <p className="empty-state">{storeError}</p>}
+              {storeLoading && <p className="empty-state">앱 목록을 불러오는 중…</p>}
               <div className="store-grid">
-                {studyStoreApps.map(app => (
+                {storeApps.map(app => (
                   <article key={app.id} className="store-card">
                     <div className="store-card-top">
                       <span className="store-chip">{app.category}</span>
                       <h3 className="store-title">{app.name}</h3>
                     </div>
                     <p className="store-desc">{app.description}</p>
-                    <button
-                      type="button"
-                      className="store-open-btn"
-                      onClick={() => {
-                        hapticImpactLight();
-                        window.open(app.url, "_blank", "noopener,noreferrer");
-                      }}
-                    >
-                      앱 열기
-                    </button>
+                    <div className="store-actions">
+                      <button
+                        type="button"
+                        className={
+                          "store-install-btn" +
+                          (app.installed ? " store-install-btn-installed" : "")
+                        }
+                        disabled={storeSavingId === app.id}
+                        onClick={async () => {
+                          if (!authToken) return;
+                          setStoreSavingId(app.id);
+                          setStoreError("");
+                          try {
+                            const res = await fetch(
+                              `${API_BASE}/api/student/store-apps/${app.id}`,
+                              {
+                                method: "PUT",
+                                headers: {
+                                  "Content-Type": "application/json",
+                                  Authorization: `Bearer ${authToken}`
+                                },
+                                body: JSON.stringify({
+                                  installed: !app.installed
+                                })
+                              }
+                            );
+                            const data = await res.json().catch(() => ({}));
+                            if (!res.ok) {
+                              setStoreError(
+                                data.error || "앱 상태를 저장하지 못했습니다."
+                              );
+                              return;
+                            }
+                            setStoreApps(prev =>
+                              prev.map(item =>
+                                item.id === app.id ? data.app || item : item
+                              )
+                            );
+                            if (!app.installed) {
+                              hapticSuccess();
+                            } else {
+                              hapticSelection();
+                            }
+                          } catch {
+                            setStoreError("앱 상태를 저장하지 못했습니다.");
+                          } finally {
+                            setStoreSavingId(null);
+                          }
+                        }}
+                      >
+                        {storeSavingId === app.id
+                          ? "저장 중..."
+                          : app.installed
+                            ? "설치됨"
+                            : "다운받기"}
+                      </button>
+                      <button
+                        type="button"
+                        className="store-open-btn"
+                        onClick={() => {
+                          hapticImpactLight();
+                          window.open(app.url, "_blank", "noopener,noreferrer");
+                        }}
+                      >
+                        앱 열기
+                      </button>
+                    </div>
                   </article>
                 ))}
               </div>
+              {!storeLoading && storeApps.length === 0 && !storeError && (
+                <p className="empty-state">아직 등록된 앱이 없어요.</p>
+              )}
             </section>
           )}
 

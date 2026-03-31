@@ -407,6 +407,35 @@ select {
   cursor: pointer;
 }
 
+.store-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.store-install-btn {
+  align-self: flex-start;
+  border: none;
+  border-radius: 10px;
+  padding: 8px 12px;
+  background: var(--accent-strong);
+  color: #f9fafb;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.store-install-btn:disabled,
+.store-open-btn:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.store-install-btn-installed {
+  background: rgba(36, 59, 107, 0.12);
+  color: var(--accent-strong);
+}
+
 .timeline-list {
   display: flex;
   flex-direction: column;

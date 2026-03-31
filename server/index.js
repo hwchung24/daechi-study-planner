@@ -26,8 +26,14 @@ const {
   createWebclipSession,
   consumeWebclipSession,
   linkDeviceToUserBySerial,
+  getActiveDeviceSerialForUser,
   getParentPlannerRule,
-  upsertParentPlannerRule
+  upsertParentPlannerRule,
+  listStoreAppsForUser,
+  getStoreAppByKey,
+  setStoreAppInstalled,
+  getStudentMdmGroup,
+  upsertStudentMdmGroup
 } = require("./db");
 const {
   computeWeeklyStats,
@@ -35,6 +41,14 @@ const {
 } = require("./analytics");
 const { startDailyAiReportCron } = require("./dailyReportCron");
 const { runOnePair } = require("./aiReportService");
+const {
+  findDeviceBySerial,
+  createAssignmentGroup,
+  assignAppToGroup,
+  unassignAppFromGroup,
+  assignDeviceToGroup,
+  pushApps
+} = require("./simpleMdmClient");
 
 const JWT_SECRET = process.env.JWT_SECRET || "daechi-dev-secret";
 const PORT = process.env.PORT || 3000;
@@ -639,6 +653,112 @@ app.put("/api/parent/planner-rule", authMiddleware, async (req, res) => {
   } catch (e) {
     console.error("/api/parent/planner-rule PUT error", e);
     res.status(500).json({ error: "설정 저장에 실패했습니다." });
+  }
+});
+
+// 학생: 학습 앱스토어 목록 + 내 설치 상태
+app.get("/api/student/store-apps", authMiddleware, async (req, res) => {
+  try {
+    const me = await getMe(req.userId);
+    if (!me || me.role !== "student") {
+      return res.status(403).json({ error: "권한이 없습니다." });
+    }
+    const apps = await listStoreAppsForUser(req.userId);
+    res.json({
+      apps: apps.map(app => ({
+        id: app.app_key,
+        name: app.name,
+        category: app.category,
+        description: app.description,
+        url: app.url,
+        installed: Boolean(app.is_installed),
+        installedAt: app.installed_at,
+        removedAt: app.removed_at,
+        updatedAt: app.updated_at
+      }))
+    });
+  } catch (e) {
+    console.error("/api/student/store-apps GET error", e);
+    res.status(500).json({ error: "앱 목록을 불러오지 못했습니다." });
+  }
+});
+
+// 학생: 학습 앱 설치 상태 저장
+app.put("/api/student/store-apps/:appId", authMiddleware, async (req, res) => {
+  try {
+    const me = await getMe(req.userId);
+    if (!me || me.role !== "student") {
+      return res.status(403).json({ error: "권한이 없습니다." });
+    }
+    const appId = String(req.params.appId || "").trim();
+    const installed = Boolean((req.body || {}).installed);
+    if (!appId) {
+      return res.status(400).json({ error: "appId가 필요합니다." });
+    }
+    const appRow = await getStoreAppByKey(appId);
+    if (!appRow) {
+      return res.status(404).json({ error: "앱을 찾을 수 없습니다." });
+    }
+    if (!appRow.simplemdm_app_id) {
+      return res.status(400).json({
+        error: "이 앱은 아직 SimpleMDM 앱 카탈로그와 연결되지 않았습니다."
+      });
+    }
+    const serial = await getActiveDeviceSerialForUser(req.userId);
+    if (!serial) {
+      return res.status(400).json({
+        error: "이 학생 계정에 연결된 기기가 없습니다."
+      });
+    }
+    const device = await findDeviceBySerial(serial);
+    if (!device?.id) {
+      return res.status(404).json({
+        error: "SimpleMDM에서 해당 기기를 찾지 못했습니다."
+      });
+    }
+    let group = await getStudentMdmGroup(req.userId);
+    if (!group) {
+      const created = await createAssignmentGroup(`student-${req.userId}`);
+      if (!created?.id) {
+        throw new Error("학생용 assignment group 생성에 실패했습니다.");
+      }
+      group = await upsertStudentMdmGroup(
+        req.userId,
+        Number(created.id),
+        created.attributes?.name || `student-${req.userId}`
+      );
+    }
+    await assignDeviceToGroup(group.assignment_group_id, Number(device.id));
+    if (installed) {
+      await assignAppToGroup(
+        group.assignment_group_id,
+        Number(appRow.simplemdm_app_id)
+      );
+      await pushApps(group.assignment_group_id);
+    } else {
+      await unassignAppFromGroup(
+        group.assignment_group_id,
+        Number(appRow.simplemdm_app_id)
+      );
+    }
+    const saved = await setStoreAppInstalled(req.userId, appId, installed);
+    res.json({
+      ok: true,
+      app: {
+        id: saved.app_key,
+        name: saved.name,
+        category: saved.category,
+        description: saved.description,
+        url: saved.url,
+        installed: Boolean(saved.is_installed),
+        installedAt: saved.installed_at,
+        removedAt: saved.removed_at,
+        updatedAt: saved.updated_at
+      }
+    });
+  } catch (e) {
+    console.error("/api/student/store-apps PUT error", e);
+    res.status(500).json({ error: "앱 상태 저장에 실패했습니다." });
   }
 });
 
