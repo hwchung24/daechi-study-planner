@@ -264,6 +264,24 @@ const App: React.FC = () => {
     run();
   }, [authToken]);
 
+  useEffect(() => {
+    if (!authToken || meRole !== "student") return;
+    const run = async () => {
+      try {
+        await fetch(`${API_BASE}/api/device/link-current`, {
+          method: "POST",
+          credentials: "include",
+          headers: {
+            Authorization: `Bearer ${authToken}`
+          }
+        });
+      } catch {
+        // ignore
+      }
+    };
+    run();
+  }, [authToken, meRole]);
+
   // 학부모 계정이면 항상 학부모 페이지로 (학습 플래너 대신)
   useEffect(() => {
     if (meRole !== "parent") return;

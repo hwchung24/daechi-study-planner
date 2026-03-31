@@ -792,6 +792,26 @@ app.put("/api/student/store-apps/:appId", authMiddleware, async (req, res) => {
   }
 });
 
+// 현재 로그인한 학생 계정에 웹클립 기기 세션이 있으면 즉시 연결
+app.post("/api/device/link-current", authMiddleware, async (req, res) => {
+  try {
+    const me = await getMe(req.userId);
+    if (!me) {
+      return res.status(404).json({ error: "사용자를 찾을 수 없습니다." });
+    }
+    await attachDeviceByCookieIfPresent(req, req.userId);
+    const serial = await getActiveDeviceSerialForUser(req.userId);
+    res.json({
+      ok: true,
+      linked: Boolean(serial),
+      serial: serial || null
+    });
+  } catch (e) {
+    console.error("/api/device/link-current error", e);
+    res.status(500).json({ error: "기기 연결 확인에 실패했습니다." });
+  }
+});
+
 async function connectDbWithRetry() {
   try {
     await applySchemaIfNeeded();
