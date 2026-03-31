@@ -1327,27 +1327,33 @@ button:active:not(:disabled),
 @media (min-width: 768px) {
   .app-shell {
     display: grid;
-    grid-template-columns: 104px 1fr;
+    grid-template-columns: 220px minmax(0, 1fr);
     grid-template-rows: auto 1fr;
-    column-gap: 12px;
-    padding: 14px 16px 14px 14px;
+    column-gap: 20px;
+    padding: 20px;
     height: 100dvh;
   }
 
   .app-header {
     grid-column: 2;
     grid-row: 1;
-    padding: 8px 8px 10px;
+    width: 100%;
+    max-width: 980px;
+    justify-self: center;
+    padding: 6px 4px 14px;
   }
 
   .app-main {
     grid-column: 2;
     grid-row: 2;
-    padding: 8px 8px 20px;
+    width: 100%;
+    max-width: 980px;
+    justify-self: center;
+    padding: 8px 4px 28px;
   }
 
   .section {
-    max-width: 980px;
+    max-width: none;
   }
 
   .bottom-nav {
@@ -1357,29 +1363,31 @@ button:active:not(:disabled),
     bottom: auto;
     grid-column: 1;
     grid-row: 1 / span 2;
-    align-self: stretch;
+    align-self: start;
     justify-self: stretch;
     margin: 0;
-    border-radius: 18px;
-    padding: 10px 8px;
+    border-radius: 20px;
+    padding: 12px 10px;
     display: flex;
     flex-direction: column;
     justify-content: flex-start;
-    gap: 4px;
+    gap: 8px;
     background: rgba(249, 249, 251, 0.96);
+    border: 1px solid var(--border-soft);
+    box-shadow: var(--shadow-soft);
   }
 
   .nav-item {
-    min-height: 48px;
-    padding: 10px 12px;
-    gap: 8px;
-    font-size: 13px;
+    min-height: 56px;
+    padding: 12px 14px;
+    gap: 10px;
+    font-size: 14px;
     flex-direction: row;
     justify-content: flex-start;
     align-items: center;
     text-align: left;
     color: var(--text-sub);
-    border-radius: 12px;
+    border-radius: 14px;
     position: relative;
   }
 
@@ -1393,14 +1401,14 @@ button:active:not(:disabled),
   }
 
   .nav-label {
-    font-size: 13px;
-    font-weight: 600;
+    font-size: 14px;
+    font-weight: 700;
     letter-spacing: -0.01em;
   }
 
   .nav-icon {
-    font-size: 10px;
-    opacity: 0.8;
+    font-size: 16px;
+    opacity: 0.95;
   }
 
   .nav-item-active {
