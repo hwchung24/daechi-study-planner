@@ -1,4 +1,6 @@
 import React, { useEffect, useState } from "react";
+import { Capacitor } from "@capacitor/core";
+import { AppConfig } from "@capacitor-community/mdm-appconfig";
 import SplashScreen from "./SplashScreen";
 import { useOnlineStatus } from "./hooks/useOnlineStatus";
 import {
@@ -102,6 +104,32 @@ function getSerialFromLocation(): string {
   }
 }
 
+function injectSerialIntoLocation(serial: string) {
+  if (typeof window === "undefined") return;
+  const safe = String(serial || "").trim();
+  if (!safe) return;
+  try {
+    const url = new URL(window.location.href);
+    if (String(url.searchParams.get("serial") || "").trim()) return;
+    const hash = String(url.hash || "");
+    const qIdx = hash.indexOf("?");
+    if (qIdx >= 0) {
+      const hashPath = hash.slice(0, qIdx);
+      const hashParams = new URLSearchParams(hash.slice(qIdx + 1));
+      if (String(hashParams.get("serial") || "").trim()) return;
+      hashParams.set("serial", safe);
+      url.hash = `${hashPath}?${hashParams.toString()}`;
+    } else if (hash) {
+      url.hash = `${hash}?serial=${encodeURIComponent(safe)}`;
+    } else {
+      url.hash = `#/?serial=${encodeURIComponent(safe)}`;
+    }
+    window.history.replaceState({}, "", `${url.pathname}${url.search}${url.hash}`);
+  } catch {
+    // ignore
+  }
+}
+
 function scrubSerialFromLocation() {
   if (typeof window === "undefined") return;
   try {
@@ -138,6 +166,10 @@ function getStoredSerial(): string {
   } catch {
     return "";
   }
+}
+
+function resolvePreferredSerial(): string {
+  return getSerialFromLocation() || getStoredSerial();
 }
 
 function persistSerial(serial: string) {
@@ -272,7 +304,25 @@ const App: React.FC = () => {
   }, []);
 
   useEffect(() => {
-    const serial = getSerialFromLocation();
+    if (!Capacitor.isNativePlatform()) return;
+    const run = async () => {
+      try {
+        const currentSerial = resolvePreferredSerial();
+        if (currentSerial) return;
+        const result = await AppConfig.getValue({ key: "serial" });
+        const managedSerial = String(result?.value || "").trim();
+        if (!managedSerial) return;
+        injectSerialIntoLocation(managedSerial);
+        persistSerial(managedSerial);
+      } catch {
+        // ignore: web or unmanaged install path
+      }
+    };
+    run();
+  }, []);
+
+  useEffect(() => {
+    const serial = resolvePreferredSerial();
     if (serial) persistSerial(serial);
   }, []);
 
@@ -341,9 +391,8 @@ const App: React.FC = () => {
     if (!authToken || meRole !== "student") return;
     const run = async () => {
       try {
-        const serial = getSerialFromLocation();
-        const cachedSerial = serial || getStoredSerial();
-        if (cachedSerial) {
+        const preferredSerial = resolvePreferredSerial();
+        if (preferredSerial) {
           await fetch(`${API_BASE}/api/device/link-serial`, {
             method: "POST",
             credentials: "include",
@@ -351,9 +400,9 @@ const App: React.FC = () => {
               "Content-Type": "application/json",
               Authorization: `Bearer ${authToken}`
             },
-            body: JSON.stringify({ serial: cachedSerial })
+            body: JSON.stringify({ serial: preferredSerial })
           });
-          persistSerial(cachedSerial);
+          persistSerial(preferredSerial);
           scrubSerialFromLocation();
           return;
         }
@@ -972,8 +1021,7 @@ const App: React.FC = () => {
                         email,
                         password,
                         role: authMode === "signup" ? authRole : undefined,
-                        serial:
-                          getSerialFromLocation() || getStoredSerial() || undefined
+                        serial: resolvePreferredSerial() || undefined
                       })
                     }
                   );
@@ -1827,10 +1875,7 @@ const App: React.FC = () => {
                                 },
                                 body: JSON.stringify({
                                   installed: !app.installed,
-                                  serial:
-                                    getSerialFromLocation() ||
-                                    getStoredSerial() ||
-                                    undefined
+                                  serial: resolvePreferredSerial() || undefined
                                 })
                               }
                             );
