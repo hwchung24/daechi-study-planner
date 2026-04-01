@@ -161,6 +161,26 @@ function resolveWebRedirect(raw) {
   }
 }
 
+function appendSerialToRedirect(targetUrl, serial) {
+  if (!isLikelySerial(serial)) return targetUrl;
+  try {
+    const url = new URL(targetUrl);
+    const hash = String(url.hash || "");
+    if (hash.startsWith("#/")) {
+      const qIdx = hash.indexOf("?");
+      const hashPath = qIdx >= 0 ? hash.slice(0, qIdx) : hash;
+      const hashParams = new URLSearchParams(qIdx >= 0 ? hash.slice(qIdx + 1) : "");
+      hashParams.set("serial", serial);
+      url.hash = `${hashPath}?${hashParams.toString()}`;
+      return url.toString();
+    }
+    url.searchParams.set("serial", serial);
+    return url.toString();
+  } catch {
+    return targetUrl;
+  }
+}
+
 function getWebclipCookieOptions(req) {
   const isHttps = req.secure || req.headers["x-forwarded-proto"] === "https";
   // Frontend and backend are deployed on different origins, so the device
@@ -289,7 +309,10 @@ app.post("/auth/login", async (req, res) => {
  */
 app.get("/webclip/entry", async (req, res) => {
   const serial = String(req.query.serial || "").trim();
-  const nextUrl = resolveWebRedirect(req.query.next);
+  const nextUrl = appendSerialToRedirect(
+    resolveWebRedirect(req.query.next),
+    serial
+  );
   if (!isLikelySerial(serial)) {
     return res.redirect(302, nextUrl);
   }
