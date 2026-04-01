@@ -831,7 +831,9 @@ app.put("/api/student/store-apps/:appId", authMiddleware, async (req, res) => {
     });
   } catch (e) {
     console.error("/api/student/store-apps PUT error", e);
-    res.status(500).json({ error: "앱 상태 저장에 실패했습니다." });
+    res.status(500).json({
+      error: e?.message || "앱 상태 저장에 실패했습니다."
+    });
   }
 });
 
