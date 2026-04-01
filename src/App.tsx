@@ -83,6 +83,28 @@ function getInitialRoute(): AppRoute {
   return parseRouteFromHash();
 }
 
+function getSerialFromLocation(): string {
+  if (typeof window === "undefined") return "";
+  try {
+    const url = new URL(window.location.href);
+    return String(url.searchParams.get("serial") || "").trim();
+  } catch {
+    return "";
+  }
+}
+
+function scrubSerialFromLocation() {
+  if (typeof window === "undefined") return;
+  try {
+    const url = new URL(window.location.href);
+    if (!url.searchParams.has("serial")) return;
+    url.searchParams.delete("serial");
+    window.history.replaceState({}, "", `${url.pathname}${url.search}${url.hash}`);
+  } catch {
+    // ignore
+  }
+}
+
 /** 개발 모드 Strict Mode 재마운트 시 스플래시가 두 번 뜨는 것 방지 */
 let splashCompletedModule = false;
 
@@ -268,6 +290,20 @@ const App: React.FC = () => {
     if (!authToken || meRole !== "student") return;
     const run = async () => {
       try {
+        const serial = getSerialFromLocation();
+        if (serial) {
+          await fetch(`${API_BASE}/api/device/link-serial`, {
+            method: "POST",
+            credentials: "include",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${authToken}`
+            },
+            body: JSON.stringify({ serial })
+          });
+          scrubSerialFromLocation();
+          return;
+        }
         await fetch(`${API_BASE}/api/device/link-current`, {
           method: "POST",
           credentials: "include",

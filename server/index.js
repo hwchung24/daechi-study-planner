@@ -815,6 +815,30 @@ app.post("/api/device/link-current", authMiddleware, async (req, res) => {
   }
 });
 
+// 현재 로그인한 학생 계정에 전달받은 serial로 즉시 기기 연결
+app.post("/api/device/link-serial", authMiddleware, async (req, res) => {
+  try {
+    const me = await getMe(req.userId);
+    if (!me) {
+      return res.status(404).json({ error: "사용자를 찾을 수 없습니다." });
+    }
+    const serial = String((req.body || {}).serial || "").trim();
+    if (!isLikelySerial(serial)) {
+      return res.status(400).json({ error: "serial 값이 올바르지 않습니다." });
+    }
+    await linkDeviceToUserBySerial(req.userId, serial);
+    const activeSerial = await getActiveDeviceSerialForUser(req.userId);
+    res.json({
+      ok: true,
+      linked: Boolean(activeSerial),
+      serial: activeSerial || null
+    });
+  } catch (e) {
+    console.error("/api/device/link-serial error", e);
+    res.status(500).json({ error: "기기 연결에 실패했습니다." });
+  }
+});
+
 async function connectDbWithRetry() {
   try {
     await applySchemaIfNeeded();
