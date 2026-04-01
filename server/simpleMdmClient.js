@@ -114,6 +114,23 @@ async function findAppByBundleId(bundleId) {
   );
 }
 
+async function createAppInCatalog({ appStoreId, bundleId, name }) {
+  const params = new URLSearchParams();
+  if (appStoreId) {
+    params.set("app_store_id", String(appStoreId));
+  } else if (bundleId) {
+    params.set("bundle_id", String(bundleId));
+  } else {
+    throw new Error("SimpleMDM 카탈로그 등록에 필요한 appStoreId 또는 bundleId가 없습니다.");
+  }
+  if (name) params.set("name", String(name));
+  const data = await simpleMdmRequest("/apps", {
+    method: "POST",
+    body: params.toString()
+  });
+  return data?.data || null;
+}
+
 async function assignAppToGroup(groupId, appId) {
   await simpleMdmRequest(`/assignment_groups/${groupId}/apps/${appId}`, {
     method: "POST",
@@ -143,6 +160,7 @@ module.exports = {
   findDeviceBySerial,
   findAppByBundleId,
   findAppByName,
+  createAppInCatalog,
   createAssignmentGroup,
   assignAppToGroup,
   unassignAppFromGroup,

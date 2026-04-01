@@ -571,6 +571,7 @@ const defaultStoreApps = [
     description: "개념 강의와 문제 풀이 영상을 빠르게 찾아볼 수 있어요.",
     url: "https://www.youtube.com",
     bundleId: "com.google.ios.youtube",
+    appStoreId: 544007664,
     simplemdmAppId: null,
     sortOrder: 1
   },
@@ -581,6 +582,7 @@ const defaultStoreApps = [
     description: "기초부터 심화까지 단계별 학습이 가능한 무료 강의 플랫폼입니다.",
     url: "https://www.khanacademy.org",
     bundleId: "org.khanacademy.Khan-Academy",
+    appStoreId: 469863705,
     simplemdmAppId: null,
     sortOrder: 2
   },
@@ -591,6 +593,7 @@ const defaultStoreApps = [
     description: "단어장과 플래시카드로 반복 암기 루틴을 만들 수 있어요.",
     url: "https://quizlet.com",
     bundleId: "com.quizlet.quizletiphone",
+    appStoreId: 546473125,
     simplemdmAppId: null,
     sortOrder: 3
   },
@@ -601,6 +604,7 @@ const defaultStoreApps = [
     description: "과목별 개념 노트와 학습 체크리스트를 체계적으로 관리할 수 있어요.",
     url: "https://www.notion.so",
     bundleId: "notion.id",
+    appStoreId: 1232780281,
     simplemdmAppId: null,
     sortOrder: 4
   },
@@ -611,6 +615,7 @@ const defaultStoreApps = [
     description: "학습 자료를 저장하고 기기 간 동기화할 수 있어요.",
     url: "https://drive.google.com",
     bundleId: "com.google.Drive",
+    appStoreId: 507874739,
     simplemdmAppId: null,
     sortOrder: 5
   }
@@ -619,8 +624,8 @@ const defaultStoreApps = [
 async function ensureDefaultStoreApps() {
   for (const app of defaultStoreApps) {
     await query(
-      `INSERT INTO store_apps (app_key, name, category, description, url, bundle_id, simplemdm_app_id, sort_order, is_active, updated_at)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, true, now())
+      `INSERT INTO store_apps (app_key, name, category, description, url, bundle_id, app_store_id, simplemdm_app_id, sort_order, is_active, updated_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, true, now())
        ON CONFLICT (app_key)
        DO UPDATE SET
          name = EXCLUDED.name,
@@ -628,6 +633,7 @@ async function ensureDefaultStoreApps() {
          description = EXCLUDED.description,
          url = EXCLUDED.url,
          bundle_id = COALESCE(store_apps.bundle_id, EXCLUDED.bundle_id),
+         app_store_id = COALESCE(store_apps.app_store_id, EXCLUDED.app_store_id),
          simplemdm_app_id = COALESCE(store_apps.simplemdm_app_id, EXCLUDED.simplemdm_app_id),
          sort_order = EXCLUDED.sort_order,
          updated_at = now()`,
@@ -638,6 +644,7 @@ async function ensureDefaultStoreApps() {
         app.description,
         app.url,
         app.bundleId,
+        app.appStoreId,
         app.simplemdmAppId,
         app.sortOrder
       ]
@@ -655,6 +662,7 @@ async function listStoreAppsForUser(userId) {
             sa.description,
             sa.url,
             sa.bundle_id,
+            sa.app_store_id,
             sa.simplemdm_app_id,
             sa.sort_order,
             COALESCE(ss.is_installed, false) AS is_installed,
@@ -675,7 +683,7 @@ async function listStoreAppsForUser(userId) {
 async function setStoreAppInstalled(userId, appKey, isInstalled) {
   await ensureDefaultStoreApps();
   const appRes = await query(
-    `SELECT id, app_key, name, category, description, url, bundle_id, sort_order
+    `SELECT id, app_key, name, category, description, url, bundle_id, app_store_id, sort_order
             , simplemdm_app_id
      FROM store_apps
      WHERE app_key = $1
@@ -717,7 +725,7 @@ async function setStoreAppInstalled(userId, appKey, isInstalled) {
 async function getStoreAppByKey(appKey) {
   await ensureDefaultStoreApps();
   const res = await query(
-    `SELECT id, app_key, name, category, description, url, bundle_id, simplemdm_app_id, sort_order
+    `SELECT id, app_key, name, category, description, url, bundle_id, app_store_id, simplemdm_app_id, sort_order
      FROM store_apps
      WHERE app_key = $1
        AND is_active = true
@@ -733,7 +741,7 @@ async function updateStoreAppSimpleMdmId(appKey, simpleMdmAppId) {
      SET simplemdm_app_id = $2,
          updated_at = now()
      WHERE app_key = $1
-     RETURNING id, app_key, name, category, description, url, bundle_id, simplemdm_app_id, sort_order`,
+     RETURNING id, app_key, name, category, description, url, bundle_id, app_store_id, simplemdm_app_id, sort_order`,
     [appKey, simpleMdmAppId]
   );
   return res.rows[0] || null;

@@ -48,6 +48,7 @@ const {
   findDeviceBySerial,
   findAppByBundleId,
   findAppByName,
+  createAppInCatalog,
   createAssignmentGroup,
   assignAppToGroup,
   unassignAppFromGroup,
@@ -794,10 +795,17 @@ app.put("/api/student/store-apps/:appId", authMiddleware, async (req, res) => {
       if (!matchedApp) {
         matchedApp = await findAppByName(appRow.name);
       }
+      if (!matchedApp) {
+        matchedApp = await createAppInCatalog({
+          appStoreId: appRow.app_store_id,
+          bundleId: appRow.bundle_id,
+          name: appRow.name
+        });
+      }
       if (!matchedApp?.id) {
         return res.status(404).json({
           error:
-            "SimpleMDM 앱 카탈로그에서 bundle id 또는 이름으로 앱을 찾지 못했습니다."
+            "SimpleMDM 앱 카탈로그에서 앱을 찾거나 생성하지 못했습니다."
         });
       }
       simpleMdmAppId = Number(matchedApp.id);
