@@ -87,7 +87,15 @@ function getSerialFromLocation(): string {
   if (typeof window === "undefined") return "";
   try {
     const url = new URL(window.location.href);
-    return String(url.searchParams.get("serial") || "").trim();
+    const searchSerial = String(url.searchParams.get("serial") || "").trim();
+    if (searchSerial) return searchSerial;
+    const hash = String(url.hash || "");
+    const qIdx = hash.indexOf("?");
+    if (qIdx >= 0) {
+      const hashParams = new URLSearchParams(hash.slice(qIdx + 1));
+      return String(hashParams.get("serial") || "").trim();
+    }
+    return "";
   } catch {
     return "";
   }
@@ -97,8 +105,25 @@ function scrubSerialFromLocation() {
   if (typeof window === "undefined") return;
   try {
     const url = new URL(window.location.href);
-    if (!url.searchParams.has("serial")) return;
-    url.searchParams.delete("serial");
+    let changed = false;
+    if (url.searchParams.has("serial")) {
+      url.searchParams.delete("serial");
+      changed = true;
+    }
+    const hash = String(url.hash || "");
+    const qIdx = hash.indexOf("?");
+    if (qIdx >= 0) {
+      const hashPath = hash.slice(0, qIdx);
+      const hashParams = new URLSearchParams(hash.slice(qIdx + 1));
+      if (hashParams.has("serial")) {
+        hashParams.delete("serial");
+        url.hash = hashParams.toString()
+          ? `${hashPath}?${hashParams.toString()}`
+          : hashPath;
+        changed = true;
+      }
+    }
+    if (!changed) return;
     window.history.replaceState({}, "", `${url.pathname}${url.search}${url.hash}`);
   } catch {
     // ignore
@@ -918,7 +943,8 @@ const App: React.FC = () => {
                       body: JSON.stringify({
                         email,
                         password,
-                        role: authMode === "signup" ? authRole : undefined
+                        role: authMode === "signup" ? authRole : undefined,
+                        serial: getSerialFromLocation() || undefined
                       })
                     }
                   );

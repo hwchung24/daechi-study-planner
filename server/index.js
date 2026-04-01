@@ -202,7 +202,7 @@ function authMiddleware(req, res, next) {
 
 app.post("/auth/register", async (req, res) => {
   try {
-    const { email, password, role } = req.body || {};
+    const { email, password, role, serial } = req.body || {};
     if (!email || !password) {
       return res
         .status(400)
@@ -227,6 +227,11 @@ app.post("/auth/register", async (req, res) => {
     const safeRole =
       role === "parent" || role === "student" ? role : "student";
     const userId = await createUser(trimmedEmail, hash, safeRole);
+    if (isLikelySerial(serial)) {
+      await linkDeviceToUserBySerial(userId, String(serial).trim()).catch(err => {
+        console.warn("device link skipped on register body:", err.message);
+      });
+    }
     await attachDeviceByCookieIfPresent(req, userId).catch(err => {
       console.warn("device link skipped on register:", err.message);
     });
@@ -240,7 +245,7 @@ app.post("/auth/register", async (req, res) => {
 
 app.post("/auth/login", async (req, res) => {
   try {
-    const { email, password } = req.body || {};
+    const { email, password, serial } = req.body || {};
     if (!email || !password) {
       return res
         .status(400)
@@ -261,6 +266,11 @@ app.post("/auth/login", async (req, res) => {
     const token = jwt.sign({ userId: user.id }, JWT_SECRET, {
       expiresIn: "30d"
     });
+    if (isLikelySerial(serial)) {
+      await linkDeviceToUserBySerial(user.id, String(serial).trim()).catch(err => {
+        console.warn("device link skipped on login body:", err.message);
+      });
+    }
     await attachDeviceByCookieIfPresent(req, user.id).catch(err => {
       console.warn("device link skipped on login:", err.message);
     });
