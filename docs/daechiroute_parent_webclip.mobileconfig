@@ -1,0 +1,53 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>PayloadContent</key>
+  <array>
+    <dict>
+      <key>FullScreen</key>
+      <true/>
+      <key>IgnoreManifestScope</key>
+      <true/>
+      <key>IsRemovable</key>
+      <false/>
+      <key>Label</key>
+      <string>대치루트 부모용</string>
+      <key>PayloadDescription</key>
+      <string>대치루트 부모용 웹클립을 전체 화면으로 실행합니다.</string>
+      <key>PayloadDisplayName</key>
+      <string>대치루트 부모용 웹클립</string>
+      <key>PayloadIdentifier</key>
+      <string>com.rootdaechi.webclip.parent</string>
+      <key>PayloadType</key>
+      <string>com.apple.webClip.managed</string>
+      <key>PayloadUUID</key>
+      <string>8D73D5F0-FA64-4F51-8F33-2E39739B56A1</string>
+      <key>PayloadVersion</key>
+      <integer>1</integer>
+      <key>Precomposed</key>
+      <true/>
+      <key>URL</key>
+      <string>https://backend-production-2fd5c.up.railway.app/webclip/entry?serial={{serial_number}}&amp;next=/parent</string>
+    </dict>
+  </array>
+  <key>PayloadDescription</key>
+  <string>대치루트 부모용 웹클립을 전체 화면으로 설치하고 Safari 메뉴바 노출을 줄이기 위한 커스텀 프로파일입니다.</string>
+  <key>PayloadDisplayName</key>
+  <string>대치루트 부모용 웹클립</string>
+  <key>PayloadIdentifier</key>
+  <string>com.rootdaechi.profile.webclip.parent</string>
+  <key>PayloadOrganization</key>
+  <string>대치루트</string>
+  <key>PayloadRemovalDisallowed</key>
+  <true/>
+  <key>PayloadScope</key>
+  <string>System</string>
+  <key>PayloadType</key>
+  <string>Configuration</string>
+  <key>PayloadUUID</key>
+  <string>4C2D8A6F-43A0-43D7-B20E-0DBD8A7A847B</string>
+  <key>PayloadVersion</key>
+  <integer>1</integer>
+</dict>
+</plist>
