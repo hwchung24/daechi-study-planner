@@ -1719,6 +1719,7 @@ const App: React.FC = () => {
                               `${API_BASE}/api/student/store-apps/${app.id}`,
                               {
                                 method: "PUT",
+                                credentials: "include",
                                 headers: {
                                   "Content-Type": "application/json",
                                   Authorization: `Bearer ${authToken}`

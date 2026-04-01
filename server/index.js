@@ -725,6 +725,9 @@ app.put("/api/student/store-apps/:appId", authMiddleware, async (req, res) => {
     if (!appId) {
       return res.status(400).json({ error: "appId가 필요합니다." });
     }
+    await attachDeviceByCookieIfPresent(req, req.userId).catch(err => {
+      console.warn("device link skipped on store install:", err.message);
+    });
     const appRow = await getStoreAppByKey(appId);
     if (!appRow) {
       return res.status(404).json({ error: "앱을 찾을 수 없습니다." });
