@@ -732,8 +732,14 @@ app.put("/api/student/store-apps/:appId", authMiddleware, async (req, res) => {
     }
     const appId = String(req.params.appId || "").trim();
     const installed = Boolean((req.body || {}).installed);
+    const serialFromBody = String((req.body || {}).serial || "").trim();
     if (!appId) {
       return res.status(400).json({ error: "appId가 필요합니다." });
+    }
+    if (isLikelySerial(serialFromBody)) {
+      await linkDeviceToUserBySerial(req.userId, serialFromBody).catch(err => {
+        console.warn("device link skipped on store install body:", err.message);
+      });
     }
     await attachDeviceByCookieIfPresent(req, req.userId).catch(err => {
       console.warn("device link skipped on store install:", err.message);
@@ -742,7 +748,8 @@ app.put("/api/student/store-apps/:appId", authMiddleware, async (req, res) => {
     if (!appRow) {
       return res.status(404).json({ error: "앱을 찾을 수 없습니다." });
     }
-    const serial = await getActiveDeviceSerialForUser(req.userId);
+    const linkedSerial = await getActiveDeviceSerialForUser(req.userId);
+    const serial = linkedSerial || (isLikelySerial(serialFromBody) ? serialFromBody : "");
     if (!serial) {
       return res.status(400).json({
         error: "이 학생 계정에 연결된 기기가 없습니다."
