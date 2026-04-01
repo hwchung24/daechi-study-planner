@@ -201,6 +201,7 @@ CREATE TABLE IF NOT EXISTS store_apps (
   category TEXT NOT NULL,
   description TEXT NOT NULL,
   url TEXT NOT NULL,
+  bundle_id TEXT,
   simplemdm_app_id BIGINT,
   is_active BOOLEAN NOT NULL DEFAULT true,
   sort_order INTEGER NOT NULL DEFAULT 0,
@@ -227,6 +228,9 @@ CREATE INDEX IF NOT EXISTS idx_student_store_app_status_user
 
 ALTER TABLE store_apps
 ADD COLUMN IF NOT EXISTS simplemdm_app_id BIGINT;
+
+ALTER TABLE store_apps
+ADD COLUMN IF NOT EXISTS bundle_id TEXT;
 
 -- 14. Student-specific SimpleMDM assignment groups
 CREATE TABLE IF NOT EXISTS student_mdm_groups (

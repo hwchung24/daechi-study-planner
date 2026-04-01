@@ -46,6 +46,7 @@ const { startDailyAiReportCron } = require("./dailyReportCron");
 const { runOnePair } = require("./aiReportService");
 const {
   findDeviceBySerial,
+  findAppByBundleId,
   findAppByName,
   createAssignmentGroup,
   assignAppToGroup,
@@ -786,10 +787,17 @@ app.put("/api/student/store-apps/:appId", authMiddleware, async (req, res) => {
     }
     let simpleMdmAppId = Number(appRow.simplemdm_app_id || 0);
     if (!simpleMdmAppId) {
-      const matchedApp = await findAppByName(appRow.name);
+      let matchedApp = null;
+      if (appRow.bundle_id) {
+        matchedApp = await findAppByBundleId(appRow.bundle_id);
+      }
+      if (!matchedApp) {
+        matchedApp = await findAppByName(appRow.name);
+      }
       if (!matchedApp?.id) {
         return res.status(404).json({
-          error: "SimpleMDM 앱 카탈로그에서 같은 이름의 앱을 찾지 못했습니다."
+          error:
+            "SimpleMDM 앱 카탈로그에서 bundle id 또는 이름으로 앱을 찾지 못했습니다."
         });
       }
       simpleMdmAppId = Number(matchedApp.id);

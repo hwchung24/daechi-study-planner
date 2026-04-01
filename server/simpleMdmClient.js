@@ -103,6 +103,17 @@ async function findAppByName(name) {
   );
 }
 
+async function findAppByBundleId(bundleId) {
+  const apps = await listApps();
+  const target = normalizeSimpleMdmText(bundleId);
+  return (
+    apps.find(
+      app =>
+        normalizeSimpleMdmText(app?.attributes?.bundle_identifier) === target
+    ) || null
+  );
+}
+
 async function assignAppToGroup(groupId, appId) {
   await simpleMdmRequest(`/assignment_groups/${groupId}/apps/${appId}`, {
     method: "POST",
@@ -130,6 +141,7 @@ async function pushApps(groupId) {
 
 module.exports = {
   findDeviceBySerial,
+  findAppByBundleId,
   findAppByName,
   createAssignmentGroup,
   assignAppToGroup,
