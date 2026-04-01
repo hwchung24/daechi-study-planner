@@ -114,6 +114,33 @@ async function findAppByBundleId(bundleId) {
   );
 }
 
+async function listAppInstalls(appId) {
+  const all = [];
+  let startingAfter = null;
+
+  while (true) {
+    const query = new URLSearchParams({ limit: "100" });
+    if (startingAfter) query.set("starting_after", String(startingAfter));
+    const data = await simpleMdmRequest(`/apps/${appId}/installs?${query.toString()}`);
+    const rows = Array.isArray(data?.data) ? data.data : [];
+    all.push(...rows);
+    if (!data?.has_more || rows.length === 0) break;
+    startingAfter = rows[rows.length - 1]?.id;
+    if (!startingAfter) break;
+  }
+
+  return all;
+}
+
+async function findInstalledAppForDevice(appId, deviceId) {
+  const installs = await listAppInstalls(appId);
+  return (
+    installs.find(
+      item => Number(item?.relationships?.device?.data?.id) === Number(deviceId)
+    ) || null
+  );
+}
+
 async function createAppInCatalog({ appStoreId, bundleId, name }) {
   const params = new URLSearchParams();
   if (appStoreId) {
@@ -144,6 +171,12 @@ async function unassignAppFromGroup(groupId, appId) {
   });
 }
 
+async function uninstallInstalledApp(installedAppId) {
+  await simpleMdmRequest(`/installed_apps/${installedAppId}`, {
+    method: "DELETE"
+  });
+}
+
 async function assignDeviceToGroup(groupId, deviceId) {
   await simpleMdmRequest(`/assignment_groups/${groupId}/devices/${deviceId}`, {
     method: "POST"
@@ -160,10 +193,12 @@ module.exports = {
   findDeviceBySerial,
   findAppByBundleId,
   findAppByName,
+  findInstalledAppForDevice,
   createAppInCatalog,
   createAssignmentGroup,
   assignAppToGroup,
   unassignAppFromGroup,
+  uninstallInstalledApp,
   assignDeviceToGroup,
   pushApps
 };

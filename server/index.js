@@ -48,10 +48,12 @@ const {
   findDeviceBySerial,
   findAppByBundleId,
   findAppByName,
+  findInstalledAppForDevice,
   createAppInCatalog,
   createAssignmentGroup,
   assignAppToGroup,
   unassignAppFromGroup,
+  uninstallInstalledApp,
   assignDeviceToGroup,
   pushApps
 } = require("./simpleMdmClient");
@@ -829,6 +831,14 @@ app.put("/api/student/store-apps/:appId", authMiddleware, async (req, res) => {
       await pushApps(group.assignment_group_id);
     } else {
       await unassignAppFromGroup(group.assignment_group_id, simpleMdmAppId);
+      const installedApp = await findInstalledAppForDevice(
+        simpleMdmAppId,
+        Number(device.id)
+      );
+      if (!installedApp?.id) {
+        throw new Error("기기에서 삭제할 앱 설치 기록을 찾지 못했습니다.");
+      }
+      await uninstallInstalledApp(Number(installedApp.id));
     }
     const saved = await setStoreAppInstalled(req.userId, appId, installed);
     res.json({

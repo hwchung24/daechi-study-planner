@@ -50,6 +50,7 @@ type ProgressPlan = {
 const API_BASE = String(
   (import.meta as any).env?.VITE_API_BASE || "http://localhost:3000"
 ).replace(/\/+$/, "");
+const DEVICE_SERIAL_STORAGE_KEY = "daechi_device_serial";
 
 type AppRoute = "student" | "parent" | "auth";
 
@@ -125,6 +126,26 @@ function scrubSerialFromLocation() {
     }
     if (!changed) return;
     window.history.replaceState({}, "", `${url.pathname}${url.search}${url.hash}`);
+  } catch {
+    // ignore
+  }
+}
+
+function getStoredSerial(): string {
+  if (typeof window === "undefined") return "";
+  try {
+    return String(localStorage.getItem(DEVICE_SERIAL_STORAGE_KEY) || "").trim();
+  } catch {
+    return "";
+  }
+}
+
+function persistSerial(serial: string) {
+  if (typeof window === "undefined") return;
+  const safe = String(serial || "").trim();
+  if (!safe) return;
+  try {
+    localStorage.setItem(DEVICE_SERIAL_STORAGE_KEY, safe);
   } catch {
     // ignore
   }
@@ -251,6 +272,11 @@ const App: React.FC = () => {
   }, []);
 
   useEffect(() => {
+    const serial = getSerialFromLocation();
+    if (serial) persistSerial(serial);
+  }, []);
+
+  useEffect(() => {
     const syncRouteFromHash = () => {
       try {
         if (!localStorage.getItem("daechi_planner_token")) {
@@ -316,7 +342,8 @@ const App: React.FC = () => {
     const run = async () => {
       try {
         const serial = getSerialFromLocation();
-        if (serial) {
+        const cachedSerial = serial || getStoredSerial();
+        if (cachedSerial) {
           await fetch(`${API_BASE}/api/device/link-serial`, {
             method: "POST",
             credentials: "include",
@@ -324,8 +351,9 @@ const App: React.FC = () => {
               "Content-Type": "application/json",
               Authorization: `Bearer ${authToken}`
             },
-            body: JSON.stringify({ serial })
+            body: JSON.stringify({ serial: cachedSerial })
           });
+          persistSerial(cachedSerial);
           scrubSerialFromLocation();
           return;
         }
@@ -944,7 +972,8 @@ const App: React.FC = () => {
                         email,
                         password,
                         role: authMode === "signup" ? authRole : undefined,
-                        serial: getSerialFromLocation() || undefined
+                        serial:
+                          getSerialFromLocation() || getStoredSerial() || undefined
                       })
                     }
                   );
@@ -1754,6 +1783,10 @@ const App: React.FC = () => {
                 <h2 className="section-title">추천 학습 앱</h2>
                 <span className="section-caption">학습 전용으로 선별된 앱 목록</span>
               </div>
+              <p className="store-notice">
+                원격 설치나 삭제는 MDM 처리 때문에 바로 반영되지 않을 수 있어요. 보통 몇 분
+                뒤에 기기에 반영됩니다.
+              </p>
               {storeError && <p className="empty-state">{storeError}</p>}
               {storeLoading && <p className="empty-state">앱 목록을 불러오는 중…</p>}
               <div className="store-grid">
@@ -1764,6 +1797,12 @@ const App: React.FC = () => {
                       <h3 className="store-title">{app.name}</h3>
                     </div>
                     <p className="store-desc">{app.description}</p>
+                    {app.installed && (
+                      <p className="store-meta">
+                        설치된 앱은 여기서 삭제할 수 있어요. 설치나 삭제는 몇 분 뒤 기기에
+                        반영될 수 있어요.
+                      </p>
+                    )}
                     <div className="store-actions">
                       <button
                         type="button"
@@ -1787,7 +1826,11 @@ const App: React.FC = () => {
                                   Authorization: `Bearer ${authToken}`
                                 },
                                 body: JSON.stringify({
-                                  installed: !app.installed
+                                  installed: !app.installed,
+                                  serial:
+                                    getSerialFromLocation() ||
+                                    getStoredSerial() ||
+                                    undefined
                                 })
                               }
                             );
@@ -1818,7 +1861,7 @@ const App: React.FC = () => {
                         {storeSavingId === app.id
                           ? "저장 중..."
                           : app.installed
-                            ? "설치됨"
+                            ? "삭제하기"
                             : "다운받기"}
                       </button>
                       <button

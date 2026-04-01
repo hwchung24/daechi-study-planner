@@ -396,6 +396,18 @@ select {
   line-height: 1.45;
 }
 
+.store-notice,
+.store-meta {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--text-sub);
+}
+
+.store-notice {
+  margin-bottom: 10px;
+}
+
 .store-open-btn {
   align-self: flex-start;
   border: none;
