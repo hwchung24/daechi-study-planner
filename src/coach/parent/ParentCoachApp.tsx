@@ -189,40 +189,19 @@ function GuideTab() {
 
 function ProfileTab() {
   const activeStudentId = useCoachStore(s => s.activeStudentId);
-  const setActiveStudentId = useCoachStore(s => s.setActiveStudentId);
 
   const parent = demoParents[0];
   const student = demoStudents.find(s => s.id === activeStudentId) || demoStudents[0];
 
   return (
     <div className="coach-page">
-      <SectionHeader title="학부모 프로필" subtitle="데모 MVP: 연결된 학생을 바꿔서 리포트를 확인할 수 있어요." />
+      <SectionHeader title="학부모 프로필" subtitle="연결된 학생 정보를 확인할 수 있어요." />
       <Card className="coach-card coach-card--padded">
         <div className="coach-profile">
           <div className="coach-profile__name">{parent.name} ({parent.relationship})</div>
           <div className="coach-profile__meta">연결된 자녀: {student.name}</div>
         </div>
       </Card>
-
-      <div className="coach-stack" style={{ marginTop: 12 }}>
-        <SectionHeader title="연결된 학생(데모)" subtitle="선택한 학생 기준으로 홈/가이드/타임라인이 바뀝니다." />
-        <div className="coach-persona-grid">
-          {demoStudents.map(s => (
-            <button
-              key={s.id}
-              type="button"
-              className={"coach-persona" + (s.id === activeStudentId ? " is-active" : "")}
-              onClick={() => setActiveStudentId(s.id)}
-            >
-              <div className="coach-persona__name">{s.name}</div>
-              <div className="coach-persona__meta">
-                {s.schoolLevel}
-                {s.grade} · 목표: {s.goal}
-              </div>
-            </button>
-          ))}
-        </div>
-      </div>
     </div>
   );
 }

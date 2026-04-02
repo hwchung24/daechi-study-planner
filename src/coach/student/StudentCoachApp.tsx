@@ -9,7 +9,7 @@ import { generateCoachReply } from "../ai/chat-engine";
 import { Card, EmptyState, GradientHeroCard, MetricCard, RiskBadge, SectionHeader, StatPill } from "../ui/components";
 import { CoachIcons } from "../ui/icons";
 
-export type StudentTabKey = "home" | "coach" | "log";
+export type StudentTabKey = "home" | "coach";
 
 function formatMinutes(n: number) {
   const h = Math.floor(n / 60);
@@ -129,6 +129,34 @@ function HomeTab() {
 
   return (
     <div className="coach-page">
+      <Card className="coach-card coach-card--padded" style={{ marginBottom: 14 }}>
+        <SectionHeader title="프로필" subtitle="학습 목표와 과목 정보를 확인할 수 있어요." />
+        <div className="coach-profile">
+          <div className="coach-profile__name">{student.name}</div>
+          <div className="coach-profile__meta">
+            {student.schoolLevel}
+            {student.grade} · 목표: {student.goal}
+          </div>
+          <div className="coach-profile__chips">
+            {student.targetSubjects.map(s => (
+              <span key={s} className="coach-chip">
+                {s}
+              </span>
+            ))}
+          </div>
+        </div>
+        <button
+          type="button"
+          className="coach-ghost-btn"
+          style={{ marginTop: 12, width: "100%" }}
+          onClick={() => {
+            window.location.hash = "#/settings";
+          }}
+        >
+          설정으로 이동
+        </button>
+      </Card>
+
       <GradientHeroCard
         eyebrow="AI 분석 결과"
         title={`${student.name}님, 오늘의 핵심`}
@@ -217,52 +245,6 @@ function HomeTab() {
               오늘은 ‘장시간 유지’가 아니라 ‘시작 성공률’이 목표예요.
             </div>
           </div>
-        </div>
-      </Card>
-
-      <Card className="coach-card coach-card--padded" style={{ marginTop: 14 }}>
-        <SectionHeader title="프로필" subtitle="학습 목표와 과목 정보를 확인할 수 있어요." />
-        <div className="coach-profile">
-          <div className="coach-profile__name">{student.name}</div>
-          <div className="coach-profile__meta">
-            {student.schoolLevel}
-            {student.grade} · 목표: {student.goal}
-          </div>
-          <div className="coach-profile__chips">
-            {student.targetSubjects.map(s => (
-              <span key={s} className="coach-chip">
-                {s}
-              </span>
-            ))}
-          </div>
-        </div>
-      </Card>
-    </div>
-  );
-}
-
-function LogTab() {
-  // MVP: 실제 저장은 기존 앱 DB/서버와 섞이지 않도록, 데모 입력 UI만 제공
-  const [sleep, setSleep] = useState("6.5");
-  const [stress, setStress] = useState("3");
-  const [conc, setConc] = useState("3");
-  const [memo, setMemo] = useState("");
-  return (
-    <div className="coach-page">
-      <SectionHeader title="일일 기록" subtitle="정확한 분석은 작은 기록에서 시작됩니다." />
-      <Card className="coach-card coach-card--padded">
-        <div className="coach-form">
-          <label className="coach-label">수면 시간(시간)</label>
-          <input className="coach-input" inputMode="decimal" value={sleep} onChange={e => setSleep(e.target.value)} />
-          <label className="coach-label">스트레스(1~5)</label>
-          <input className="coach-input" inputMode="numeric" value={stress} onChange={e => setStress(e.target.value)} />
-          <label className="coach-label">집중도(1~5)</label>
-          <input className="coach-input" inputMode="numeric" value={conc} onChange={e => setConc(e.target.value)} />
-          <label className="coach-label">회고 메모</label>
-          <textarea className="coach-textarea" value={memo} onChange={e => setMemo(e.target.value)} placeholder="예: 시작이 늦어서 계획이 밀림…" />
-          <button type="button" className="coach-primary-btn" onClick={() => alert("데모 MVP에서는 기존 서버/DB와 분리되어 있어 저장은 생략했어요.")}>
-            오늘 기록 저장(데모)
-          </button>
         </div>
       </Card>
     </div>
@@ -379,8 +361,7 @@ export function StudentCoachApp(props: {
   const T = useMemo(() => {
     const map: Record<StudentTabKey, React.ReactNode> = {
       home: <HomeTab />,
-      coach: <CoachChatTab />,
-      log: <LogTab />
+      coach: <CoachChatTab />
     };
     return map[props.tab] || map.home;
   }, [props.tab]);

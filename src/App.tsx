@@ -99,6 +99,16 @@ type AppRoute = "student" | "parent" | "auth";
 
 type ParentTabKey = "link" | "report";
 
+function parseStudentTabFromHash(): TabKey {
+  if (typeof window === "undefined") return "today";
+  const h = window.location.hash;
+  if (h === "#/settings") return "settings";
+  if (h === "#/week") return "week";
+  if (h === "#/store") return "store";
+  if (h === "#/today") return "today";
+  return "today";
+}
+
 function parseCoachStudentTabFromHash(): CoachStudentTabKey | null {
   if (typeof window === "undefined") return null;
   const h = window.location.hash;
@@ -111,7 +121,7 @@ function parseCoachStudentTabFromHash(): CoachStudentTabKey | null {
   if (seg === "actions") return "home";
   if (seg === "coach" || seg === "chat") return "coach";
   if (seg === "profile") return "home";
-  if (seg === "log") return "log";
+  if (seg === "log") return "home";
   return "home";
 }
 
@@ -418,6 +428,7 @@ const App: React.FC = () => {
         return;
       }
       setRoute(parseRouteFromHash());
+      setTab(parseStudentTabFromHash());
       setParentTab(parseParentTabFromHash());
       setCoachStudentTab(parseCoachStudentTabFromHash());
       setCoachParentTab(parseCoachParentTabFromHash());
@@ -1234,27 +1245,6 @@ const App: React.FC = () => {
           <div className="header-top">
             <div className="header-title-group">
               <div className="header-title-row">
-                {coachStudentMode && (
-                  <button
-                    type="button"
-                    className="header-back-btn"
-                    aria-label="뒤로가기"
-                    onClick={() => {
-                      hapticSelection();
-                      try {
-                        if (window.history.length > 1) {
-                          window.history.back();
-                        } else {
-                          window.location.hash = "#/";
-                        }
-                      } catch {
-                        window.location.hash = "#/";
-                      }
-                    }}
-                  >
-                    ←
-                  </button>
-                )}
                 <h1 className="header-title">
                 {roleLoading && "불러오는 중…"}
                 {!roleLoading &&
@@ -1276,9 +1266,7 @@ const App: React.FC = () => {
                   (coachStudentMode
                     ? coachStudentTab === "coach"
                           ? "AI 코치"
-                          : coachStudentTab === "log"
-                              ? "일일 기록"
-                              : "학생 홈"
+                          : "학생 홈"
                     : tab === "today"
                       ? "오늘 공부"
                       : tab === "week"
@@ -1333,9 +1321,7 @@ const App: React.FC = () => {
                 const path =
                   t === "home"
                     ? "home"
-                    : t === "coach"
-                      ? "coach"
-                      : "log";
+                    : "coach";
                 window.location.hash = `#/student/${path}`;
               }}
             />
@@ -2484,10 +2470,10 @@ const App: React.FC = () => {
                 hapticSelection();
                 setCoachStudentTab(null);
                 setTab("today");
-                window.location.hash = "#/";
+                window.location.hash = "#/today";
               }}
             >
-              <span className="nav-icon">●</span>
+              <span className="nav-icon" aria-hidden="true">🕘</span>
               <span className="nav-label">오늘</span>
             </button>
             <button
@@ -2499,9 +2485,10 @@ const App: React.FC = () => {
                 hapticSelection();
                 setCoachStudentTab(null);
                 setTab("week");
-                window.location.hash = "#/";
+                window.location.hash = "#/week";
               }}
             >
+              <span className="nav-icon" aria-hidden="true">📅</span>
               <span className="nav-label">주간</span>
             </button>
             <button
@@ -2513,9 +2500,10 @@ const App: React.FC = () => {
                 hapticSelection();
                 setCoachStudentTab(null);
                 setTab("store");
-                window.location.hash = "#/";
+                window.location.hash = "#/store";
               }}
             >
+              <span className="nav-icon" aria-hidden="true">🛍️</span>
               <span className="nav-label">앱스토어</span>
             </button>
             <button
@@ -2532,6 +2520,7 @@ const App: React.FC = () => {
                 window.location.hash = "#/student/home";
               }}
             >
+              <span className="nav-icon" aria-hidden="true">🏠</span>
               <span className="nav-label">학생홈</span>
             </button>
             <button
@@ -2548,38 +2537,20 @@ const App: React.FC = () => {
                 window.location.hash = "#/student/coach";
               }}
             >
+              <span className="nav-icon" aria-hidden="true">🤖</span>
               <span className="nav-label">코치</span>
             </button>
             <button
               type="button"
-              className={
-                "nav-item" +
-                (coachStudentMode && coachStudentTab === "log"
-                  ? " nav-item-active"
-                  : "")
-              }
+              className="nav-item"
               onClick={() => {
                 hapticSelection();
-                setCoachStudentTab("log");
-                window.location.hash = "#/student/log";
+                setCoachStudentTab("home");
+                window.location.hash = "#/student/home";
               }}
             >
-              <span className="nav-label">기록</span>
-            </button>
-            <button
-              type="button"
-              className={
-                "nav-item" +
-                (!coachStudentMode && tab === "settings" ? " nav-item-active" : "")
-              }
-              onClick={() => {
-                hapticSelection();
-                setCoachStudentTab(null);
-                setTab("settings");
-                window.location.hash = "#/";
-              }}
-            >
-              <span className="nav-label">설정</span>
+              <span className="nav-icon" aria-hidden="true">🏠</span>
+              <span className="nav-label">학생홈</span>
             </button>
           </nav>
         )}
@@ -2600,6 +2571,7 @@ const App: React.FC = () => {
                     window.location.hash = "#/parent/home";
                   }}
                 >
+                  <span className="nav-icon" aria-hidden="true">🏠</span>
                   <span className="nav-label">홈</span>
                 </button>
                 <button
@@ -2616,6 +2588,7 @@ const App: React.FC = () => {
                     window.location.hash = "#/parent/timeline";
                   }}
                 >
+                  <span className="nav-icon" aria-hidden="true">🕒</span>
                   <span className="nav-label">타임라인</span>
                 </button>
                 <button
@@ -2630,6 +2603,7 @@ const App: React.FC = () => {
                     window.location.hash = "#/parent/guide";
                   }}
                 >
+                  <span className="nav-icon" aria-hidden="true">💡</span>
                   <span className="nav-label">가이드</span>
                 </button>
                 <button
@@ -2644,6 +2618,7 @@ const App: React.FC = () => {
                     window.location.hash = "#/parent/profile";
                   }}
                 >
+                  <span className="nav-icon" aria-hidden="true">👤</span>
                   <span className="nav-label">프로필</span>
                 </button>
                 <button
@@ -2655,6 +2630,7 @@ const App: React.FC = () => {
                     window.location.hash = "#/parent";
                   }}
                 >
+                  <span className="nav-icon" aria-hidden="true">↩︎</span>
                   <span className="nav-label">기본</span>
                 </button>
               </>
@@ -2672,7 +2648,7 @@ const App: React.FC = () => {
                     window.location.hash = "#/parent";
                   }}
                 >
-                  <span className="nav-icon">●</span>
+                  <span className="nav-icon" aria-hidden="true">🔗</span>
                   <span className="nav-label">연결</span>
                 </button>
                 <button
@@ -2684,6 +2660,7 @@ const App: React.FC = () => {
                     window.location.hash = "#/parent/home";
                   }}
                 >
+                  <span className="nav-icon" aria-hidden="true">🤖</span>
                   <span className="nav-label">코치</span>
                 </button>
                 <button
@@ -2698,6 +2675,7 @@ const App: React.FC = () => {
                     window.location.hash = "#/parent/report";
                   }}
                 >
+                  <span className="nav-icon" aria-hidden="true">📄</span>
                   <span className="nav-label">리포트</span>
                 </button>
               </>
