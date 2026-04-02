@@ -162,7 +162,13 @@ function HomeTab() {
                 labelFormatter={l => `날짜 ${String(l).slice(5)}`}
                 formatter={(v: any, k: any) => [v, k === "concentration" ? "집중(%)" : k]}
               />
-              <Line type="monotone" dataKey="concentration" stroke="rgba(78, 70, 229, 0.95)" strokeWidth={3} dot={false} />
+              <Line
+                type="monotone"
+                dataKey="concentration"
+                stroke="var(--accent-strong)"
+                strokeWidth={3}
+                dot={false}
+              />
             </LineChart>
           </ResponsiveContainer>
         </div>
