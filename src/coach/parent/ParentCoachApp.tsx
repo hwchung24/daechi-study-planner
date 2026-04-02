@@ -6,16 +6,9 @@ import { buildParentGuide } from "../ai/parent-guide";
 import { useCoachStore } from "../state/useCoachStore";
 import type { DailyLog } from "../types";
 import { Card, EmptyState, GradientHeroCard, MetricCard, RiskBadge, SectionHeader, StatPill } from "../ui/components";
-import { CoachIcons } from "../ui/icons";
+import { formatMinutes } from "../utils/format";
 
 export type ParentTabKey = "home" | "timeline" | "guide" | "profile";
-
-function formatMinutes(n: number) {
-  const h = Math.floor(n / 60);
-  const m = n % 60;
-  if (h <= 0) return `${m}분`;
-  return `${h}시간 ${m}분`;
-}
 
 function buildTimeline(logs7d: DailyLog[]) {
   const last = logs7d[logs7d.length - 1];
@@ -208,15 +201,7 @@ function ProfileTab() {
 
 export function ParentCoachApp(props: {
   tab: ParentTabKey;
-  onTabChange: (t: ParentTabKey) => void;
 }) {
-  const tabs: Array<{ key: ParentTabKey; label: string; icon: any }> = [
-    { key: "home", label: "홈", icon: CoachIcons.Home },
-    { key: "timeline", label: "타임라인", icon: CoachIcons.Timeline },
-    { key: "guide", label: "가이드", icon: CoachIcons.Sparkles },
-    { key: "profile", label: "프로필", icon: CoachIcons.Profile }
-  ];
-
   const view = useMemo(() => {
     const map: Record<ParentTabKey, React.ReactNode> = {
       home: <ParentHome />,

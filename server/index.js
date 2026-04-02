@@ -62,8 +62,7 @@ const {
 } = require("./lockService");
 const {
   findDeviceBySerial,
-  findAppByBundleId,
-  findAppByName,
+  findAppByBundleIdOrName,
   findInstalledAppForDevice,
   createAppInCatalog,
   createAssignmentGroup,
@@ -145,6 +144,33 @@ function buildCoachSnapshot(profile, logs = []) {
     },
     nextActions
   };
+}
+
+function isIsoDate(v) {
+  return /^\d{4}-\d{2}-\d{2}$/.test(String(v || ""));
+}
+
+function toNullableString(v, maxLen = 200) {
+  const s = String(v ?? "").trim();
+  if (!s) return null;
+  return s.slice(0, maxLen);
+}
+
+function toNullableNumber(v, min, max) {
+  if (v === undefined || v === null || v === "") return null;
+  const n = Number(v);
+  if (!Number.isFinite(n)) return null;
+  if (n < min || n > max) return null;
+  return n;
+}
+
+function sanitizeStringArray(value, maxItems = 12, maxLen = 30) {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map(v => String(v || "").trim())
+    .filter(Boolean)
+    .slice(0, maxItems)
+    .map(v => v.slice(0, maxLen));
 }
 
 async function applySchemaIfNeeded() {
@@ -465,6 +491,11 @@ app.get("/api/week", authMiddleware, async (req, res) => {
         .json({ error: "start 쿼리 파라미터(YYYY-MM-DD)가 필요합니다." });
     }
     const startDate = new Date(start);
+    if (Number.isNaN(startDate.getTime())) {
+      return res
+        .status(400)
+        .json({ error: "start 형식이 올바르지 않습니다. (YYYY-MM-DD)" });
+    }
     const endDate = new Date(startDate.getTime());
     endDate.setDate(startDate.getDate() + 6);
     const end = `${endDate.getFullYear()}-${String(
@@ -663,6 +694,11 @@ app.get("/api/parent/week", authMiddleware, async (req, res) => {
     if (!has) return res.status(403).json({ error: "연결된 학생이 아닙니다." });
 
     const startDate = new Date(start);
+    if (Number.isNaN(startDate.getTime())) {
+      return res
+        .status(400)
+        .json({ error: "start 형식이 올바르지 않습니다. (YYYY-MM-DD)" });
+    }
     const endDate = new Date(startDate.getTime());
     endDate.setDate(startDate.getDate() + 6);
     const end = `${endDate.getFullYear()}-${String(endDate.getMonth() + 1).padStart(2, "0")}-${String(endDate.getDate()).padStart(2, "0")}`;
@@ -965,7 +1001,22 @@ app.put("/api/student/coach/profile", authMiddleware, async (req, res) => {
     if (!me || me.role !== "student") {
       return res.status(403).json({ error: "권한이 없습니다." });
     }
-    const saved = await upsertStudentCoachProfile(req.userId, req.body || {});
+    const input = req.body || {};
+    const profileInput = {
+      name: toNullableString(input.name, 40),
+      schoolLevel: toNullableString(input.schoolLevel, 10),
+      grade: toNullableNumber(input.grade, 1, 12),
+      goal: toNullableString(input.goal, 200),
+      targetSubjects: sanitizeStringArray(input.targetSubjects, 10, 30),
+      weakSubjects: sanitizeStringArray(input.weakSubjects, 10, 30),
+      sleepTime: /^\d{2}:\d{2}$/.test(String(input.sleepTime || ""))
+        ? String(input.sleepTime)
+        : null,
+      wakeTime: /^\d{2}:\d{2}$/.test(String(input.wakeTime || ""))
+        ? String(input.wakeTime)
+        : null
+    };
+    const saved = await upsertStudentCoachProfile(req.userId, profileInput);
     res.json({ ok: true, profile: saved });
   } catch (e) {
     console.error("/api/student/coach/profile error", e);
@@ -979,7 +1030,23 @@ app.post("/api/student/coach/log", authMiddleware, async (req, res) => {
     if (!me || me.role !== "student") {
       return res.status(403).json({ error: "권한이 없습니다." });
     }
-    const row = await insertStudentCoachLog(req.userId, req.body || {});
+    const body = req.body || {};
+    if (body.date && !isIsoDate(body.date)) {
+      return res.status(400).json({ error: "date 형식은 YYYY-MM-DD여야 합니다." });
+    }
+    const logInput = {
+      date: body.date ? String(body.date) : null,
+      sleepHours: toNullableNumber(body.sleepHours, 0, 24),
+      steps: toNullableNumber(body.steps, 0, 200000),
+      mealsRegularity: toNullableNumber(body.mealsRegularity, 1, 5),
+      concentrationScore: toNullableNumber(body.concentrationScore, 1, 5),
+      stressScore: toNullableNumber(body.stressScore, 1, 5),
+      phoneDistractions: toNullableNumber(body.phoneDistractions, 0, 300),
+      studyMinutes: toNullableNumber(body.studyMinutes, 0, 1440),
+      planCompletionRate: toNullableNumber(body.planCompletionRate, 0, 100),
+      memo: toNullableString(body.memo, 1000)
+    };
+    const row = await insertStudentCoachLog(req.userId, logInput);
     res.json({ ok: true, log: row });
   } catch (e) {
     console.error("/api/student/coach/log error", e);
@@ -993,7 +1060,9 @@ app.post("/api/student/coach/chat", authMiddleware, async (req, res) => {
     if (!me || me.role !== "student") {
       return res.status(403).json({ error: "권한이 없습니다." });
     }
-    const text = String((req.body || {}).message || "").trim();
+    const text = String((req.body || {}).message || "")
+      .trim()
+      .slice(0, 1200);
     if (!text) {
       return res.status(400).json({ error: "message가 필요합니다." });
     }
@@ -1091,13 +1160,10 @@ app.put("/api/student/store-apps/:appId", authMiddleware, async (req, res) => {
     }
     let simpleMdmAppId = Number(appRow.simplemdm_app_id || 0);
     if (!simpleMdmAppId) {
-      let matchedApp = null;
-      if (appRow.bundle_id) {
-        matchedApp = await findAppByBundleId(appRow.bundle_id);
-      }
-      if (!matchedApp) {
-        matchedApp = await findAppByName(appRow.name);
-      }
+      let matchedApp = await findAppByBundleIdOrName(
+        appRow.bundle_id,
+        appRow.name
+      );
       if (!matchedApp) {
         matchedApp = await createAppInCatalog({
           appStoreId: appRow.app_store_id,

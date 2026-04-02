@@ -1,51 +1,9 @@
 import React from "react";
 import { getDateKey, getWeekDays, getWeekRangeLabel } from "../../lib/weekDates";
+import type { StudentLockStatus } from "../../types/lockStatus";
+import type { ProgressBook, ProgressPlan, StudyBlock } from "../../types/planner";
 
 export type TabKey = "today" | "week" | "store" | "settings";
-
-type StudyBlock = {
-  id: number;
-  subject: string;
-  start: string;
-  end: string;
-  done: boolean;
-};
-
-type ProgressBook = { id: number; name: string };
-
-type ProgressPlanValue = {
-  text: string;
-  start?: string;
-  end?: string;
-};
-
-type ProgressPlan = {
-  [bookId: number]: ProgressPlanValue;
-};
-
-type StudentLockStatus = {
-  locked: boolean;
-  reason: string;
-  timezone: string;
-  todayKey: string;
-  tomorrowKey: string;
-  rules: Array<{
-    parentUserId: number;
-    enabled: boolean;
-    lockTime: string;
-    desiredLocked: boolean;
-    reason: string;
-    tomorrowSubmitted: boolean;
-    scheduledFor: string;
-  }>;
-  sessions: Array<{
-    id: number;
-    status: string;
-    reason?: string | null;
-    locked_at?: string | null;
-    unlocked_at?: string | null;
-  }>;
-};
 
 type StudyStoreApp = {
   id: string;

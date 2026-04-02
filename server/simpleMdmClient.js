@@ -114,6 +114,22 @@ async function findAppByBundleId(bundleId) {
   );
 }
 
+async function findAppByBundleIdOrName(bundleId, name) {
+  const apps = await listApps();
+  const bundleTarget = normalizeSimpleMdmText(bundleId);
+  const nameTarget = normalizeSimpleMdmText(name);
+  return (
+    apps.find(
+      app =>
+        (bundleTarget &&
+          normalizeSimpleMdmText(app?.attributes?.bundle_identifier) ===
+            bundleTarget) ||
+        (nameTarget &&
+          normalizeSimpleMdmText(app?.attributes?.name) === nameTarget)
+    ) || null
+  );
+}
+
 async function listAppInstalls(appId) {
   const all = [];
   let startingAfter = null;
@@ -193,6 +209,7 @@ module.exports = {
   findDeviceBySerial,
   findAppByBundleId,
   findAppByName,
+  findAppByBundleIdOrName,
   findInstalledAppForDevice,
   createAppInCatalog,
   createAssignmentGroup,

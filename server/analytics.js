@@ -72,8 +72,9 @@ function computeWeeklyStats(input) {
   // 연속 결석일 수
   const dayHasStudy = new Map();
   for (const d of days) dayHasStudy.set(d.date, false);
+  const dayById = new Map(days.map(d => [d.id, d]));
   for (const b of blocks || []) {
-    const day = days.find(d => d.id === b.study_day_id);
+    const day = dayById.get(b.study_day_id);
     if (!day) continue;
     if (minutesDiff(b.start_time, b.end_time) > 0) {
       dayHasStudy.set(day.date, true);
@@ -152,8 +153,19 @@ function buildWeeklySummaryLines(stats) {
   return lines;
 }
 
+function buildWeeklyReportPrompt(stats) {
+  const baseJson = JSON.stringify(stats, null, 2);
+  return [
+    "다음은 한 학생의 1주일 학습 통계입니다.",
+    "이 내용을 바탕으로 학부모에게 보내는 4~5줄짜리 리포트를 한국어로 작성해 주세요.",
+    "",
+    baseJson
+  ].join("\n");
+}
+
 module.exports = {
   computeWeeklyStats,
-  buildWeeklySummaryLines
+  buildWeeklySummaryLines,
+  buildWeeklyReportPrompt
 };
 

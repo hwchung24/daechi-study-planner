@@ -18,7 +18,6 @@ import {
 } from "./lib/haptics";
 import {
   getInitialRoute,
-  getSerialFromLocation,
   injectSerialIntoLocation,
   parseCoachParentTabFromHash,
   parseCoachStudentTabFromHash,
@@ -30,15 +29,9 @@ import {
   scrubSerialFromLocation
 } from "./lib/hashRouteUtils";
 import { getDateKey, getWeekStartKey } from "./lib/weekDates";
+import { API_BASE } from "./lib/apiBase";
 import type { ParentLockStatus, StudentLockStatus } from "./types/lockStatus";
-
-type StudyBlock = {
-  id: number;
-  subject: string;
-  start: string;
-  end: string;
-  done: boolean;
-};
+import type { ProgressBook, ProgressPlan, StudyBlock } from "./types/planner";
 
 const presetSubjects = ["수학", "국어", "영어", "과탐", "사탐", "논술", "자습"];
 
@@ -52,25 +45,6 @@ type StudyStoreApp = {
   installedAt?: string | null;
   removedAt?: string | null;
 };
-
-type ProgressBook = {
-  id: number;
-  name: string;
-};
-
-type ProgressPlanValue = {
-  text: string;
-  start?: string;
-  end?: string;
-};
-
-type ProgressPlan = {
-  [bookId: number]: ProgressPlanValue;
-};
-
-const API_BASE = String(
-  (import.meta as any).env?.VITE_API_BASE || "http://localhost:3000"
-).replace(/\/+$/, "");
 
 type AppRoute = "student" | "parent" | "auth";
 
@@ -368,50 +342,6 @@ const App: React.FC = () => {
       window.location.hash = "";
     }
   }, [meRole]);
-
-  const rebuildBlocksFromPlan = (plan: ProgressPlan) => {
-    const plans = progressBooks.filter(book => {
-      const value = plan[book.id];
-      return value && value.text.trim().length > 0;
-    });
-    if (plans.length === 0) return;
-
-    const baseMinutes = 7 * 60;
-    const slotMinutes = 90;
-    const formatTime = (minutes: number) => {
-      const h = Math.floor(minutes / 60);
-      const m = minutes % 60;
-      return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
-    };
-
-    const nextBlocks: StudyBlock[] = plans.map((book, index) => {
-      const value = plan[book.id];
-      const hasTime = value?.start && value?.end;
-
-      const startMinutes = hasTime
-        ? (() => {
-            const [h, m] = (value.start as string).split(":").map(Number);
-            return h * 60 + m;
-          })()
-        : baseMinutes + slotMinutes * index;
-
-      const endMinutes = hasTime
-        ? (() => {
-            const [h, m] = (value.end as string).split(":").map(Number);
-            return h * 60 + m;
-          })()
-        : startMinutes + slotMinutes;
-      return {
-        id: Date.now() + index,
-        subject: book.name,
-        start: formatTime(startMinutes),
-        end: formatTime(endMinutes),
-        done: false
-      };
-    });
-
-    setBlocks(nextBlocks);
-  };
 
   // 오늘 타임라인을 서버로 동기화
   const syncBlocksToServer = async (nextBlocks: StudyBlock[]) => {
@@ -921,33 +851,11 @@ const App: React.FC = () => {
           {!roleLoading && coachStudentMode && coachStudentTab && (
             <StudentCoachApp
               tab={coachStudentTab}
-              onTabChange={t => {
-                hapticSelection();
-                setCoachStudentTab(t);
-                const path =
-                  t === "home"
-                    ? "home"
-                    : "coach";
-                window.location.hash = `#/student/${path}`;
-              }}
             />
           )}
           {!roleLoading && coachParentMode && coachParentTab && (
             <ParentCoachApp
               tab={coachParentTab}
-              onTabChange={t => {
-                hapticSelection();
-                setCoachParentTab(t);
-                const path =
-                  t === "home"
-                    ? "home"
-                    : t === "timeline"
-                      ? "timeline"
-                      : t === "guide"
-                        ? "guide"
-                        : "profile";
-                window.location.hash = `#/parent/${path}`;
-              }}
             />
           )}
           {!roleLoading && parentView && !coachParentMode && (
