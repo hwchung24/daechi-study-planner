@@ -58,6 +58,7 @@ const App: React.FC = () => {
   const [authToken, setAuthToken] = useState<string | null>(null);
   const [authMode, setAuthMode] = useState<"login" | "signup">("login");
   const [authRole, setAuthRole] = useState<"student" | "parent">("student");
+  const [authStudentName, setAuthStudentName] = useState("");
   const [authEmail, setAuthEmail] = useState("");
   const [authPassword, setAuthPassword] = useState("");
   const [authError, setAuthError] = useState("");
@@ -680,9 +681,15 @@ const App: React.FC = () => {
     e.preventDefault();
     const email = authEmail.trim().toLowerCase();
     const password = authPassword;
+    const studentName = authStudentName.trim();
     if (!email) {
       hapticWarning();
       setAuthError("이메일을 입력해 주세요.");
+      return;
+    }
+    if (authMode === "signup" && authRole === "student" && !studentName) {
+      hapticWarning();
+      setAuthError("학생 이름을 입력해 주세요.");
       return;
     }
     if (password.length < 4) {
@@ -702,6 +709,10 @@ const App: React.FC = () => {
             email,
             password,
             role: authMode === "signup" ? authRole : undefined,
+            name:
+              authMode === "signup" && authRole === "student"
+                ? studentName
+                : undefined,
             serial: resolvePreferredSerial() || undefined
           })
         }
@@ -754,6 +765,7 @@ const App: React.FC = () => {
           authLeaving={authLeaving}
           authMode={authMode}
           authRole={authRole}
+          authStudentName={authStudentName}
           authEmail={authEmail}
           authPassword={authPassword}
           authError={authError}
@@ -766,6 +778,7 @@ const App: React.FC = () => {
             hapticSelection();
             setAuthRole(role);
           }}
+          onStudentNameChange={setAuthStudentName}
           onEmailChange={setAuthEmail}
           onPasswordChange={setAuthPassword}
           onSubmit={handleAuthSubmit}

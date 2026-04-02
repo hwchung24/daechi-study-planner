@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useState } from "react";
 import { getDateKey, getWeekDays, getWeekRangeLabel } from "../../lib/weekDates";
 import type { StudentLockStatus } from "../../types/lockStatus";
 import type { ProgressBook, ProgressPlan, StudyBlock } from "../../types/planner";
@@ -14,6 +14,14 @@ type StudyStoreApp = {
   installed: boolean;
   installedAt?: string | null;
   removedAt?: string | null;
+};
+
+const storeAppIcons: Record<string, string> = {
+  "youtube-learning": "▶️",
+  "khan-academy": "🎓",
+  quizlet: "🧠",
+  notion: "🗒️",
+  "google-drive": "📁"
 };
 
 type StudentLinkRow = {
@@ -107,6 +115,61 @@ export function StudentLegacyView(props: {
     hapticSuccess,
     handleLogout
   } = props;
+  const [todaySleepHours, setTodaySleepHours] = useState("");
+  const [todayStress, setTodayStress] = useState("3");
+  const [todayConcentration, setTodayConcentration] = useState("3");
+  const [todayMemo, setTodayMemo] = useState("");
+  const [todayLogSaving, setTodayLogSaving] = useState(false);
+  const [todayLogMessage, setTodayLogMessage] = useState("");
+
+  const handleSaveTodayLog = async () => {
+    if (!authToken) return;
+    const sleepRaw = todaySleepHours.trim();
+    if (!sleepRaw) {
+      hapticWarning();
+      setTodayLogMessage("수면시간을 입력해 주세요.");
+      return;
+    }
+    const sleepHours = Number(sleepRaw);
+    if (!Number.isFinite(sleepHours) || sleepHours < 0 || sleepHours > 24) {
+      hapticWarning();
+      setTodayLogMessage("수면시간은 0~24시간 범위로 입력해 주세요.");
+      return;
+    }
+    setTodayLogSaving(true);
+    setTodayLogMessage("");
+    try {
+      const res = await fetch(`${apiBase}/api/student/coach/log`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${authToken}`
+        },
+        body: JSON.stringify({
+          date: getDateKey(0),
+          sleepHours,
+          stressScore: Number(todayStress),
+          concentrationScore: Number(todayConcentration),
+          memo: todayMemo.trim() || null
+        })
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        hapticWarning();
+        setTodayLogMessage(
+          (data as { error?: string }).error || "오늘 기록 저장에 실패했습니다."
+        );
+        return;
+      }
+      hapticSuccess();
+      setTodayLogMessage("오늘 기록이 저장되었습니다.");
+    } catch {
+      hapticWarning();
+      setTodayLogMessage("서버와 통신 중 오류가 발생했습니다.");
+    } finally {
+      setTodayLogSaving(false);
+    }
+  };
 
   return (
     <>
@@ -166,6 +229,73 @@ export function StudentLegacyView(props: {
                 </button>
               ))}
               {blocks.length === 0 && <p className="empty-state">아직 일정이 없어요.</p>}
+            </div>
+          </section>
+          <section className="section">
+            <div className="section-header">
+              <h2 className="section-title">오늘 기록</h2>
+            </div>
+            <div className="progress-card" style={{ marginTop: 12 }}>
+              <div className="field">
+                <label className="field-label">수면시간(시간)</label>
+                <input
+                  type="number"
+                  min={0}
+                  max={24}
+                  step={0.5}
+                  className="field-input"
+                  value={todaySleepHours}
+                  onChange={e => setTodaySleepHours(e.target.value)}
+                />
+              </div>
+              <div className="field" style={{ marginTop: 10 }}>
+                <label className="field-label">스트레스(1~5)</label>
+                <input
+                  type="number"
+                  min={1}
+                  max={5}
+                  step={1}
+                  className="field-input"
+                  value={todayStress}
+                  onChange={e => setTodayStress(e.target.value)}
+                />
+              </div>
+              <div className="field" style={{ marginTop: 10 }}>
+                <label className="field-label">집중도(1~5)</label>
+                <input
+                  type="number"
+                  min={1}
+                  max={5}
+                  step={1}
+                  className="field-input"
+                  value={todayConcentration}
+                  onChange={e => setTodayConcentration(e.target.value)}
+                />
+              </div>
+              <div className="field" style={{ marginTop: 10 }}>
+                <label className="field-label">회고 메모</label>
+                <textarea
+                  className="field-input"
+                  value={todayMemo}
+                  onChange={e => setTodayMemo(e.target.value)}
+                  rows={4}
+                  style={{ resize: "vertical" }}
+                />
+              </div>
+              <button
+                type="button"
+                className="progress-footer-btn"
+                style={{ marginTop: 12 }}
+                disabled={todayLogSaving}
+                onClick={handleSaveTodayLog}
+              >
+                {todayLogSaving ? "저장 중..." : "오늘 기록 저장"}
+              </button>
+              {todayLogMessage && (
+                <p className="settings-hint" style={{ marginTop: 8 }}>
+                  {todayLogMessage}
+                </p>
+              )}
             </div>
           </section>
         </>
@@ -282,12 +412,8 @@ export function StudentLegacyView(props: {
         <section className="section">
           <div className="section-header">
             <h2 className="section-title">추천 학습 앱</h2>
-            <span className="section-caption">학습 전용으로 선별된 앱 목록</span>
+            <span className="section-caption">앱 목록</span>
           </div>
-          <p className="store-notice">
-            원격 설치나 삭제는 MDM 처리 때문에 바로 반영되지 않을 수 있어요. 보통 몇 분 뒤에
-            기기에 반영됩니다.
-          </p>
           {storeError && <p className="empty-state">{storeError}</p>}
           {storeLoading && <p className="empty-state">앱 목록을 불러오는 중…</p>}
           <div className="store-grid">
@@ -295,15 +421,13 @@ export function StudentLegacyView(props: {
               <article key={app.id} className="store-card">
                 <div className="store-card-top">
                   <span className="store-chip">{app.category}</span>
-                  <h3 className="store-title">{app.name}</h3>
+                  <h3 className="store-title">
+                    <span aria-hidden style={{ marginRight: 8 }}>
+                      {storeAppIcons[app.id] || "📱"}
+                    </span>
+                    {app.name}
+                  </h3>
                 </div>
-                <p className="store-desc">{app.description}</p>
-                {app.installed && (
-                  <p className="store-meta">
-                    설치된 앱은 여기서 삭제할 수 있어요. 설치나 삭제는 몇 분 뒤 기기에
-                    반영될 수 있어요.
-                  </p>
-                )}
                 <div className="store-actions">
                   <button
                     type="button"

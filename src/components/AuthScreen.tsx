@@ -7,11 +7,13 @@ export function AuthScreen(props: {
   authLeaving: boolean;
   authMode: AuthMode;
   authRole: AuthRole;
+  authStudentName: string;
   authEmail: string;
   authPassword: string;
   authError: string;
   onModeChange: (mode: AuthMode) => void;
   onRoleChange: (role: AuthRole) => void;
+  onStudentNameChange: (value: string) => void;
   onEmailChange: (value: string) => void;
   onPasswordChange: (value: string) => void;
   onSubmit: (e: React.FormEvent<HTMLFormElement>) => void;
@@ -20,11 +22,13 @@ export function AuthScreen(props: {
     authLeaving,
     authMode,
     authRole,
+    authStudentName,
     authEmail,
     authPassword,
     authError,
     onModeChange,
     onRoleChange,
+    onStudentNameChange,
     onEmailChange,
     onPasswordChange,
     onSubmit
@@ -107,6 +111,19 @@ export function AuthScreen(props: {
           </div>
         </div>
         <form className="auth-form" onSubmit={onSubmit}>
+          {authMode === "signup" && authRole === "student" && (
+            <div className="auth-field">
+              <label htmlFor="auth-student-name">학생 이름</label>
+              <input
+                id="auth-student-name"
+                type="text"
+                className="auth-input"
+                autoComplete="name"
+                value={authStudentName}
+                onChange={e => onStudentNameChange(e.target.value)}
+              />
+            </div>
+          )}
           <div className="auth-field">
             <label htmlFor="auth-email">이메일</label>
             <input
@@ -116,7 +133,6 @@ export function AuthScreen(props: {
               autoComplete="username"
               value={authEmail}
               onChange={e => onEmailChange(e.target.value)}
-              placeholder="student@example.com"
             />
           </div>
           <div className="auth-field">
@@ -128,7 +144,6 @@ export function AuthScreen(props: {
               autoComplete="current-password"
               value={authPassword}
               onChange={e => onPasswordChange(e.target.value)}
-              placeholder="4자 이상"
             />
           </div>
           {authError && <div className="auth-error">{authError}</div>}

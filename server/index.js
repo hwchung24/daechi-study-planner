@@ -339,7 +339,7 @@ function authMiddleware(req, res, next) {
 
 app.post("/auth/register", async (req, res) => {
   try {
-    const { email, password, role, serial } = req.body || {};
+    const { email, password, role, serial, name } = req.body || {};
     if (!email || !password) {
       return res
         .status(400)
@@ -364,6 +364,12 @@ app.post("/auth/register", async (req, res) => {
     const safeRole =
       role === "parent" || role === "student" ? role : "student";
     const userId = await createUser(trimmedEmail, hash, safeRole);
+    if (safeRole === "student") {
+      const studentName = String(name || "").trim().slice(0, 40);
+      if (studentName) {
+        await upsertStudentCoachProfile(userId, { name: studentName });
+      }
+    }
     if (isLikelySerial(serial)) {
       await linkDeviceToUserBySerial(userId, String(serial).trim()).catch(err => {
         console.warn("device link skipped on register body:", err.message);

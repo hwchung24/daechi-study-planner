@@ -159,22 +159,6 @@ function HomeTabConnected() {
             : ("neutral" as const)
     },
     {
-      title: "활동량",
-      value:
-        Number(remoteMetrics?.steps || 0) > 0
-          ? `${Math.round(Number(remoteMetrics?.steps) / 100) / 10}k`
-          : last
-            ? `${Math.round(last.steps / 100) / 10}k`
-            : "-",
-      hint: "걸음 수",
-      tone:
-        Number(remoteMetrics?.steps || 0) > 0
-          ? toneFromScore(Number(remoteMetrics?.steps), 5500, 2800)
-          : last
-            ? toneFromScore(last.steps, 5500, 2800)
-            : ("neutral" as const)
-    },
-    {
       title: "스트레스 지수",
       value:
         Number(remoteMetrics?.stress || 0) > 0
@@ -191,21 +175,6 @@ function HomeTabConnected() {
             ? last.stressScore >= 4
               ? ("warn" as const)
               : ("neutral" as const)
-            : ("neutral" as const)
-    },
-    {
-      title: "식사 규칙성",
-      value:
-        Number(remoteMetrics?.mealsRegularity || 0) > 0
-          ? `${Number(remoteMetrics?.mealsRegularity).toFixed(1)}/5`
-          : last
-            ? `${last.mealsRegularity}/5`
-            : "-",
-      tone:
-        Number(remoteMetrics?.mealsRegularity || 0) > 0
-          ? toneFromScore(Number(remoteMetrics?.mealsRegularity), 4, 2)
-          : last
-            ? toneFromScore(last.mealsRegularity, 4, 2)
             : ("neutral" as const)
     },
     {
@@ -256,7 +225,7 @@ function HomeTabConnected() {
   return (
     <div className="coach-page">
       <Card className="coach-card coach-card--padded" style={{ marginBottom: 14 }}>
-        <SectionHeader title="프로필" subtitle="학습 목표와 과목 정보를 확인할 수 있어요." />
+        <SectionHeader title="프로필" />
         <div className="coach-profile">
           <div className="coach-profile__name">{profile?.name || student.name}</div>
           <div className="coach-profile__meta">
@@ -287,7 +256,7 @@ function HomeTabConnected() {
         eyebrow="AI 분석 결과"
         title={`${profile?.name || student.name}님, 오늘의 핵심`}
         body={heroNarrative}
-        ctaLabel="맞춤 솔루션 시작하기"
+        ctaLabel="시작"
         onCta={() => {
           const el = document.getElementById("coach-actions");
           el?.scrollIntoView({ behavior: "smooth", block: "start" });
@@ -304,7 +273,7 @@ function HomeTabConnected() {
       </div>
 
       <Card className="coach-card coach-card--padded">
-        <SectionHeader title="이번 주 리듬" subtitle={insight.summarySentence} right={<StatPill label="리스크" value={insight.riskLevel} />} />
+        <SectionHeader title="이번 주 리듬" right={<StatPill label="리스크" value={insight.riskLevel} />} />
         <div className="coach-chart">
           <ResponsiveContainer width="100%" height={160}>
             <LineChart data={insight.metrics7d}>
@@ -326,7 +295,7 @@ function HomeTabConnected() {
       </Card>
 
       <div className="coach-stack">
-        <SectionHeader title="감지된 패턴" subtitle="지금은 ‘의지’보다 ‘구조’가 먼저입니다." />
+        <SectionHeader title="감지된 패턴" />
         <div className="coach-pattern-grid">
           {insight.patterns.slice(0, 6).map(p => (
             <PatternCard
@@ -343,12 +312,11 @@ function HomeTabConnected() {
       <div className="coach-stack" id="coach-actions">
         <SectionHeader
           title="AI 추천 다음 행동"
-          subtitle="오늘은 ‘무엇을 더 할까’보다, ‘무엇부터 시작할까’가 더 중요해요."
         />
         {(remoteActions.length > 0 ? remoteActions : insight.nextActions).length ? (
           <ActionChecklist actions={remoteActions.length > 0 ? remoteActions : insight.nextActions} />
         ) : (
-          <EmptyState title="추천 행동을 만들 데이터가 더 필요해요." body="일일 기록을 2~3일만 쌓아도 정확도가 올라갑니다." />
+          <EmptyState title="추천 행동이 없습니다." />
         )}
       </div>
     </div>
@@ -464,15 +432,21 @@ function CoachChatTabConnected() {
       <div className="coach-chat-input">
         <input
           className="coach-chat-text"
-          placeholder="예: 오늘 집중이 안 된 이유가 뭐야?"
           value={draft}
           onChange={e => setDraft(e.target.value)}
           onKeyDown={e => {
             if (e.key === "Enter") send(draft);
           }}
         />
-        <button type="button" className="coach-primary-btn coach-primary-btn--sm" onClick={() => send(draft)} disabled={typing}>
-          보내기
+        <button
+          type="button"
+          className="coach-primary-btn coach-primary-btn--sm"
+          onClick={() => send(draft)}
+          disabled={typing}
+          aria-label="메시지 보내기"
+          title="보내기"
+        >
+          <span aria-hidden>➤</span>
         </button>
       </div>
     </div>
