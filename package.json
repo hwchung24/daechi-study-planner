@@ -16,9 +16,14 @@
     "@capacitor/core": "^6.2.0",
     "@capacitor/haptics": "^6.0.3",
     "@capacitor/ios": "^6.2.0",
+    "framer-motion": "^12.38.0",
+    "lucide-react": "^1.7.0",
     "node-cron": "^4.2.1",
     "react": "^18.3.1",
-    "react-dom": "^18.3.1"
+    "react-dom": "^18.3.1",
+    "recharts": "^3.8.1",
+    "zod": "^4.3.6",
+    "zustand": "^5.0.12"
   },
   "devDependencies": {
     "@capacitor/cli": "^8.2.0",

@@ -3,6 +3,8 @@ import { Capacitor } from "@capacitor/core";
 import { AppConfig } from "@capacitor-community/mdm-appconfig";
 import SplashScreen from "./SplashScreen";
 import { useOnlineStatus } from "./hooks/useOnlineStatus";
+import { StudentCoachApp, type StudentTabKey as CoachStudentTabKey } from "./coach/student/StudentCoachApp";
+import { ParentCoachApp, type ParentTabKey as CoachParentTabKey } from "./coach/parent/ParentCoachApp";
 import {
   hapticImpactLight,
   hapticImpactMedium,
@@ -49,6 +51,45 @@ type ProgressPlan = {
   [bookId: number]: ProgressPlanValue;
 };
 
+type StudentLockRule = {
+  parentUserId: number;
+  enabled: boolean;
+  lockTime: string;
+  desiredLocked: boolean;
+  reason: string;
+  tomorrowSubmitted: boolean;
+  scheduledFor: string;
+};
+
+type StudentLockStatus = {
+  locked: boolean;
+  reason: string;
+  timezone: string;
+  todayKey: string;
+  tomorrowKey: string;
+  rules: StudentLockRule[];
+  sessions: Array<{
+    id: number;
+    status: string;
+    reason?: string | null;
+    locked_at?: string | null;
+    unlocked_at?: string | null;
+  }>;
+};
+
+type ParentLockStatus = {
+  locked: boolean;
+  timezone: string;
+  rule?: StudentLockRule | null;
+  session?: {
+    id: number;
+    status: string;
+    reason?: string | null;
+    locked_at?: string | null;
+    unlocked_at?: string | null;
+  } | null;
+};
+
 const API_BASE = String(
   (import.meta as any).env?.VITE_API_BASE || "http://localhost:3000"
 ).replace(/\/+$/, "");
@@ -57,6 +98,36 @@ const DEVICE_SERIAL_STORAGE_KEY = "daechi_device_serial";
 type AppRoute = "student" | "parent" | "auth";
 
 type ParentTabKey = "link" | "report";
+
+function parseCoachStudentTabFromHash(): CoachStudentTabKey | null {
+  if (typeof window === "undefined") return null;
+  const h = window.location.hash;
+  if (!h.startsWith("#/student/")) return null;
+  const path = h.slice("#/student/".length).split("?")[0];
+  const seg = (path || "home").replace(/^\/+/, "");
+  if (seg === "home") return "home";
+  if (seg === "insights") return "insights";
+  if (seg === "actions") return "actions";
+  if (seg === "coach" || seg === "chat") return "coach";
+  if (seg === "profile") return "profile";
+  if (seg === "log") return "log";
+  return "home";
+}
+
+function parseCoachParentTabFromHash(): CoachParentTabKey | null {
+  if (typeof window === "undefined") return null;
+  const h = window.location.hash;
+  // 기존 학부모 화면(#/parent, #/parent/report)은 유지
+  if (h === "#/parent" || h === "#/parent/report") return null;
+  if (!h.startsWith("#/parent/")) return null;
+  const path = h.slice("#/parent/".length).split("?")[0];
+  const seg = (path || "home").replace(/^\/+/, "");
+  if (seg === "home") return "home";
+  if (seg === "timeline") return "timeline";
+  if (seg === "guide") return "guide";
+  if (seg === "profile") return "profile";
+  return "home";
+}
 
 function parseRouteFromHash(): AppRoute {
   if (typeof window === "undefined") return "student";
@@ -187,9 +258,6 @@ function persistSerial(serial: string) {
 let splashCompletedModule = false;
 
 const App: React.FC = () => {
-  const now = new Date();
-  const hour = now.getHours();
-  const isSetupWindow = hour >= 21; // 전날 밤 9시 이후는 세팅 시간
   const online = useOnlineStatus();
 
   const [userEmail, setUserEmail] = useState<string | null>(null);
@@ -256,6 +324,12 @@ const App: React.FC = () => {
   const [parentTab, setParentTab] = useState<ParentTabKey>(() =>
     parseParentTabFromHash()
   );
+  const [coachStudentTab, setCoachStudentTab] = useState<CoachStudentTabKey | null>(
+    () => parseCoachStudentTabFromHash()
+  );
+  const [coachParentTab, setCoachParentTab] = useState<CoachParentTabKey | null>(
+    () => parseCoachParentTabFromHash()
+  );
 
   type ParentLinkRow = {
     id: number;
@@ -287,8 +361,13 @@ const App: React.FC = () => {
   const [storeLoading, setStoreLoading] = useState(false);
   const [storeSavingId, setStoreSavingId] = useState<string | null>(null);
   const [storeError, setStoreError] = useState("");
+  const [studentLockStatus, setStudentLockStatus] =
+    useState<StudentLockStatus | null>(null);
+  const [studentLockMessage, setStudentLockMessage] = useState("");
+  const [parentLockStatus, setParentLockStatus] =
+    useState<ParentLockStatus | null>(null);
 
-  const isLocked = !isSetupWindow && !editUnlocked;
+  const isLocked = Boolean(studentLockStatus?.locked);
 
   useEffect(() => {
     try {
@@ -339,6 +418,8 @@ const App: React.FC = () => {
       }
       setRoute(parseRouteFromHash());
       setParentTab(parseParentTabFromHash());
+      setCoachStudentTab(parseCoachStudentTabFromHash());
+      setCoachParentTab(parseCoachParentTabFromHash());
     };
     const onHash = () => syncRouteFromHash();
     window.addEventListener("hashchange", onHash);
@@ -418,6 +499,34 @@ const App: React.FC = () => {
       }
     };
     run();
+  }, [authToken, meRole]);
+
+  useEffect(() => {
+    if (!authToken || meRole !== "student") return;
+    let cancelled = false;
+    const run = async () => {
+      try {
+        const res = await fetch(`${API_BASE}/api/student/lock-status`, {
+          headers: { Authorization: `Bearer ${authToken}` }
+        });
+        if (!res.ok) return;
+        const data = await res.json();
+        if (!cancelled) {
+          setStudentLockStatus(data.lockStatus || null);
+          if (!data.lockStatus?.locked) {
+            setStudentLockMessage("");
+          }
+        }
+      } catch {
+        // ignore
+      }
+    };
+    run();
+    const timerId = window.setInterval(run, 30000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timerId);
+    };
   }, [authToken, meRole]);
 
   // 학부모 계정이면 항상 학부모 페이지로 (학습 플래너 대신)
@@ -558,7 +667,7 @@ const App: React.FC = () => {
   const syncBlocksToServer = async (nextBlocks: StudyBlock[]) => {
     if (!authToken) return;
     try {
-      await fetch(`${API_BASE}/api/blocks`, {
+      const res = await fetch(`${API_BASE}/api/blocks`, {
         method: "PUT",
         headers: {
           "Content-Type": "application/json",
@@ -575,6 +684,19 @@ const App: React.FC = () => {
           }))
         })
       });
+      if (res.status === 423) {
+        const data = await res.json().catch(() => ({}));
+        setStudentLockStatus(data.lockStatus || null);
+        setStudentLockMessage(
+          data.error || "잠금 상태에서는 오늘 계획을 수정할 수 없습니다."
+        );
+      } else if (res.ok) {
+        const data = await res.json().catch(() => ({}));
+        if (data.lockStatus) {
+          setStudentLockStatus(data.lockStatus);
+        }
+        setStudentLockMessage("");
+      }
     } catch {
       // 네트워크 오류는 일단 무시하고 로컬 상태만 유지
     }
@@ -792,6 +914,7 @@ const App: React.FC = () => {
         if (!rule) return;
         setParentPlannerEnabled(Boolean(rule.enabled));
         setParentPlannerTime(String(rule.lockTime || "21:00").slice(0, 5));
+        setParentLockStatus(data.lockStatus || null);
         setParentPlannerMessage("");
       } catch {
         // ignore
@@ -826,6 +949,10 @@ const App: React.FC = () => {
   };
 
   const handleAdd = () => {
+    if (isLocked) {
+      setShowRequestModal(true);
+      return;
+    }
     if (!subjectInput.trim()) return;
     hapticImpactLight();
     setBlocks(prev => {
@@ -859,6 +986,9 @@ const App: React.FC = () => {
   const parentView = meRole === "parent" || route === "parent";
   const showStudentShell =
     route !== "auth" && !roleLoading && !parentView;
+  const coachStudentMode = showStudentShell && coachStudentTab !== null;
+  const coachParentMode =
+    !roleLoading && parentView && meRole === "parent" && coachParentTab !== null;
 
   useEffect(() => {
     if (!mainEnter) return;
@@ -1107,14 +1237,38 @@ const App: React.FC = () => {
                 {!roleLoading &&
                   parentView &&
                   (meRole === "parent"
-                    ? parentTab === "link"
-                      ? "자녀 연결"
-                      : "AI 리포트"
+                    ? coachParentMode
+                      ? coachParentTab === "timeline"
+                        ? "학습 타임라인"
+                        : coachParentTab === "guide"
+                          ? "대화 가이드"
+                          : coachParentTab === "profile"
+                            ? "학부모 프로필"
+                            : "학부모 홈"
+                      : parentTab === "link"
+                        ? "자녀 연결"
+                        : "AI 리포트"
                     : "학부모")}
-                {showStudentShell && tab === "today" && "오늘 공부"}
-                {showStudentShell && tab === "week" && "이번 주"}
-                {showStudentShell && tab === "store" && "학습 앱스토어"}
-                {showStudentShell && tab === "settings" && "설정"}
+                {showStudentShell &&
+                  (coachStudentMode
+                    ? coachStudentTab === "insights"
+                      ? "인사이트"
+                      : coachStudentTab === "actions"
+                        ? "다음 행동"
+                        : coachStudentTab === "coach"
+                          ? "AI 코치"
+                          : coachStudentTab === "profile"
+                            ? "프로필"
+                            : coachStudentTab === "log"
+                              ? "일일 기록"
+                              : "학생 홈"
+                    : tab === "today"
+                      ? "오늘 공부"
+                      : tab === "week"
+                        ? "이번 주"
+                        : tab === "store"
+                          ? "학습 앱스토어"
+                          : "설정")}
               </h1>
             </div>
             <div className="profile-chip">
@@ -1127,7 +1281,7 @@ const App: React.FC = () => {
             </div>
           </div>
 
-          {showStudentShell && tab === "today" && (
+          {showStudentShell && !coachStudentMode && tab === "today" && (
             <div className="progress-card">
               <div className="progress-row">
                 <span className="progress-label">진행률</span>
@@ -1152,7 +1306,47 @@ const App: React.FC = () => {
           {roleLoading && (
             <p className="empty-state">불러오는 중…</p>
           )}
-          {!roleLoading && parentView && (
+          {!roleLoading && coachStudentMode && coachStudentTab && (
+            <StudentCoachApp
+              tab={coachStudentTab}
+              onTabChange={t => {
+                hapticSelection();
+                setCoachStudentTab(t);
+                const path =
+                  t === "home"
+                    ? "home"
+                    : t === "insights"
+                      ? "insights"
+                      : t === "actions"
+                        ? "actions"
+                        : t === "coach"
+                          ? "coach"
+                          : t === "profile"
+                            ? "profile"
+                            : "log";
+                window.location.hash = `#/student/${path}`;
+              }}
+            />
+          )}
+          {!roleLoading && coachParentMode && coachParentTab && (
+            <ParentCoachApp
+              tab={coachParentTab}
+              onTabChange={t => {
+                hapticSelection();
+                setCoachParentTab(t);
+                const path =
+                  t === "home"
+                    ? "home"
+                    : t === "timeline"
+                      ? "timeline"
+                      : t === "guide"
+                        ? "guide"
+                        : "profile";
+                window.location.hash = `#/parent/${path}`;
+              }}
+            />
+          )}
+          {!roleLoading && parentView && !coachParentMode && (
             <>
               {meRole !== "parent" ? (
                 <section className="section">
@@ -1504,6 +1698,7 @@ const App: React.FC = () => {
                                     );
                                     return;
                                   }
+                                  setParentLockStatus(data.lockStatus || null);
                                   setParentPlannerMessage("설정이 저장되었습니다.");
                                 } catch {
                                   setParentPlannerMessage(
@@ -1520,6 +1715,79 @@ const App: React.FC = () => {
                               <p className="settings-hint" style={{ marginTop: 8 }}>
                                 {parentPlannerMessage}
                               </p>
+                            )}
+                            {parentLockStatus && (
+                              <div style={{ marginTop: 10 }}>
+                                <p className="settings-hint">
+                                  현재 상태: {parentLockStatus.locked ? "잠김" : "열림"}
+                                </p>
+                                <p className="settings-hint">
+                                  마지막 변경:{" "}
+                                  {parentLockStatus.session?.unlocked_at ||
+                                    parentLockStatus.session?.locked_at ||
+                                    "아직 없음"}
+                                </p>
+                                <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
+                                  <button
+                                    type="button"
+                                    className="progress-footer-btn"
+                                    onClick={async () => {
+                                      if (!authToken || !parentStudentId) return;
+                                      const res = await fetch(
+                                        `${API_BASE}/api/parent/lock-now`,
+                                        {
+                                          method: "POST",
+                                          headers: {
+                                            "Content-Type": "application/json",
+                                            Authorization: `Bearer ${authToken}`
+                                          },
+                                          body: JSON.stringify({ studentId: parentStudentId })
+                                        }
+                                      );
+                                      const data = await res.json().catch(() => ({}));
+                                      if (!res.ok) {
+                                        setParentPlannerMessage(
+                                          data.error || "수동 잠금에 실패했습니다."
+                                        );
+                                        return;
+                                      }
+                                      setParentLockStatus(data.lockStatus || null);
+                                      setParentPlannerMessage("학생 기기를 잠금 상태로 전환했습니다.");
+                                    }}
+                                  >
+                                    지금 잠그기
+                                  </button>
+                                  <button
+                                    type="button"
+                                    className="progress-footer-btn"
+                                    onClick={async () => {
+                                      if (!authToken || !parentStudentId) return;
+                                      const res = await fetch(
+                                        `${API_BASE}/api/parent/unlock-now`,
+                                        {
+                                          method: "POST",
+                                          headers: {
+                                            "Content-Type": "application/json",
+                                            Authorization: `Bearer ${authToken}`
+                                          },
+                                          body: JSON.stringify({ studentId: parentStudentId })
+                                        }
+                                      );
+                                      const data = await res.json().catch(() => ({}));
+                                      if (!res.ok) {
+                                        setParentPlannerMessage(
+                                          data.error || "수동 해제에 실패했습니다."
+                                        );
+                                        return;
+                                      }
+                                      setParentLockStatus(data.lockStatus || null);
+                                      setParentPlannerMessage("학생 기기 잠금을 해제했습니다.");
+                                    }}
+                                  >
+                                    지금 해제
+                                  </button>
+                                </div>
+                              </div>
                             )}
                           </div>
 
@@ -1648,7 +1916,30 @@ const App: React.FC = () => {
             </>
           )}
 
-          {showStudentShell && tab === "today" && (
+          {showStudentShell && !coachStudentMode && studentLockStatus?.locked && (
+            <section className="section">
+              <div className="progress-card">
+                <div className="section-header">
+                  <h2 className="section-title">잠금 상태</h2>
+                </div>
+                <p className="settings-hint" style={{ marginTop: 6 }}>
+                  학부모가 정한 시각 이후라 오늘 계획 수정이 잠겨 있어요. 내일 계획을 저장하면
+                  잠금이 해제됩니다.
+                </p>
+                <p className="settings-hint" style={{ marginTop: 6 }}>
+                  예정 시각: {studentLockStatus.rules?.[0]?.lockTime || "21:00"} · 상태:
+                  잠김
+                </p>
+                {studentLockMessage && (
+                  <p className="settings-hint" style={{ marginTop: 6 }}>
+                    {studentLockMessage}
+                  </p>
+                )}
+              </div>
+            </section>
+          )}
+
+          {showStudentShell && !coachStudentMode && tab === "today" && (
             <>
               <section className="section">
                 <div className="section-header">
@@ -1692,7 +1983,7 @@ const App: React.FC = () => {
             </>
           )}
 
-          {showStudentShell && tab === "week" && (
+          {showStudentShell && !coachStudentMode && tab === "week" && (
             <section className="section">
               <div className="week-switch">
                 <button
@@ -1825,7 +2116,7 @@ const App: React.FC = () => {
             </section>
           )}
 
-          {showStudentShell && tab === "store" && (
+          {showStudentShell && !coachStudentMode && tab === "store" && (
             <section className="section">
               <div className="section-header">
                 <h2 className="section-title">추천 학습 앱</h2>
@@ -1929,7 +2220,7 @@ const App: React.FC = () => {
             </section>
           )}
 
-          {showStudentShell && tab === "settings" && (
+          {showStudentShell && !coachStudentMode && tab === "settings" && (
             <section className="section">
               <div className="settings-list">
                 <button className="settings-item">
@@ -1957,6 +2248,16 @@ const App: React.FC = () => {
                   }}
                 >
                   <span className="settings-label">학부모 리포트 보기</span>
+                  <span className="settings-value">열기</span>
+                </button>
+                <button
+                  className="settings-item"
+                  onClick={() => {
+                    hapticSelection();
+                    window.location.hash = "#/student/home";
+                  }}
+                >
+                  <span className="settings-label">AI 학습 코치 (신규)</span>
                   <span className="settings-value">열기</span>
                 </button>
                 <button
@@ -2160,7 +2461,7 @@ const App: React.FC = () => {
           )}
         </main>
 
-        {showStudentShell && (
+        {showStudentShell && !coachStudentMode && (
           <nav className="bottom-nav" aria-label="하단 내비게이션">
           <button
             className={
@@ -2210,7 +2511,7 @@ const App: React.FC = () => {
           </nav>
         )}
 
-        {!roleLoading && parentView && meRole === "parent" && (
+        {!roleLoading && parentView && !coachParentMode && meRole === "parent" && (
           <nav className="bottom-nav" aria-label="하단 내비게이션">
             <button
               type="button"
@@ -2229,6 +2530,17 @@ const App: React.FC = () => {
             </button>
             <button
               type="button"
+              className="nav-item"
+              onClick={() => {
+                hapticSelection();
+                setCoachParentTab("home");
+                window.location.hash = "#/parent/home";
+              }}
+            >
+              <span className="nav-label">코치</span>
+            </button>
+            <button
+              type="button"
               className={
                 "nav-item" +
                 (parentTab === "report" ? " nav-item-active" : "")
@@ -2244,7 +2556,7 @@ const App: React.FC = () => {
           </nav>
         )}
 
-        {showStudentShell && tab === "today" && (
+        {showStudentShell && !coachStudentMode && tab === "today" && (
           <button
             type="button"
             className="floating-add-button"
@@ -2608,7 +2920,7 @@ const App: React.FC = () => {
                       return;
                     }
                     try {
-                      await fetch(`${API_BASE}/api/plan`, {
+                      const res = await fetch(`${API_BASE}/api/plan`, {
                         method: "PUT",
                         headers: {
                           "Content-Type": "application/json",
@@ -2627,6 +2939,21 @@ const App: React.FC = () => {
                           }))
                         })
                       });
+                      const data = await res.json().catch(() => ({}));
+                      if (res.status === 423) {
+                        setStudentLockStatus(data.lockStatus || null);
+                        setStudentLockMessage(
+                          data.error ||
+                            "잠금 상태에서는 오늘 계획을 수정할 수 없습니다."
+                        );
+                        return;
+                      }
+                      if (res.ok) {
+                        setStudentLockMessage("");
+                        if (data.lockStatus) {
+                          setStudentLockStatus(data.lockStatus);
+                        }
+                      }
                     } catch {
                       // ignore for now
                     }
