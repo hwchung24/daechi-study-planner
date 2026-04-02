@@ -9,7 +9,7 @@ import { generateCoachReply } from "../ai/chat-engine";
 import { Card, EmptyState, GradientHeroCard, MetricCard, RiskBadge, SectionHeader, StatPill } from "../ui/components";
 import { CoachIcons } from "../ui/icons";
 
-export type StudentTabKey = "home" | "insights" | "actions" | "coach" | "profile" | "log";
+export type StudentTabKey = "home" | "coach" | "profile" | "log";
 
 function formatMinutes(n: number) {
   const h = Math.floor(n / 60);
@@ -135,7 +135,8 @@ function HomeTab() {
         body={insight.heroNarrative}
         ctaLabel="맞춤 솔루션 시작하기"
         onCta={() => {
-          window.location.hash = "#/student/actions";
+          const el = document.getElementById("coach-actions");
+          el?.scrollIntoView({ behavior: "smooth", block: "start" });
         }}
         badge={<RiskBadge level={insight.riskLevel} />}
       />
@@ -188,70 +189,21 @@ function HomeTab() {
           ))}
         </div>
       </div>
-    </div>
-  );
-}
 
-function InsightsTab() {
-  const activeStudentId = useCoachStore(s => s.activeStudentId);
-  const student = demoStudents.find(s => s.id === activeStudentId) || demoStudents[0];
-  const insight = useMemo(() => buildWeeklyInsight(student.id, demoDailyLogs), [student.id]);
-  return (
-    <div className="coach-page">
-      <SectionHeader title="인사이트" subtitle="이번 주 데이터에서 ‘원인 → 행동’으로 연결합니다." />
-      <Card className="coach-card coach-card--padded">
-        <div className="coach-insight-hero">
-          <div className="coach-insight-hero__title">핵심 요약</div>
-          <div className="coach-insight-hero__body">{insight.heroNarrative}</div>
-          <div className="coach-insight-hero__meta">
-            <span className="coach-meta-chip">리스크: {insight.riskLevel}</span>
-            <span className="coach-meta-chip">이번 주 시작: {insight.weekStartDate.slice(5)}</span>
-          </div>
-        </div>
-      </Card>
-
-      <div className="coach-pattern-grid" style={{ marginTop: 12 }}>
-        {insight.patterns.map(p => (
-          <Card key={p.key} className="coach-card coach-card--padded">
-            <div className="coach-row coach-row--space">
-              <div className="coach-strong">{p.title}</div>
-              <span className={"coach-badge " + (p.severity === "높음" ? "coach-badge--danger" : p.severity === "보통" ? "coach-badge--warn" : "coach-badge--ok")}>
-                {p.severity}
-              </span>
-            </div>
-            <div className="coach-muted" style={{ marginTop: 8 }}>
-              {p.explanation}
-            </div>
-            <div className="coach-divider" />
-            <div className="coach-muted">
-              <span className="coach-inline-label">왜 중요?</span> {p.whyItMatters}
-            </div>
-            <div className="coach-muted" style={{ marginTop: 8 }}>
-              <span className="coach-inline-label">다음 행동</span> {p.recommendation}
-            </div>
-          </Card>
-        ))}
+      <div className="coach-stack" id="coach-actions">
+        <SectionHeader
+          title="AI 추천 다음 행동"
+          subtitle="오늘은 ‘무엇을 더 할까’보다, ‘무엇부터 시작할까’가 더 중요해요."
+        />
+        {insight.nextActions.length ? (
+          <ActionChecklist actions={insight.nextActions} />
+        ) : (
+          <EmptyState
+            title="추천 행동을 만들 데이터가 더 필요해요."
+            body="일일 기록을 2~3일만 쌓아도 정확도가 올라갑니다."
+          />
+        )}
       </div>
-    </div>
-  );
-}
-
-function ActionsTab() {
-  const activeStudentId = useCoachStore(s => s.activeStudentId);
-  const student = demoStudents.find(s => s.id === activeStudentId) || demoStudents[0];
-  const insight = useMemo(() => buildWeeklyInsight(student.id, demoDailyLogs), [student.id]);
-
-  return (
-    <div className="coach-page">
-      <SectionHeader
-        title="AI 추천 다음 행동"
-        subtitle="오늘은 ‘무엇을 더 할까’보다, ‘무엇부터 시작할까’가 더 중요해요."
-      />
-      {insight.nextActions.length ? (
-        <ActionChecklist actions={insight.nextActions} />
-      ) : (
-        <EmptyState title="추천 행동을 만들 데이터가 더 필요해요." body="일일 기록을 2~3일만 쌓아도 정확도가 올라갑니다." />
-      )}
 
       <Card className="coach-card coach-card--padded" style={{ marginTop: 14 }}>
         <SectionHeader title="오늘의 작은 규칙" subtitle="지켜야 할 건 1개면 충분합니다." />
@@ -259,7 +211,9 @@ function ActionsTab() {
           <span className="coach-rule__dot" aria-hidden />
           <div className="coach-rule__text">
             <div className="coach-strong">첫 블록은 25분만</div>
-            <div className="coach-muted">오늘은 ‘장시간 유지’가 아니라 ‘시작 성공률’이 목표예요.</div>
+            <div className="coach-muted">
+              오늘은 ‘장시간 유지’가 아니라 ‘시작 성공률’이 목표예요.
+            </div>
           </div>
         </div>
       </Card>
@@ -453,8 +407,6 @@ export function StudentCoachApp(props: {
   const T = useMemo(() => {
     const map: Record<StudentTabKey, React.ReactNode> = {
       home: <HomeTab />,
-      insights: <InsightsTab />,
-      actions: <ActionsTab />,
       coach: <CoachChatTab />,
       profile: <ProfileTab />,
       log: <LogTab />
@@ -464,8 +416,6 @@ export function StudentCoachApp(props: {
 
   const tabs: Array<{ key: StudentTabKey; label: string; icon: any }> = [
     { key: "home", label: "홈", icon: CoachIcons.Home },
-    { key: "insights", label: "인사이트", icon: CoachIcons.Insights },
-    { key: "actions", label: "행동", icon: CoachIcons.Actions },
     { key: "coach", label: "코치", icon: CoachIcons.Coach },
     { key: "profile", label: "프로필", icon: CoachIcons.Profile }
   ];
@@ -473,7 +423,7 @@ export function StudentCoachApp(props: {
   return (
     <div className="coach-shell">
       {T}
-      <nav className="coach-bottom-tabs" aria-label="학생 하단 내비게이션">
+      <nav className="bottom-nav" aria-label="학생 하단 내비게이션">
         {tabs.map(t => {
           const Icon = t.icon;
           const active = t.key === props.tab;
@@ -481,11 +431,13 @@ export function StudentCoachApp(props: {
             <button
               key={t.key}
               type="button"
-              className={"coach-tab" + (active ? " is-active" : "")}
+              className={"nav-item" + (active ? " nav-item-active" : "")}
               onClick={() => props.onTabChange(t.key)}
             >
-              <Icon size={18} />
-              <span className="coach-tab__label">{t.label}</span>
+              <span className="nav-icon" aria-hidden="true">
+                <Icon size={16} />
+              </span>
+              <span className="nav-label">{t.label}</span>
             </button>
           );
         })}

@@ -106,8 +106,9 @@ function parseCoachStudentTabFromHash(): CoachStudentTabKey | null {
   const path = h.slice("#/student/".length).split("?")[0];
   const seg = (path || "home").replace(/^\/+/, "");
   if (seg === "home") return "home";
-  if (seg === "insights") return "insights";
-  if (seg === "actions") return "actions";
+  // 통합: 예전 URL은 홈으로 매핑
+  if (seg === "insights") return "home";
+  if (seg === "actions") return "home";
   if (seg === "coach" || seg === "chat") return "coach";
   if (seg === "profile") return "profile";
   if (seg === "log") return "log";
@@ -1232,7 +1233,29 @@ const App: React.FC = () => {
           <div className="status-bar-safe" />
           <div className="header-top">
             <div className="header-title-group">
-              <h1 className="header-title">
+              <div className="header-title-row">
+                {coachStudentMode && (
+                  <button
+                    type="button"
+                    className="header-back-btn"
+                    aria-label="뒤로가기"
+                    onClick={() => {
+                      hapticSelection();
+                      try {
+                        if (window.history.length > 1) {
+                          window.history.back();
+                        } else {
+                          window.location.hash = "#/";
+                        }
+                      } catch {
+                        window.location.hash = "#/";
+                      }
+                    }}
+                  >
+                    ←
+                  </button>
+                )}
+                <h1 className="header-title">
                 {roleLoading && "불러오는 중…"}
                 {!roleLoading &&
                   parentView &&
@@ -1251,11 +1274,7 @@ const App: React.FC = () => {
                     : "학부모")}
                 {showStudentShell &&
                   (coachStudentMode
-                    ? coachStudentTab === "insights"
-                      ? "인사이트"
-                      : coachStudentTab === "actions"
-                        ? "다음 행동"
-                        : coachStudentTab === "coach"
+                    ? coachStudentTab === "coach"
                           ? "AI 코치"
                           : coachStudentTab === "profile"
                             ? "프로필"
@@ -1269,7 +1288,8 @@ const App: React.FC = () => {
                         : tab === "store"
                           ? "학습 앱스토어"
                           : "설정")}
-              </h1>
+                </h1>
+              </div>
             </div>
             <div className="profile-chip">
               <span className="profile-avatar">
@@ -1315,15 +1335,11 @@ const App: React.FC = () => {
                 const path =
                   t === "home"
                     ? "home"
-                    : t === "insights"
-                      ? "insights"
-                      : t === "actions"
-                        ? "actions"
-                        : t === "coach"
-                          ? "coach"
-                          : t === "profile"
-                            ? "profile"
-                            : "log";
+                    : t === "coach"
+                      ? "coach"
+                      : t === "profile"
+                        ? "profile"
+                        : "log";
                 window.location.hash = `#/student/${path}`;
               }}
             />
