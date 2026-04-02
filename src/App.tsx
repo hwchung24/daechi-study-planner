@@ -2479,137 +2479,127 @@ const App: React.FC = () => {
 
         {showStudentShell && (
           <nav className="bottom-nav" aria-label="하단 내비게이션">
-            {coachStudentMode ? (
-              <>
-                <button
-                  type="button"
-                  className={
-                    "nav-item" +
-                    (coachStudentTab === "home" ? " nav-item-active" : "")
-                  }
-                  onClick={() => {
-                    hapticSelection();
-                    setCoachStudentTab("home");
-                    window.location.hash = "#/student/home";
-                  }}
-                >
-                  <span className="nav-label">홈</span>
-                </button>
-                <button
-                  type="button"
-                  className={
-                    "nav-item" +
-                    (coachStudentTab === "coach" ? " nav-item-active" : "")
-                  }
-                  onClick={() => {
-                    hapticSelection();
-                    setCoachStudentTab("coach");
-                    window.location.hash = "#/student/coach";
-                  }}
-                >
-                  <span className="nav-label">코치</span>
-                </button>
-                <button
-                  type="button"
-                  className={
-                    "nav-item" +
-                    (coachStudentTab === "log" ? " nav-item-active" : "")
-                  }
-                  onClick={() => {
-                    hapticSelection();
-                    setCoachStudentTab("log");
-                    window.location.hash = "#/student/log";
-                  }}
-                >
-                  <span className="nav-label">기록</span>
-                </button>
-                <button
-                  type="button"
-                  className={
-                    "nav-item" +
-                    (coachStudentTab === "profile" ? " nav-item-active" : "")
-                  }
-                  onClick={() => {
-                    hapticSelection();
-                    setCoachStudentTab("profile");
-                    window.location.hash = "#/student/profile";
-                  }}
-                >
-                  <span className="nav-label">프로필</span>
-                </button>
-                <button
-                  type="button"
-                  className="nav-item"
-                  onClick={() => {
-                    hapticSelection();
-                    setCoachStudentTab(null);
-                    window.location.hash = "#/";
-                  }}
-                >
-                  <span className="nav-label">기본</span>
-                </button>
-              </>
-            ) : (
-              <>
-                <button
-                  className={
-                    "nav-item" + (tab === "today" ? " nav-item-active" : "")
-                  }
-                  onClick={() => {
-                    hapticSelection();
-                    setTab("today");
-                  }}
-                >
-                  <span className="nav-icon">●</span>
-                  <span className="nav-label">오늘</span>
-                </button>
-                <button
-                  className={
-                    "nav-item" + (tab === "week" ? " nav-item-active" : "")
-                  }
-                  onClick={() => {
-                    hapticSelection();
-                    setTab("week");
-                  }}
-                >
-                  <span className="nav-label">주간</span>
-                </button>
-                <button
-                  className={
-                    "nav-item" + (tab === "store" ? " nav-item-active" : "")
-                  }
-                  onClick={() => {
-                    hapticSelection();
-                    setTab("store");
-                  }}
-                >
-                  <span className="nav-label">앱스토어</span>
-                </button>
-                <button
-                  type="button"
-                  className="nav-item"
-                  onClick={() => {
-                    hapticSelection();
-                    setCoachStudentTab("home");
-                    window.location.hash = "#/student/home";
-                  }}
-                >
-                  <span className="nav-label">AI 코치</span>
-                </button>
-                <button
-                  className={
-                    "nav-item" +
-                    (tab === "settings" ? " nav-item-active" : "")
-                  }
-                  onClick={() => {
-                    hapticSelection();
-                    setTab("settings");
-                  }}
-                >
-                  <span className="nav-label">설정</span>
-                </button>
-              </>
-            )}
+            <button
+              className={
+                "nav-item" +
+                (!coachStudentMode && tab === "today" ? " nav-item-active" : "")
+              }
+              onClick={() => {
+                hapticSelection();
+                setCoachStudentTab(null);
+                setTab("today");
+                window.location.hash = "#/";
+              }}
+            >
+              <span className="nav-icon">●</span>
+              <span className="nav-label">오늘</span>
+            </button>
+            <button
+              className={
+                "nav-item" +
+                (!coachStudentMode && tab === "week" ? " nav-item-active" : "")
+              }
+              onClick={() => {
+                hapticSelection();
+                setCoachStudentTab(null);
+                setTab("week");
+                window.location.hash = "#/";
+              }}
+            >
+              <span className="nav-label">주간</span>
+            </button>
+            <button
+              className={
+                "nav-item" +
+                (!coachStudentMode && tab === "store" ? " nav-item-active" : "")
+              }
+              onClick={() => {
+                hapticSelection();
+                setCoachStudentTab(null);
+                setTab("store");
+                window.location.hash = "#/";
+              }}
+            >
+              <span className="nav-label">앱스토어</span>
+            </button>
+            <button
+              type="button"
+              className={
+                "nav-item" +
+                (coachStudentMode && coachStudentTab === "home"
+                  ? " nav-item-active"
+                  : "")
+              }
+              onClick={() => {
+                hapticSelection();
+                setCoachStudentTab("home");
+                window.location.hash = "#/student/home";
+              }}
+            >
+              <span className="nav-label">학생홈</span>
+            </button>
+            <button
+              type="button"
+              className={
+                "nav-item" +
+                (coachStudentMode && coachStudentTab === "coach"
+                  ? " nav-item-active"
+                  : "")
+              }
+              onClick={() => {
+                hapticSelection();
+                setCoachStudentTab("coach");
+                window.location.hash = "#/student/coach";
+              }}
+            >
+              <span className="nav-label">코치</span>
+            </button>
+            <button
+              type="button"
+              className={
+                "nav-item" +
+                (coachStudentMode && coachStudentTab === "log"
+                  ? " nav-item-active"
+                  : "")
+              }
+              onClick={() => {
+                hapticSelection();
+                setCoachStudentTab("log");
+                window.location.hash = "#/student/log";
+              }}
+            >
+              <span className="nav-label">기록</span>
+            </button>
+            <button
+              type="button"
+              className={
+                "nav-item" +
+                (coachStudentMode && coachStudentTab === "profile"
+                  ? " nav-item-active"
+                  : "")
+              }
+              onClick={() => {
+                hapticSelection();
+                setCoachStudentTab("profile");
+                window.location.hash = "#/student/profile";
+              }}
+            >
+              <span className="nav-label">프로필</span>
+            </button>
+            <button
+              className={
+                "nav-item" +
+                (!coachStudentMode && tab === "settings" ? " nav-item-active" : "")
+              }
+              onClick={() => {
+                hapticSelection();
+                setCoachStudentTab(null);
+                setTab("settings");
+                window.location.hash = "#/";
+              }}
+            >
+              <span className="nav-label">설정</span>
+            </button>
           </nav>
         )}
 
