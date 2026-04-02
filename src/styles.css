@@ -1638,7 +1638,7 @@ button:active:not(:disabled),
   height: auto;
   min-height: 100%;
   overflow: visible;
-  padding-bottom: 78px; /* bottom nav overlay */
+  padding-bottom: 0;
 }
 
 .coach-page {

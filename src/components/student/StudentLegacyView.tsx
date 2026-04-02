@@ -231,7 +231,7 @@ export function StudentLegacyView(props: {
               {blocks.length === 0 && <p className="empty-state">아직 일정이 없어요.</p>}
             </div>
           </section>
-          <section className="section">
+          <section className="section section-sticky">
             <div className="section-header">
               <h2 className="section-title">오늘 기록</h2>
             </div>
@@ -250,27 +250,37 @@ export function StudentLegacyView(props: {
               </div>
               <div className="field" style={{ marginTop: 10 }}>
                 <label className="field-label">스트레스(1~5)</label>
-                <input
-                  type="number"
-                  min={1}
-                  max={5}
-                  step={1}
-                  className="field-input"
-                  value={todayStress}
-                  onChange={e => setTodayStress(e.target.value)}
-                />
+                <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                  <input
+                    type="range"
+                    min={1}
+                    max={5}
+                    step={1}
+                    value={todayStress}
+                    onChange={e => setTodayStress(e.target.value)}
+                    style={{ flex: 1 }}
+                  />
+                  <span className="settings-value" style={{ minWidth: 24, textAlign: "right" }}>
+                    {todayStress}
+                  </span>
+                </div>
               </div>
               <div className="field" style={{ marginTop: 10 }}>
                 <label className="field-label">집중도(1~5)</label>
-                <input
-                  type="number"
-                  min={1}
-                  max={5}
-                  step={1}
-                  className="field-input"
-                  value={todayConcentration}
-                  onChange={e => setTodayConcentration(e.target.value)}
-                />
+                <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                  <input
+                    type="range"
+                    min={1}
+                    max={5}
+                    step={1}
+                    value={todayConcentration}
+                    onChange={e => setTodayConcentration(e.target.value)}
+                    style={{ flex: 1 }}
+                  />
+                  <span className="settings-value" style={{ minWidth: 24, textAlign: "right" }}>
+                    {todayConcentration}
+                  </span>
+                </div>
               </div>
               <div className="field" style={{ marginTop: 10 }}>
                 <label className="field-label">회고 메모</label>

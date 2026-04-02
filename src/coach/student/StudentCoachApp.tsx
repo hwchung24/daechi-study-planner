@@ -382,7 +382,6 @@ function CoachChatTabConnected() {
   return (
     <div className="coach-page coach-page--chat">
       <div className="coach-chat-header">
-        <div className="coach-chat-header__title">AI 코치</div>
         <button type="button" className="coach-ghost-btn" onClick={resetChat}>
           대화 초기화
         </button>
