@@ -1422,9 +1422,6 @@ button:active:not(:disabled),
 
 .nav-icon {
   font-size: 13px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
 }
 
 .nav-label {
@@ -2220,19 +2217,6 @@ button:active:not(:disabled),
 
 .coach-row--space {
   justify-content: space-between;
-}
-
-.spin {
-  animation: app-spin 0.9s linear infinite;
-}
-
-@keyframes app-spin {
-  from {
-    transform: rotate(0deg);
-  }
-  to {
-    transform: rotate(360deg);
-  }
 }
 
 .coach-strong {
