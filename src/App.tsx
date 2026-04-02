@@ -2477,109 +2477,260 @@ const App: React.FC = () => {
           )}
         </main>
 
-        {showStudentShell && !coachStudentMode && (
+        {showStudentShell && (
           <nav className="bottom-nav" aria-label="하단 내비게이션">
-          <button
-            className={
-              "nav-item" + (tab === "today" ? " nav-item-active" : "")
-            }
-            onClick={() => {
-              hapticSelection();
-              setTab("today");
-            }}
-          >
-            <span className="nav-icon">●</span>
-            <span className="nav-label">오늘</span>
-          </button>
-          <button
-            className={
-              "nav-item" + (tab === "week" ? " nav-item-active" : "")
-            }
-            onClick={() => {
-              hapticSelection();
-              setTab("week");
-            }}
-          >
-            <span className="nav-label">주간</span>
-          </button>
-          <button
-            className={
-              "nav-item" + (tab === "store" ? " nav-item-active" : "")
-            }
-            onClick={() => {
-              hapticSelection();
-              setTab("store");
-            }}
-          >
-            <span className="nav-label">앱스토어</span>
-          </button>
-          <button
-            type="button"
-            className="nav-item"
-            onClick={() => {
-              hapticSelection();
-              setCoachStudentTab("home");
-              window.location.hash = "#/student/home";
-            }}
-          >
-            <span className="nav-label">AI 코치</span>
-          </button>
-          <button
-            className={
-              "nav-item" + (tab === "settings" ? " nav-item-active" : "")
-            }
-            onClick={() => {
-              hapticSelection();
-              setTab("settings");
-            }}
-          >
-            <span className="nav-label">설정</span>
-          </button>
+            {coachStudentMode ? (
+              <>
+                <button
+                  type="button"
+                  className={
+                    "nav-item" +
+                    (coachStudentTab === "home" ? " nav-item-active" : "")
+                  }
+                  onClick={() => {
+                    hapticSelection();
+                    setCoachStudentTab("home");
+                    window.location.hash = "#/student/home";
+                  }}
+                >
+                  <span className="nav-label">홈</span>
+                </button>
+                <button
+                  type="button"
+                  className={
+                    "nav-item" +
+                    (coachStudentTab === "coach" ? " nav-item-active" : "")
+                  }
+                  onClick={() => {
+                    hapticSelection();
+                    setCoachStudentTab("coach");
+                    window.location.hash = "#/student/coach";
+                  }}
+                >
+                  <span className="nav-label">코치</span>
+                </button>
+                <button
+                  type="button"
+                  className={
+                    "nav-item" +
+                    (coachStudentTab === "log" ? " nav-item-active" : "")
+                  }
+                  onClick={() => {
+                    hapticSelection();
+                    setCoachStudentTab("log");
+                    window.location.hash = "#/student/log";
+                  }}
+                >
+                  <span className="nav-label">기록</span>
+                </button>
+                <button
+                  type="button"
+                  className={
+                    "nav-item" +
+                    (coachStudentTab === "profile" ? " nav-item-active" : "")
+                  }
+                  onClick={() => {
+                    hapticSelection();
+                    setCoachStudentTab("profile");
+                    window.location.hash = "#/student/profile";
+                  }}
+                >
+                  <span className="nav-label">프로필</span>
+                </button>
+                <button
+                  type="button"
+                  className="nav-item"
+                  onClick={() => {
+                    hapticSelection();
+                    setCoachStudentTab(null);
+                    window.location.hash = "#/";
+                  }}
+                >
+                  <span className="nav-label">기본</span>
+                </button>
+              </>
+            ) : (
+              <>
+                <button
+                  className={
+                    "nav-item" + (tab === "today" ? " nav-item-active" : "")
+                  }
+                  onClick={() => {
+                    hapticSelection();
+                    setTab("today");
+                  }}
+                >
+                  <span className="nav-icon">●</span>
+                  <span className="nav-label">오늘</span>
+                </button>
+                <button
+                  className={
+                    "nav-item" + (tab === "week" ? " nav-item-active" : "")
+                  }
+                  onClick={() => {
+                    hapticSelection();
+                    setTab("week");
+                  }}
+                >
+                  <span className="nav-label">주간</span>
+                </button>
+                <button
+                  className={
+                    "nav-item" + (tab === "store" ? " nav-item-active" : "")
+                  }
+                  onClick={() => {
+                    hapticSelection();
+                    setTab("store");
+                  }}
+                >
+                  <span className="nav-label">앱스토어</span>
+                </button>
+                <button
+                  type="button"
+                  className="nav-item"
+                  onClick={() => {
+                    hapticSelection();
+                    setCoachStudentTab("home");
+                    window.location.hash = "#/student/home";
+                  }}
+                >
+                  <span className="nav-label">AI 코치</span>
+                </button>
+                <button
+                  className={
+                    "nav-item" +
+                    (tab === "settings" ? " nav-item-active" : "")
+                  }
+                  onClick={() => {
+                    hapticSelection();
+                    setTab("settings");
+                  }}
+                >
+                  <span className="nav-label">설정</span>
+                </button>
+              </>
+            )}
           </nav>
         )}
 
-        {!roleLoading && parentView && !coachParentMode && meRole === "parent" && (
+        {!roleLoading && parentView && meRole === "parent" && (
           <nav className="bottom-nav" aria-label="하단 내비게이션">
-            <button
-              type="button"
-              className={
-                "nav-item" +
-                (parentTab === "link" ? " nav-item-active" : "")
-              }
-              onClick={() => {
-                hapticSelection();
-                setParentTab("link");
-                window.location.hash = "#/parent";
-              }}
-            >
-              <span className="nav-icon">●</span>
-              <span className="nav-label">연결</span>
-            </button>
-            <button
-              type="button"
-              className="nav-item"
-              onClick={() => {
-                hapticSelection();
-                setCoachParentTab("home");
-                window.location.hash = "#/parent/home";
-              }}
-            >
-              <span className="nav-label">코치</span>
-            </button>
-            <button
-              type="button"
-              className={
-                "nav-item" +
-                (parentTab === "report" ? " nav-item-active" : "")
-              }
-              onClick={() => {
-                hapticSelection();
-                setParentTab("report");
-                window.location.hash = "#/parent/report";
-              }}
-            >
-              <span className="nav-label">리포트</span>
-            </button>
+            {coachParentMode ? (
+              <>
+                <button
+                  type="button"
+                  className={
+                    "nav-item" +
+                    (coachParentTab === "home" ? " nav-item-active" : "")
+                  }
+                  onClick={() => {
+                    hapticSelection();
+                    setCoachParentTab("home");
+                    window.location.hash = "#/parent/home";
+                  }}
+                >
+                  <span className="nav-label">홈</span>
+                </button>
+                <button
+                  type="button"
+                  className={
+                    "nav-item" +
+                    (coachParentTab === "timeline"
+                      ? " nav-item-active"
+                      : "")
+                  }
+                  onClick={() => {
+                    hapticSelection();
+                    setCoachParentTab("timeline");
+                    window.location.hash = "#/parent/timeline";
+                  }}
+                >
+                  <span className="nav-label">타임라인</span>
+                </button>
+                <button
+                  type="button"
+                  className={
+                    "nav-item" +
+                    (coachParentTab === "guide" ? " nav-item-active" : "")
+                  }
+                  onClick={() => {
+                    hapticSelection();
+                    setCoachParentTab("guide");
+                    window.location.hash = "#/parent/guide";
+                  }}
+                >
+                  <span className="nav-label">가이드</span>
+                </button>
+                <button
+                  type="button"
+                  className={
+                    "nav-item" +
+                    (coachParentTab === "profile" ? " nav-item-active" : "")
+                  }
+                  onClick={() => {
+                    hapticSelection();
+                    setCoachParentTab("profile");
+                    window.location.hash = "#/parent/profile";
+                  }}
+                >
+                  <span className="nav-label">프로필</span>
+                </button>
+                <button
+                  type="button"
+                  className="nav-item"
+                  onClick={() => {
+                    hapticSelection();
+                    setCoachParentTab(null);
+                    window.location.hash = "#/parent";
+                  }}
+                >
+                  <span className="nav-label">기본</span>
+                </button>
+              </>
+            ) : (
+              <>
+                <button
+                  type="button"
+                  className={
+                    "nav-item" +
+                    (parentTab === "link" ? " nav-item-active" : "")
+                  }
+                  onClick={() => {
+                    hapticSelection();
+                    setParentTab("link");
+                    window.location.hash = "#/parent";
+                  }}
+                >
+                  <span className="nav-icon">●</span>
+                  <span className="nav-label">연결</span>
+                </button>
+                <button
+                  type="button"
+                  className="nav-item"
+                  onClick={() => {
+                    hapticSelection();
+                    setCoachParentTab("home");
+                    window.location.hash = "#/parent/home";
+                  }}
+                >
+                  <span className="nav-label">코치</span>
+                </button>
+                <button
+                  type="button"
+                  className={
+                    "nav-item" +
+                    (parentTab === "report" ? " nav-item-active" : "")
+                  }
+                  onClick={() => {
+                    hapticSelection();
+                    setParentTab("report");
+                    window.location.hash = "#/parent/report";
+                  }}
+                >
+                  <span className="nav-label">리포트</span>
+                </button>
+              </>
+            )}
           </nav>
         )}
 

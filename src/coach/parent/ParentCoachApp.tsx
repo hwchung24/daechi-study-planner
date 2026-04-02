@@ -251,23 +251,6 @@ export function ParentCoachApp(props: {
   return (
     <div className="coach-shell">
       {view}
-      <nav className="coach-bottom-tabs" aria-label="학부모 하단 내비게이션">
-        {tabs.map(t => {
-          const Icon = t.icon;
-          const active = t.key === props.tab;
-          return (
-            <button
-              key={t.key}
-              type="button"
-              className={"coach-tab" + (active ? " is-active" : "")}
-              onClick={() => props.onTabChange(t.key)}
-            >
-              <Icon size={18} />
-              <span className="coach-tab__label">{t.label}</span>
-            </button>
-          );
-        })}
-      </nav>
     </div>
   );
 }

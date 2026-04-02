@@ -414,44 +414,9 @@ export function StudentCoachApp(props: {
     return map[props.tab] || map.home;
   }, [props.tab]);
 
-  const tabs: Array<{ key: StudentTabKey; label: string; icon: any }> = [
-    { key: "home", label: "홈", icon: CoachIcons.Home },
-    { key: "coach", label: "코치", icon: CoachIcons.Coach },
-    { key: "profile", label: "프로필", icon: CoachIcons.Profile }
-  ];
-
   return (
     <div className="coach-shell">
       {T}
-      <nav className="bottom-nav" aria-label="학생 하단 내비게이션">
-        {tabs.map(t => {
-          const Icon = t.icon;
-          const active = t.key === props.tab;
-          return (
-            <button
-              key={t.key}
-              type="button"
-              className={"nav-item" + (active ? " nav-item-active" : "")}
-              onClick={() => props.onTabChange(t.key)}
-            >
-              <span className="nav-icon" aria-hidden="true">
-                <Icon size={16} />
-              </span>
-              <span className="nav-label">{t.label}</span>
-            </button>
-          );
-        })}
-      </nav>
-
-      <button
-        type="button"
-        className="coach-fab"
-        aria-label="일일 기록"
-        onClick={() => props.onTabChange("log")}
-      >
-        <CoachIcons.Log size={18} />
-        기록
-      </button>
     </div>
   );
 }
