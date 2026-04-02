@@ -561,8 +561,8 @@ select {
 
 .section-sticky {
   position: sticky;
-  bottom: 0;
-  padding-bottom: 82px;
+  bottom: 66px;
+  padding-bottom: 0;
   background: #f9fafb;
   backdrop-filter: none;
 }
@@ -1648,7 +1648,10 @@ button:active:not(:disabled),
 }
 
 .coach-page--chat {
-  padding-bottom: 12px;
+  display: flex;
+  flex-direction: column;
+  min-height: 100%;
+  padding-bottom: 0;
 }
 
 .coach-card {
@@ -2105,7 +2108,8 @@ button:active:not(:disabled),
   border: 1px solid rgba(148, 163, 184, 0.22);
   background: rgba(248, 250, 252, 0.7);
   padding: 12px 10px;
-  height: min(55vh, 520px);
+  flex: 1;
+  min-height: 240px;
   overflow-y: auto;
 }
 
@@ -2206,7 +2210,8 @@ button:active:not(:disabled),
   display: flex;
   gap: 10px;
   align-items: center;
-  margin-top: 10px;
+  margin-top: 8px;
+  margin-bottom: 0;
 }
 
 .coach-row {
