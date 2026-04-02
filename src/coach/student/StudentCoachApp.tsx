@@ -9,7 +9,7 @@ import { generateCoachReply } from "../ai/chat-engine";
 import { Card, EmptyState, GradientHeroCard, MetricCard, RiskBadge, SectionHeader, StatPill } from "../ui/components";
 import { CoachIcons } from "../ui/icons";
 
-export type StudentTabKey = "home" | "coach" | "profile" | "log";
+export type StudentTabKey = "home" | "coach" | "log";
 
 function formatMinutes(n: number) {
   const h = Math.floor(n / 60);
@@ -141,9 +141,11 @@ function HomeTab() {
         badge={<RiskBadge level={insight.riskLevel} />}
       />
 
-      <div className="coach-grid">
+      <div className="coach-horizontal-cards" aria-label="학생홈 지표 카드">
         {metrics.map(m => (
-          <MetricCard key={m.title} title={m.title} value={m.value} hint={m.hint} tone={m.tone} />
+          <div key={m.title} className="coach-horizontal-cards__item">
+            <MetricCard title={m.title} value={m.value} hint={m.hint} tone={m.tone} />
+          </div>
         ))}
       </div>
 
@@ -214,6 +216,24 @@ function HomeTab() {
             <div className="coach-muted">
               오늘은 ‘장시간 유지’가 아니라 ‘시작 성공률’이 목표예요.
             </div>
+          </div>
+        </div>
+      </Card>
+
+      <Card className="coach-card coach-card--padded" style={{ marginTop: 14 }}>
+        <SectionHeader title="프로필" subtitle="학습 목표와 과목 정보를 확인할 수 있어요." />
+        <div className="coach-profile">
+          <div className="coach-profile__name">{student.name}</div>
+          <div className="coach-profile__meta">
+            {student.schoolLevel}
+            {student.grade} · 목표: {student.goal}
+          </div>
+          <div className="coach-profile__chips">
+            {student.targetSubjects.map(s => (
+              <span key={s} className="coach-chip">
+                {s}
+              </span>
+            ))}
           </div>
         </div>
       </Card>
@@ -352,54 +372,6 @@ function CoachChatTab() {
   );
 }
 
-function ProfileTab() {
-  const activeStudentId = useCoachStore(s => s.activeStudentId);
-  const setActiveStudentId = useCoachStore(s => s.setActiveStudentId);
-  const student = demoStudents.find(s => s.id === activeStudentId) || demoStudents[0];
-
-  return (
-    <div className="coach-page">
-      <SectionHeader title="프로필" subtitle="데모 MVP에서는 인물 전환으로 다양한 케이스를 확인할 수 있어요." />
-      <Card className="coach-card coach-card--padded">
-        <div className="coach-profile">
-          <div className="coach-profile__name">{student.name}</div>
-          <div className="coach-profile__meta">
-            {student.schoolLevel}
-            {student.grade} · 목표: {student.goal}
-          </div>
-          <div className="coach-profile__chips">
-            {student.targetSubjects.map(s => (
-              <span key={s} className="coach-chip">
-                {s}
-              </span>
-            ))}
-          </div>
-        </div>
-      </Card>
-
-      <div className="coach-stack" style={{ marginTop: 12 }}>
-        <SectionHeader title="데모 인물" subtitle="학생 케이스를 바꾸면 인사이트/코치 답변이 달라집니다." />
-        <div className="coach-persona-grid">
-          {demoStudents.map(s => (
-            <button
-              key={s.id}
-              type="button"
-              className={"coach-persona" + (s.id === student.id ? " is-active" : "")}
-              onClick={() => setActiveStudentId(s.id)}
-            >
-              <div className="coach-persona__name">{s.name}</div>
-              <div className="coach-persona__meta">
-                {s.schoolLevel}
-                {s.grade} · 약점: {s.weakSubjects.join(", ")}
-              </div>
-            </button>
-          ))}
-        </div>
-      </div>
-    </div>
-  );
-}
-
 export function StudentCoachApp(props: {
   tab: StudentTabKey;
   onTabChange: (t: StudentTabKey) => void;
@@ -408,7 +380,6 @@ export function StudentCoachApp(props: {
     const map: Record<StudentTabKey, React.ReactNode> = {
       home: <HomeTab />,
       coach: <CoachChatTab />,
-      profile: <ProfileTab />,
       log: <LogTab />
     };
     return map[props.tab] || map.home;

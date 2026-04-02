@@ -110,7 +110,7 @@ function parseCoachStudentTabFromHash(): CoachStudentTabKey | null {
   if (seg === "insights") return "home";
   if (seg === "actions") return "home";
   if (seg === "coach" || seg === "chat") return "coach";
-  if (seg === "profile") return "profile";
+  if (seg === "profile") return "home";
   if (seg === "log") return "log";
   return "home";
 }
@@ -1276,9 +1276,7 @@ const App: React.FC = () => {
                   (coachStudentMode
                     ? coachStudentTab === "coach"
                           ? "AI 코치"
-                          : coachStudentTab === "profile"
-                            ? "프로필"
-                            : coachStudentTab === "log"
+                          : coachStudentTab === "log"
                               ? "일일 기록"
                               : "학생 홈"
                     : tab === "today"
@@ -1337,9 +1335,7 @@ const App: React.FC = () => {
                     ? "home"
                     : t === "coach"
                       ? "coach"
-                      : t === "profile"
-                        ? "profile"
-                        : "log";
+                      : "log";
                 window.location.hash = `#/student/${path}`;
               }}
             />
@@ -2572,21 +2568,6 @@ const App: React.FC = () => {
             </button>
             <button
               type="button"
-              className={
-                "nav-item" +
-                (coachStudentMode && coachStudentTab === "profile"
-                  ? " nav-item-active"
-                  : "")
-              }
-              onClick={() => {
-                hapticSelection();
-                setCoachStudentTab("profile");
-                window.location.hash = "#/student/profile";
-              }}
-            >
-              <span className="nav-label">프로필</span>
-            </button>
-            <button
               className={
                 "nav-item" +
                 (!coachStudentMode && tab === "settings" ? " nav-item-active" : "")
