@@ -2498,6 +2498,17 @@ const App: React.FC = () => {
             <span className="nav-label">앱스토어</span>
           </button>
           <button
+            type="button"
+            className="nav-item"
+            onClick={() => {
+              hapticSelection();
+              setCoachStudentTab("home");
+              window.location.hash = "#/student/home";
+            }}
+          >
+            <span className="nav-label">AI 코치</span>
+          </button>
+          <button
             className={
               "nav-item" + (tab === "settings" ? " nav-item-active" : "")
             }
