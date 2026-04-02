@@ -1,7 +1,7 @@
 import type { CapacitorConfig } from "@capacitor/cli";
 
 const config: CapacitorConfig = {
-  appId: "com.rootdaechi.app",
+  appId: "com.daechiroot.app",
   appName: "대치루트",
   webDir: "dist",
   ios: {

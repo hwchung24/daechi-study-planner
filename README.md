@@ -24,4 +24,22 @@ npm run dev
 - 과목 / 시간대별 학습 블록 생성 및 완료 체크
 - 수학/국어/영어 등 빠른 과목 선택 칩
 - iOS 스타일 하단 탭 바와 카드형 UI
+- 학부모 계정: 자녀와 연결 후 **AI 일일 리포트**(GPT-4o-mini) — 매일 **한국시간 자정**에 서버가 생성해 학부모 페이지에 표시
+
+### 백엔드 + AI 리포트
+
+1. `server/` 에서 `npm install`
+2. `server/.env` 에 `DATABASE_URL`, `JWT_SECRET`, **`OPENAI_API_KEY`** 설정 (`server/.env.example` 참고)
+3. `cd server && npm run migrate && npm start`
+4. 학부모 페이지: 연결된 자녀 선택 시 **AI 일일 리포트** 카드에서 확인 (자정 배치 이후 또는 데이터가 쌓인 뒤)
+
+### iOS 앱 (Capacitor — `dist` 번들 내장)
+
+웹 빌드 결과를 앱에 넣어 **오프라인에서도 화면(스플래시·로그인 UI 등)은 로드**됩니다. 서버 API는 네트워크가 필요합니다.
+
+```bash
+npm run mobile:ios
+```
+
+자세한 절차·API 주소 설정은 **`docs/CAPACITOR.md`** 참고.
 
