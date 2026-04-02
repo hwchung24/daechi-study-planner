@@ -1,4 +1,19 @@
 import React, { useState } from "react";
+import {
+  BookOpenText,
+  CalendarPlus,
+  Download,
+  ExternalLink,
+  FolderOpen,
+  GraduationCap,
+  Loader2,
+  NotebookPen,
+  Save,
+  Settings2,
+  Trash2,
+  Play,
+  Brain
+} from "lucide-react";
 import { getDateKey, getWeekDays, getWeekRangeLabel } from "../../lib/weekDates";
 import type { StudentLockStatus } from "../../types/lockStatus";
 import type { ProgressBook, ProgressPlan, StudyBlock } from "../../types/planner";
@@ -16,12 +31,12 @@ type StudyStoreApp = {
   removedAt?: string | null;
 };
 
-const storeAppIcons: Record<string, string> = {
-  "youtube-learning": "▶️",
-  "khan-academy": "🎓",
-  quizlet: "🧠",
-  notion: "🗒️",
-  "google-drive": "📁"
+const storeAppIcons: Record<string, React.ReactNode> = {
+  "youtube-learning": <Play size={16} />,
+  "khan-academy": <GraduationCap size={16} />,
+  quizlet: <Brain size={16} />,
+  notion: <NotebookPen size={16} />,
+  "google-drive": <FolderOpen size={16} />
 };
 
 type StudentLinkRow = {
@@ -301,7 +316,7 @@ export function StudentLegacyView(props: {
                 aria-label="오늘 기록 저장"
                 title="오늘 기록 저장"
               >
-                {todayLogSaving ? "⏳" : "💾"}
+                {todayLogSaving ? <Loader2 size={16} className="spin" /> : <Save size={16} />}
               </button>
               {todayLogMessage && (
                 <p className="settings-hint" style={{ marginTop: 8 }}>
@@ -402,7 +417,7 @@ export function StudentLegacyView(props: {
               aria-label="책 관리"
               title="책 관리"
             >
-              <span aria-hidden>📚</span>
+              <BookOpenText size={16} aria-hidden />
             </button>
             <button
               type="button"
@@ -411,7 +426,7 @@ export function StudentLegacyView(props: {
               aria-label="내일 계획"
               title="내일 계획"
             >
-              <span aria-hidden>🗓️</span>
+              <CalendarPlus size={16} aria-hidden />
             </button>
             <button
               type="button"
@@ -420,7 +435,7 @@ export function StudentLegacyView(props: {
               aria-label="점검 설정"
               title="점검 설정"
             >
-              <span aria-hidden>⚙️</span>
+              <Settings2 size={16} aria-hidden />
             </button>
           </div>
         </section>
@@ -441,7 +456,7 @@ export function StudentLegacyView(props: {
                   <span className="store-chip">{app.category}</span>
                   <h3 className="store-title">
                     <span aria-hidden style={{ marginRight: 8 }}>
-                      {storeAppIcons[app.id] || "📱"}
+                      {storeAppIcons[app.id] || <FolderOpen size={16} />}
                     </span>
                     {app.name}
                   </h3>
@@ -500,10 +515,10 @@ export function StudentLegacyView(props: {
                     }}
                   >
                     {storeSavingId === app.id
-                      ? "⏳"
+                      ? <Loader2 size={16} className="spin" />
                       : app.installed
-                        ? "🗑️"
-                        : "⬇️"}
+                        ? <Trash2 size={16} />
+                        : <Download size={16} />}
                   </button>
                   <button
                     type="button"
@@ -515,7 +530,7 @@ export function StudentLegacyView(props: {
                     aria-label="앱 열기"
                     title="앱 열기"
                   >
-                    ↗️
+                    <ExternalLink size={16} />
                   </button>
                 </div>
               </article>

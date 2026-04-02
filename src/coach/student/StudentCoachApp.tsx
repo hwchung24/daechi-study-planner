@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { motion } from "framer-motion";
+import { RotateCcw, SendHorizontal } from "lucide-react";
 import { demoDailyLogs, demoStudents } from "../demoData";
 import { buildWeeklyInsight } from "../ai/insight-engine";
 import { useCoachStore } from "../state/useCoachStore";
@@ -389,7 +390,7 @@ function CoachChatTabConnected() {
           aria-label="대화 초기화"
           title="대화 초기화"
         >
-          <span aria-hidden>♻️</span>
+          <RotateCcw size={16} aria-hidden />
         </button>
       </div>
 
@@ -451,7 +452,7 @@ function CoachChatTabConnected() {
           aria-label="메시지 보내기"
           title="보내기"
         >
-          <span aria-hidden>➤</span>
+          <SendHorizontal size={16} aria-hidden />
         </button>
       </div>
     </div>

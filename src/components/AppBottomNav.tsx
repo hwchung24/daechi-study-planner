@@ -1,4 +1,16 @@
 import React from "react";
+import {
+  Bot,
+  CalendarDays,
+  FileText,
+  Home,
+  Lightbulb,
+  Link2,
+  ShoppingBag,
+  Timer,
+  Undo2,
+  User
+} from "lucide-react";
 
 type TabKey = "today" | "week" | "store" | "settings";
 type CoachStudentTabKey = "home" | "coach";
@@ -51,7 +63,7 @@ export function AppBottomNav(props: {
             onClick={() => onStudentNavClick("today")}
           >
             <span className="nav-icon" aria-hidden="true">
-              🕘
+              <Timer size={14} />
             </span>
             <span className="nav-label">오늘</span>
           </button>
@@ -63,7 +75,7 @@ export function AppBottomNav(props: {
             onClick={() => onStudentNavClick("week")}
           >
             <span className="nav-icon" aria-hidden="true">
-              📅
+              <CalendarDays size={14} />
             </span>
             <span className="nav-label">주간</span>
           </button>
@@ -75,7 +87,7 @@ export function AppBottomNav(props: {
             onClick={() => onStudentNavClick("store")}
           >
             <span className="nav-icon" aria-hidden="true">
-              🛍️
+              <ShoppingBag size={14} />
             </span>
             <span className="nav-label">앱스토어</span>
           </button>
@@ -90,7 +102,7 @@ export function AppBottomNav(props: {
             onClick={() => onCoachStudentNavClick("home")}
           >
             <span className="nav-icon" aria-hidden="true">
-              🏠
+              <Home size={14} />
             </span>
             <span className="nav-label">학생홈</span>
           </button>
@@ -105,7 +117,7 @@ export function AppBottomNav(props: {
             onClick={() => onCoachStudentNavClick("coach")}
           >
             <span className="nav-icon" aria-hidden="true">
-              🤖
+              <Bot size={14} />
             </span>
             <span className="nav-label">코치</span>
           </button>
@@ -124,7 +136,7 @@ export function AppBottomNav(props: {
                 onClick={() => onCoachParentNavClick("home")}
               >
                 <span className="nav-icon" aria-hidden="true">
-                  🏠
+                  <Home size={14} />
                 </span>
                 <span className="nav-label">홈</span>
               </button>
@@ -137,7 +149,7 @@ export function AppBottomNav(props: {
                 onClick={() => onCoachParentNavClick("timeline")}
               >
                 <span className="nav-icon" aria-hidden="true">
-                  🕒
+                  <Timer size={14} />
                 </span>
                 <span className="nav-label">타임라인</span>
               </button>
@@ -149,7 +161,7 @@ export function AppBottomNav(props: {
                 onClick={() => onCoachParentNavClick("guide")}
               >
                 <span className="nav-icon" aria-hidden="true">
-                  💡
+                  <Lightbulb size={14} />
                 </span>
                 <span className="nav-label">가이드</span>
               </button>
@@ -162,13 +174,13 @@ export function AppBottomNav(props: {
                 onClick={() => onCoachParentNavClick("profile")}
               >
                 <span className="nav-icon" aria-hidden="true">
-                  👤
+                  <User size={14} />
                 </span>
                 <span className="nav-label">프로필</span>
               </button>
               <button type="button" className="nav-item" onClick={onParentCoachExit}>
                 <span className="nav-icon" aria-hidden="true">
-                  ↩︎
+                  <Undo2 size={14} />
                 </span>
                 <span className="nav-label">기본</span>
               </button>
@@ -183,7 +195,7 @@ export function AppBottomNav(props: {
                 onClick={() => onParentNavClick("link")}
               >
                 <span className="nav-icon" aria-hidden="true">
-                  🔗
+                  <Link2 size={14} />
                 </span>
                 <span className="nav-label">연결</span>
               </button>
@@ -193,7 +205,7 @@ export function AppBottomNav(props: {
                 onClick={() => onCoachParentNavClick("home")}
               >
                 <span className="nav-icon" aria-hidden="true">
-                  🤖
+                  <Bot size={14} />
                 </span>
                 <span className="nav-label">코치</span>
               </button>
@@ -205,7 +217,7 @@ export function AppBottomNav(props: {
                 onClick={() => onParentNavClick("report")}
               >
                 <span className="nav-icon" aria-hidden="true">
-                  📄
+                  <FileText size={14} />
                 </span>
                 <span className="nav-label">리포트</span>
               </button>
