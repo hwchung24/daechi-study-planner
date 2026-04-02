@@ -72,7 +72,7 @@ function ParentHome() {
                   boxShadow: "0 10px 30px rgba(15,23,42,0.10)"
                 }}
                 labelFormatter={l => `날짜 ${String(l).slice(5)}`}
-                formatter={(v: any, k: any) => [v, k === "concentration" ? "집중(%)" : k]}
+                formatter={(v: any, k: any) => [v, k === "concentration" ? "집중도" : k]}
               />
               <Line
                 type="monotone"

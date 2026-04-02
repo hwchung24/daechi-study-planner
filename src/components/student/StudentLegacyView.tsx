@@ -237,7 +237,7 @@ export function StudentLegacyView(props: {
             </div>
             <div className="progress-card" style={{ marginTop: 12 }}>
               <div className="field">
-                <label className="field-label">수면시간(시간)</label>
+                <label className="field-label">수면시간</label>
                 <input
                   type="number"
                   min={0}
@@ -249,7 +249,7 @@ export function StudentLegacyView(props: {
                 />
               </div>
               <div className="field" style={{ marginTop: 10 }}>
-                <label className="field-label">스트레스(1~5)</label>
+                <label className="field-label">스트레스</label>
                 <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
                   <input
                     type="range"
@@ -266,7 +266,7 @@ export function StudentLegacyView(props: {
                 </div>
               </div>
               <div className="field" style={{ marginTop: 10 }}>
-                <label className="field-label">집중도(1~5)</label>
+                <label className="field-label">집중도</label>
                 <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
                   <input
                     type="range"
@@ -298,8 +298,10 @@ export function StudentLegacyView(props: {
                 style={{ marginTop: 12 }}
                 disabled={todayLogSaving}
                 onClick={handleSaveTodayLog}
+                aria-label="오늘 기록 저장"
+                title="오늘 기록 저장"
               >
-                {todayLogSaving ? "저장 중..." : "오늘 기록 저장"}
+                {todayLogSaving ? "⏳" : "💾"}
               </button>
               {todayLogMessage && (
                 <p className="settings-hint" style={{ marginTop: 8 }}>
@@ -397,22 +399,28 @@ export function StudentLegacyView(props: {
               type="button"
               className="progress-footer-btn"
               onClick={() => setBooksModalOpen(true)}
+              aria-label="책 관리"
+              title="책 관리"
             >
-              책 관리
+              <span aria-hidden>📚</span>
             </button>
             <button
               type="button"
               className="progress-footer-btn"
               onClick={() => setPlanTomorrowOpen(true)}
+              aria-label="내일 계획"
+              title="내일 계획"
             >
-              내일 계획 짜기
+              <span aria-hidden>🗓️</span>
             </button>
             <button
               type="button"
               className="progress-footer-btn"
               onClick={() => setCheckSettingsOpen(true)}
+              aria-label="점검 설정"
+              title="점검 설정"
             >
-              점검 설정
+              <span aria-hidden>⚙️</span>
             </button>
           </div>
         </section>
@@ -492,10 +500,10 @@ export function StudentLegacyView(props: {
                     }}
                   >
                     {storeSavingId === app.id
-                      ? "저장 중..."
+                      ? "⏳"
                       : app.installed
-                        ? "삭제하기"
-                        : "다운받기"}
+                        ? "🗑️"
+                        : "⬇️"}
                   </button>
                   <button
                     type="button"
@@ -504,8 +512,10 @@ export function StudentLegacyView(props: {
                       hapticImpactLight();
                       window.open(app.url, "_blank", "noopener,noreferrer");
                     }}
+                    aria-label="앱 열기"
+                    title="앱 열기"
                   >
-                    앱 열기
+                    ↗️
                   </button>
                 </div>
               </article>
@@ -550,7 +560,7 @@ export function StudentLegacyView(props: {
                 window.location.hash = "#/student/home";
               }}
             >
-              <span className="settings-label">AI 학습 코치 (신규)</span>
+              <span className="settings-label">AI 학습 코치</span>
               <span className="settings-value">열기</span>
             </button>
             <button

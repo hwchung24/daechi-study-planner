@@ -286,7 +286,7 @@ function HomeTabConnected() {
                   boxShadow: "0 10px 30px rgba(15,23,42,0.10)"
                 }}
                 labelFormatter={l => `날짜 ${String(l).slice(5)}`}
-                formatter={(v: any, k: any) => [v, k === "concentration" ? "집중(%)" : k]}
+                formatter={(v: any, k: any) => [v, k === "concentration" ? "집중도" : k]}
               />
               <Line type="monotone" dataKey="concentration" stroke="var(--accent-strong)" strokeWidth={3} dot={false} />
             </LineChart>
@@ -382,8 +382,14 @@ function CoachChatTabConnected() {
   return (
     <div className="coach-page coach-page--chat">
       <div className="coach-chat-header">
-        <button type="button" className="coach-ghost-btn" onClick={resetChat}>
-          대화 초기화
+        <button
+          type="button"
+          className="coach-ghost-btn"
+          onClick={resetChat}
+          aria-label="대화 초기화"
+          title="대화 초기화"
+        >
+          <span aria-hidden>♻️</span>
         </button>
       </div>
 
