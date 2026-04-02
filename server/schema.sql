@@ -193,7 +193,35 @@ CREATE TABLE IF NOT EXISTS parent_planner_rules (
   PRIMARY KEY (parent_user_id, student_user_id)
 );
 
--- 12. Student study app store catalog
+-- 12. Planner lock sessions / history
+CREATE TABLE IF NOT EXISTS planner_lock_sessions (
+  id BIGSERIAL PRIMARY KEY,
+  parent_user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  student_user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  device_link_mode TEXT NOT NULL DEFAULT 'unknown'
+    CHECK (device_link_mode IN ('webview', 'native_app', 'unknown')),
+  provider TEXT NOT NULL DEFAULT 'simplemdm',
+  scheduled_for TIMESTAMPTZ,
+  locked_at TIMESTAMPTZ,
+  unlocked_at TIMESTAMPTZ,
+  status TEXT NOT NULL DEFAULT 'scheduled'
+    CHECK (status IN ('scheduled', 'locked', 'unlocked', 'failed', 'cancelled')),
+  reason TEXT,
+  mdm_payload JSONB NOT NULL DEFAULT '{}'::jsonb,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_planner_lock_sessions_student
+  ON planner_lock_sessions (student_user_id, created_at DESC);
+
+CREATE INDEX IF NOT EXISTS idx_planner_lock_sessions_parent_student
+  ON planner_lock_sessions (parent_user_id, student_user_id, created_at DESC);
+
+CREATE INDEX IF NOT EXISTS idx_planner_lock_sessions_status
+  ON planner_lock_sessions (status, scheduled_for);
+
+-- 13. Student study app store catalog
 CREATE TABLE IF NOT EXISTS store_apps (
   id BIGSERIAL PRIMARY KEY,
   app_key TEXT NOT NULL UNIQUE,
@@ -213,7 +241,7 @@ CREATE TABLE IF NOT EXISTS store_apps (
 CREATE INDEX IF NOT EXISTS idx_store_apps_active_order
   ON store_apps (is_active, sort_order, name);
 
--- 13. Student-specific installed app status
+-- 14. Student-specific installed app status
 CREATE TABLE IF NOT EXISTS student_store_app_status (
   user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   store_app_id BIGINT NOT NULL REFERENCES store_apps(id) ON DELETE CASCADE,
@@ -236,7 +264,7 @@ ADD COLUMN IF NOT EXISTS bundle_id TEXT;
 ALTER TABLE store_apps
 ADD COLUMN IF NOT EXISTS app_store_id BIGINT;
 
--- 14. Student-specific SimpleMDM assignment groups
+-- 15. Student-specific SimpleMDM assignment groups
 CREATE TABLE IF NOT EXISTS student_mdm_groups (
   user_id BIGINT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
   provider TEXT NOT NULL DEFAULT 'simplemdm',
@@ -245,4 +273,49 @@ CREATE TABLE IF NOT EXISTS student_mdm_groups (
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+-- 16. Student AI coach profile / memory
+CREATE TABLE IF NOT EXISTS student_coach_profiles (
+  user_id BIGINT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+  name TEXT,
+  school_level TEXT,
+  grade INTEGER,
+  goal TEXT,
+  target_subjects TEXT[] NOT NULL DEFAULT '{}'::text[],
+  weak_subjects TEXT[] NOT NULL DEFAULT '{}'::text[],
+  sleep_time TEXT,
+  wake_time TEXT,
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS student_coach_logs (
+  id BIGSERIAL PRIMARY KEY,
+  user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  log_date DATE NOT NULL DEFAULT CURRENT_DATE,
+  sleep_hours NUMERIC(4,2),
+  steps INTEGER,
+  meals_regularity INTEGER,
+  concentration_score INTEGER,
+  stress_score INTEGER,
+  phone_distractions INTEGER,
+  study_minutes INTEGER,
+  plan_completion_rate INTEGER,
+  memo TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_student_coach_logs_user_date
+  ON student_coach_logs (user_id, log_date DESC, created_at DESC);
+
+CREATE TABLE IF NOT EXISTS student_coach_messages (
+  id BIGSERIAL PRIMARY KEY,
+  user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  role TEXT NOT NULL CHECK (role IN ('user', 'assistant')),
+  content TEXT NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_student_coach_messages_user
+  ON student_coach_messages (user_id, created_at DESC);
 

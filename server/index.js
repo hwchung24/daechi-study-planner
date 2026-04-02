@@ -5,6 +5,7 @@ const jwt = require("jsonwebtoken");
 const crypto = require("crypto");
 const fs = require("fs");
 const path = require("path");
+const OpenAI = require("openai");
 require("dotenv").config();
 
 const {
@@ -36,14 +37,29 @@ const {
   updateStoreAppSimpleMdmId,
   setStoreAppInstalled,
   getStudentMdmGroup,
-  upsertStudentMdmGroup
+  upsertStudentMdmGroup,
+  upsertStudentCoachProfile,
+  getStudentCoachProfile,
+  insertStudentCoachLog,
+  listRecentStudentCoachLogs,
+  insertStudentCoachMessage,
+  listRecentStudentCoachMessages
 } = require("./db");
 const {
   computeWeeklyStats,
   buildWeeklySummaryLines
 } = require("./analytics");
 const { startDailyAiReportCron } = require("./dailyReportCron");
+const { startPlannerLockCron } = require("./plannerLockCron");
 const { runOnePair } = require("./aiReportService");
+const {
+  getStudentLockStatus,
+  assertStudentCanEditDate,
+  forceParentLock,
+  forceParentUnlock,
+  getParentLockStatus,
+  reconcileAllPlannerLocks
+} = require("./lockService");
 const {
   findDeviceBySerial,
   findAppByBundleId,
@@ -63,11 +79,73 @@ const PORT = process.env.PORT || 3000;
 const WEB_APP_URL =
   (process.env.WEB_APP_URL || "http://localhost:5173").replace(/\/+$/, "");
 const WEBCLIP_COOKIE_NAME = "daechi_device_session";
+const OPENAI_MODEL = process.env.OPENAI_MODEL || "gpt-4o-mini";
 let dbConnected = false;
 let cronStarted = false;
 let schemaApplied = false;
 
 const app = express();
+const openai = process.env.OPENAI_API_KEY
+  ? new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
+  : null;
+
+function avg(arr) {
+  if (!arr || arr.length === 0) return 0;
+  return arr.reduce((a, b) => a + Number(b || 0), 0) / arr.length;
+}
+
+function buildCoachSnapshot(profile, logs = []) {
+  const recent = [...logs].slice(0, 7);
+  const sleep = avg(recent.map(r => Number(r.sleep_hours)));
+  const conc = avg(recent.map(r => Number(r.concentration_score)));
+  const stress = avg(recent.map(r => Number(r.stress_score)));
+  const steps = avg(recent.map(r => Number(r.steps)));
+  const plan = avg(recent.map(r => Number(r.plan_completion_rate)));
+  const study = avg(recent.map(r => Number(r.study_minutes)));
+  const meals = avg(recent.map(r => Number(r.meals_regularity)));
+
+  let hero = "현재 학습 흐름은 유지되고 있어요. 오늘은 우선순위 1개부터 시작해보세요.";
+  if (sleep > 0 && sleep < 6.2 && conc > 0 && conc < 3.2) {
+    hero = "단순 의지 문제가 아니라 수면 회복 부족이 집중 저하로 이어지고 있어요.";
+  } else if (stress >= 3.8) {
+    hero = "최근에는 스트레스 과부하 신호가 보여요. 계획보다 실행 진입장벽을 낮추는 게 먼저예요.";
+  } else if (plan > 0 && plan < 60) {
+    hero = "계획 대비 실행률이 낮아요. 할 일을 줄이고 시작 마찰을 없애는 게 핵심입니다.";
+  } else if (steps > 0 && steps < 3000) {
+    hero = "활동량이 낮아 집중 각성이 떨어질 수 있어요. 공부 전 짧은 걷기가 도움이 됩니다.";
+  }
+
+  const nextActions = [
+    "첫 블록은 25분만 시작하기",
+    "오늘 할 일을 3개로 줄이기",
+    "핸드폰은 첫 블록 동안 시야 밖에 두기"
+  ];
+  if (sleep > 0 && sleep < 6.2) nextActions[0] = "취침 시간을 20분만 당기기";
+  if (plan > 0 && plan < 60) nextActions[1] = "실행률이 낮은 과목 1개만 먼저 시작하기";
+  if (stress >= 3.8) nextActions[2] = "오늘 목표를 ‘완료’보다 ‘시작’으로 재설정하기";
+
+  return {
+    profile: {
+      name: profile?.name || "학생",
+      schoolLevel: profile?.school_level || null,
+      grade: profile?.grade || null,
+      goal: profile?.goal || "",
+      targetSubjects: profile?.target_subjects || [],
+      weakSubjects: profile?.weak_subjects || []
+    },
+    heroNarrative: hero,
+    metrics: {
+      sleepHours: sleep || null,
+      concentration: conc || null,
+      stress: stress || null,
+      steps: steps || null,
+      planCompletionRate: plan || null,
+      studyMinutes: study || null,
+      mealsRegularity: meals || null
+    },
+    nextActions
+  };
+}
 
 async function applySchemaIfNeeded() {
   if (schemaApplied) return;
@@ -338,8 +416,17 @@ app.put("/api/blocks", authMiddleware, async (req, res) => {
     if (!date || !Array.isArray(blocks)) {
       return res.status(400).json({ error: "date와 blocks가 필요합니다." });
     }
+    const edit = await assertStudentCanEditDate(req.userId, String(date));
+    if (!edit.ok) {
+      return res.status(423).json({
+        error:
+          "잠금 상태에서는 오늘 계획을 수정할 수 없습니다. 내일 계획을 제출하면 잠금이 해제됩니다.",
+        lockStatus: edit.status
+      });
+    }
     await replaceStudyBlocks(req.userId, date, blocks);
-    res.json({ ok: true });
+    const lockStatus = await getStudentLockStatus(req.userId);
+    res.json({ ok: true, lockStatus });
   } catch (e) {
     console.error("/api/blocks error", e);
     res.status(500).json({ error: "타임라인 저장에 실패했습니다." });
@@ -352,8 +439,17 @@ app.put("/api/plan", authMiddleware, async (req, res) => {
     if (!date || !Array.isArray(plans)) {
       return res.status(400).json({ error: "date와 plans가 필요합니다." });
     }
+    const edit = await assertStudentCanEditDate(req.userId, String(date));
+    if (!edit.ok) {
+      return res.status(423).json({
+        error:
+          "잠금 상태에서는 오늘 계획을 수정할 수 없습니다. 내일 계획을 제출하면 잠금이 해제됩니다.",
+        lockStatus: edit.status
+      });
+    }
     await upsertStudyPlans(req.userId, date, plans);
-    res.json({ ok: true });
+    const lockStatus = await getStudentLockStatus(req.userId);
+    res.json({ ok: true, lockStatus });
   } catch (e) {
     console.error("/api/plan error", e);
     res.status(500).json({ error: "계획 저장에 실패했습니다." });
@@ -665,12 +761,14 @@ app.get("/api/parent/planner-rule", authMiddleware, async (req, res) => {
       return res.status(403).json({ error: "연결된 학생이 아닙니다." });
     }
     const rule = await getParentPlannerRule(req.userId, studentId);
+    const lockStatus = await getParentLockStatus(req.userId, studentId);
     res.json({
       rule: {
         enabled: Boolean(rule.enabled),
         lockTime: String(rule.lock_time || "21:00").slice(0, 5),
         updatedAt: rule.updated_at
-      }
+      },
+      lockStatus
     });
   } catch (e) {
     console.error("/api/parent/planner-rule GET error", e);
@@ -709,17 +807,101 @@ app.put("/api/parent/planner-rule", authMiddleware, async (req, res) => {
       enabled,
       lockTime
     );
+    const lockStatus = await getParentLockStatus(req.userId, studentId);
     res.json({
       ok: true,
       rule: {
         enabled: Boolean(saved.enabled),
         lockTime: String(saved.lock_time).slice(0, 5),
         updatedAt: saved.updated_at
-      }
+      },
+      lockStatus
     });
   } catch (e) {
     console.error("/api/parent/planner-rule PUT error", e);
     res.status(500).json({ error: "설정 저장에 실패했습니다." });
+  }
+});
+
+app.get("/api/student/lock-status", authMiddleware, async (req, res) => {
+  try {
+    const me = await getMe(req.userId);
+    if (!me || me.role !== "student") {
+      return res.status(403).json({ error: "권한이 없습니다." });
+    }
+    const lockStatus = await getStudentLockStatus(req.userId);
+    res.json({ lockStatus });
+  } catch (e) {
+    console.error("/api/student/lock-status error", e);
+    res.status(500).json({ error: "잠금 상태를 불러오지 못했습니다." });
+  }
+});
+
+app.get("/api/parent/lock-status", authMiddleware, async (req, res) => {
+  try {
+    const me = await getMe(req.userId);
+    if (!me || me.role !== "parent") {
+      return res.status(403).json({ error: "권한이 없습니다." });
+    }
+    const studentId = Number(req.query.studentId || 0);
+    if (!studentId) {
+      return res.status(400).json({ error: "studentId가 필요합니다." });
+    }
+    const has = await parentHasStudent(req.userId, studentId);
+    if (!has) {
+      return res.status(403).json({ error: "연결된 학생이 아닙니다." });
+    }
+    const lockStatus = await getParentLockStatus(req.userId, studentId);
+    res.json({ lockStatus });
+  } catch (e) {
+    console.error("/api/parent/lock-status error", e);
+    res.status(500).json({ error: "잠금 상태를 불러오지 못했습니다." });
+  }
+});
+
+app.post("/api/parent/lock-now", authMiddleware, async (req, res) => {
+  try {
+    const me = await getMe(req.userId);
+    if (!me || me.role !== "parent") {
+      return res.status(403).json({ error: "권한이 없습니다." });
+    }
+    const studentId = Number((req.body || {}).studentId || 0);
+    if (!studentId) {
+      return res.status(400).json({ error: "studentId가 필요합니다." });
+    }
+    const has = await parentHasStudent(req.userId, studentId);
+    if (!has) {
+      return res.status(403).json({ error: "연결된 학생이 아닙니다." });
+    }
+    const session = await forceParentLock(req.userId, studentId);
+    const lockStatus = await getParentLockStatus(req.userId, studentId);
+    res.json({ ok: true, session, lockStatus });
+  } catch (e) {
+    console.error("/api/parent/lock-now error", e);
+    res.status(500).json({ error: "수동 잠금에 실패했습니다." });
+  }
+});
+
+app.post("/api/parent/unlock-now", authMiddleware, async (req, res) => {
+  try {
+    const me = await getMe(req.userId);
+    if (!me || me.role !== "parent") {
+      return res.status(403).json({ error: "권한이 없습니다." });
+    }
+    const studentId = Number((req.body || {}).studentId || 0);
+    if (!studentId) {
+      return res.status(400).json({ error: "studentId가 필요합니다." });
+    }
+    const has = await parentHasStudent(req.userId, studentId);
+    if (!has) {
+      return res.status(403).json({ error: "연결된 학생이 아닙니다." });
+    }
+    const session = await forceParentUnlock(req.userId, studentId);
+    const lockStatus = await getParentLockStatus(req.userId, studentId);
+    res.json({ ok: true, session, lockStatus });
+  } catch (e) {
+    console.error("/api/parent/unlock-now error", e);
+    res.status(500).json({ error: "수동 해제에 실패했습니다." });
   }
 });
 
@@ -747,6 +929,125 @@ app.get("/api/student/store-apps", authMiddleware, async (req, res) => {
   } catch (e) {
     console.error("/api/student/store-apps GET error", e);
     res.status(500).json({ error: "앱 목록을 불러오지 못했습니다." });
+  }
+});
+
+app.get("/api/student/coach/state", authMiddleware, async (req, res) => {
+  try {
+    const me = await getMe(req.userId);
+    if (!me || me.role !== "student") {
+      return res.status(403).json({ error: "권한이 없습니다." });
+    }
+    const profile = await getStudentCoachProfile(req.userId);
+    const logs = await listRecentStudentCoachLogs(req.userId, 14);
+    const snapshot = buildCoachSnapshot(profile, logs);
+    res.json({
+      snapshot,
+      logs: logs.slice(0, 7).map(r => ({
+        date: String(r.log_date),
+        sleepHours: r.sleep_hours,
+        concentrationScore: r.concentration_score,
+        stressScore: r.stress_score,
+        steps: r.steps,
+        planCompletionRate: r.plan_completion_rate,
+        studyMinutes: r.study_minutes
+      }))
+    });
+  } catch (e) {
+    console.error("/api/student/coach/state error", e);
+    res.status(500).json({ error: "코치 상태를 불러오지 못했습니다." });
+  }
+});
+
+app.put("/api/student/coach/profile", authMiddleware, async (req, res) => {
+  try {
+    const me = await getMe(req.userId);
+    if (!me || me.role !== "student") {
+      return res.status(403).json({ error: "권한이 없습니다." });
+    }
+    const saved = await upsertStudentCoachProfile(req.userId, req.body || {});
+    res.json({ ok: true, profile: saved });
+  } catch (e) {
+    console.error("/api/student/coach/profile error", e);
+    res.status(500).json({ error: "프로필 저장에 실패했습니다." });
+  }
+});
+
+app.post("/api/student/coach/log", authMiddleware, async (req, res) => {
+  try {
+    const me = await getMe(req.userId);
+    if (!me || me.role !== "student") {
+      return res.status(403).json({ error: "권한이 없습니다." });
+    }
+    const row = await insertStudentCoachLog(req.userId, req.body || {});
+    res.json({ ok: true, log: row });
+  } catch (e) {
+    console.error("/api/student/coach/log error", e);
+    res.status(500).json({ error: "학습 로그 저장에 실패했습니다." });
+  }
+});
+
+app.post("/api/student/coach/chat", authMiddleware, async (req, res) => {
+  try {
+    const me = await getMe(req.userId);
+    if (!me || me.role !== "student") {
+      return res.status(403).json({ error: "권한이 없습니다." });
+    }
+    const text = String((req.body || {}).message || "").trim();
+    if (!text) {
+      return res.status(400).json({ error: "message가 필요합니다." });
+    }
+
+    await insertStudentCoachMessage(req.userId, "user", text);
+
+    const profile = await getStudentCoachProfile(req.userId);
+    const logs = await listRecentStudentCoachLogs(req.userId, 14);
+    const history = await listRecentStudentCoachMessages(req.userId, 12);
+    const snapshot = buildCoachSnapshot(profile, logs);
+
+    let replyText = "";
+    if (openai) {
+      const response = await openai.chat.completions.create({
+        model: OPENAI_MODEL,
+        temperature: 0.4,
+        messages: [
+          {
+            role: "system",
+            content:
+              "너는 한국 학생 전용 학습 코치다. 항상 한국어로 답하고, 짧고 실행 가능한 조언을 준다. 형식: 1)원인 분석 2)오늘의 우선순위 3)실행 팁 4)격려 한 줄"
+          },
+          {
+            role: "system",
+            content: `학생 프로필/요약: ${JSON.stringify(snapshot)}`
+          },
+          ...history.map(m => ({
+            role: m.role === "assistant" ? "assistant" : "user",
+            content: m.content
+          }))
+        ]
+      });
+      replyText = String(response.choices?.[0]?.message?.content || "").trim();
+    } else {
+      replyText = [
+        "1) 원인 분석",
+        `- ${snapshot.heroNarrative}`,
+        "",
+        "2) 오늘의 우선순위",
+        `- ${snapshot.nextActions[0]}`,
+        "",
+        "3) 실행 팁",
+        "- 첫 25분만 시작하면 집중 흐름이 살아납니다.",
+        "",
+        "4) 격려 한 줄",
+        "- 오늘은 완벽보다 시작입니다. 지금 1개만 해도 충분해요."
+      ].join("\n");
+    }
+
+    await insertStudentCoachMessage(req.userId, "assistant", replyText);
+    res.json({ ok: true, reply: replyText });
+  } catch (e) {
+    console.error("/api/student/coach/chat error", e);
+    res.status(500).json({ error: "코치 답변 생성에 실패했습니다." });
   }
 });
 
@@ -913,6 +1214,10 @@ async function connectDbWithRetry() {
     dbConnected = true;
     if (!cronStarted) {
       startDailyAiReportCron();
+      startPlannerLockCron();
+      await reconcileAllPlannerLocks().catch(err => {
+        console.error("planner lock reconciliation on startup failed:", err);
+      });
       cronStarted = true;
     }
     console.log("DB 연결 성공");

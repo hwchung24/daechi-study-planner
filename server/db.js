@@ -563,6 +563,205 @@ async function upsertParentPlannerRule(
   return res.rows[0];
 }
 
+async function listPlannerRulesForStudent(studentUserId) {
+  const res = await query(
+    `SELECT p.user_id AS parent_user_id,
+            ps.student_id AS student_user_id,
+            COALESCE(r.enabled, true) AS enabled,
+            COALESCE(r.lock_time, '21:00') AS lock_time,
+            r.updated_at
+     FROM parents_students ps
+     JOIN parents p
+       ON p.id = ps.parent_id
+     LEFT JOIN parent_planner_rules r
+       ON r.parent_user_id = p.user_id
+      AND r.student_user_id = ps.student_id
+     WHERE ps.student_id = $1
+     ORDER BY p.user_id ASC`,
+    [studentUserId]
+  );
+  return res.rows;
+}
+
+async function listAllPlannerRules() {
+  const res = await query(
+    `SELECT p.user_id AS parent_user_id,
+            ps.student_id AS student_user_id,
+            COALESCE(r.enabled, true) AS enabled,
+            COALESCE(r.lock_time, '21:00') AS lock_time,
+            r.updated_at
+     FROM parents_students ps
+     JOIN parents p
+       ON p.id = ps.parent_id
+     LEFT JOIN parent_planner_rules r
+       ON r.parent_user_id = p.user_id
+      AND r.student_user_id = ps.student_id
+     ORDER BY ps.student_id ASC, p.user_id ASC`
+  );
+  return res.rows;
+}
+
+async function getLatestPlannerLockSession(parentUserId, studentUserId) {
+  const res = await query(
+    `SELECT id,
+            parent_user_id,
+            student_user_id,
+            device_link_mode,
+            provider,
+            scheduled_for,
+            locked_at,
+            unlocked_at,
+            status,
+            reason,
+            mdm_payload,
+            created_at,
+            updated_at
+     FROM planner_lock_sessions
+     WHERE parent_user_id = $1
+       AND student_user_id = $2
+     ORDER BY created_at DESC, id DESC
+     LIMIT 1`,
+    [parentUserId, studentUserId]
+  );
+  return res.rows[0] || null;
+}
+
+async function listLatestPlannerLockSessionsForStudent(studentUserId) {
+  const res = await query(
+    `SELECT DISTINCT ON (parent_user_id)
+            id,
+            parent_user_id,
+            student_user_id,
+            device_link_mode,
+            provider,
+            scheduled_for,
+            locked_at,
+            unlocked_at,
+            status,
+            reason,
+            mdm_payload,
+            created_at,
+            updated_at
+     FROM planner_lock_sessions
+     WHERE student_user_id = $1
+     ORDER BY parent_user_id, created_at DESC, id DESC`,
+    [studentUserId]
+  );
+  return res.rows;
+}
+
+async function createPlannerLockSession(input) {
+  const res = await query(
+    `INSERT INTO planner_lock_sessions
+      (parent_user_id, student_user_id, device_link_mode, provider, scheduled_for,
+       locked_at, unlocked_at, status, reason, mdm_payload, updated_at)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10::jsonb, now())
+     RETURNING id, parent_user_id, student_user_id, device_link_mode, provider,
+               scheduled_for, locked_at, unlocked_at, status, reason, mdm_payload,
+               created_at, updated_at`,
+    [
+      input.parentUserId,
+      input.studentUserId,
+      input.deviceLinkMode || "unknown",
+      input.provider || "simplemdm",
+      input.scheduledFor || null,
+      input.lockedAt || null,
+      input.unlockedAt || null,
+      input.status,
+      input.reason || null,
+      JSON.stringify(input.mdmPayload || {})
+    ]
+  );
+  return res.rows[0];
+}
+
+async function updatePlannerLockSession(sessionId, patch) {
+  const current = await query(
+    `SELECT id,
+            parent_user_id,
+            student_user_id,
+            device_link_mode,
+            provider,
+            scheduled_for,
+            locked_at,
+            unlocked_at,
+            status,
+            reason,
+            mdm_payload,
+            created_at,
+            updated_at
+     FROM planner_lock_sessions
+     WHERE id = $1
+     LIMIT 1`,
+    [sessionId]
+  );
+  const row = current.rows[0];
+  if (!row) return null;
+  const next = {
+    device_link_mode: patch.deviceLinkMode ?? row.device_link_mode,
+    provider: patch.provider ?? row.provider,
+    scheduled_for: patch.scheduledFor ?? row.scheduled_for,
+    locked_at: patch.lockedAt ?? row.locked_at,
+    unlocked_at: patch.unlockedAt ?? row.unlocked_at,
+    status: patch.status ?? row.status,
+    reason: patch.reason ?? row.reason,
+    mdm_payload:
+      patch.mdmPayload === undefined ? row.mdm_payload : patch.mdmPayload || {}
+  };
+  const res = await query(
+    `UPDATE planner_lock_sessions
+     SET device_link_mode = $2,
+         provider = $3,
+         scheduled_for = $4,
+         locked_at = $5,
+         unlocked_at = $6,
+         status = $7,
+         reason = $8,
+         mdm_payload = $9::jsonb,
+         updated_at = now()
+     WHERE id = $1
+     RETURNING id, parent_user_id, student_user_id, device_link_mode, provider,
+               scheduled_for, locked_at, unlocked_at, status, reason, mdm_payload,
+               created_at, updated_at`,
+    [
+      sessionId,
+      next.device_link_mode,
+      next.provider,
+      next.scheduled_for,
+      next.locked_at,
+      next.unlocked_at,
+      next.status,
+      next.reason,
+      JSON.stringify(next.mdm_payload || {})
+    ]
+  );
+  return res.rows[0] || null;
+}
+
+async function hasStudyPlanContentForDate(userId, date) {
+  const res = await query(
+    `SELECT
+       EXISTS (
+         SELECT 1
+         FROM study_days sd
+         JOIN study_blocks sb ON sb.study_day_id = sd.id
+         WHERE sd.user_id = $1
+           AND sd.date = $2
+       ) AS has_blocks,
+       EXISTS (
+         SELECT 1
+         FROM study_days sd
+         JOIN study_plans sp ON sp.study_day_id = sd.id
+         WHERE sd.user_id = $1
+           AND sd.date = $2
+           AND COALESCE(NULLIF(BTRIM(sp.planned_range), ''), NULLIF(sp.start_time, ''), NULLIF(sp.end_time, '')) IS NOT NULL
+       ) AS has_plans`,
+    [userId, date]
+  );
+  const row = res.rows[0] || {};
+  return Boolean(row.has_blocks || row.has_plans);
+}
+
 const defaultStoreApps = [
   {
     appKey: "youtube-learning",
@@ -776,6 +975,103 @@ async function upsertStudentMdmGroup(userId, assignmentGroupId, assignmentGroupN
   return res.rows[0];
 }
 
+async function upsertStudentCoachProfile(userId, input = {}) {
+  const res = await query(
+    `INSERT INTO student_coach_profiles
+      (user_id, name, school_level, grade, goal, target_subjects, weak_subjects, sleep_time, wake_time, updated_at)
+     VALUES ($1, $2, $3, $4, $5, $6::text[], $7::text[], $8, $9, now())
+     ON CONFLICT (user_id)
+     DO UPDATE SET
+       name = COALESCE(EXCLUDED.name, student_coach_profiles.name),
+       school_level = COALESCE(EXCLUDED.school_level, student_coach_profiles.school_level),
+       grade = COALESCE(EXCLUDED.grade, student_coach_profiles.grade),
+       goal = COALESCE(EXCLUDED.goal, student_coach_profiles.goal),
+       target_subjects = COALESCE(EXCLUDED.target_subjects, student_coach_profiles.target_subjects),
+       weak_subjects = COALESCE(EXCLUDED.weak_subjects, student_coach_profiles.weak_subjects),
+       sleep_time = COALESCE(EXCLUDED.sleep_time, student_coach_profiles.sleep_time),
+       wake_time = COALESCE(EXCLUDED.wake_time, student_coach_profiles.wake_time),
+       updated_at = now()
+     RETURNING *`,
+    [
+      userId,
+      input.name || null,
+      input.schoolLevel || null,
+      Number.isFinite(Number(input.grade)) ? Number(input.grade) : null,
+      input.goal || null,
+      Array.isArray(input.targetSubjects) ? input.targetSubjects : [],
+      Array.isArray(input.weakSubjects) ? input.weakSubjects : [],
+      input.sleepTime || null,
+      input.wakeTime || null
+    ]
+  );
+  return res.rows[0] || null;
+}
+
+async function getStudentCoachProfile(userId) {
+  const res = await query(
+    `SELECT * FROM student_coach_profiles WHERE user_id = $1 LIMIT 1`,
+    [userId]
+  );
+  return res.rows[0] || null;
+}
+
+async function insertStudentCoachLog(userId, log = {}) {
+  const res = await query(
+    `INSERT INTO student_coach_logs
+      (user_id, log_date, sleep_hours, steps, meals_regularity, concentration_score, stress_score, phone_distractions, study_minutes, plan_completion_rate, memo)
+     VALUES ($1, COALESCE($2::date, CURRENT_DATE), $3, $4, $5, $6, $7, $8, $9, $10, $11)
+     RETURNING *`,
+    [
+      userId,
+      log.date || null,
+      Number.isFinite(Number(log.sleepHours)) ? Number(log.sleepHours) : null,
+      Number.isFinite(Number(log.steps)) ? Number(log.steps) : null,
+      Number.isFinite(Number(log.mealsRegularity)) ? Number(log.mealsRegularity) : null,
+      Number.isFinite(Number(log.concentrationScore)) ? Number(log.concentrationScore) : null,
+      Number.isFinite(Number(log.stressScore)) ? Number(log.stressScore) : null,
+      Number.isFinite(Number(log.phoneDistractions)) ? Number(log.phoneDistractions) : null,
+      Number.isFinite(Number(log.studyMinutes)) ? Number(log.studyMinutes) : null,
+      Number.isFinite(Number(log.planCompletionRate)) ? Number(log.planCompletionRate) : null,
+      log.memo || null
+    ]
+  );
+  return res.rows[0] || null;
+}
+
+async function listRecentStudentCoachLogs(userId, limit = 14) {
+  const res = await query(
+    `SELECT *
+     FROM student_coach_logs
+     WHERE user_id = $1
+     ORDER BY log_date DESC, created_at DESC
+     LIMIT $2`,
+    [userId, Math.max(1, Number(limit) || 14)]
+  );
+  return res.rows;
+}
+
+async function insertStudentCoachMessage(userId, role, content) {
+  const res = await query(
+    `INSERT INTO student_coach_messages (user_id, role, content)
+     VALUES ($1, $2, $3)
+     RETURNING *`,
+    [userId, role, content]
+  );
+  return res.rows[0] || null;
+}
+
+async function listRecentStudentCoachMessages(userId, limit = 20) {
+  const res = await query(
+    `SELECT id, role, content, created_at
+     FROM student_coach_messages
+     WHERE user_id = $1
+     ORDER BY created_at DESC
+     LIMIT $2`,
+    [userId, Math.max(1, Number(limit) || 20)]
+  );
+  return res.rows.reverse();
+}
+
 module.exports = {
   pool,
   query,
@@ -801,12 +1097,25 @@ module.exports = {
   getActiveDeviceSerialForUser,
   getParentPlannerRule,
   upsertParentPlannerRule,
+  listPlannerRulesForStudent,
+  listAllPlannerRules,
+  getLatestPlannerLockSession,
+  listLatestPlannerLockSessionsForStudent,
+  createPlannerLockSession,
+  updatePlannerLockSession,
+  hasStudyPlanContentForDate,
   listStoreAppsForUser,
   getStoreAppByKey,
   updateStoreAppSimpleMdmId,
   setStoreAppInstalled,
   getStudentMdmGroup,
   upsertStudentMdmGroup,
+  upsertStudentCoachProfile,
+  getStudentCoachProfile,
+  insertStudentCoachLog,
+  listRecentStudentCoachLogs,
+  insertStudentCoachMessage,
+  listRecentStudentCoachMessages,
   getOrCreateStudyDay,
   replaceStudyBlocks,
   upsertStudyPlans,
