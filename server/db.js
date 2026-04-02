@@ -294,13 +294,12 @@ async function parentHasStudent(parentUserId, studentId) {
 }
 
 async function getOrCreateStudyDayWithClient(client, userId, date) {
-  let res = await client.query(
-    "SELECT * FROM study_days WHERE user_id = $1 AND date = $2",
-    [userId, date]
-  );
-  if (res.rows[0]) return res.rows[0];
-  res = await client.query(
-    "INSERT INTO study_days (user_id, date) VALUES ($1, $2) RETURNING *",
+  const res = await client.query(
+    `INSERT INTO study_days (user_id, date)
+     VALUES ($1, $2)
+     ON CONFLICT (user_id, date)
+     DO UPDATE SET date = EXCLUDED.date
+     RETURNING *`,
     [userId, date]
   );
   return res.rows[0];
@@ -821,6 +820,7 @@ const defaultStoreApps = [
 ];
 
 async function ensureDefaultStoreApps() {
+  if (ensureDefaultStoreApps._seeded) return;
   for (const app of defaultStoreApps) {
     await query(
       `INSERT INTO store_apps (app_key, name, category, description, url, bundle_id, app_store_id, simplemdm_app_id, sort_order, is_active, updated_at)
@@ -849,6 +849,7 @@ async function ensureDefaultStoreApps() {
       ]
     );
   }
+  ensureDefaultStoreApps._seeded = true;
 }
 
 async function listStoreAppsForUser(userId) {
