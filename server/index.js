@@ -73,7 +73,7 @@ const {
   pushApps
 } = require("./simpleMdmClient");
 
-const JWT_SECRET = process.env.JWT_SECRET || "daechi-dev-secret";
+const JWT_SECRET = String(process.env.JWT_SECRET || "");
 const PORT = process.env.PORT || 3000;
 const WEB_APP_URL =
   (process.env.WEB_APP_URL || "http://localhost:5173").replace(/\/+$/, "");
@@ -82,6 +82,15 @@ const OPENAI_MODEL = process.env.OPENAI_MODEL || "gpt-4o-mini";
 let dbConnected = false;
 let cronStarted = false;
 let schemaApplied = false;
+
+function assertRuntimeConfig() {
+  const isProd = process.env.NODE_ENV === "production";
+  if (isProd && JWT_SECRET.length < 24) {
+    throw new Error(
+      "JWT_SECRET must be set to a strong value (24+ chars) in production."
+    );
+  }
+}
 
 const app = express();
 const openai = process.env.OPENAI_API_KEY
@@ -1296,6 +1305,7 @@ async function connectDbWithRetry() {
 }
 
 async function start() {
+  assertRuntimeConfig();
   app.listen(PORT, () => {
     console.log(`Daechi Planner API listening on http://localhost:${PORT}`);
     connectDbWithRetry();

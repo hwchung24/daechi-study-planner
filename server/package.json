@@ -3,6 +3,9 @@
   "version": "1.0.0",
   "main": "index.js",
   "type": "commonjs",
+  "engines": {
+    "node": ">=18.17.0"
+  },
   "scripts": {
     "migrate": "node migrate.js",
     "start": "node index.js"
