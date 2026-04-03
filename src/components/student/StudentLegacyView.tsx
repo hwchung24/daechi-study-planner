@@ -124,6 +124,7 @@ export function StudentLegacyView(props: {
   const [todayLogSaving, setTodayLogSaving] = useState(false);
   const [todayLogMessage, setTodayLogMessage] = useState("");
   const [expandedStoreAppId, setExpandedStoreAppId] = useState<string | null>(null);
+  const [storeFilter, setStoreFilter] = useState<string | "all">("all");
 
   const todayTotalCount = blocks.length;
   const todayDoneCount = blocks.filter(b => b.done).length;
@@ -486,13 +487,38 @@ export function StudentLegacyView(props: {
       {tab === "store" && (
         <section className="section">
           <div className="section-header">
-            <h2 className="section-title">추천 학습 앱</h2>
-            <span className="section-caption">앱 목록</span>
+            <div className="store-filters">
+              <button
+                type="button"
+                className={
+                  "store-filter-chip" + (storeFilter === "all" ? " store-filter-chip--active" : "")
+                }
+                onClick={() => setStoreFilter("all")}
+              >
+                전체
+              </button>
+              {Array.from(new Set(storeApps.map(app => app.category))).map(category => (
+                <button
+                  key={category}
+                  type="button"
+                  className={
+                    "store-filter-chip" +
+                    (storeFilter === category ? " store-filter-chip--active" : "")
+                  }
+                  onClick={() => setStoreFilter(category)}
+                >
+                  {category}
+                </button>
+              ))}
+            </div>
           </div>
           {storeError && <p className="empty-state">{storeError}</p>}
           {storeLoading && <p className="empty-state">앱 목록을 불러오는 중…</p>}
           <div className="store-grid">
-            {storeApps.map(app => {
+            {(storeFilter === "all"
+              ? storeApps
+              : storeApps.filter(app => app.category === storeFilter)
+            ).map(app => {
               const isExpanded = expandedStoreAppId === app.id;
               return (
                 <article

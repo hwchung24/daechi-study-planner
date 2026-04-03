@@ -461,6 +461,28 @@ select {
   background: var(--accent-tint-bg);
 }
 
+.store-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.store-filter-chip {
+  border-radius: 999px;
+  border: 0.5px solid var(--border-soft);
+  background: #f9fafb;
+  padding: 5px 10px;
+  font-size: 11px;
+  color: var(--text-sub);
+  cursor: pointer;
+}
+
+.store-filter-chip--active {
+  border-color: var(--accent-border);
+  background: var(--accent-tint-bg);
+  color: var(--accent-strong);
+}
+
 .store-title {
   margin: 0;
   font-size: 16px;
