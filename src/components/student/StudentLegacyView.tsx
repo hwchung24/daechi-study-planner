@@ -515,6 +515,15 @@ export function StudentLegacyView(props: {
                       <h3 className="store-title" style={{ margin: 0 }}>
                         {app.name}
                       </h3>
+                      <span
+                        className={
+                          "store-expand-icon" +
+                          (isExpanded ? " store-expand-icon--open" : "")
+                        }
+                        aria-hidden
+                      >
+                        ▾
+                      </span>
                     </button>
                     <div className="store-actions">
                       <button

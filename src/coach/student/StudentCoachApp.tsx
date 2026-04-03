@@ -300,6 +300,7 @@ function HomeTabConnected() {
         eyebrow="AI 분석 결과"
         title={`${profile?.name || student.name}님, 오늘의 핵심`}
         body={heroNarrative}
+        showHeader={false}
         ctaLabel="시작"
         onCta={() => {
           const el = document.getElementById("coach-actions");

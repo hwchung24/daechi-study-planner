@@ -34,6 +34,36 @@
   box-sizing: border-box;
 }
 
+/* 전역 스크롤바 숨김 (스크롤 동작은 유지) */
+html,
+body,
+.app-main,
+.coach-shell,
+.coach-page,
+.coach-page--chat,
+.today-timeline-scroll,
+.progress-cards-scroll,
+.coach-rhythm-scroll,
+.coach-chat {
+  scrollbar-width: none; /* Firefox */
+  -ms-overflow-style: none; /* IE, Edge 레거시 */
+}
+
+html::-webkit-scrollbar,
+body::-webkit-scrollbar,
+.app-main::-webkit-scrollbar,
+.coach-shell::-webkit-scrollbar,
+.coach-page::-webkit-scrollbar,
+.coach-page--chat::-webkit-scrollbar,
+.today-timeline-scroll::-webkit-scrollbar,
+.progress-cards-scroll::-webkit-scrollbar,
+.coach-rhythm-scroll::-webkit-scrollbar,
+.coach-chat::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+  display: none; /* WebKit 기반 브라우저 */
+}
+
 html {
   height: 100%;
   overscroll-behavior: none;
@@ -447,6 +477,17 @@ select {
   background: none;
   cursor: pointer;
   text-align: left;
+}
+
+.store-expand-icon {
+  margin-left: 6px;
+  font-size: 14px;
+  color: var(--text-sub);
+  transition: transform var(--dur-med) var(--ease-standard);
+}
+
+.store-expand-icon--open {
+  transform: rotate(180deg);
 }
 
 .store-desc {
