@@ -707,8 +707,8 @@ const App: React.FC = () => {
     if (authMode === "signup" && authRole === "student" && !studentName) {
       hapticWarning();
       setAuthError("학생 이름을 입력해 주세요.");
-      return;
-    }
+                  return;
+                }
                 if (password.length < 4) {
                   hapticWarning();
                   setAuthError("비밀번호는 4자 이상이어야 합니다.");

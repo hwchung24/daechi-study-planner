@@ -437,6 +437,18 @@ select {
   letter-spacing: -0.01em;
 }
 
+.store-card-main {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0;
+  margin: 0;
+  border: none;
+  background: none;
+  cursor: pointer;
+  text-align: left;
+}
+
 .store-desc {
   margin: 0;
   font-size: 13px;
@@ -494,6 +506,24 @@ select {
 .store-install-btn-installed {
   background: rgba(36, 59, 107, 0.12);
   color: var(--accent-strong);
+}
+
+.store-card-detail {
+  max-height: 0;
+  overflow: hidden;
+  opacity: 0;
+  padding: 0 2px;
+  margin-top: 0;
+  transition:
+    max-height var(--dur-med) var(--ease-standard),
+    opacity var(--dur-med) var(--ease-standard),
+    margin-top var(--dur-med) var(--ease-standard);
+}
+
+.store-card-detail--open {
+  max-height: 200px;
+  opacity: 1;
+  margin-top: 8px;
 }
 
 .timeline-list {
