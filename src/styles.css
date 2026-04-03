@@ -34,36 +34,6 @@
   box-sizing: border-box;
 }
 
-/* 전역 스크롤바 숨김 (스크롤 동작은 유지) */
-html,
-body,
-.app-main,
-.coach-shell,
-.coach-page,
-.coach-page--chat,
-.today-timeline-scroll,
-.progress-cards-scroll,
-.coach-rhythm-scroll,
-.coach-chat {
-  scrollbar-width: none; /* Firefox */
-  -ms-overflow-style: none; /* IE, Edge 레거시 */
-}
-
-html::-webkit-scrollbar,
-body::-webkit-scrollbar,
-.app-main::-webkit-scrollbar,
-.coach-shell::-webkit-scrollbar,
-.coach-page::-webkit-scrollbar,
-.coach-page--chat::-webkit-scrollbar,
-.today-timeline-scroll::-webkit-scrollbar,
-.progress-cards-scroll::-webkit-scrollbar,
-.coach-rhythm-scroll::-webkit-scrollbar,
-.coach-chat::-webkit-scrollbar {
-  width: 0;
-  height: 0;
-  display: none; /* WebKit 기반 브라우저 */
-}
-
 html {
   height: 100%;
   overscroll-behavior: none;
@@ -461,55 +431,10 @@ select {
   background: var(--accent-tint-bg);
 }
 
-.store-filters {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-}
-
-.store-filter-chip {
-  border-radius: 999px;
-  border: 0.5px solid var(--border-soft);
-  background: #f9fafb;
-  padding: 5px 10px;
-  font-size: 11px;
-  color: var(--text-sub);
-  cursor: pointer;
-}
-
-.store-filter-chip--active {
-  border-color: var(--accent-border);
-  background: var(--accent-tint-bg);
-  color: var(--accent-strong);
-}
-
 .store-title {
   margin: 0;
   font-size: 16px;
   letter-spacing: -0.01em;
-}
-
-.store-card-main {
-  display: inline-flex;
-  align-items: center;
-  gap: 10px;
-  padding: 0;
-  margin: 0;
-  border: none;
-  background: none;
-  cursor: pointer;
-  text-align: left;
-}
-
-.store-expand-icon {
-  margin-left: 6px;
-  font-size: 14px;
-  color: var(--text-sub);
-  transition: transform var(--dur-med) var(--ease-standard);
-}
-
-.store-expand-icon--open {
-  transform: rotate(180deg);
 }
 
 .store-desc {
@@ -569,24 +494,6 @@ select {
 .store-install-btn-installed {
   background: rgba(36, 59, 107, 0.12);
   color: var(--accent-strong);
-}
-
-.store-card-detail {
-  max-height: 0;
-  overflow: hidden;
-  opacity: 0;
-  padding: 0 2px;
-  margin-top: 0;
-  transition:
-    max-height var(--dur-med) var(--ease-standard),
-    opacity var(--dur-med) var(--ease-standard),
-    margin-top var(--dur-med) var(--ease-standard);
-}
-
-.store-card-detail--open {
-  max-height: 200px;
-  opacity: 1;
-  margin-top: 8px;
 }
 
 .timeline-list {

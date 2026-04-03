@@ -171,13 +171,93 @@ function HomeTabConnected() {
     tag: "집중" as const
   }));
 
+  const metrics: Array<{
+    title: string;
+    value: string;
+    hint?: string;
+    tone?: "neutral" | "good" | "warn";
+  }> = [
+    {
+      title: "수면 패턴",
+      value:
+        Number(remoteMetrics?.sleepHours || 0) > 0
+          ? `${Number(remoteMetrics?.sleepHours).toFixed(1)}시간`
+          : last
+            ? `${last.sleepHours.toFixed(1)}시간`
+            : "-",
+      tone:
+        Number(remoteMetrics?.sleepHours || 0) > 0
+          ? toneFromScore(Number(remoteMetrics?.sleepHours), 7.0, 5.9)
+          : last
+            ? toneFromScore(last.sleepHours, 7.0, 5.9)
+            : ("neutral" as const)
+    },
+    {
+      title: "스트레스 지수",
+      value:
+        Number(remoteMetrics?.stress || 0) > 0
+          ? `${Number(remoteMetrics?.stress).toFixed(1)}/5`
+          : last
+            ? `${last.stressScore}/5`
+            : "-",
+      tone:
+        Number(remoteMetrics?.stress || 0) > 0
+          ? Number(remoteMetrics?.stress) >= 4
+            ? ("warn" as const)
+            : ("neutral" as const)
+          : last
+            ? last.stressScore >= 4
+              ? ("warn" as const)
+              : ("neutral" as const)
+            : ("neutral" as const)
+    },
+    {
+      title: "학습 집중도",
+      value:
+        Number(remoteMetrics?.concentration || 0) > 0
+          ? `${Number(remoteMetrics?.concentration).toFixed(1)}/5`
+          : last
+            ? `${last.concentrationScore}/5`
+            : "-",
+      tone:
+        Number(remoteMetrics?.concentration || 0) > 0
+          ? toneFromScore(Number(remoteMetrics?.concentration), 4, 2)
+          : last
+            ? toneFromScore(last.concentrationScore, 4, 2)
+            : ("neutral" as const)
+    },
+    {
+      title: "총 공부 시간",
+      value:
+        Number(remoteMetrics?.studyMinutes || 0) > 0
+          ? formatMinutes(Number(remoteMetrics?.studyMinutes))
+          : last
+            ? formatMinutes(last.totalStudyMinutes)
+            : "-",
+      tone: "neutral"
+    },
+    {
+      title: "목표 달성률",
+      value:
+        Number(remoteMetrics?.planCompletionRate || 0) > 0
+          ? `${Math.round(Number(remoteMetrics?.planCompletionRate))}%`
+          : last
+            ? `${last.planCompletionRate}%`
+            : "-",
+      tone:
+        Number(remoteMetrics?.planCompletionRate || 0) > 0
+          ? toneFromScore(Number(remoteMetrics?.planCompletionRate), 75, 55)
+          : last
+            ? toneFromScore(last.planCompletionRate, 75, 55)
+            : ("neutral" as const)
+    }
+  ];
+
   const heroNarrative = remote?.snapshot?.heroNarrative || insight.heroNarrative;
   const profile = remote?.snapshot?.profile;
 
   const displayName = profile?.name || student.name;
-  const rawSchoolLevel = profile?.schoolLevel || student.schoolLevel;
-  const displaySchoolLevel =
-    rawSchoolLevel === "고" ? "고등학교" : rawSchoolLevel === "중" ? "중학교" : rawSchoolLevel;
+  const displaySchoolLevel = profile?.schoolLevel || student.schoolLevel;
   const displayGrade = profile?.grade ?? student.grade;
   const displayGoal = localProfile?.goal || profile?.goal || student.goal;
   const displaySubjects =
@@ -261,11 +341,12 @@ function HomeTabConnected() {
           <div className="coach-profile-card__info">
             <div className="coach-profile-card__name-row">
               <div className="coach-profile-card__name">{displayName}</div>
-              {displaySchoolLevel && displayGrade && (
-                <span className="coach-profile-card__grade-pill">
-                  {displaySchoolLevel} {displayGrade}학년
-                </span>
+              {displayGrade && (
+                <span className="coach-profile-card__grade-pill">{displayGrade}학년</span>
               )}
+            </div>
+            <div className="coach-profile-card__meta">
+              {displaySchoolLevel}
             </div>
             <div className="coach-profile-card__goal">
               {displayGoal ? `🎯 목표: ${displayGoal}` : "아직 목표를 설정하지 않았어요."}
@@ -300,7 +381,6 @@ function HomeTabConnected() {
         eyebrow="AI 분석 결과"
         title={`${profile?.name || student.name}님, 오늘의 핵심`}
         body={heroNarrative}
-        showHeader={false}
         ctaLabel="시작"
         onCta={() => {
           const el = document.getElementById("coach-actions");
@@ -308,6 +388,14 @@ function HomeTabConnected() {
         }}
         badge={<RiskBadge level={insight.riskLevel} />}
       />
+
+      <div className="coach-horizontal-cards" aria-label="학생홈 지표 카드">
+        {metrics.map(m => (
+          <div key={m.title} className="coach-horizontal-cards__item">
+            <MetricCard title={m.title} value={m.value} hint={m.hint} tone={m.tone} />
+          </div>
+        ))}
+      </div>
 
       <Card className="coach-card coach-card--padded">
         <SectionHeader title="이번 주 리듬" right={<StatPill label="리스크" value={insight.riskLevel} />} />
