@@ -324,8 +324,7 @@ function HomeTabConnected() {
 
   return (
     <div className="coach-page">
-      <Card className="coach-card coach-profile-card">
-        <div className="coach-profile-card__cover" />
+      <Card className="coach-card coach-card--padded coach-profile-card">
         <div className="coach-profile-card__main">
           <div className="coach-profile-card__avatar-wrap">
             {avatarUrl ? (
@@ -342,34 +341,40 @@ function HomeTabConnected() {
           <div className="coach-profile-card__info">
             <div className="coach-profile-card__name-row">
               <div className="coach-profile-card__name">{displayName}</div>
-              <button
-                type="button"
-                className="coach-profile-card__edit-btn"
-                onClick={() => {
-                  setAvatarInput(avatarUrl || "");
-                  setGoalInput(displayGoal || "");
-                  setEditOpen(true);
-                }}
-              >
-                프로필 편집
-              </button>
+              {displayGrade && (
+                <span className="coach-profile-card__grade-pill">{displayGrade}학년</span>
+              )}
             </div>
             <div className="coach-profile-card__meta">
               {displaySchoolLevel}
-              {displayGrade ? ` ${displayGrade}학년` : null}
             </div>
             <div className="coach-profile-card__goal">
               {displayGoal ? `🎯 목표: ${displayGoal}` : "아직 목표를 설정하지 않았어요."}
             </div>
-            <div className="coach-profile-card__chips">
-              {displaySubjects.map(s => (
-                <span key={s} className="coach-chip">
-                  {s}
-                </span>
-              ))}
-            </div>
           </div>
         </div>
+        <button
+          type="button"
+          className="coach-ghost-btn"
+          style={{ marginTop: 10, width: "100%" }}
+          onClick={() => {
+            window.location.hash = "#/settings";
+          }}
+        >
+          설정으로 이동
+        </button>
+        <button
+          type="button"
+          className="coach-ghost-btn"
+          style={{ marginTop: 6, width: "100%" }}
+          onClick={() => {
+            setAvatarInput(avatarUrl || "");
+            setGoalInput(displayGoal || "");
+            setEditOpen(true);
+          }}
+        >
+          프로필 편집
+        </button>
       </Card>
 
       <GradientHeroCard

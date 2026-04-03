@@ -17,11 +17,11 @@ type StudyStoreApp = {
 };
 
 const storeAppIcons: Record<string, string> = {
-  'youtube-learning': 'https://www.youtube.com/s/desktop/fe2e3d86/img/favicon_144x144.png',
-  'khan-academy': 'https://cdn.kastatic.org/images/favicon-square.png',
-  quizlet: 'https://assets.quizlet.com/a/j/dist/app/i/favicon-196x196.png',
-  notion: 'https://www.notion.so/cdn-cgi/image/format=auto,width=64,quality=100/front-static/shared/icons/notion-app-icon-192.png',
-  'google-drive': 'https://ssl.gstatic.com/docs/doclist/images/drive_2022q3_32dp.png'
+  "youtube-learning": "/icons/youtube-learning.svg",
+  "khan-academy": "/icons/khan-academy.svg",
+  quizlet: "/icons/quizlet.svg",
+  notion: "/icons/notion.svg",
+  "google-drive": "/icons/google-drive.svg"
 };
 
 type StudentLinkRow = {
@@ -494,87 +494,78 @@ export function StudentLegacyView(props: {
             {storeApps.map(app => (
               <article key={app.id} className="store-card">
                 <div className="store-card-top">
-                  <span className="store-chip">{app.category}</span>
-                  <h3 className="store-title">
-                    <span aria-hidden style={{ marginRight: 8 }}>
-                      <img
-                        src={storeAppIcons[app.id] || "https://ssl.gstatic.com/docs/doclist/images/drive_2022q3_32dp.png"}
-                        alt=""
-                        className="store-icon"
-                      />
-                    </span>
-                    {app.name}
-                  </h3>
-                </div>
-                <div className="store-actions">
-                  <button
-                    type="button"
-                    className={
-                      "store-install-btn" +
-                      (app.installed ? " store-install-btn-installed" : "")
-                    }
-                    disabled={storeSavingId === app.id}
-                    onClick={async () => {
-                      if (!authToken) return;
-                      setStoreSavingId(app.id);
-                      setStoreError("");
-                      try {
-                        const res = await fetch(
-                          `${apiBase}/api/student/store-apps/${app.id}`,
-                          {
-                            method: "PUT",
-                            credentials: "include",
-                            headers: {
-                              "Content-Type": "application/json",
-                              Authorization: `Bearer ${authToken}`
-                            },
-                            body: JSON.stringify({
-                              installed: !app.installed,
-                              serial: resolvePreferredSerial() || undefined
-                            })
-                          }
-                        );
-                        const data = await res.json().catch(() => ({}));
-                        if (!res.ok) {
-                          setStoreError(
-                            (data as { error?: string }).error ||
-                              "앱 상태를 저장하지 못했습니다."
-                          );
-                          return;
-                        }
-                        setStoreApps(prev =>
-                          prev.map(item =>
-                            item.id === app.id ? (data as { app?: StudyStoreApp }).app || item : item
-                          )
-                        );
-                        if (!app.installed) {
-                          hapticSuccess();
-                        } else {
-                          hapticSelection();
-                        }
-                      } catch {
-                        setStoreError("앱 상태를 저장하지 못했습니다.");
-                      } finally {
-                        setStoreSavingId(null);
+                  <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                    <img
+                      src={storeAppIcons[app.id] || "/icons/google-drive.svg"}
+                      alt={app.name}
+                      className="store-icon"
+                    />
+                    <h3 className="store-title" style={{ margin: 0 }}>
+                      {app.name}
+                    </h3>
+                  </div>
+                  <div className="store-actions">
+                    <button
+                      type="button"
+                      className={
+                        "store-install-btn" +
+                        (app.installed ? " store-install-btn-installed" : "")
                       }
-                    }}
-                  >
-                    {storeSavingId === app.id
-                      ? "저장 중..."
-                      : app.installed
-                        ? "삭제하기"
-                        : "다운받기"}
-                  </button>
-                  <button
-                    type="button"
-                    className="store-open-btn"
-                    onClick={() => {
-                      hapticImpactLight();
-                      window.open(app.url, "_blank", "noopener,noreferrer");
-                    }}
-                  >
-                    앱 열기
-                  </button>
+                      disabled={storeSavingId === app.id}
+                      onClick={async () => {
+                        if (!authToken) return;
+                        setStoreSavingId(app.id);
+                        setStoreError("");
+                        try {
+                          const res = await fetch(
+                            `${apiBase}/api/student/store-apps/${app.id}`,
+                            {
+                              method: "PUT",
+                              credentials: "include",
+                              headers: {
+                                "Content-Type": "application/json",
+                                Authorization: `Bearer ${authToken}`
+                              },
+                              body: JSON.stringify({
+                                installed: !app.installed,
+                                serial: resolvePreferredSerial() || undefined
+                              })
+                            }
+                          );
+                          const data = await res.json().catch(() => ({}));
+                          if (!res.ok) {
+                            setStoreError(
+                              (data as { error?: string }).error ||
+                                "앱 상태를 저장하지 못했습니다."
+                            );
+                            return;
+                          }
+                          setStoreApps(prev =>
+                            prev.map(item =>
+                              item.id === app.id
+                                ? (data as { app?: StudyStoreApp }).app || item
+                                : item
+                            )
+                          );
+                          if (!app.installed) {
+                            hapticSuccess();
+                          } else {
+                            hapticSelection();
+                          }
+                        } catch {
+                          setStoreError("앱 상태를 저장하지 못했습니다.");
+                        } finally {
+                          setStoreSavingId(null);
+                        }
+                      }}
+                    >
+                      {storeSavingId === app.id
+                        ? "저장 중..."
+                        : app.installed
+                          ? "삭제하기"
+                          : "다운받기"}
+                    </button>
+                  </div>
                 </div>
               </article>
             ))}
