@@ -103,6 +103,11 @@ type RemoteCoachState = {
   };
 };
 
+type LocalStudentProfile = {
+  avatarUrl?: string;
+  goal?: string;
+};
+
 function HomeTabConnected() {
   const token = useCoachApiToken();
   const activeStudentId = useCoachStore(s => s.activeStudentId);
@@ -111,6 +116,10 @@ function HomeTabConnected() {
     [activeStudentId]
   );
   const [remote, setRemote] = useState<RemoteCoachState | null>(null);
+  const [localProfile, setLocalProfile] = useState<LocalStudentProfile | null>(null);
+  const [editOpen, setEditOpen] = useState(false);
+  const [avatarInput, setAvatarInput] = useState("");
+  const [goalInput, setGoalInput] = useState("");
 
   useEffect(() => {
     if (!token) return;
@@ -121,6 +130,31 @@ function HomeTabConnected() {
       .then(data => setRemote(data))
       .catch(() => setRemote(null));
   }, [token]);
+
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem("daechi_student_profile_custom");
+      if (!raw) return;
+      const parsed = JSON.parse(raw) as LocalStudentProfile;
+      setLocalProfile(parsed);
+    } catch {
+      setLocalProfile(null);
+    }
+  }, []);
+
+  const saveLocalProfile = () => {
+    const next: LocalStudentProfile = {
+      avatarUrl: avatarInput.trim() || undefined,
+      goal: goalInput.trim() || undefined
+    };
+    setLocalProfile(next);
+    try {
+      localStorage.setItem("daechi_student_profile_custom", JSON.stringify(next));
+    } catch {
+      // ignore
+    }
+    setEditOpen(false);
+  };
 
   const logs = useMemo(
     () => demoDailyLogs.filter(l => l.studentId === student.id).slice(-7),
@@ -222,34 +256,120 @@ function HomeTabConnected() {
   const heroNarrative = remote?.snapshot?.heroNarrative || insight.heroNarrative;
   const profile = remote?.snapshot?.profile;
 
+  const displayName = profile?.name || student.name;
+  const displaySchoolLevel = profile?.schoolLevel || student.schoolLevel;
+  const displayGrade = profile?.grade ?? student.grade;
+  const displayGoal = localProfile?.goal || profile?.goal || student.goal;
+  const displaySubjects =
+    profile?.targetSubjects && profile.targetSubjects.length > 0
+      ? profile.targetSubjects
+      : student.targetSubjects;
+  const avatarUrl = localProfile?.avatarUrl;
+
+  const weeklyCharts: Array<{
+    key: string;
+    title: string;
+    dataKey: "sleepHours" | "stressScore" | "concentration" | "studyMinutes" | "planCompletionRate";
+    color: string;
+    yDomain: [number, number];
+    tooltipLabel: string;
+    valueFormatter?: (value: number) => string;
+  }> = [
+    {
+      key: "sleep",
+      title: "이번 주 수면 패턴",
+      dataKey: "sleepHours",
+      color: "var(--accent-strong)",
+      yDomain: [0, 10],
+      tooltipLabel: "수면 시간",
+      valueFormatter: v => `${v.toFixed(1)}시간`
+    },
+    {
+      key: "stress",
+      title: "이번 주 스트레스 점수",
+      dataKey: "stressScore",
+      color: "var(--accent-soft)",
+      yDomain: [1, 5],
+      tooltipLabel: "스트레스 점수",
+      valueFormatter: v => `${v.toFixed(1)}/5`
+    },
+    {
+      key: "concentration",
+      title: "이번 주 학습 집중도",
+      dataKey: "concentration",
+      color: "var(--accent-strong)",
+      yDomain: [0, 100],
+      tooltipLabel: "집중도",
+      valueFormatter: v => `${Math.round(v)}%`
+    },
+    {
+      key: "studyMinutes",
+      title: "이번 주 공부 시간",
+      dataKey: "studyMinutes",
+      color: "#4f46e5",
+      yDomain: [0, Math.max(240, Math.max(...insight.metrics7d.map(m => m.studyMinutes)) || 0)],
+      tooltipLabel: "공부 시간(분)",
+      valueFormatter: v => `${Math.round(v)}분`
+    },
+    {
+      key: "planCompletionRate",
+      title: "이번 주 목표 달성률",
+      dataKey: "planCompletionRate",
+      color: "#16a34a",
+      yDomain: [0, 100],
+      tooltipLabel: "목표 달성률",
+      valueFormatter: v => `${Math.round(v)}%`
+    }
+  ];
+
   return (
     <div className="coach-page">
-      <Card className="coach-card coach-card--padded" style={{ marginBottom: 14 }}>
-        <SectionHeader title="프로필" />
-        <div className="coach-profile">
-          <div className="coach-profile__name">{profile?.name || student.name}</div>
-          <div className="coach-profile__meta">
-            {profile?.schoolLevel || student.schoolLevel}
-            {profile?.grade || student.grade} · 목표: {profile?.goal || student.goal}
+      <Card className="coach-card coach-profile-card">
+        <div className="coach-profile-card__cover" />
+        <div className="coach-profile-card__main">
+          <div className="coach-profile-card__avatar-wrap">
+            {avatarUrl ? (
+              <div
+                className="coach-profile-card__avatar coach-profile-card__avatar--image"
+                style={{ backgroundImage: `url(${avatarUrl})` }}
+              />
+            ) : (
+              <div className="coach-profile-card__avatar">
+                <span>{(displayName || "S").charAt(0).toUpperCase()}</span>
+              </div>
+            )}
           </div>
-          <div className="coach-profile__chips">
-            {(profile?.targetSubjects && profile.targetSubjects.length > 0 ? profile.targetSubjects : student.targetSubjects).map(s => (
-              <span key={s} className="coach-chip">
-                {s}
-              </span>
-            ))}
+          <div className="coach-profile-card__info">
+            <div className="coach-profile-card__name-row">
+              <div className="coach-profile-card__name">{displayName}</div>
+              <button
+                type="button"
+                className="coach-profile-card__edit-btn"
+                onClick={() => {
+                  setAvatarInput(avatarUrl || "");
+                  setGoalInput(displayGoal || "");
+                  setEditOpen(true);
+                }}
+              >
+                프로필 편집
+              </button>
+            </div>
+            <div className="coach-profile-card__meta">
+              {displaySchoolLevel}
+              {displayGrade ? ` ${displayGrade}학년` : null}
+            </div>
+            <div className="coach-profile-card__goal">
+              {displayGoal ? `🎯 목표: ${displayGoal}` : "아직 목표를 설정하지 않았어요."}
+            </div>
+            <div className="coach-profile-card__chips">
+              {displaySubjects.map(s => (
+                <span key={s} className="coach-chip">
+                  {s}
+                </span>
+              ))}
+            </div>
           </div>
         </div>
-        <button
-          type="button"
-          className="coach-ghost-btn"
-          style={{ marginTop: 12, width: "100%" }}
-          onClick={() => {
-            window.location.hash = "#/settings";
-          }}
-        >
-          설정으로 이동
-        </button>
       </Card>
 
       <GradientHeroCard
@@ -274,23 +394,56 @@ function HomeTabConnected() {
 
       <Card className="coach-card coach-card--padded">
         <SectionHeader title="이번 주 리듬" right={<StatPill label="리스크" value={insight.riskLevel} />} />
-        <div className="coach-chart">
-          <ResponsiveContainer width="100%" height={160}>
-            <LineChart data={insight.metrics7d}>
-              <XAxis dataKey="date" tick={{ fontSize: 11 }} tickFormatter={d => String(d).slice(5)} />
-              <YAxis tick={{ fontSize: 11 }} width={34} domain={[0, 100]} />
-              <Tooltip
-                contentStyle={{
-                  borderRadius: 12,
-                  border: "1px solid rgba(148,163,184,0.35)",
-                  boxShadow: "0 10px 30px rgba(15,23,42,0.10)"
-                }}
-                labelFormatter={l => `날짜 ${String(l).slice(5)}`}
-                formatter={(v: any, k: any) => [v, k === "concentration" ? "집중도" : k]}
-              />
-              <Line type="monotone" dataKey="concentration" stroke="var(--accent-strong)" strokeWidth={3} dot={false} />
-            </LineChart>
-          </ResponsiveContainer>
+        <div
+          className="coach-rhythm-scroll"
+          style={{
+            display: "flex",
+            overflowX: "auto",
+            gap: 12,
+            paddingBottom: 6,
+            marginTop: 4
+          }}
+          aria-label="이번 주 리듬 상세 그래프"
+        >
+          {weeklyCharts.map(chart => (
+            <div
+              key={chart.key}
+              className="coach-rhythm-scroll__item"
+              style={{
+                flex: "0 0 auto",
+                minWidth: 260
+              }}
+            >
+              <div className="coach-rhythm-scroll__title" style={{ fontSize: 14, fontWeight: 600, marginBottom: 6 }}>
+                {chart.title}
+              </div>
+              <div className="coach-chart">
+                <ResponsiveContainer width="100%" height={160}>
+                  <LineChart data={insight.metrics7d}>
+                    <XAxis dataKey="date" tick={{ fontSize: 11 }} tickFormatter={d => String(d).slice(5)} />
+                    <YAxis tick={{ fontSize: 11 }} width={34} domain={chart.yDomain} />
+                    <Tooltip
+                      contentStyle={{
+                        borderRadius: 12,
+                        border: "1px solid rgba(148,163,184,0.35)",
+                        boxShadow: "0 10px 30px rgba(15,23,42,0.10)"
+                      }}
+                      labelFormatter={l => `날짜 ${String(l).slice(5)}`}
+                      formatter={(v: any) => {
+                        const num = typeof v === "number" ? v : Number(v);
+                        const label = chart.tooltipLabel;
+                        if (chart.valueFormatter) {
+                          return [chart.valueFormatter(num), label];
+                        }
+                        return [v, label];
+                      }}
+                    />
+                    <Line type="monotone" dataKey={chart.dataKey} stroke={chart.color} strokeWidth={3} dot={false} />
+                  </LineChart>
+                </ResponsiveContainer>
+              </div>
+            </div>
+          ))}
         </div>
       </Card>
 
@@ -319,6 +472,60 @@ function HomeTabConnected() {
           <EmptyState title="추천 행동이 없습니다." />
         )}
       </div>
+
+      {editOpen && (
+        <div
+          className="modal-backdrop"
+          onClick={() => {
+            setEditOpen(false);
+          }}
+        >
+          <div
+            className="modal-sheet"
+            onClick={e => {
+              e.stopPropagation();
+            }}
+          >
+            <div className="modal-header">
+              <span className="modal-title">프로필 편집</span>
+            </div>
+            <div className="modal-body">
+              <div className="field">
+                <label className="field-label">프로필 사진 URL</label>
+                <input
+                  className="field-input"
+                  placeholder="이미지 주소를 붙여넣기 해 주세요"
+                  value={avatarInput}
+                  onChange={e => setAvatarInput(e.target.value)}
+                />
+              </div>
+              <div className="field" style={{ marginTop: 10 }}>
+                <label className="field-label">나의 목표</label>
+                <input
+                  className="field-input"
+                  placeholder="예: 중간고사 상위 10% 안에 들기"
+                  value={goalInput}
+                  onChange={e => setGoalInput(e.target.value)}
+                />
+              </div>
+            </div>
+            <div className="modal-footer">
+              <button
+                type="button"
+                className="modal-secondary"
+                onClick={() => {
+                  setEditOpen(false);
+                }}
+              >
+                취소
+              </button>
+              <button type="button" className="modal-primary" onClick={saveLocalProfile}>
+                저장
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

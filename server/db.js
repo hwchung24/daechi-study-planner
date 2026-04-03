@@ -45,6 +45,11 @@ async function getMe(userId) {
   return res.rows[0] || null;
 }
 
+async function deleteUser(userId) {
+  const res = await query("DELETE FROM users WHERE id = $1", [userId]);
+  return res.rowCount > 0;
+}
+
 async function getParentIdByUserId(parentUserId) {
   const res = await query("SELECT id FROM parents WHERE user_id = $1", [
     parentUserId
@@ -1080,6 +1085,7 @@ module.exports = {
   findUserByEmail,
   createUser,
   getMe,
+  deleteUser,
   listParentStudents,
   parentRequestLink,
   studentRequestParent,

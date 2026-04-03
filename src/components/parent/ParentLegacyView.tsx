@@ -56,6 +56,7 @@ export function ParentLegacyView(props: {
   hapticSelection: () => void;
   hapticWarning: () => void;
   handleLogout: () => void;
+  handleWithdrawAccount: () => void;
 }) {
   const {
     apiBase,
@@ -90,7 +91,8 @@ export function ParentLegacyView(props: {
     setParentAiDaily,
     hapticSelection,
     hapticWarning,
-    handleLogout
+    handleLogout,
+    handleWithdrawAccount
   } = props;
 
   if (meRole !== "parent") {
@@ -623,6 +625,17 @@ export function ParentLegacyView(props: {
 
       <section className="section">
         <div className="settings-list">
+          <button
+            type="button"
+            className="settings-item"
+            onClick={() => {
+              hapticWarning();
+              handleWithdrawAccount();
+            }}
+          >
+            <span className="settings-label">회원 탈퇴</span>
+            <span className="settings-value">계정 삭제</span>
+          </button>
           <button
             type="button"
             className="settings-item"

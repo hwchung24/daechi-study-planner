@@ -98,7 +98,9 @@ export function buildWeeklyInsight(studentId: string, logs: DailyLog[]): WeeklyI
     date: l.date,
     concentration: Math.round((l.concentrationScore / 5) * 100),
     studyMinutes: l.totalStudyMinutes,
-    sleepHours: l.sleepHours
+    sleepHours: l.sleepHours,
+    stressScore: l.stressScore,
+    planCompletionRate: l.planCompletionRate
   }));
 
   const patterns = detectPatterns(last7);

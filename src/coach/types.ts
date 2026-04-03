@@ -88,6 +88,8 @@ export type WeeklyInsight = {
     concentration: number; // 0..100
     studyMinutes: number;
     sleepHours: number;
+    stressScore: number; // 1..5
+    planCompletionRate: number; // 0..100
   }>;
   patterns: DetectedPattern[];
   nextActions: NextAction[];

@@ -629,6 +629,30 @@ const App: React.FC = () => {
     window.location.hash = "#/auth";
   };
 
+  const handleWithdrawAccount = async () => {
+    if (!authToken) return;
+
+    const ok = window.confirm(
+      "정말로 회원 탈퇴를 하시겠습니까?\n이 작업은 되돌릴 수 없습니다."
+    );
+    if (!ok) return;
+
+    try {
+      await fetch(`${API_BASE}/api/account/withdraw`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${authToken}`
+        },
+        body: JSON.stringify({})
+      });
+    } catch {
+      // ignore (logout still proceeds)
+    }
+
+    handleLogout();
+  };
+
   const handleAdd = () => {
     if (isLocked) {
       setShowRequestModal(true);
@@ -654,13 +678,6 @@ const App: React.FC = () => {
     setShowAddModal(false);
   };
 
-  const todayProgress =
-    blocks.length === 0
-      ? 0
-      : Math.round(
-          (blocks.filter(b => b.done).length / blocks.length) * 100
-        );
-
   const roleLoading = Boolean(
     authToken && route !== "auth" && meRole === null
   );
@@ -678,66 +695,66 @@ const App: React.FC = () => {
   }, [mainEnter]);
 
   const handleAuthSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
-    e.preventDefault();
-    const email = authEmail.trim().toLowerCase();
-    const password = authPassword;
+                e.preventDefault();
+                const email = authEmail.trim().toLowerCase();
+                const password = authPassword;
     const studentName = authStudentName.trim();
-    if (!email) {
-      hapticWarning();
-      setAuthError("이메일을 입력해 주세요.");
-      return;
-    }
+                if (!email) {
+                  hapticWarning();
+                  setAuthError("이메일을 입력해 주세요.");
+                  return;
+                }
     if (authMode === "signup" && authRole === "student" && !studentName) {
       hapticWarning();
       setAuthError("학생 이름을 입력해 주세요.");
       return;
     }
-    if (password.length < 4) {
-      hapticWarning();
-      setAuthError("비밀번호는 4자 이상이어야 합니다.");
-      return;
-    }
-    try {
-      setAuthError("");
-      const res = await fetch(
+                if (password.length < 4) {
+                  hapticWarning();
+                  setAuthError("비밀번호는 4자 이상이어야 합니다.");
+                  return;
+                }
+                try {
+                  setAuthError("");
+                  const res = await fetch(
         `${API_BASE}/auth/${authMode === "login" ? "login" : "register"}`,
-        {
-          method: "POST",
-          credentials: "include",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            email,
-            password,
-            role: authMode === "signup" ? authRole : undefined,
+                    {
+                      method: "POST",
+                      credentials: "include",
+                      headers: { "Content-Type": "application/json" },
+                      body: JSON.stringify({
+                        email,
+                        password,
+                        role: authMode === "signup" ? authRole : undefined,
             name:
               authMode === "signup" && authRole === "student"
                 ? studentName
                 : undefined,
-            serial: resolvePreferredSerial() || undefined
-          })
-        }
-      );
-      const data = await res.json();
-      if (!res.ok) {
-        hapticWarning();
-        setAuthError(data.error || "로그인에 실패했습니다.");
-        return;
-      }
-      const token = data.token as string;
-      hapticSuccess();
-      setAuthLeaving(true);
-      window.setTimeout(() => {
-        setUserEmail(data.email);
-        setAuthToken(token);
+                        serial: resolvePreferredSerial() || undefined
+                      })
+                    }
+                  );
+                  const data = await res.json();
+                  if (!res.ok) {
+                    hapticWarning();
+                    setAuthError(data.error || "로그인에 실패했습니다.");
+                    return;
+                  }
+                  const token = data.token as string;
+                  hapticSuccess();
+                  setAuthLeaving(true);
+                  window.setTimeout(() => {
+                    setUserEmail(data.email);
+                    setAuthToken(token);
         localStorage.setItem("daechi_planner_user_email", data.email);
-        localStorage.setItem("daechi_planner_token", token);
-        window.location.hash = "#/";
-        setMainEnter(true);
-      }, 420);
-    } catch {
-      hapticWarning();
-      setAuthError("서버와 통신 중 오류가 발생했습니다.");
-    }
+                    localStorage.setItem("daechi_planner_token", token);
+                    window.location.hash = "#/";
+                    setMainEnter(true);
+                  }, 420);
+                } catch {
+                  hapticWarning();
+                  setAuthError("서버와 통신 중 오류가 발생했습니다.");
+                }
   };
 
   return (
@@ -794,7 +811,7 @@ const App: React.FC = () => {
           <div className="header-top">
             <div className="header-title-group">
               <div className="header-title-row">
-                <h1 className="header-title">
+              <h1 className="header-title">
                 {roleLoading && "불러오는 중…"}
                 {!roleLoading &&
                   parentView &&
@@ -808,8 +825,8 @@ const App: React.FC = () => {
                             ? "학부모 프로필"
                             : "학부모 홈"
                       : parentTab === "link"
-                        ? "자녀 연결"
-                        : "AI 리포트"
+                      ? "자녀 연결"
+                      : "AI 리포트"
                     : "학부모")}
                 {showStudentShell &&
                   (coachStudentMode
@@ -823,7 +840,7 @@ const App: React.FC = () => {
                         : tab === "store"
                           ? "학습 앱스토어"
                           : "설정")}
-                </h1>
+              </h1>
               </div>
             </div>
             <div className="profile-chip">
@@ -836,28 +853,17 @@ const App: React.FC = () => {
             </div>
           </div>
 
-          {showStudentShell && !coachStudentMode && tab === "today" && (
-            <div className="progress-card">
-              <div className="progress-row">
-                <span className="progress-label">진행률</span>
-                <span className="progress-value">{todayProgress}%</span>
-              </div>
-              <div className="progress-bar-track">
-                <div
-                  className="progress-bar-fill"
-                  style={{ width: `${todayProgress}%` }}
-                />
-              </div>
-              <div className="progress-meta-row">
-                <span className="progress-meta">
-                  {blocks.filter(b => b.done).length}/{blocks.length} 완료
-                </span>
-              </div>
-            </div>
-          )}
+          {/* 오늘 공부의 진행률은 StudentLegacyView에서 3섹션 레이아웃으로 렌더링합니다. */}
         </header>
 
-        <main className="app-main">
+        <main
+          className={
+            "app-main" +
+            (showStudentShell && !coachStudentMode && tab === "today"
+              ? " app-main--today-fixed"
+              : "")
+          }
+        >
           {roleLoading && (
             <p className="empty-state">불러오는 중…</p>
           )}
@@ -906,6 +912,7 @@ const App: React.FC = () => {
               hapticSelection={hapticSelection}
               hapticWarning={hapticWarning}
               handleLogout={handleLogout}
+              handleWithdrawAccount={handleWithdrawAccount}
             />
           )}
 
@@ -952,6 +959,7 @@ const App: React.FC = () => {
               hapticImpactLight={hapticImpactLight}
               hapticSuccess={hapticSuccess}
               handleLogout={handleLogout}
+              handleWithdrawAccount={handleWithdrawAccount}
             />
           )}
 
@@ -967,7 +975,7 @@ const App: React.FC = () => {
           coachStudentTab={coachStudentTab}
           coachParentTab={coachParentTab}
           onStudentNavClick={nextTab => {
-            hapticSelection();
+              hapticSelection();
             setCoachStudentTab(null);
             setTab(nextTab);
             window.location.hash =
@@ -980,19 +988,19 @@ const App: React.FC = () => {
                     : "#/settings";
           }}
           onCoachStudentNavClick={nextTab => {
-            hapticSelection();
+              hapticSelection();
             setCoachStudentTab(nextTab);
             window.location.hash =
               nextTab === "coach" ? "#/student/coach" : "#/student/home";
           }}
           onParentNavClick={nextTab => {
-            hapticSelection();
+              hapticSelection();
             setParentTab(nextTab);
             window.location.hash =
               nextTab === "report" ? "#/parent/report" : "#/parent";
           }}
           onCoachParentNavClick={nextTab => {
-            hapticSelection();
+              hapticSelection();
             setCoachParentTab(nextTab);
             window.location.hash =
               nextTab === "home"
@@ -1004,28 +1012,11 @@ const App: React.FC = () => {
                     : "#/parent/profile";
           }}
           onParentCoachExit={() => {
-            hapticSelection();
+                hapticSelection();
             setCoachParentTab(null);
-            window.location.hash = "#/parent";
-          }}
+                window.location.hash = "#/parent";
+              }}
         />
-
-        {showStudentShell && !coachStudentMode && tab === "today" && (
-          <button
-            type="button"
-            className="floating-add-button"
-            onClick={() => {
-              hapticImpactLight();
-              if (isLocked) {
-                setShowRequestModal(true);
-              } else {
-                setShowAddModal(true);
-              }
-            }}
-          >
-            ＋
-          </button>
-        )}
 
         {showAddModal && (
           <div className="modal-backdrop" onClick={() => setShowAddModal(false)}>

@@ -17,11 +17,11 @@ type StudyStoreApp = {
 };
 
 const storeAppIcons: Record<string, string> = {
-  "youtube-learning": "▶️",
-  "khan-academy": "🎓",
-  quizlet: "🧠",
-  notion: "🗒️",
-  "google-drive": "📁"
+  'youtube-learning': 'https://www.youtube.com/s/desktop/fe2e3d86/img/favicon_144x144.png',
+  'khan-academy': 'https://cdn.kastatic.org/images/favicon-square.png',
+  quizlet: 'https://assets.quizlet.com/a/j/dist/app/i/favicon-196x196.png',
+  notion: 'https://www.notion.so/cdn-cgi/image/format=auto,width=64,quality=100/front-static/shared/icons/notion-app-icon-192.png',
+  'google-drive': 'https://ssl.gstatic.com/docs/doclist/images/drive_2022q3_32dp.png'
 };
 
 type StudentLinkRow = {
@@ -72,6 +72,7 @@ export function StudentLegacyView(props: {
   hapticImpactLight: () => void;
   hapticSuccess: () => void;
   handleLogout: () => void;
+  handleWithdrawAccount: () => void;
 }) {
   const {
     tab,
@@ -113,7 +114,8 @@ export function StudentLegacyView(props: {
     hapticWarning,
     hapticImpactLight,
     hapticSuccess,
-    handleLogout
+    handleLogout,
+    handleWithdrawAccount
   } = props;
   const [todaySleepHours, setTodaySleepHours] = useState("");
   const [todayStress, setTodayStress] = useState("3");
@@ -121,6 +123,11 @@ export function StudentLegacyView(props: {
   const [todayMemo, setTodayMemo] = useState("");
   const [todayLogSaving, setTodayLogSaving] = useState(false);
   const [todayLogMessage, setTodayLogMessage] = useState("");
+
+  const todayTotalCount = blocks.length;
+  const todayDoneCount = blocks.filter(b => b.done).length;
+  const todayProgress =
+    todayTotalCount === 0 ? 0 : Math.round((todayDoneCount / todayTotalCount) * 100);
 
   const handleSaveTodayLog = async () => {
     if (!authToken) return;
@@ -173,7 +180,7 @@ export function StudentLegacyView(props: {
 
   return (
     <>
-      {studentLockStatus?.locked && (
+      {studentLockStatus?.locked && tab !== "today" && (
         <section className="section">
           <div className="progress-card">
             <div className="section-header">
@@ -196,42 +203,93 @@ export function StudentLegacyView(props: {
       )}
 
       {tab === "today" && (
-        <>
+        <div className="today-study-layout">
+          {studentLockStatus?.locked && (
+            <section className="section">
+              <div className="progress-card" style={{ marginTop: 0 }}>
+                <div className="section-header">
+                  <h2 className="section-title">잠금 상태</h2>
+                </div>
+                <p className="settings-hint" style={{ marginTop: 6 }}>
+                  학부모가 정한 시각 이후라 오늘 계획 수정이 잠겨 있어요. 내일 계획을 저장하면
+                  잠금이 해제됩니다.
+                </p>
+                <p className="settings-hint" style={{ marginTop: 6 }}>
+                  예정 시각: {studentLockStatus.rules?.[0]?.lockTime || "21:00"} · 상태: 잠김
+                </p>
+                {studentLockMessage && (
+                  <p className="settings-hint" style={{ marginTop: 6 }}>
+                    {studentLockMessage}
+                  </p>
+                )}
+              </div>
+            </section>
+          )}
+
           <section className="section">
+            <div className="section-header">
+              <h2 className="section-title">진행률</h2>
+            </div>
+            <div className="progress-card" style={{ marginTop: 0 }}>
+              <div className="progress-row">
+                <span className="progress-label">진행률</span>
+                <span className="progress-value">{todayProgress}%</span>
+              </div>
+              <div className="progress-bar-track">
+                <div
+                  className="progress-bar-fill"
+                  style={{ width: `${todayProgress}%` }}
+                />
+              </div>
+              <div className="progress-meta-row">
+                <span className="progress-meta">
+                  {todayDoneCount}/{todayTotalCount} 완료
+                </span>
+              </div>
+            </div>
+          </section>
+
+          <section className="section today-timeline">
             <div className="section-header">
               <h2 className="section-title">타임라인</h2>
             </div>
-
-            <div className="timeline-list">
-              {blocks.map(block => (
-                <button
-                  key={block.id}
-                  className={
-                    "timeline-item" + (block.done ? " timeline-item-done" : "")
-                  }
-                  onClick={() => toggleDone(block.id)}
-                >
-                  <div className="time-col">
-                    <span className="time-main">
-                      {block.start} - {block.end}
-                    </span>
-                    <span className="time-sub">{block.subject}</span>
-                  </div>
-                  <div className="subject-col">
-                    <span className="subject-pill">{block.subject}</span>
-                    <span className="subject-tag">{block.done ? "완료" : ""}</span>
-                  </div>
-                  <div className="check-col" aria-hidden="true">
-                    <span className="check-circle">
-                      {block.done && <span className="check-dot" />}
-                    </span>
-                  </div>
-                </button>
-              ))}
-              {blocks.length === 0 && <p className="empty-state">아직 일정이 없어요.</p>}
+            <div className="today-timeline-scroll">
+              <div className="timeline-list">
+                {blocks.map(block => (
+                  <button
+                    key={block.id}
+                    className={
+                      "timeline-item" + (block.done ? " timeline-item-done" : "")
+                    }
+                    onClick={() => toggleDone(block.id)}
+                  >
+                    <div className="time-col">
+                      <span className="time-main">
+                        {block.start} - {block.end}
+                      </span>
+                      <span className="time-sub">{block.subject}</span>
+                    </div>
+                    <div className="subject-col">
+                      <span className="subject-pill">{block.subject}</span>
+                      <span className="subject-tag">
+                        {block.done ? "완료" : ""}
+                      </span>
+                    </div>
+                    <div className="check-col" aria-hidden="true">
+                      <span className="check-circle">
+                        {block.done && <span className="check-dot" />}
+                      </span>
+                    </div>
+                  </button>
+                ))}
+                {blocks.length === 0 && (
+                  <p className="empty-state">아직 일정이 없어요.</p>
+                )}
+              </div>
             </div>
           </section>
-          <section className="section section-sticky">
+
+          <section className="section">
             <div className="section-header">
               <h2 className="section-title">오늘 기록</h2>
             </div>
@@ -260,7 +318,10 @@ export function StudentLegacyView(props: {
                     onChange={e => setTodayStress(e.target.value)}
                     style={{ flex: 1 }}
                   />
-                  <span className="settings-value" style={{ minWidth: 24, textAlign: "right" }}>
+                  <span
+                    className="settings-value"
+                    style={{ minWidth: 24, textAlign: "right" }}
+                  >
                     {todayStress}
                   </span>
                 </div>
@@ -277,7 +338,10 @@ export function StudentLegacyView(props: {
                     onChange={e => setTodayConcentration(e.target.value)}
                     style={{ flex: 1 }}
                   />
-                  <span className="settings-value" style={{ minWidth: 24, textAlign: "right" }}>
+                  <span
+                    className="settings-value"
+                    style={{ minWidth: 24, textAlign: "right" }}
+                  >
                     {todayConcentration}
                   </span>
                 </div>
@@ -308,7 +372,7 @@ export function StudentLegacyView(props: {
               )}
             </div>
           </section>
-        </>
+        </div>
       )}
 
       {tab === "week" && (
@@ -433,7 +497,11 @@ export function StudentLegacyView(props: {
                   <span className="store-chip">{app.category}</span>
                   <h3 className="store-title">
                     <span aria-hidden style={{ marginRight: 8 }}>
-                      {storeAppIcons[app.id] || "📱"}
+                      <img
+                        src={storeAppIcons[app.id] || "https://ssl.gstatic.com/docs/doclist/images/drive_2022q3_32dp.png"}
+                        alt=""
+                        className="store-icon"
+                      />
                     </span>
                     {app.name}
                   </h3>
@@ -718,6 +786,17 @@ export function StudentLegacyView(props: {
                 )}
               </>
             )}
+            <button
+              type="button"
+              className="settings-item"
+              onClick={() => {
+                hapticWarning();
+                handleWithdrawAccount();
+              }}
+            >
+              <span className="settings-label">회원 탈퇴</span>
+              <span className="settings-value">계정 삭제</span>
+            </button>
             <button
               type="button"
               className="settings-item"

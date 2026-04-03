@@ -43,7 +43,8 @@ const {
   insertStudentCoachLog,
   listRecentStudentCoachLogs,
   insertStudentCoachMessage,
-  listRecentStudentCoachMessages
+  listRecentStudentCoachMessages,
+  deleteUser
 } = require("./db");
 const {
   computeWeeklyStats,
@@ -539,6 +540,19 @@ app.get("/api/me", authMiddleware, async (req, res) => {
   } catch (e) {
     console.error("/api/me error", e);
     res.status(500).json({ error: "사용자 정보를 불러오지 못했습니다." });
+  }
+});
+
+app.post("/api/account/withdraw", authMiddleware, async (req, res) => {
+  try {
+    const ok = await deleteUser(req.userId);
+    if (!ok) {
+      return res.status(404).json({ error: "사용자를 찾을 수 없습니다." });
+    }
+    res.json({ ok: true });
+  } catch (e) {
+    console.error("/api/account/withdraw error", e);
+    res.status(500).json({ error: "회원 탈퇴 처리에 실패했습니다." });
   }
 });
 

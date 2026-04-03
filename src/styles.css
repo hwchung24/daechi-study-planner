@@ -328,6 +328,40 @@ select {
   scroll-behavior: smooth;
 }
 
+.app-main--today-fixed {
+  overflow-y: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.today-study-layout {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.today-study-layout .section {
+  margin-bottom: 0;
+}
+
+.today-timeline {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.today-timeline-scroll {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
 .section {
   margin-bottom: 18px;
   animation: section-fade-up var(--dur-med) var(--ease-standard) both;
@@ -374,6 +408,14 @@ select {
   align-items: center;
   justify-content: space-between;
   gap: 10px;
+}
+
+.store-icon {
+  width: 22px;
+  height: 22px;
+  border-radius: 6px;
+  object-fit: contain;
+  display: block;
 }
 
 .store-chip {
@@ -1663,6 +1705,106 @@ button:active:not(:disabled),
 
 .coach-card--padded {
   padding: 14px 14px;
+}
+
+.coach-profile-card {
+  position: relative;
+  overflow: hidden;
+  padding: 0;
+  margin-bottom: 18px;
+}
+
+.coach-profile-card__cover {
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(circle at 0% 0%, #bfdbfe 0, transparent 50%),
+    radial-gradient(circle at 100% 0%, #f97316 0, transparent 55%),
+    linear-gradient(135deg, #0f172a, #1d4ed8);
+  opacity: 0.92;
+}
+
+.coach-profile-card__main {
+  position: relative;
+  display: flex;
+  gap: 14px;
+  padding: 18px 16px 16px;
+  color: #e5e7eb;
+}
+
+.coach-profile-card__avatar-wrap {
+  flex-shrink: 0;
+}
+
+.coach-profile-card__avatar {
+  width: 64px;
+  height: 64px;
+  border-radius: 999px;
+  background: rgba(15, 23, 42, 0.7);
+  border: 2px solid rgba(248, 250, 252, 0.9);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #f9fafb;
+  font-weight: 700;
+  font-size: 24px;
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.45);
+  overflow: hidden;
+}
+
+.coach-profile-card__avatar--image {
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
+}
+
+.coach-profile-card__info {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.coach-profile-card__name-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.coach-profile-card__name {
+  font-size: 20px;
+  font-weight: 700;
+  letter-spacing: -0.03em;
+}
+
+.coach-profile-card__edit-btn {
+  border-radius: 999px;
+  border: 0.5px solid rgba(248, 250, 252, 0.65);
+  background: rgba(15, 23, 42, 0.35);
+  color: #e5e7eb;
+  padding: 6px 10px;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  backdrop-filter: blur(10px);
+}
+
+.coach-profile-card__meta {
+  font-size: 12px;
+  opacity: 0.85;
+}
+
+.coach-profile-card__goal {
+  margin-top: 2px;
+  font-size: 13px;
+}
+
+.coach-profile-card__chips {
+  margin-top: 6px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
 }
 
 .coach-hero {
