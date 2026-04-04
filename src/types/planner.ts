@@ -4,6 +4,10 @@ export type StudyBlock = {
   start: string;
   end: string;
   done: boolean;
+  /** study_books.id — 책 관리에서 등록한 책 */
+  bookId?: number;
+  /** 계획 구간 (예: 10~20쪽) */
+  plannedRange?: string;
 };
 
 export type ProgressBook = {

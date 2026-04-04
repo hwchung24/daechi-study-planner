@@ -14,6 +14,10 @@ const {
   replaceStudyBlocks,
   upsertStudyPlans,
   getWeekData,
+  getStudyPlansForDate,
+  listStudyBooks,
+  createStudyBook,
+  softDeleteStudyBook,
   getMe,
   listParentStudents,
   parentRequestLink,
@@ -495,6 +499,85 @@ app.put("/api/plan", authMiddleware, async (req, res) => {
   } catch (e) {
     console.error("/api/plan error", e);
     res.status(500).json({ error: "계획 저장에 실패했습니다." });
+  }
+});
+
+app.get("/api/student/books", authMiddleware, async (req, res) => {
+  try {
+    const me = await getMe(req.userId);
+    if (!me || me.role !== "student") {
+      return res.status(403).json({ error: "학생만 접근할 수 있습니다." });
+    }
+    const books = await listStudyBooks(req.userId);
+    res.json({ books });
+  } catch (e) {
+    console.error("/api/student/books GET error", e);
+    res.status(500).json({ error: "책 목록을 불러오지 못했습니다." });
+  }
+});
+
+app.post("/api/student/books", authMiddleware, async (req, res) => {
+  try {
+    const me = await getMe(req.userId);
+    if (!me || me.role !== "student") {
+      return res.status(403).json({ error: "학생만 접근할 수 있습니다." });
+    }
+    const name = String((req.body || {}).name || "").trim();
+    if (!name) {
+      return res.status(400).json({ error: "책 이름이 필요합니다." });
+    }
+    const row = await createStudyBook(req.userId, name);
+    if (!row) {
+      return res.status(500).json({ error: "책을 추가하지 못했습니다." });
+    }
+    res.json({ id: row.id, name: row.name });
+  } catch (e) {
+    console.error("/api/student/books POST error", e);
+    res.status(500).json({ error: "책을 추가하지 못했습니다." });
+  }
+});
+
+app.delete("/api/student/books/:id", authMiddleware, async (req, res) => {
+  try {
+    const me = await getMe(req.userId);
+    if (!me || me.role !== "student") {
+      return res.status(403).json({ error: "학생만 접근할 수 있습니다." });
+    }
+    const bookId = Number(req.params.id);
+    if (!Number.isFinite(bookId) || bookId <= 0) {
+      return res.status(400).json({ error: "책 id가 올바르지 않습니다." });
+    }
+    const ok = await softDeleteStudyBook(req.userId, bookId);
+    if (!ok) {
+      return res.status(404).json({ error: "책을 찾을 수 없습니다." });
+    }
+    res.json({ ok: true });
+  } catch (e) {
+    console.error("/api/student/books DELETE error", e);
+    res.status(500).json({ error: "책을 삭제하지 못했습니다." });
+  }
+});
+
+/** 특정 날짜의 책별 계획만 조회 (내일 계획 복원 — 주간 범위와 무관) */
+app.get("/api/student/plans-by-date", authMiddleware, async (req, res) => {
+  try {
+    const me = await getMe(req.userId);
+    if (!me || me.role !== "student") {
+      return res.status(403).json({ error: "학생만 접근할 수 있습니다." });
+    }
+    const date = String(req.query.date || "")
+      .trim()
+      .slice(0, 10);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+      return res
+        .status(400)
+        .json({ error: "date 쿼리(YYYY-MM-DD)가 필요합니다." });
+    }
+    const { plans } = await getStudyPlansForDate(req.userId, date);
+    res.json({ date, plans });
+  } catch (e) {
+    console.error("/api/student/plans-by-date GET error", e);
+    res.status(500).json({ error: "계획을 불러오지 못했습니다." });
   }
 });
 

@@ -5,6 +5,29 @@ const pool = new Pool({
   connectionString: process.env.DATABASE_URL
 });
 
+/** 마이그레이션 전 DB는 book_id/planned_range 컬럼이 없을 수 있음. true만 캐시(마이그레이션 후 재시작 없이 감지). */
+let cachedStudyBlocksExtendedCols = false;
+
+async function studyBlocksHasExtendedCols() {
+  if (cachedStudyBlocksExtendedCols) return true;
+  try {
+    const r = await pool.query(
+      `SELECT 1
+       FROM information_schema.columns
+       WHERE table_name = 'study_blocks'
+         AND column_name = 'book_id'
+       LIMIT 1`
+    );
+    if (r.rows.length > 0) {
+      cachedStudyBlocksExtendedCols = true;
+      return true;
+    }
+  } catch {
+    // ignore
+  }
+  return false;
+}
+
 async function query(text, params) {
   const res = await pool.query(text, params);
   return res;
@@ -320,6 +343,7 @@ async function getOrCreateStudyDay(userId, date) {
 }
 
 async function replaceStudyBlocks(userId, date, blocks) {
+  const hasExtended = await studyBlocksHasExtendedCols();
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
@@ -327,17 +351,42 @@ async function replaceStudyBlocks(userId, date, blocks) {
     await client.query("DELETE FROM study_blocks WHERE study_day_id = $1", [
       day.id
     ]);
-    const insertText =
-      "INSERT INTO study_blocks (study_day_id, subject, start_time, end_time, done, focus_score) VALUES ($1, $2, $3, $4, $5, $6)";
-    for (const b of blocks) {
-      await client.query(insertText, [
-        day.id,
-        b.subject,
-        b.startTime,
-        b.endTime,
-        !!b.done,
-        b.focusScore || null
-      ]);
+    if (hasExtended) {
+      const insertText =
+        "INSERT INTO study_blocks (study_day_id, subject, start_time, end_time, done, focus_score, book_id, planned_range) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)";
+      for (const b of blocks) {
+        const bid =
+          b.bookId != null && b.bookId !== ""
+            ? Number(b.bookId)
+            : null;
+        const pr =
+          b.plannedRange != null && String(b.plannedRange).trim() !== ""
+            ? String(b.plannedRange).trim()
+            : null;
+        await client.query(insertText, [
+          day.id,
+          b.subject,
+          b.startTime,
+          b.endTime,
+          !!b.done,
+          b.focusScore || null,
+          Number.isFinite(bid) ? bid : null,
+          pr
+        ]);
+      }
+    } else {
+      const insertLegacy =
+        "INSERT INTO study_blocks (study_day_id, subject, start_time, end_time, done, focus_score) VALUES ($1, $2, $3, $4, $5, $6)";
+      for (const b of blocks) {
+        await client.query(insertLegacy, [
+          day.id,
+          b.subject,
+          b.startTime,
+          b.endTime,
+          !!b.done,
+          b.focusScore || null
+        ]);
+      }
     }
     await client.query("COMMIT");
   } catch (e) {
@@ -358,7 +407,9 @@ async function upsertStudyPlans(userId, date, plans) {
       const bookRes = await client.query(
         `INSERT INTO study_books (user_id, name)
          VALUES ($1, $2)
-         ON CONFLICT (user_id, name) DO UPDATE SET name = EXCLUDED.name
+         ON CONFLICT (user_id, name) DO UPDATE SET
+           active = true,
+           name = EXCLUDED.name
          RETURNING id`,
         [userId, p.bookName]
       );
@@ -411,10 +462,72 @@ async function getWeekData(userId, weekStart, weekEnd) {
     ids
   );
   const plansRes = await query(
-    `SELECT * FROM study_plans WHERE study_day_id IN (${params})`,
+    `SELECT sp.*, sb.name AS book_name
+     FROM study_plans sp
+     INNER JOIN study_books sb ON sb.id = sp.book_id AND sb.active = true
+     WHERE sp.study_day_id IN (${params})`,
     ids
   );
   return { days, blocks: blocksRes.rows, plans: plansRes.rows };
+}
+
+/** 특정 날짜(YYYY-MM-DD)의 study_plans만 조회 — 주간 API와 무관하게 내일 계획 복원용 */
+async function getStudyPlansForDate(userId, dateStr) {
+  const d = String(dateStr || "")
+    .trim()
+    .slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(d)) return { plans: [] };
+  /** date 컬럼이 TEXT/DATE/타임존 문자열 등일 때도 YYYY-MM-DD 로 맞춤 */
+  const dayRes = await query(
+    `SELECT sd.id FROM study_days sd
+     WHERE sd.user_id = $1
+       AND left(split_part(trim(COALESCE(sd.date::text, '')), 'T', 1), 10) = $2`,
+    [userId, d]
+  );
+  if (dayRes.rows.length === 0) {
+    return { plans: [] };
+  }
+  const studyDayId = dayRes.rows[0].id;
+  /** 책 비활성화돼도 계획 행은 보이게 (INNER + active 조건이면 행 자체가 사라짐) */
+  const plansRes = await query(
+    `SELECT sp.*, sb.name AS book_name
+     FROM study_plans sp
+     LEFT JOIN study_books sb ON sb.id = sp.book_id
+     WHERE sp.study_day_id = $1`,
+    [studyDayId]
+  );
+  return { plans: plansRes.rows };
+}
+
+async function listStudyBooks(userId) {
+  const res = await query(
+    `SELECT id, name FROM study_books
+     WHERE user_id = $1 AND active = true
+     ORDER BY id ASC`,
+    [userId]
+  );
+  return res.rows;
+}
+
+async function createStudyBook(userId, name) {
+  const trimmed = String(name || "").trim();
+  if (!trimmed) return null;
+  const res = await query(
+    `INSERT INTO study_books (user_id, name)
+     VALUES ($1, $2)
+     ON CONFLICT (user_id, name) DO UPDATE SET active = true
+     RETURNING id, name`,
+    [userId, trimmed]
+  );
+  return res.rows[0] || null;
+}
+
+async function softDeleteStudyBook(userId, bookId) {
+  const res = await query(
+    `UPDATE study_books SET active = false WHERE id = $1 AND user_id = $2`,
+    [bookId, userId]
+  );
+  return res.rowCount > 0;
 }
 
 /** 크론용: 연결된 부모 user_id + 학생 user_id 쌍 */
@@ -1126,7 +1239,11 @@ module.exports = {
   getOrCreateStudyDay,
   replaceStudyBlocks,
   upsertStudyPlans,
-  getWeekData
+  getWeekData,
+  getStudyPlansForDate,
+  listStudyBooks,
+  createStudyBook,
+  softDeleteStudyBook
 };
 
 

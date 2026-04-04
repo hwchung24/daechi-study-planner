@@ -28,6 +28,21 @@ async function main() {
   } catch {
     // ignore
   }
+
+  try {
+    await pool.query(`
+      ALTER TABLE study_blocks ADD COLUMN IF NOT EXISTS book_id BIGINT REFERENCES study_books(id) ON DELETE SET NULL;
+    `);
+  } catch {
+    // ignore
+  }
+  try {
+    await pool.query(`
+      ALTER TABLE study_blocks ADD COLUMN IF NOT EXISTS planned_range TEXT;
+    `);
+  } catch {
+    // ignore
+  }
 }
 
 main()

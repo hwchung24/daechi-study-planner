@@ -319,3 +319,7 @@ CREATE TABLE IF NOT EXISTS student_coach_messages (
 CREATE INDEX IF NOT EXISTS idx_student_coach_messages_user
   ON student_coach_messages (user_id, created_at DESC);
 
+-- 타임라인 블록에 책·계획 구간 (기존 DB는 migrate 시 컬럼 추가)
+ALTER TABLE study_blocks ADD COLUMN IF NOT EXISTS book_id BIGINT REFERENCES study_books(id) ON DELETE SET NULL;
+ALTER TABLE study_blocks ADD COLUMN IF NOT EXISTS planned_range TEXT;
+

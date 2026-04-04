@@ -41,7 +41,7 @@ const SplashScreen: React.FC<Props> = ({ onComplete }) => {
       <div className="splash-screen__inner">
         <img
           className="splash-screen__logo"
-          src="/favicon.svg"
+          src="/splash-logo.png"
           alt="대치루트"
           draggable={false}
         />

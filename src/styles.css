@@ -26,6 +26,8 @@
   --dur-med: 260ms;
   --dur-slow: 420ms;
   --dur-haptic: 130ms;
+  /* 디데이 모달 기준 — 중앙 팝업·시트 열림/닫힘 길이 통일 */
+  --dur-modal: 360ms;
 }
 
 *,
@@ -38,6 +40,8 @@ html {
   height: 100%;
   overscroll-behavior: none;
   overflow: hidden;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
 }
 
 body {
@@ -56,6 +60,22 @@ body {
   overscroll-behavior: none;
   overflow: hidden;
   padding-bottom: max(env(safe-area-inset-bottom), 0px);
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+html::-webkit-scrollbar,
+body::-webkit-scrollbar,
+.app-main::-webkit-scrollbar,
+.coach-shell::-webkit-scrollbar,
+.coach-page::-webkit-scrollbar,
+.today-cards-scroll::-webkit-scrollbar,
+.progress-cards-scroll::-webkit-scrollbar,
+.today-timeline-scroll::-webkit-scrollbar,
+.books-list::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+  display: none;
 }
 
 input,
@@ -334,6 +354,49 @@ select {
   flex-direction: column;
 }
 
+/* AI 코치 채팅: 스크롤 메인 안에서 min-height:100%가 깨져 입력창 위로 큰 빈칸이 생기는 문제 방지 */
+.app-main.app-main--coach-chat {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden;
+  padding-bottom: max(10px, calc(env(safe-area-inset-bottom, 0px) + 66px));
+}
+
+.app-main.app-main--coach-chat .coach-shell {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.app-main.app-main--coach-chat .coach-page--chat {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.app-main.app-main--coach-chat .coach-chat {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.app-main.app-main--coach-chat .coach-chat-starters {
+  flex-shrink: 0;
+}
+
+.app-main.app-main--coach-chat .coach-chat-input {
+  flex-shrink: 0;
+  margin-top: 6px;
+  padding-bottom: 2px;
+}
+
 .today-study-layout {
   flex: 1;
   min-height: 0;
@@ -345,6 +408,424 @@ select {
 
 .today-study-layout .section {
   margin-bottom: 0;
+}
+
+.today-cards-outer {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.today-cards-scroll {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scroll-snap-type: x mandatory;
+  -webkit-overflow-scrolling: touch;
+  min-height: min(520px, calc(100dvh - 190px));
+}
+
+.today-cards-container {
+  display: flex;
+  gap: 12px;
+  padding: 4px 2px;
+  min-width: 100%;
+}
+
+.today-cards-container > .progress-card,
+.today-cards-container > .timeline-page {
+  flex: 0 0 100%;
+  max-width: 100%;
+  scroll-snap-align: center;
+}
+
+.timeline-page {
+  flex: 0 0 100%;
+  max-width: 100%;
+  scroll-snap-align: center;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-height: calc(100dvh - 190px);
+}
+
+.timeline-page .progress-card {
+  margin-top: 0;
+}
+
+.timeline-page > .timeline-card-with-action {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.timeline-card-with-action {
+  position: relative;
+  padding-bottom: 20px;
+}
+
+.timeline-add-button {
+  position: absolute;
+  right: 12px;
+  bottom: 12px;
+  width: 40px;
+  height: 40px;
+  border-radius: 999px;
+  border: none;
+  background: var(--accent-strong);
+  color: #f9fafb;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 10px 20px rgba(15, 23, 42, 0.28);
+  cursor: pointer;
+}
+
+.timeline-add-button__icon {
+  font-size: 20px;
+  line-height: 1;
+}
+
+.today-summary-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.today-dday-label {
+  border: none;
+  background: none;
+  padding: 0;
+  margin: 0;
+  cursor: pointer;
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--accent-strong);
+  text-align: left;
+}
+
+.today-date-label {
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--accent-strong);
+  margin-left: auto;
+  text-align: right;
+}
+
+.today-progress-bar-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.today-progress-bar-row .progress-bar-track {
+  margin-top: 0;
+  flex: 1;
+}
+
+.today-progress-text {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-sub);
+  flex-shrink: 0;
+}
+
+/* 오늘 기록: 다른 progress-card와 동일 표면(흰 배경·그림자) */
+.today-log-card {
+  background: #ffffff;
+  border: 0.5px solid var(--border-soft);
+  box-shadow: var(--shadow-soft);
+  color: var(--text-main);
+  display: flex;
+  flex-direction: column;
+  min-height: min(520px, calc(100dvh - 190px));
+}
+
+.today-log-card__header {
+  margin-bottom: 8px;
+}
+
+.today-log-card .progress-value {
+  color: var(--accent-strong);
+}
+
+.today-log-card .field-label {
+  color: var(--text-sub);
+}
+
+.today-log-card .field-input,
+.today-log-card textarea.field-input {
+  background: rgba(255, 255, 255, 0.96);
+  border: 0.5px solid rgba(148, 163, 184, 0.7);
+  color: var(--text-main);
+}
+
+.today-log-card input[type="range"] {
+  accent-color: var(--accent-strong);
+}
+
+.today-log-card__body {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+
+.today-log-card .today-log-memo-field {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+}
+
+.today-log-card .today-log-memo-field textarea {
+  flex: 1;
+  min-height: 80px;
+}
+
+.today-log-card__footer {
+  margin-top: 10px;
+}
+
+.timeline-save-button {
+  width: 100%;
+  border: none;
+  border-radius: 999px;
+  padding: 12px 14px;
+  font-size: 14px;
+  font-weight: 600;
+  background: var(--accent-strong);
+  color: #f9fafb;
+  cursor: pointer;
+  box-shadow: var(--shadow-soft);
+}
+
+.timeline-save-button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.timeline-card-with-action .timeline-list {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+/* 타임라인 페이지 안 오늘의 핵심: 카드 열과 동일 표면·간격만 열 gap으로 */
+.timeline-page .coach-hero {
+  margin-bottom: 0;
+  border: 0.5px solid var(--border-soft);
+  box-shadow: var(--shadow-soft);
+  background: #ffffff;
+}
+
+.timeline-page .coach-hero__bg {
+  background: #ffffff;
+}
+
+.dday-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 100000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(15, 23, 42, 0);
+  backdrop-filter: blur(0px);
+  opacity: 0;
+  pointer-events: none;
+  transition:
+    opacity var(--dur-modal) var(--ease-standard),
+    background var(--dur-modal) var(--ease-standard),
+    backdrop-filter var(--dur-modal) var(--ease-standard);
+}
+
+.dday-modal--open {
+  background: rgba(15, 23, 42, 0.35);
+  backdrop-filter: blur(8px);
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.dday-modal-inner {
+  width: min(92vw, 360px);
+  border-radius: 18px;
+  background: #ffffff;
+  box-shadow: var(--shadow-soft);
+  padding: 14px 14px 12px;
+  transform: scale(0.96) translateY(6px);
+  opacity: 0;
+  transition:
+    opacity var(--dur-modal) var(--ease-standard),
+    transform var(--dur-modal) var(--ease-standard);
+}
+
+.dday-modal--open .dday-modal-inner {
+  opacity: 1;
+  transform: scale(1) translateY(0);
+}
+
+.dday-modal-header {
+  margin-bottom: 8px;
+}
+
+.dday-modal-title {
+  font-size: 16px;
+  font-weight: 700;
+}
+
+.dday-modal-body {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.dday-modal-footer {
+  margin-top: 12px;
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+/* 시간 설정 — 디데이와 동일한 중앙 모달 (dday-modal 재사용) */
+.time-picker-modal.dday-modal {
+  z-index: 100001;
+}
+
+.time-picker-modal-body {
+  gap: 12px;
+}
+
+.time-picker-modal .time-picker-preview {
+  text-align: center;
+  font-size: 28px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.06em;
+  color: var(--accent-strong);
+  line-height: 1.15;
+  padding: 4px 0 2px;
+}
+
+.time-picker-modal .time-picker-columns {
+  display: flex;
+  gap: 10px;
+  padding: 0;
+  min-height: 0;
+}
+
+.time-picker-modal .time-picker-col {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+}
+
+.time-picker-modal .time-picker-col-label {
+  text-align: center;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--text-sub);
+  padding: 0 0 6px;
+}
+
+.time-picker-modal .time-picker-col-scroll {
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  border-radius: 14px;
+  border: 0.5px solid var(--border-soft);
+  background: linear-gradient(180deg, #f8fafc 0%, #eef2f7 100%);
+  padding: 6px 4px;
+  max-height: 200px;
+  scroll-snap-type: y proximity;
+}
+
+.time-picker-modal .time-picker-option {
+  display: block;
+  width: 100%;
+  border: none;
+  border-radius: 10px;
+  background: transparent;
+  padding: 8px 6px;
+  font-size: 15px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: rgba(71, 85, 105, 0.88);
+  cursor: pointer;
+  transition: background 0.12s ease, color 0.12s ease, box-shadow 0.12s ease;
+  scroll-snap-align: center;
+}
+
+.time-picker-modal .time-picker-option:hover {
+  background: rgba(255, 255, 255, 0.75);
+  color: var(--accent-strong);
+}
+
+.time-picker-modal .time-picker-option--active {
+  background: #ffffff;
+  color: var(--accent-strong);
+  box-shadow: 0 2px 8px rgba(15, 23, 42, 0.08);
+}
+
+.week-switch-card {
+  margin-top: 0;
+}
+
+.week-switch-card .week-switch {
+  padding: 4px 4px;
+}
+
+.week-switch-card .week-switch-btn {
+  width: 32px;
+  height: 32px;
+  min-width: 32px;
+  border-radius: 999px;
+  font-size: 16px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.week-switch-card .week-switch-label {
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--accent-strong);
+}
+
+.week-books-section {
+  margin-bottom: 6px;
+}
+
+.week-books-card .books-list {
+  padding-bottom: 52px;
+  padding-right: 0;
+}
+
+.week-books-card .books-item {
+  width: 100%;
+  justify-content: space-between;
+}
+
+.week-books-card .books-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  padding-right: 10px;
+}
+
+.week-books-card .books-delete {
+  flex-shrink: 0;
+  margin-left: auto;
 }
 
 .today-timeline {
@@ -386,6 +867,54 @@ select {
   color: var(--text-sub);
 }
 
+.store-section {
+  padding-top: 4px;
+}
+
+.store-filter-row {
+  display: flex;
+  flex-wrap: nowrap;
+  gap: 8px;
+  overflow-x: auto;
+  padding: 4px 2px 14px;
+  margin: 0 -2px;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: thin;
+}
+
+.store-filter-row::-webkit-scrollbar {
+  height: 4px;
+}
+
+.store-filter-btn {
+  flex: 0 0 auto;
+  padding: 8px 14px;
+  border-radius: 999px;
+  border: 0.5px solid var(--border-soft);
+  background: #ffffff;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-sub);
+  cursor: pointer;
+  white-space: nowrap;
+  transition:
+    background var(--dur-fast) var(--ease-press),
+    color var(--dur-fast) var(--ease-press),
+    border-color var(--dur-fast) var(--ease-press);
+  -webkit-tap-highlight-color: transparent;
+}
+
+.store-filter-btn:focus-visible {
+  outline: 2px solid var(--accent-strong);
+  outline-offset: 2px;
+}
+
+.store-filter-btn--active {
+  background: var(--accent-strong);
+  border-color: var(--accent-strong);
+  color: #f9fafb;
+}
+
 .store-grid {
   display: grid;
   grid-template-columns: 1fr;
@@ -408,6 +937,62 @@ select {
   align-items: center;
   justify-content: space-between;
   gap: 10px;
+}
+
+.store-card-summary {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: 1;
+  min-width: 0;
+  padding: 2px 6px 2px 0;
+  margin: 0;
+  border: none;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+  color: inherit;
+  font: inherit;
+  border-radius: 12px;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.store-card-summary:focus-visible {
+  outline: 2px solid var(--accent-strong);
+  outline-offset: 2px;
+}
+
+.store-card-summary:active {
+  opacity: 0.92;
+}
+
+.store-card-summary__text {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+}
+
+.store-card-summary__hint {
+  font-size: 11px;
+  color: var(--text-sub);
+  font-weight: 500;
+}
+
+.store-detail-category {
+  margin: 0 0 8px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--accent-strong);
+}
+
+.store-detail-description {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.55;
+  color: var(--text-main);
+  white-space: pre-wrap;
 }
 
 .store-icon {
@@ -545,6 +1130,12 @@ select {
 .time-sub {
   font-size: 11px;
   color: var(--text-sub);
+}
+
+.time-plan-range {
+  font-size: 11px;
+  color: rgba(100, 116, 139, 0.95);
+  line-height: 1.35;
 }
 
 .subject-col {
@@ -767,7 +1358,7 @@ select {
   align-items: flex-end;
   justify-content: center;
   z-index: 20;
-  animation: modal-backdrop-fade 180ms ease-out forwards;
+  animation: modal-backdrop-fade var(--dur-modal) var(--ease-standard) forwards;
 }
 
 .modal-sheet {
@@ -780,7 +1371,7 @@ select {
   box-shadow: 0 -2px 12px rgba(15, 23, 42, 0.25);
   transform: translateY(22px) scale(0.985);
   opacity: 0;
-  animation: modal-sheet-slide 300ms var(--ease-standard) forwards;
+  animation: modal-sheet-slide var(--dur-modal) var(--ease-standard) forwards;
 }
 
 .modal-header {
@@ -1111,9 +1702,9 @@ select {
 
 .week-frame {
   margin-top: 12px;
-  padding: 14px 10px 16px;
-  border-radius: 26px;
-  background: #f3f4f6;
+  padding: 0;
+  border-radius: 0;
+  background: transparent;
 }
 
 .week-day-header {
@@ -1194,24 +1785,33 @@ select {
   display: flex;
   gap: 12px;
   padding: 8px 4px;
+  min-width: 100%;
 }
 
 .progress-day-card {
   scroll-snap-align: center;
-  flex-shrink: 0;
-  width: 260px;
-  background: #f9fafb;
-  border-radius: 18px;
+  flex: 0 0 100%;
+  max-width: 100%;
+  min-height: min(420px, calc(100dvh - 220px));
+  background: #ffffff;
+  border-radius: var(--radius-xl);
   border: 0.5px solid var(--border-soft);
   box-shadow: var(--shadow-soft);
   display: flex;
   flex-direction: column;
 }
 
+.progress-day-card--today {
+  border-color: var(--accent-border-strong);
+  box-shadow: var(--shadow-soft);
+}
+
 .progress-day-card-header {
   padding: 10px 12px;
-  font-size: 14px;
-  font-weight: 600;
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: var(--accent-strong);
   border-bottom: 0.5px solid var(--border-soft);
 }
 
@@ -1220,6 +1820,8 @@ select {
   display: flex;
   flex-direction: column;
   gap: 10px;
+  flex: 1;
+  min-height: 0;
 }
 
 .progress-day-book {
@@ -1238,6 +1840,59 @@ select {
 .progress-day-book-plan {
   font-size: 12px;
   color: var(--text-sub);
+}
+
+.progress-day-book--editable .books-plan-inputs {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.progress-day-book--editable .books-plan-range {
+  width: 100%;
+}
+
+.progress-day-book--editable .books-plan-times {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.progress-day-book--editable .books-plan-time {
+  flex: 1;
+  min-width: 0;
+}
+
+.progress-day-book--editable .books-plan-time-btn {
+  flex: 1;
+  min-width: 0;
+  border-radius: 14px;
+  border: 0.5px solid var(--accent-border);
+  background: linear-gradient(180deg, #ffffff 0%, #f8fafc 100%);
+  padding: 8px 10px;
+  font-size: 14px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: var(--accent-strong);
+  cursor: pointer;
+  text-align: center;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.progress-day-book--editable .books-plan-time-btn:hover {
+  border-color: var(--accent-border-strong);
+  box-shadow: 0 0 0 1px var(--accent-ring);
+}
+
+.progress-day-book--editable .books-plan-time-btn--placeholder {
+  color: var(--text-sub);
+  font-weight: 500;
+}
+
+.week-tomorrow-save {
+  width: 100%;
+  margin-top: 12px;
 }
 
 .progress-day-book-pct-row {
@@ -1308,13 +1963,24 @@ select {
 }
 
 .books-delete {
-  border: none;
+  border: 0.5px solid var(--accent-border-strong);
   border-radius: 999px;
-  padding: 4px 10px;
+  padding: 5px 12px;
   font-size: 12px;
-  background: rgba(239, 68, 68, 0.1);
-  color: #b91c1c;
+  font-weight: 600;
+  background: var(--accent);
+  color: #f8fafc;
   cursor: pointer;
+  transition: background 0.15s ease-out, border-color 0.15s ease-out;
+}
+
+.books-delete:hover {
+  background: var(--accent-hover);
+  border-color: var(--accent-strong);
+}
+
+.books-delete:active {
+  opacity: 0.92;
 }
 
 .books-empty {
@@ -1325,8 +1991,19 @@ select {
 
 .books-add-row {
   display: flex;
+  align-items: center;
   gap: 8px;
   margin-top: 10px;
+  width: 100%;
+}
+
+.books-add-row .field-input {
+  flex: 1;
+  min-width: 0;
+}
+
+.books-add-row .modal-primary {
+  flex-shrink: 0;
 }
 
 .books-plan-row {
@@ -1463,7 +2140,17 @@ button:active:not(:disabled),
 }
 
 .nav-icon {
-  font-size: 13px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 0;
+  color: inherit;
+}
+
+.nav-icon svg {
+  width: 20px;
+  height: 20px;
+  flex-shrink: 0;
 }
 
 .nav-label {
@@ -1504,6 +2191,10 @@ button:active:not(:disabled),
 
   .section {
     max-width: none;
+  }
+
+  .app-main.app-main--coach-chat {
+    padding-bottom: 12px;
   }
 
   .bottom-nav {
@@ -1556,8 +2247,9 @@ button:active:not(:disabled),
     letter-spacing: -0.01em;
   }
 
-  .nav-icon {
-    font-size: 16px;
+  .nav-icon svg {
+    width: 22px;
+    height: 22px;
     opacity: 0.95;
   }
 
@@ -1614,12 +2306,10 @@ button:active:not(:disabled),
 
 .splash-screen__logo {
   display: block;
-  width: min(88vw, 420px);
+  width: min(98vw, 680px);
   height: auto;
-  max-height: min(38vh, 280px);
+  max-height: min(68vh, 520px);
   object-fit: contain;
-  background: #ffffff;
-  border-radius: 4px;
   animation: splash-logo-motion 1.75s ease-out forwards;
 }
 
@@ -1730,8 +2420,8 @@ button:active:not(:disabled),
 }
 
 .coach-profile-card__avatar {
-  width: 52px;
-  height: 52px;
+  width: 64px;
+  height: 64px;
   border-radius: 999px;
   background: var(--accent);
   border: 2px solid rgba(255, 255, 255, 0.9);
@@ -1762,7 +2452,8 @@ button:active:not(:disabled),
 .coach-profile-card__name-row {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  justify-content: flex-start;
+  flex-wrap: wrap;
   gap: 8px;
 }
 
@@ -1809,6 +2500,73 @@ button:active:not(:disabled),
   display: flex;
   flex-wrap: wrap;
   gap: 4px;
+}
+
+.coach-profile-file-label {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 44px;
+  margin-top: 10px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  border: 0.5px solid var(--border-soft);
+  background: #ffffff;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--accent-strong);
+  text-align: center;
+  cursor: pointer;
+  position: relative;
+}
+
+.coach-profile-file-input {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  opacity: 0;
+  cursor: pointer;
+}
+
+.coach-home-insight-card {
+  margin-bottom: 16px;
+}
+
+.coach-home-insight-card__top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+
+.coach-home-insight-card__eyebrow {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-sub);
+}
+
+.coach-home-insight-card__title {
+  font-size: 16px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: var(--text-main);
+  margin-bottom: 8px;
+}
+
+.coach-home-insight-card__body {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.55;
+  color: rgba(55, 65, 81, 0.96);
+}
+
+.coach-home-insight-card__cta {
+  width: 100%;
+  margin-top: 12px;
 }
 
 .coach-hero {
@@ -1928,7 +2686,7 @@ button:active:not(:disabled),
 
 .coach-horizontal-cards__item {
   flex: 0 0 min(78vw, 260px);
-  scroll-snap-align: start;
+  scroll-snap-align: center;
 }
 
 .coach-metric {

@@ -6,17 +6,10 @@ import { buildWeeklyInsight } from "../ai/insight-engine";
 import { useCoachStore } from "../state/useCoachStore";
 import type { NextAction } from "../types";
 import { generateCoachReply } from "../ai/chat-engine";
-import { Card, EmptyState, GradientHeroCard, MetricCard, RiskBadge, SectionHeader, StatPill } from "../ui/components";
+import { Card, EmptyState, RiskBadge, SectionHeader, StatPill } from "../ui/components";
 import { API_BASE } from "../../lib/apiBase";
-import { formatMinutes } from "../utils/format";
 
 export type StudentTabKey = "home" | "coach";
-
-function toneFromScore(score: number, goodAtOrAbove: number, warnBelow: number) {
-  if (score >= goodAtOrAbove) return "good" as const;
-  if (score <= warnBelow) return "warn" as const;
-  return "neutral" as const;
-}
 
 function ActionChecklist({ actions }: { actions: NextAction[] }) {
   const done = useCoachStore(s => s.completedActionIds);
@@ -156,14 +149,8 @@ function HomeTabConnected() {
     setEditOpen(false);
   };
 
-  const logs = useMemo(
-    () => demoDailyLogs.filter(l => l.studentId === student.id).slice(-7),
-    [student.id]
-  );
   const insight = useMemo(() => buildWeeklyInsight(student.id, demoDailyLogs), [student.id]);
-  const last = logs[logs.length - 1];
 
-  const remoteMetrics = remote?.snapshot?.metrics;
   const remoteActions = (remote?.snapshot?.nextActions || []).map((title, idx) => ({
     id: `remote_action_${idx}`,
     title,
@@ -171,99 +158,15 @@ function HomeTabConnected() {
     tag: "집중" as const
   }));
 
-  const metrics: Array<{
-    title: string;
-    value: string;
-    hint?: string;
-    tone?: "neutral" | "good" | "warn";
-  }> = [
-    {
-      title: "수면 패턴",
-      value:
-        Number(remoteMetrics?.sleepHours || 0) > 0
-          ? `${Number(remoteMetrics?.sleepHours).toFixed(1)}시간`
-          : last
-            ? `${last.sleepHours.toFixed(1)}시간`
-            : "-",
-      tone:
-        Number(remoteMetrics?.sleepHours || 0) > 0
-          ? toneFromScore(Number(remoteMetrics?.sleepHours), 7.0, 5.9)
-          : last
-            ? toneFromScore(last.sleepHours, 7.0, 5.9)
-            : ("neutral" as const)
-    },
-    {
-      title: "스트레스 지수",
-      value:
-        Number(remoteMetrics?.stress || 0) > 0
-          ? `${Number(remoteMetrics?.stress).toFixed(1)}/5`
-          : last
-            ? `${last.stressScore}/5`
-            : "-",
-      tone:
-        Number(remoteMetrics?.stress || 0) > 0
-          ? Number(remoteMetrics?.stress) >= 4
-            ? ("warn" as const)
-            : ("neutral" as const)
-          : last
-            ? last.stressScore >= 4
-              ? ("warn" as const)
-              : ("neutral" as const)
-            : ("neutral" as const)
-    },
-    {
-      title: "학습 집중도",
-      value:
-        Number(remoteMetrics?.concentration || 0) > 0
-          ? `${Number(remoteMetrics?.concentration).toFixed(1)}/5`
-          : last
-            ? `${last.concentrationScore}/5`
-            : "-",
-      tone:
-        Number(remoteMetrics?.concentration || 0) > 0
-          ? toneFromScore(Number(remoteMetrics?.concentration), 4, 2)
-          : last
-            ? toneFromScore(last.concentrationScore, 4, 2)
-            : ("neutral" as const)
-    },
-    {
-      title: "총 공부 시간",
-      value:
-        Number(remoteMetrics?.studyMinutes || 0) > 0
-          ? formatMinutes(Number(remoteMetrics?.studyMinutes))
-          : last
-            ? formatMinutes(last.totalStudyMinutes)
-            : "-",
-      tone: "neutral"
-    },
-    {
-      title: "목표 달성률",
-      value:
-        Number(remoteMetrics?.planCompletionRate || 0) > 0
-          ? `${Math.round(Number(remoteMetrics?.planCompletionRate))}%`
-          : last
-            ? `${last.planCompletionRate}%`
-            : "-",
-      tone:
-        Number(remoteMetrics?.planCompletionRate || 0) > 0
-          ? toneFromScore(Number(remoteMetrics?.planCompletionRate), 75, 55)
-          : last
-            ? toneFromScore(last.planCompletionRate, 75, 55)
-            : ("neutral" as const)
-    }
-  ];
-
   const heroNarrative = remote?.snapshot?.heroNarrative || insight.heroNarrative;
   const profile = remote?.snapshot?.profile;
 
   const displayName = profile?.name || student.name;
-  const displaySchoolLevel = profile?.schoolLevel || student.schoolLevel;
+  const rawSchoolLevel = profile?.schoolLevel || student.schoolLevel;
+  const displaySchoolLevel =
+    rawSchoolLevel === "고" ? "고등학교" : rawSchoolLevel === "중" ? "중학교" : rawSchoolLevel;
   const displayGrade = profile?.grade ?? student.grade;
   const displayGoal = localProfile?.goal || profile?.goal || student.goal;
-  const displaySubjects =
-    profile?.targetSubjects && profile.targetSubjects.length > 0
-      ? profile.targetSubjects
-      : student.targetSubjects;
   const avatarUrl = localProfile?.avatarUrl;
 
   const weeklyCharts: Array<{
@@ -340,16 +243,15 @@ function HomeTabConnected() {
           </div>
           <div className="coach-profile-card__info">
             <div className="coach-profile-card__name-row">
-              <div className="coach-profile-card__name">{displayName}</div>
-              {displayGrade && (
-                <span className="coach-profile-card__grade-pill">{displayGrade}학년</span>
+              <span className="coach-profile-card__name">{displayName}</span>
+              {displaySchoolLevel != null && displayGrade != null && (
+                <span className="coach-profile-card__grade-pill">
+                  {displaySchoolLevel} {displayGrade}학년
+                </span>
               )}
             </div>
-            <div className="coach-profile-card__meta">
-              {displaySchoolLevel}
-            </div>
             <div className="coach-profile-card__goal">
-              {displayGoal ? `🎯 목표: ${displayGoal}` : "아직 목표를 설정하지 않았어요."}
+              {displayGoal ? `목표 · ${displayGoal}` : "아직 목표를 설정하지 않았어요."}
             </div>
           </div>
         </div>
@@ -377,25 +279,26 @@ function HomeTabConnected() {
         </button>
       </Card>
 
-      <GradientHeroCard
-        eyebrow="AI 분석 결과"
-        title={`${profile?.name || student.name}님, 오늘의 핵심`}
-        body={heroNarrative}
-        ctaLabel="시작"
-        onCta={() => {
-          const el = document.getElementById("coach-actions");
-          el?.scrollIntoView({ behavior: "smooth", block: "start" });
-        }}
-        badge={<RiskBadge level={insight.riskLevel} />}
-      />
-
-      <div className="coach-horizontal-cards" aria-label="학생홈 지표 카드">
-        {metrics.map(m => (
-          <div key={m.title} className="coach-horizontal-cards__item">
-            <MetricCard title={m.title} value={m.value} hint={m.hint} tone={m.tone} />
-          </div>
-        ))}
-      </div>
+      <Card className="coach-card coach-card--padded coach-home-insight-card">
+        <div className="coach-home-insight-card__top">
+          <span className="coach-home-insight-card__eyebrow">AI 분석 결과</span>
+          <RiskBadge level={insight.riskLevel} />
+        </div>
+        <div className="coach-home-insight-card__title">
+          {profile?.name || student.name}님을 위한 한 줄 요약
+        </div>
+        <p className="coach-home-insight-card__body">{heroNarrative}</p>
+        <button
+          type="button"
+          className="coach-primary-btn coach-home-insight-card__cta"
+          onClick={() => {
+            const el = document.getElementById("coach-actions");
+            el?.scrollIntoView({ behavior: "smooth", block: "start" });
+          }}
+        >
+          추천 행동 보기
+        </button>
+      </Card>
 
       <Card className="coach-card coach-card--padded">
         <SectionHeader title="이번 주 리듬" right={<StatPill label="리스크" value={insight.riskLevel} />} />
@@ -478,59 +381,70 @@ function HomeTabConnected() {
         )}
       </div>
 
-      {editOpen && (
-        <div
-          className="modal-backdrop"
-          onClick={() => {
-            setEditOpen(false);
-          }}
-        >
-          <div
-            className="modal-sheet"
-            onClick={e => {
-              e.stopPropagation();
-            }}
-          >
-            <div className="modal-header">
-              <span className="modal-title">프로필 편집</span>
-            </div>
-            <div className="modal-body">
-              <div className="field">
-                <label className="field-label">프로필 사진 URL</label>
+      <div
+        className={"dday-modal" + (editOpen ? " dday-modal--open" : "")}
+        onClick={() => setEditOpen(false)}
+      >
+        <div className="dday-modal-inner" onClick={e => e.stopPropagation()}>
+          <div className="dday-modal-header">
+            <span className="dday-modal-title">프로필 편집</span>
+          </div>
+          <div className="dday-modal-body">
+            <div className="field">
+              <label className="field-label">프로필 사진</label>
+              <input
+                className="field-input"
+                placeholder="이미지 URL 붙여넣기"
+                value={avatarInput.startsWith("data:") ? "" : avatarInput}
+                onChange={e => setAvatarInput(e.target.value)}
+              />
+              {avatarInput.startsWith("data:") && (
+                <p className="settings-hint" style={{ marginTop: 6 }}>
+                  선택한 사진이 적용돼요. URL을 입력하면 그쪽이 우선해요.
+                </p>
+              )}
+              <label className="coach-profile-file-label">
                 <input
-                  className="field-input"
-                  placeholder="이미지 주소를 붙여넣기 해 주세요"
-                  value={avatarInput}
-                  onChange={e => setAvatarInput(e.target.value)}
+                  type="file"
+                  accept="image/*"
+                  className="coach-profile-file-input"
+                  onChange={e => {
+                    const f = e.target.files?.[0];
+                    if (!f) return;
+                    const reader = new FileReader();
+                    reader.onload = () => {
+                      setAvatarInput(String(reader.result || ""));
+                    };
+                    reader.readAsDataURL(f);
+                    e.target.value = "";
+                  }}
                 />
-              </div>
-              <div className="field" style={{ marginTop: 10 }}>
-                <label className="field-label">나의 목표</label>
-                <input
-                  className="field-input"
-                  placeholder="예: 중간고사 상위 10% 안에 들기"
-                  value={goalInput}
-                  onChange={e => setGoalInput(e.target.value)}
-                />
-              </div>
+                갤러리에서 사진 선택
+              </label>
+              <p className="settings-hint" style={{ marginTop: 6 }}>
+                URL을 붙이거나, 기기에서 사진을 고를 수 있어요.
+              </p>
             </div>
-            <div className="modal-footer">
-              <button
-                type="button"
-                className="modal-secondary"
-                onClick={() => {
-                  setEditOpen(false);
-                }}
-              >
-                취소
-              </button>
-              <button type="button" className="modal-primary" onClick={saveLocalProfile}>
-                저장
-              </button>
+            <div className="field" style={{ marginTop: 10 }}>
+              <label className="field-label">나의 목표</label>
+              <input
+                className="field-input"
+                placeholder="예: 중간고사 상위 10% 안에 들기"
+                value={goalInput}
+                onChange={e => setGoalInput(e.target.value)}
+              />
             </div>
           </div>
+          <div className="dday-modal-footer">
+            <button type="button" className="modal-secondary" onClick={() => setEditOpen(false)}>
+              취소
+            </button>
+            <button type="button" className="modal-primary" onClick={saveLocalProfile}>
+              저장
+            </button>
+          </div>
         </div>
-      )}
+      </div>
     </div>
   );
 }
@@ -544,7 +458,6 @@ function CoachChatTabConnected() {
 
   const messages = useCoachStore(s => s.messages);
   const addMessage = useCoachStore(s => s.addMessage);
-  const resetChat = useCoachStore(s => s.resetChat);
   const [draft, setDraft] = useState("");
   const [typing, setTyping] = useState(false);
 
@@ -593,12 +506,6 @@ function CoachChatTabConnected() {
 
   return (
     <div className="coach-page coach-page--chat">
-      <div className="coach-chat-header">
-        <button type="button" className="coach-ghost-btn" onClick={resetChat}>
-          대화 초기화
-        </button>
-      </div>
-
       <div className="coach-chat">
         {messages.map(m => (
           <div key={m.id} className={"coach-bubble-row " + (m.role === "user" ? "is-user" : "is-coach")}>

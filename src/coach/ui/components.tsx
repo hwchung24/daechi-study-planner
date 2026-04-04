@@ -64,15 +64,19 @@ export function GradientHeroCard(props: {
   ctaLabel?: string;
   onCta?: () => void;
   badge?: React.ReactNode;
+  showHeader?: boolean;
 }) {
+  const showHeader = props.showHeader !== false;
   return (
     <div className="coach-hero">
       <div className="coach-hero__bg" aria-hidden />
       <div className="coach-hero__content">
-        <div className="coach-hero__top">
-          <span className="coach-hero__eyebrow">{props.eyebrow}</span>
-          {props.badge}
-        </div>
+        {showHeader && (
+          <div className="coach-hero__top">
+            <span className="coach-hero__eyebrow">{props.eyebrow}</span>
+            {props.badge}
+          </div>
+        )}
         <div className="coach-hero__title">{props.title}</div>
         <div className="coach-hero__body">{props.body}</div>
         {props.ctaLabel && props.onCta && (
