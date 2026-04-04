@@ -5,8 +5,8 @@ const jwt = require("jsonwebtoken");
 const crypto = require("crypto");
 const fs = require("fs");
 const path = require("path");
+require("dotenv").config({ path: path.join(__dirname, ".env") });
 const OpenAI = require("openai");
-require("dotenv").config();
 
 const {
   findUserByEmail,
@@ -101,6 +101,13 @@ const app = express();
 const openai = process.env.OPENAI_API_KEY
   ? new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
   : null;
+if (process.env.NODE_ENV !== "test") {
+  console.log(
+    openai
+      ? `[openai] ready (coach chat + reports), model=${OPENAI_MODEL}`
+      : "[openai] OPENAI_API_KEY 없음 — 코치 채팅은 규칙 기반 템플릿, 일일 AI 리포트는 생략"
+  );
+}
 
 function avg(arr) {
   if (!arr || arr.length === 0) return 0;
@@ -1187,15 +1194,17 @@ app.post("/api/student/coach/chat", authMiddleware, async (req, res) => {
     const snapshot = buildCoachSnapshot(profile, logs);
 
     let replyText = "";
+    let usedOpenAi = false;
     if (openai) {
       const response = await openai.chat.completions.create({
         model: OPENAI_MODEL,
         temperature: 0.4,
+        max_tokens: 900,
         messages: [
           {
             role: "system",
             content:
-              "너는 한국 학생 전용 학습 코치다. 항상 한국어로 답하고, 짧고 실행 가능한 조언을 준다. 형식: 1)원인 분석 2)오늘의 우선순위 3)실행 팁 4)격려 한 줄"
+              "너는 한국 학생 전용 학습 코치다. 항상 한국어로 답하고, 짧고 실행 가능한 조언을 준다. 의학적 진단·자해 조장·시험 부정행위는 거절한다. 형식: 1)원인 분석 2)오늘의 우선순위 3)실행 팁 4)격려 한 줄"
           },
           {
             role: "system",
@@ -1208,6 +1217,12 @@ app.post("/api/student/coach/chat", authMiddleware, async (req, res) => {
         ]
       });
       replyText = String(response.choices?.[0]?.message?.content || "").trim();
+      usedOpenAi = true;
+      if (!replyText) {
+        return res.status(502).json({
+          error: "GPT 응답이 비어 있습니다. 잠시 후 다시 시도해 주세요."
+        });
+      }
     } else {
       replyText = [
         "1) 원인 분석",
@@ -1225,7 +1240,12 @@ app.post("/api/student/coach/chat", authMiddleware, async (req, res) => {
     }
 
     await insertStudentCoachMessage(req.userId, "assistant", replyText);
-    res.json({ ok: true, reply: replyText });
+    res.json({
+      ok: true,
+      reply: replyText,
+      usedOpenAi,
+      model: usedOpenAi ? OPENAI_MODEL : null
+    });
   } catch (e) {
     console.error("/api/student/coach/chat error", e);
     res.status(500).json({ error: "코치 답변 생성에 실패했습니다." });

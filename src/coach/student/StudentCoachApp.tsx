@@ -5,7 +5,6 @@ import { demoDailyLogs, demoStudents } from "../demoData";
 import { buildWeeklyInsight } from "../ai/insight-engine";
 import { useCoachStore } from "../state/useCoachStore";
 import type { NextAction } from "../types";
-import { generateCoachReply } from "../ai/chat-engine";
 import { Card, EmptyState, RiskBadge, SectionHeader, StatPill } from "../ui/components";
 import { API_BASE } from "../../lib/apiBase";
 
@@ -451,15 +450,12 @@ function HomeTabConnected() {
 
 function CoachChatTabConnected() {
   const token = useCoachApiToken();
-  const activeStudentId = useCoachStore(s => s.activeStudentId);
-  const student = demoStudents.find(s => s.id === activeStudentId) || demoStudents[0];
-  const insight = useMemo(() => buildWeeklyInsight(student.id, demoDailyLogs), [student.id]);
-  const logs7d = useMemo(() => demoDailyLogs.filter(l => l.studentId === student.id).slice(-7), [student.id]);
 
   const messages = useCoachStore(s => s.messages);
   const addMessage = useCoachStore(s => s.addMessage);
   const [draft, setDraft] = useState("");
   const [typing, setTyping] = useState(false);
+  const [coachAiMode, setCoachAiMode] = useState<"unknown" | "live" | "template">("unknown");
 
   const send = async (text: string) => {
     const trimmed = text.trim();
@@ -468,7 +464,7 @@ function CoachChatTabConnected() {
     setDraft("");
     setTyping(true);
     try {
-      if (!token) throw new Error("no token");
+      if (!token) throw new Error("로그인이 필요합니다.");
       const res = await fetch(`${API_BASE}/api/student/coach/chat`, {
         method: "POST",
         headers: {
@@ -477,17 +473,26 @@ function CoachChatTabConnected() {
         },
         body: JSON.stringify({ message: trimmed })
       });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data?.error || "chat failed");
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(String(data?.error || "코치 응답을 받지 못했습니다."));
+      setCoachAiMode(data.usedOpenAi ? "live" : "template");
       addMessage({
         id: `c_${Date.now()}`,
         role: "coach",
         createdAt: Date.now(),
         text: String(data.reply || "")
       });
-    } catch {
-      await new Promise(r => setTimeout(r, 520));
-      addMessage(generateCoachReply({ student, insight, logs7d, userText: trimmed }));
+    } catch (e) {
+      const msg =
+        e instanceof Error
+          ? e.message
+          : "네트워크 또는 서버 오류입니다. API 서버와 OPENAI_API_KEY 설정을 확인해 주세요.";
+      addMessage({
+        id: `c_${Date.now()}`,
+        role: "coach",
+        createdAt: Date.now(),
+        text: msg
+      });
     } finally {
       setTyping(false);
     }
@@ -506,6 +511,13 @@ function CoachChatTabConnected() {
 
   return (
     <div className="coach-page coach-page--chat">
+      {coachAiMode === "template" && (
+        <p className="coach-muted" style={{ padding: "0 4px 10px", fontSize: 13, lineHeight: 1.45 }}>
+          GPT 연결 없이 규칙 기반 답변입니다. 실제 GPT를 쓰려면 서버 폴더의{" "}
+          <code style={{ fontSize: 12 }}>.env</code>에{" "}
+          <code style={{ fontSize: 12 }}>OPENAI_API_KEY</code>를 넣고 서버를 다시 실행하세요.
+        </p>
+      )}
       <div className="coach-chat">
         {messages.map(m => (
           <div key={m.id} className={"coach-bubble-row " + (m.role === "user" ? "is-user" : "is-coach")}>
