@@ -1,25 +1,88 @@
 import React, {
+  useCallback,
   useEffect,
   useLayoutEffect,
   useMemo,
   useRef,
   useState
 } from "react";
+import { createPortal } from "react-dom";
+import { NotificationsPage } from "./NotificationsPage";
+import { DatePickerScroll } from "../DatePickerScroll";
 import { TimePickerSheet } from "../TimePickerSheet";
-import { GradientHeroCard } from "../../coach/ui/components";
+import { TabTransitionPanel } from "../PageTransition";
 import {
-  getDateKey,
-  getWeekDaysIncludingTomorrow,
-  getWeekTitle
+  getDateKeySeoul,
+  getWeekDaysIncludingTomorrowSeoul,
+  getWeekTitleSeoul,
+  seoulDateKeyFromApiValue
 } from "../../lib/weekDates";
+
+/** TabTransitionPanel wait(이전 탭 퇴장) + 신규 탭 입장 애니메이션 후 스크롤 정렬 */
+const RECORDS_TAB_ENTER_MS = 560;
 import type { StudentLockStatus } from "../../types/lockStatus";
 import type {
   ProgressBook,
   ProgressPlan,
   StudyBlock
 } from "../../types/planner";
+import {
+  DAECHI_COACH_INITIAL_PANEL_KEY,
+  DAECHI_COACH_LOG_SAVED_EVENT,
+  DAECHI_COACH_LOG_SAVED_STORAGE_KEY,
+  DAECHI_COACH_TOMORROW_STARTER_KEY
+} from "../../lib/coachEvents";
+import { useModalReveal } from "../../lib/useModalReveal";
 
-export type TabKey = "today" | "week" | "store" | "settings";
+/** 서버 실패·마이그레이션 전에도 탭에서 실천 여부가 유지되도록 보조 */
+const COMMITMENT_DONE_STORAGE_PREFIX = "daechi_commitment_done_";
+
+function commitmentDoneStorageKey(dayKey: string) {
+  return `${COMMITMENT_DONE_STORAGE_PREFIX}${dayKey}`;
+}
+
+function readStoredCommitmentDone(dayKey: string): boolean | null {
+  try {
+    const v = localStorage.getItem(commitmentDoneStorageKey(dayKey));
+    if (v === "1") return true;
+    if (v === "0") return false;
+  } catch {
+    // ignore
+  }
+  return null;
+}
+
+function writeStoredCommitmentDone(dayKey: string, done: boolean) {
+  try {
+    localStorage.setItem(commitmentDoneStorageKey(dayKey), done ? "1" : "0");
+  } catch {
+    // ignore
+  }
+}
+
+function mergeCommitmentDoneFromServer(
+  serverTd: boolean | null | undefined,
+  dayKey: string
+): boolean | null {
+  if (serverTd === true || serverTd === false) return serverTd;
+  return readStoredCommitmentDone(dayKey);
+}
+
+/** 생활 기록 1–5 슬라이더 → 필 너비 % */
+function recordLifeSliderFillPct(v: string | number): string {
+  const n = Number(v);
+  if (!Number.isFinite(n)) return "0%";
+  const clamped = Math.max(1, Math.min(5, n));
+  const pct = ((clamped - 1) / 4) * 100;
+  return `${pct}%`;
+}
+
+export type TabKey =
+  | "today"
+  | "records"
+  | "store"
+  | "profile"
+  | "notifications";
 
 type StudyStoreApp = {
   id: string;
@@ -32,6 +95,32 @@ type StudyStoreApp = {
   removedAt?: string | null;
 };
 
+/** scroll-snap + scrollIntoView 조합에서 월요일로 붙는 문제 방지 — 날짜 키로 카드 찾아 가로 중앙 정렬 */
+function centerRecordsStripOnDateKey(
+  scrollEl: HTMLDivElement | null,
+  dateKey: string
+) {
+  if (!scrollEl) return;
+  const card = scrollEl.querySelector<HTMLElement>(
+    `[data-weekday-key="${dateKey}"]`
+  );
+  if (!card) return;
+
+  const apply = () => {
+    scrollEl.scrollLeft = 0;
+    void scrollEl.offsetWidth;
+    const sc = scrollEl.getBoundingClientRect();
+    const cr = card.getBoundingClientRect();
+    scrollEl.scrollLeft = Math.max(
+      0,
+      cr.left - sc.left - (sc.width - cr.width) / 2
+    );
+  };
+
+  apply();
+  requestAnimationFrame(apply);
+}
+
 const storeAppIcons: Record<string, string> = {
   "youtube-learning": "/icons/youtube-learning.svg",
   "khan-academy": "/icons/khan-academy.svg",
@@ -40,7 +129,7 @@ const storeAppIcons: Record<string, string> = {
   "google-drive": "/icons/google-drive.svg"
 };
 
-type StudentLinkRow = {
+export type StudentLinkRow = {
   id: number;
   parent_email: string;
   parent_user_id: number;
@@ -51,7 +140,6 @@ export function StudentLegacyView(props: {
   tab: TabKey;
   apiBase: string;
   authToken: string | null;
-  userEmail: string | null;
   meRole: string | null;
   blocks: StudyBlock[];
   toggleDone: (id: number) => void;
@@ -59,13 +147,19 @@ export function StudentLegacyView(props: {
   studentLockMessage: string;
   timelineSyncError: string;
   onDismissTimelineSyncError: () => void;
+  planRequestNotice?: string;
+  onDismissPlanRequestNotice?: () => void;
   progressWeekOffset: number;
   setProgressWeekOffset: React.Dispatch<React.SetStateAction<number>>;
   progressBooks: ProgressBook[];
   removeProgressBook: (bookId: number) => Promise<void>;
   tomorrowPlan: ProgressPlan;
   setTomorrowPlan: React.Dispatch<React.SetStateAction<ProgressPlan>>;
-  saveTomorrowPlan: () => Promise<void>;
+  saveTomorrowPlan: () => Promise<boolean>;
+  todayStudyEvaluation: string;
+  setTodayStudyEvaluation: React.Dispatch<React.SetStateAction<string>>;
+  todayMetacognitionReflection: string;
+  setTodayMetacognitionReflection: React.Dispatch<React.SetStateAction<string>>;
   setBooksModalOpen: (v: boolean) => void;
   onOpenAddPlan: () => void;
   setCheckSettingsOpen: (v: boolean) => void;
@@ -77,29 +171,15 @@ export function StudentLegacyView(props: {
   setStoreError: (v: string) => void;
   setStoreApps: React.Dispatch<React.SetStateAction<StudyStoreApp[]>>;
   resolvePreferredSerial: () => string;
-  studentParentEmail: string;
-  setStudentParentEmail: (v: string) => void;
-  studentWaitingOnParent: StudentLinkRow[];
-  studentWaitingOnMe: StudentLinkRow[];
-  setStudentWaitingOnParent: (rows: StudentLinkRow[]) => void;
-  setStudentWaitingOnMe: (rows: StudentLinkRow[]) => void;
-  editUnlocked: boolean;
-  setEditUnlocked: (v: boolean) => void;
-  setRequestSent: (v: boolean) => void;
-  requestSent: boolean;
-  setShowGuideModal: (v: boolean) => void;
   hapticSelection: () => void;
   hapticWarning: () => void;
   hapticImpactLight: () => void;
   hapticSuccess: () => void;
-  handleLogout: () => void;
-  handleWithdrawAccount: () => void;
 }) {
   const {
     tab,
     apiBase,
     authToken,
-    userEmail,
     meRole,
     blocks,
     toggleDone,
@@ -107,6 +187,8 @@ export function StudentLegacyView(props: {
     studentLockMessage,
     timelineSyncError,
     onDismissTimelineSyncError,
+    planRequestNotice = "",
+    onDismissPlanRequestNotice,
     progressWeekOffset,
     setProgressWeekOffset,
     progressBooks,
@@ -114,6 +196,10 @@ export function StudentLegacyView(props: {
     tomorrowPlan,
     setTomorrowPlan,
     saveTomorrowPlan,
+    todayStudyEvaluation,
+    setTodayStudyEvaluation,
+    todayMetacognitionReflection,
+    setTodayMetacognitionReflection,
     setBooksModalOpen,
     onOpenAddPlan,
     setCheckSettingsOpen: _setCheckSettingsOpen,
@@ -125,36 +211,40 @@ export function StudentLegacyView(props: {
     setStoreError,
     setStoreApps,
     resolvePreferredSerial,
-    studentParentEmail,
-    setStudentParentEmail,
-    studentWaitingOnParent,
-    studentWaitingOnMe,
-    setStudentWaitingOnParent,
-    setStudentWaitingOnMe,
-    editUnlocked,
-    setEditUnlocked,
-    setRequestSent,
-    requestSent,
-    setShowGuideModal,
     hapticSelection,
     hapticWarning,
     hapticImpactLight,
-    hapticSuccess,
-    handleLogout,
-    handleWithdrawAccount
+    hapticSuccess
   } = props;
+
   const [todaySleepHours, setTodaySleepHours] = useState("");
   const [todayStress, setTodayStress] = useState("3");
   const [todayConcentration, setTodayConcentration] = useState("3");
+  /** 오늘 학습 시간(분 단위 입력) — 기록 탭·코치 맥락 공유 */
+  const [todayStudyMinutes, setTodayStudyMinutes] = useState("");
   const [todayMemo, setTodayMemo] = useState("");
+  const [todayTomorrowPractice, setTodayTomorrowPractice] = useState("");
+  /** 어제 기록의「내일 실천할 한 가지」→ 오늘 실천 약속 문구 */
+  const [commitmentFromYesterday, setCommitmentFromYesterday] = useState("");
+  /** 오늘 그 약속을 실천했는지(null: 아직 서버에 없음·미선택) */
+  const [commitmentDoneToday, setCommitmentDoneToday] = useState<
+    boolean | null
+  >(null);
+  const [commitmentDoneSaving, setCommitmentDoneSaving] = useState(false);
   const [todayLogSaving, setTodayLogSaving] = useState(false);
   const [todayLogMessage, setTodayLogMessage] = useState("");
+  const coachLifeDayHydratedRef = useRef<string>("");
+  /** coach/state 지연 응답이 토글 직후 상태를 덮어쓰지 않도록 중단 */
+  const todayCoachFetchAbortRef = useRef<AbortController | null>(null);
+  const commitmentDoneRef = useRef<boolean | null>(null);
+  commitmentDoneRef.current = commitmentDoneToday;
+  const commitmentToggleInFlightRef = useRef(false);
   const [todayDdayLabel, setTodayDdayLabel] = useState("디데이");
   const [ddayEditOpen, setDdayEditOpen] = useState(false);
   const [ddayEditTitle, setDdayEditTitle] = useState("");
   const [ddayEditDate, setDdayEditDate] = useState("");
   const weekDayScrollRef = useRef<HTMLDivElement | null>(null);
-  const [tomorrowPlanSaving, setTomorrowPlanSaving] = useState(false);
+  const lifeRecordScrollRef = useRef<HTMLDivElement | null>(null);
   const [timePicker, setTimePicker] = useState<{
     bookId: number;
     field: "start" | "end";
@@ -163,12 +253,68 @@ export function StudentLegacyView(props: {
     null
   );
 
+  const [coachPlanHintOpen, setCoachPlanHintOpen] = useState(false);
+  const [coachPlanHintKind, setCoachPlanHintKind] = useState<"study" | "life">(
+    "study"
+  );
+
+  const ddayModalReveal = useModalReveal(ddayEditOpen);
+  const coachPlanHintReveal = useModalReveal(coachPlanHintOpen);
+  const storeDetailReveal = useModalReveal(storeDetailApp != null);
+
+  const tryOpenCoachTomorrowPlan = useCallback(
+    (kind: "study" | "life") => {
+      hapticSelection();
+      if (kind === "study") {
+        if (
+          !todayStudyEvaluation.trim() ||
+          !todayMetacognitionReflection.trim()
+        ) {
+          hapticWarning();
+          setCoachPlanHintKind("study");
+          setCoachPlanHintOpen(true);
+          return;
+        }
+      } else {
+        if (!todayMemo.trim()) {
+          hapticWarning();
+          setCoachPlanHintKind("life");
+          setCoachPlanHintOpen(true);
+          return;
+        }
+      }
+      try {
+        sessionStorage.setItem(DAECHI_COACH_INITIAL_PANEL_KEY, "plan");
+        sessionStorage.setItem(DAECHI_COACH_TOMORROW_STARTER_KEY, kind);
+      } catch {
+        // ignore
+      }
+      window.location.hash = "#/student/home?panel=plan";
+    },
+    [
+      hapticSelection,
+      hapticWarning,
+      todayStudyEvaluation,
+      todayMetacognitionReflection,
+      todayMemo
+    ]
+  );
+
   useEffect(() => {
     if (tab !== "store") {
       setStoreDetailApp(null);
       setStoreCategoryFilter(null);
     }
   }, [tab]);
+
+  useEffect(() => {
+    if (!storeDetailApp) return;
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = prev;
+    };
+  }, [storeDetailApp]);
 
   const updateDdayLabelFromDate = (dateStr: string | null) => {
     if (!dateStr) {
@@ -214,27 +360,196 @@ export function StudentLegacyView(props: {
   }, []);
 
   useLayoutEffect(() => {
-    if (tab !== "week") return;
-    const scrollToTodayOrStart = () => {
-      const el = weekDayScrollRef.current;
-      if (!el) return;
-      const days = getWeekDaysIncludingTomorrow(progressWeekOffset);
-      const todayKey = getDateKey(0);
-      const todayIdx = days.findIndex(d => d.key === todayKey);
-      const scrollToIdx =
-        progressWeekOffset === 0 && todayIdx >= 0 ? todayIdx : 0;
-      const cards = el.querySelectorAll<HTMLElement>("[data-weekday-card]");
-      const target = cards[scrollToIdx];
-      target?.scrollIntoView({ behavior: "auto", inline: "center", block: "nearest" });
+    if (tab !== "records") return;
+    const days = getWeekDaysIncludingTomorrowSeoul(progressWeekOffset);
+    const todayKey = getDateKeySeoul(0);
+    const mondayKey = days[0]?.key ?? todayKey;
+
+    /** 생활 기록: 이번 주만 오늘, 다른 주는 그 주 월요일 */
+    const lifeDateKey =
+      progressWeekOffset === 0 ? todayKey : mondayKey;
+    /** 학습 기록: 이번 주만 오늘 카드 중심, 다른 주는 그 주 월요일 */
+    const studyDateKey =
+      progressWeekOffset === 0 ? todayKey : mondayKey;
+
+    const run = () => {
+      centerRecordsStripOnDateKey(lifeRecordScrollRef.current, lifeDateKey);
+      centerRecordsStripOnDateKey(weekDayScrollRef.current, studyDateKey);
     };
-    scrollToTodayOrStart();
-    const t0 = window.setTimeout(scrollToTodayOrStart, 0);
-    const t1 = window.setTimeout(scrollToTodayOrStart, 120);
+
+    run();
+    const t0 = window.setTimeout(run, 0);
+    const t1 = window.setTimeout(run, 120);
+    const t2 = window.setTimeout(run, RECORDS_TAB_ENTER_MS);
+    const t3 = window.setTimeout(run, RECORDS_TAB_ENTER_MS + 120);
+    let raf = 0;
+    raf = requestAnimationFrame(run);
     return () => {
       window.clearTimeout(t0);
       window.clearTimeout(t1);
+      window.clearTimeout(t2);
+      window.clearTimeout(t3);
+      cancelAnimationFrame(raf);
     };
   }, [tab, progressWeekOffset]);
+
+  useEffect(() => {
+    if (!authToken) {
+      coachLifeDayHydratedRef.current = "";
+      return;
+    }
+    if (tab !== "records") return;
+    const dayKey = getDateKeySeoul(0);
+    const sessionKey = `${authToken}:${dayKey}`;
+    if (coachLifeDayHydratedRef.current === sessionKey) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const mondayKey = getWeekDaysIncludingTomorrowSeoul(0)[0]?.key;
+        if (!mondayKey) return;
+        const res = await fetch(
+          `${apiBase}/api/student/coach/state?weekStart=${encodeURIComponent(mondayKey)}`,
+          {
+            headers: { Authorization: `Bearer ${authToken}` },
+            cache: "no-store"
+          }
+        );
+        if (!res.ok || cancelled) return;
+        const data = (await res.json()) as {
+          logs?: Array<{
+            date?: string;
+            sleepHours?: number | null;
+            stressScore?: number | null;
+            concentrationScore?: number | null;
+            studyMinutes?: number | null;
+            memo?: string | null;
+            tomorrowPractice?: string | null;
+            tomorrowPracticeDone?: boolean | null;
+            studyEvaluation?: string | null;
+            metacognitionReflection?: string | null;
+          }>;
+        };
+        const logs = data.logs || [];
+        const row = logs.find(l => l.date === dayKey);
+        if (!row || cancelled) return;
+        const yesterdayKey = getDateKeySeoul(-1);
+        const yRow = logs.find(l => l.date === yesterdayKey);
+        setCommitmentFromYesterday(String(yRow?.tomorrowPractice ?? "").trim());
+        const td = row.tomorrowPracticeDone;
+        setCommitmentDoneToday(mergeCommitmentDoneFromServer(td, dayKey));
+        if (row.sleepHours != null && Number.isFinite(Number(row.sleepHours))) {
+          setTodaySleepHours(String(row.sleepHours));
+        }
+        const s = row.stressScore;
+        if (s != null && s >= 1 && s <= 5) setTodayStress(String(s));
+        const c = row.concentrationScore;
+        if (c != null && c >= 1 && c <= 5) setTodayConcentration(String(c));
+        setTodayMemo(row.memo ?? "");
+        setTodayTomorrowPractice(row.tomorrowPractice ?? "");
+        setTodayStudyEvaluation(String(row.studyEvaluation ?? ""));
+        setTodayMetacognitionReflection(String(row.metacognitionReflection ?? ""));
+        const sm = row.studyMinutes;
+        if (sm != null && Number.isFinite(Number(sm))) {
+          setTodayStudyMinutes(String(Math.round(Number(sm))));
+        } else {
+          setTodayStudyMinutes("");
+        }
+        coachLifeDayHydratedRef.current = sessionKey;
+      } catch {
+        /* ignore */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [tab, authToken, apiBase]);
+
+  useEffect(() => {
+    if (!authToken || tab !== "today") {
+      todayCoachFetchAbortRef.current = null;
+      return;
+    }
+    todayCoachFetchAbortRef.current?.abort();
+    const ac = new AbortController();
+    todayCoachFetchAbortRef.current = ac;
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch(`${apiBase}/api/student/coach/state`, {
+          headers: { Authorization: `Bearer ${authToken}` },
+          cache: "no-store",
+          signal: ac.signal
+        });
+        if (!res.ok || cancelled || ac.signal.aborted) return;
+        const data = (await res.json()) as {
+          logs?: Array<{
+            date?: string;
+            tomorrowPractice?: string | null;
+            tomorrowPracticeDone?: boolean | null;
+          }>;
+        };
+        if (cancelled || ac.signal.aborted) return;
+        const logs = data.logs || [];
+        const todayKey = getDateKeySeoul(0);
+        const yesterdayKey = getDateKeySeoul(-1);
+        const yRow = logs.find(l => l.date === yesterdayKey);
+        const tRow = logs.find(l => l.date === todayKey);
+        setCommitmentFromYesterday(String(yRow?.tomorrowPractice ?? "").trim());
+        const td = tRow?.tomorrowPracticeDone;
+        setCommitmentDoneToday(mergeCommitmentDoneFromServer(td, todayKey));
+      } catch (e) {
+        if (ac.signal.aborted || (e as { name?: string }).name === "AbortError") {
+          return;
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+      ac.abort();
+      if (todayCoachFetchAbortRef.current === ac) {
+        todayCoachFetchAbortRef.current = null;
+      }
+    };
+  }, [tab, authToken, apiBase]);
+
+  const toggleCommitmentDone = useCallback(async () => {
+    if (!authToken) {
+      hapticWarning();
+      return;
+    }
+    if (commitmentToggleInFlightRef.current) return;
+    todayCoachFetchAbortRef.current?.abort();
+    commitmentToggleInFlightRef.current = true;
+    const prev = commitmentDoneRef.current;
+    const next = !(prev === true);
+    const dayKey = getDateKeySeoul(0);
+    setCommitmentDoneToday(next);
+    writeStoredCommitmentDone(dayKey, next);
+    setCommitmentDoneSaving(true);
+    hapticSelection();
+    try {
+      const res = await fetch(
+        `${apiBase}/api/student/coach/log/tomorrow-practice-done`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${authToken}`
+          },
+          body: JSON.stringify({ done: next })
+        }
+      );
+      if (res.ok) {
+        hapticSuccess();
+      }
+      // 실패해도 화면·로컬 값은 유지 (DB 컬럼 없음 등)
+    } catch {
+      // 네트워크 오류도 동일
+    } finally {
+      commitmentToggleInFlightRef.current = false;
+      setCommitmentDoneSaving(false);
+    }
+  }, [apiBase, authToken, hapticSelection, hapticSuccess]);
 
   const todayTotalCount = blocks.length;
   const todayDoneCount = blocks.filter(b => b.done).length;
@@ -284,19 +599,41 @@ export function StudentLegacyView(props: {
     setTodayLogSaving(true);
     setTodayLogMessage("");
     try {
+      let planSaved = true;
+      if (progressBooks.length > 0) {
+        planSaved = await saveTomorrowPlan();
+      }
+      const studyMinRaw = todayStudyMinutes.trim();
+      let studyMinutesPayload: number | null = null;
+      if (studyMinRaw) {
+        const n = Number(studyMinRaw);
+        if (!Number.isFinite(n) || n < 0 || n > 1440 || !Number.isInteger(n)) {
+          hapticWarning();
+          setTodayLogMessage("학습 시간은 0~1440 사이의 정수(분)로 입력해 주세요.");
+          return;
+        }
+        studyMinutesPayload = n;
+      }
+      const logPayload: Record<string, unknown> = {
+        sleepHours,
+        stressScore: Number(todayStress),
+        concentrationScore: Number(todayConcentration),
+        memo: todayMemo.trim() || null,
+        tomorrowPractice: todayTomorrowPractice.trim() || null,
+        studyEvaluation: todayStudyEvaluation.trim() || null,
+        metacognitionReflection: todayMetacognitionReflection.trim() || null,
+        studyMinutes: studyMinutesPayload
+      };
+      if (typeof commitmentDoneToday === "boolean") {
+        logPayload.tomorrowPracticeDone = commitmentDoneToday;
+      }
       const res = await fetch(`${apiBase}/api/student/coach/log`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
           Authorization: `Bearer ${authToken}`
         },
-        body: JSON.stringify({
-          date: getDateKey(0),
-          sleepHours,
-          stressScore: Number(todayStress),
-          concentrationScore: Number(todayConcentration),
-          memo: todayMemo.trim() || null
-        })
+        body: JSON.stringify(logPayload)
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
@@ -307,7 +644,23 @@ export function StudentLegacyView(props: {
         return;
       }
       hapticSuccess();
-      setTodayLogMessage("오늘 기록이 저장되었습니다.");
+      const savedKey = seoulDateKeyFromApiValue(
+        (data as { log?: { log_date?: unknown } }).log?.log_date
+      );
+      const planNote =
+        progressBooks.length > 0 && !planSaved
+          ? "내일 계획은 저장되지 않았어요. "
+          : "";
+      setTodayLogMessage(
+        planNote +
+          (savedKey ? `오늘 기록이 저장되었습니다. ${savedKey}` : "오늘 기록이 저장되었습니다.")
+      );
+      try {
+        window.dispatchEvent(new CustomEvent(DAECHI_COACH_LOG_SAVED_EVENT));
+        localStorage.setItem(DAECHI_COACH_LOG_SAVED_STORAGE_KEY, String(Date.now()));
+      } catch {
+        // ignore
+      }
     } catch {
       hapticWarning();
       setTodayLogMessage("서버와 통신 중 오류가 발생했습니다.");
@@ -325,21 +678,18 @@ export function StudentLegacyView(props: {
               <h2 className="section-title">잠금 상태</h2>
             </div>
             <p className="settings-hint" style={{ marginTop: 6 }}>
-              학부모가 정한 시각 이후라 오늘 계획 수정이 잠겨 있어요. 내일 계획을 저장하면
-              잠금이 해제됩니다.
+              {studentLockStatus.rules?.[0]?.lockTime || "21:00"}
             </p>
-            <p className="settings-hint" style={{ marginTop: 6 }}>
-              예정 시각: {studentLockStatus.rules?.[0]?.lockTime || "21:00"} · 상태: 잠김
-            </p>
-            {studentLockMessage && (
+            {studentLockMessage ? (
               <p className="settings-hint" style={{ marginTop: 6 }}>
                 {studentLockMessage}
               </p>
-            )}
+            ) : null}
           </div>
         </section>
       )}
 
+      <TabTransitionPanel tabKey={tab} className="student-tab-transition">
       {tab === "today" && (
         <>
           <div className="today-study-layout">
@@ -350,17 +700,13 @@ export function StudentLegacyView(props: {
                     <h2 className="section-title">잠금 상태</h2>
                   </div>
                   <p className="settings-hint" style={{ marginTop: 6 }}>
-                    학부모가 정한 시각 이후라 오늘 계획 수정이 잠겨 있어요. 내일 계획을 저장하면
-                    잠금이 해제됩니다.
+                    {studentLockStatus.rules?.[0]?.lockTime || "21:00"}
                   </p>
-                  <p className="settings-hint" style={{ marginTop: 6 }}>
-                    예정 시각: {studentLockStatus.rules?.[0]?.lockTime || "21:00"} · 상태: 잠김
-                  </p>
-                  {studentLockMessage && (
+                  {studentLockMessage ? (
                     <p className="settings-hint" style={{ marginTop: 6 }}>
                       {studentLockMessage}
                     </p>
-                  )}
+                  ) : null}
                 </div>
               </section>
             )}
@@ -383,25 +729,60 @@ export function StudentLegacyView(props: {
                         </button>
                       </div>
                     ) : null}
+                    {planRequestNotice.trim() ? (
+                      <div
+                        className="timeline-sync-banner timeline-sync-banner--success"
+                        role="status"
+                      >
+                        <p className="timeline-sync-banner__text timeline-sync-banner__text--success">
+                          {planRequestNotice}
+                        </p>
+                        <button
+                          type="button"
+                          className="timeline-sync-banner__dismiss"
+                          onClick={() => onDismissPlanRequestNotice?.()}
+                        >
+                          닫기
+                        </button>
+                      </div>
+                    ) : null}
                     <div className="progress-card today-summary-card">
                       <div className="today-summary-row">
                         <button
                           type="button"
                           className="today-dday-label"
-                          onClick={() => setDdayEditOpen(true)}
+                          onClick={() => {
+                            setDdayEditDate(d => d || getDateKeySeoul(0));
+                            setDdayEditOpen(true);
+                          }}
                         >
                           {todayDdayLabel}
                         </button>
                         <span className="today-date-label">{getTodayTitle()}</span>
                       </div>
                       <div className="today-progress-bar-row">
-                        <div className="progress-bar-track">
+                        <div
+                          className="record-slider-pill"
+                          role="progressbar"
+                          aria-valuenow={todayProgress}
+                          aria-valuemin={0}
+                          aria-valuemax={100}
+                          aria-label="오늘 학습 진행률"
+                        >
                           <div
-                            className="progress-bar-fill"
-                            style={{ width: `${todayProgress}%` }}
+                            className="record-slider-pill__fill"
+                            style={{
+                              width: `${Math.max(
+                                0,
+                                Math.min(100, todayProgress)
+                              )}%`
+                            }}
+                            aria-hidden="true"
                           />
                         </div>
-                        <span className="today-progress-text">{todayProgress}%</span>
+                        <span className="record-slider-value today-progress-pct">
+                          {todayProgress}%
+                        </span>
                       </div>
                     </div>
 
@@ -447,120 +828,70 @@ export function StudentLegacyView(props: {
                           hapticSelection();
                           onOpenAddPlan();
                         }}
-                        aria-label="계획 추가하기"
+                        aria-label="오늘 계획 추가 요청"
                       >
                         <span className="timeline-add-button__icon">＋</span>
                       </button>
                     </div>
-
-                    <GradientHeroCard
-                      eyebrow="오늘의 핵심"
-                      title="오늘의 핵심"
-                      body={
-                        todayProgress === 0
-                          ? "오늘 타임라인을 채우고 첫 계획을 시작해보세요."
-                          : `오늘 계획의 ${todayProgress}%를 채웠어요. 마무리까지 한 번 달려볼까요?`
-                      }
-                      showHeader={false}
-                    />
-                  </div>
-
-                  <div className="progress-card today-log-card">
-                    <div className="today-log-card__header">
-                      <span className="progress-value">오늘 기록</span>
-                    </div>
-                    <div className="today-log-card__body today-log-card__body--open">
-                      <div className="field">
-                        <label className="field-label">수면시간</label>
-                        <input
-                          type="number"
-                          min={0}
-                          max={24}
-                          step={0.5}
-                          className="field-input"
-                          value={todaySleepHours}
-                          onChange={e => setTodaySleepHours(e.target.value)}
-                        />
-                      </div>
-                      <div className="field" style={{ marginTop: 10 }}>
-                        <label className="field-label">스트레스</label>
-                        <div
-                          style={{ display: "flex", alignItems: "center", gap: 10 }}
-                        >
-                          <input
-                            type="range"
-                            min={1}
-                            max={5}
-                            step={1}
-                            value={todayStress}
-                            onChange={e => setTodayStress(e.target.value)}
-                            style={{ flex: 1 }}
-                          />
-                          <span
-                            className="settings-value"
-                            style={{ minWidth: 24, textAlign: "right" }}
-                          >
-                            {todayStress}
-                          </span>
-                        </div>
-                      </div>
-                      <div className="field" style={{ marginTop: 10 }}>
-                        <label className="field-label">집중도</label>
-                        <div
-                          style={{ display: "flex", alignItems: "center", gap: 10 }}
-                        >
-                          <input
-                            type="range"
-                            min={1}
-                            max={5}
-                            step={1}
-                            value={todayConcentration}
-                            onChange={e => setTodayConcentration(e.target.value)}
-                            style={{ flex: 1 }}
-                          />
-                          <span
-                            className="settings-value"
-                            style={{ minWidth: 24, textAlign: "right" }}
-                          >
-                            {todayConcentration}
-                          </span>
-                        </div>
-                      </div>
-                      <div className="field today-log-memo-field">
-                        <label className="field-label">회고 메모</label>
-                        <textarea
-                          className="field-input"
-                          value={todayMemo}
-                          onChange={e => setTodayMemo(e.target.value)}
-                          rows={4}
-                          style={{ resize: "vertical" }}
-                        />
-                      </div>
-                      <div className="today-log-card__footer">
-                        <button
-                          type="button"
-                          className="timeline-save-button"
-                          disabled={todayLogSaving}
-                          onClick={handleSaveTodayLog}
-                        >
-                          {todayLogSaving ? "저장 중..." : "오늘 기록 저장"}
-                        </button>
-                        {todayLogMessage && (
-                          <p className="settings-hint" style={{ marginTop: 8 }}>
-                            {todayLogMessage}
-                          </p>
-                        )}
-                      </div>
-                    </div>
                   </div>
                 </div>
+              </div>
+              <div className="today-commitment-below-scroll">
+                <button
+                  type="button"
+                  className={
+                    "coach-hero practice-commitment-card" +
+                    (commitmentDoneToday === true
+                      ? " practice-commitment-card--done"
+                      : "")
+                  }
+                  disabled={commitmentDoneSaving}
+                  onClick={() => void toggleCommitmentDone()}
+                  aria-pressed={commitmentDoneToday === true}
+                  aria-label={
+                    commitmentDoneToday === true
+                      ? "실천 완료로 표시됨. 눌러 미실천으로 바꿉니다."
+                      : "미실천. 눌러 실천 완료로 표시합니다."
+                  }
+                >
+                  <div className="coach-hero__bg" aria-hidden />
+                  <div className="coach-hero__content">
+                    <div className="practice-commitment-card__row">
+                      <span className="practice-commitment-card__status">
+                        {commitmentDoneToday === true
+                          ? "실천했어요"
+                          : "미실천"}
+                      </span>
+                      <span className="check-col" aria-hidden="true">
+                        <span className="check-circle">
+                          {commitmentDoneToday === true ? (
+                            <span className="check-dot" />
+                          ) : null}
+                        </span>
+                      </span>
+                    </div>
+                    <div className="coach-hero__title practice-commitment-title">
+                      오늘의 핵심
+                    </div>
+                    <div className="coach-hero__body practice-commitment-body">
+                      {commitmentFromYesterday.trim()
+                        ? commitmentFromYesterday.trim()
+                        : "어제 생활 기록에서「내일 실천할 한 가지」를 적으면 여기에 표시돼요."}
+                    </div>
+                  </div>
+                </button>
               </div>
             </section>
           </div>
 
           <div
-            className={"dday-modal" + (ddayEditOpen ? " dday-modal--open" : "")}
-            onClick={() => setDdayEditOpen(false)}
+            className={
+              "dday-modal" +
+              (ddayModalReveal.revealed ? " dday-modal--open" : "")
+            }
+            onClick={() =>
+              ddayModalReveal.beginClose(() => setDdayEditOpen(false))
+            }
           >
             <div className="dday-modal-inner" onClick={e => e.stopPropagation()}>
               <div className="dday-modal-header">
@@ -568,21 +899,19 @@ export function StudentLegacyView(props: {
               </div>
               <div className="dday-modal-body">
                 <div className="field">
-                  <label className="field-label">제목 (선택)</label>
+                  <label className="field-label">제목</label>
                   <input
                     className="field-input"
                     value={ddayEditTitle}
                     onChange={e => setDdayEditTitle(e.target.value)}
-                    placeholder="예: 중간고사"
                   />
                 </div>
                 <div className="field" style={{ marginTop: 10 }}>
                   <label className="field-label">날짜</label>
-                  <input
-                    type="date"
-                    className="field-input"
-                    value={ddayEditDate}
-                    onChange={e => setDdayEditDate(e.target.value)}
+                  <DatePickerScroll
+                    value={ddayEditDate || getDateKeySeoul(0)}
+                    onChange={setDdayEditDate}
+                    hapticSelection={hapticSelection}
                   />
                 </div>
               </div>
@@ -590,7 +919,9 @@ export function StudentLegacyView(props: {
                 <button
                   type="button"
                   className="modal-secondary"
-                  onClick={() => setDdayEditOpen(false)}
+                  onClick={() =>
+                    ddayModalReveal.beginClose(() => setDdayEditOpen(false))
+                  }
                 >
                   취소
                 </button>
@@ -605,7 +936,7 @@ export function StudentLegacyView(props: {
                       // ignore
                     }
                     updateDdayLabelFromDate(ddayEditDate || null);
-                    setDdayEditOpen(false);
+                    ddayModalReveal.beginClose(() => setDdayEditOpen(false));
                   }}
                   disabled={!ddayEditDate}
                 >
@@ -617,7 +948,7 @@ export function StudentLegacyView(props: {
         </>
       )}
 
-      {tab === "week" && (
+      {tab === "records" && (
         <>
           <section className="section week-days-section">
             <div className="progress-card week-switch-card">
@@ -632,7 +963,7 @@ export function StudentLegacyView(props: {
                 </button>
                 <div className="week-switch-center">
                   <span className="week-switch-label">
-                    {getWeekTitle(progressWeekOffset)}
+                    {getWeekTitleSeoul(progressWeekOffset)}
                   </span>
                 </div>
                 <button
@@ -645,18 +976,29 @@ export function StudentLegacyView(props: {
                 </button>
               </div>
             </div>
+          </section>
+
+          <section className="section records-study-section">
+            <div className="section-header records-section-header">
+              <h2 className="section-title">학습 기록</h2>
+            </div>
             <div className="week-frame">
               <div className="progress-cards-scroll" ref={weekDayScrollRef}>
                 <div className="progress-cards-container">
-                  {getWeekDaysIncludingTomorrow(progressWeekOffset).map(day => {
-                    const todayKey = getDateKey(0);
-                    const tomorrowKey = getDateKey(1);
+                  {getWeekDaysIncludingTomorrowSeoul(progressWeekOffset).map(day => {
+                    const todayKey = getDateKeySeoul(0);
+                    const tomorrowKey = getDateKeySeoul(1);
                     const isTodayCard = day.key === todayKey;
                     const isTomorrowCard = day.key === tomorrowKey;
+                    const showStudyPlanEditor =
+                      progressWeekOffset === 0 && isTodayCard;
+                    const showTomorrowPlanReadonly =
+                      progressWeekOffset === 0 && isTomorrowCard;
                     return (
                       <div
-                        key={day.key}
+                        key={`study-${day.key}`}
                         data-weekday-card
+                        data-weekday-key={day.key}
                         className={
                           "progress-day-card" +
                           (isTodayCard ? " progress-day-card--today" : "")
@@ -664,70 +1006,178 @@ export function StudentLegacyView(props: {
                       >
                         <div className="progress-day-card-header">{day.label}</div>
                         <div className="progress-day-card-body">
-                          {progressBooks.map(book =>
-                            isTomorrowCard ? (
-                              <div
-                                key={book.id}
-                                className="progress-day-book progress-day-book--editable"
-                              >
-                                <div className="progress-day-book-name">{book.name}</div>
-                                <div className="books-plan-inputs">
-                                  <input
-                                    className="field-input books-plan-range"
-                                    placeholder="예: 10-20쪽"
-                                    value={tomorrowPlan[book.id]?.text || ""}
-                                    onChange={e =>
-                                      setTomorrowPlan(prev => ({
-                                        ...prev,
-                                        [book.id]: {
-                                          ...prev[book.id],
-                                          text: e.target.value
-                                        }
-                                      }))
-                                    }
-                                  />
-                                  <div className="books-plan-times">
-                                    <button
-                                      type="button"
-                                      className={
-                                        "books-plan-time-btn" +
-                                        (!tomorrowPlan[book.id]?.start
-                                          ? " books-plan-time-btn--placeholder"
-                                          : "")
+                          {showStudyPlanEditor ? (
+                            <>
+                              <div className="record-life-group">
+                                <h3 className="record-life-group-title">오늘 기록</h3>
+                                <div className="record-study-reflection-card">
+                                  <div className="field record-day-field">
+                                    <label className="field-label">오늘 학습 시간</label>
+                                    <input
+                                      type="number"
+                                      min={0}
+                                      max={1440}
+                                      step={1}
+                                      inputMode="numeric"
+                                      className="field-input record-day-input"
+                                      placeholder="예: 120"
+                                      value={todayStudyMinutes}
+                                      onChange={e =>
+                                        setTodayStudyMinutes(e.target.value)
                                       }
-                                      onClick={() => {
-                                        hapticSelection();
-                                        setTimePicker({
-                                          bookId: book.id,
-                                          field: "start"
-                                        });
-                                      }}
-                                    >
-                                      {tomorrowPlan[book.id]?.start || "시작"}
-                                    </button>
-                                    <span className="time-divider">―</span>
-                                    <button
-                                      type="button"
-                                      className={
-                                        "books-plan-time-btn" +
-                                        (!tomorrowPlan[book.id]?.end
-                                          ? " books-plan-time-btn--placeholder"
-                                          : "")
+                                    />
+                                  </div>
+                                  <div className="field record-day-field record-day-memo">
+                                    <label className="field-label">
+                                      오늘 공부 좋았던 점과 나빴던 점
+                                    </label>
+                                    <textarea
+                                      className="field-input record-day-input"
+                                      value={todayStudyEvaluation}
+                                      onChange={e =>
+                                        setTodayStudyEvaluation(e.target.value)
                                       }
-                                      onClick={() => {
-                                        hapticSelection();
-                                        setTimePicker({
-                                          bookId: book.id,
-                                          field: "end"
-                                        });
-                                      }}
-                                    >
-                                      {tomorrowPlan[book.id]?.end || "종료"}
-                                    </button>
+                                      rows={3}
+                                    />
+                                  </div>
+                                  <div className="field record-day-field record-day-memo">
+                                    <label className="field-label">오늘 공부한 내용을 설명해보세요</label>
+                                    <textarea
+                                      className="field-input record-day-input"
+                                      value={todayMetacognitionReflection}
+                                      onChange={e =>
+                                        setTodayMetacognitionReflection(e.target.value)
+                                      }
+                                      rows={4}
+                                    />
                                   </div>
                                 </div>
                               </div>
-                            ) : (
+                              <div className="record-life-group">
+                                <div className="record-life-group-head-row">
+                                  <h3 className="record-life-group-title">내일 계획</h3>
+                                  <button
+                                    type="button"
+                                    className="records-tomorrow-coach-btn"
+                                    onClick={() => tryOpenCoachTomorrowPlan("study")}
+                                  >
+                                    AI 코치와 함께 계획 짜기
+                                  </button>
+                                </div>
+                                {progressBooks.length > 0 ? (
+                                  <>
+                                    {progressBooks.map(book => (
+                                      <div
+                                        key={book.id}
+                                        className="progress-day-book progress-day-book--editable"
+                                      >
+                                        <div className="progress-day-book-name">
+                                          {book.name}
+                                        </div>
+                                        <div className="books-plan-inputs">
+                                          <input
+                                            className="field-input books-plan-range"
+                                            value={tomorrowPlan[book.id]?.text || ""}
+                                            onChange={e =>
+                                              setTomorrowPlan(prev => ({
+                                                ...prev,
+                                                [book.id]: {
+                                                  ...prev[book.id],
+                                                  text: e.target.value
+                                                }
+                                              }))
+                                            }
+                                          />
+                                          <div className="books-plan-times">
+                                            <button
+                                              type="button"
+                                              className={
+                                                "books-plan-time-btn" +
+                                                (!tomorrowPlan[book.id]?.start
+                                                  ? " books-plan-time-btn--placeholder"
+                                                  : "")
+                                              }
+                                              onClick={() => {
+                                                hapticSelection();
+                                                setTimePicker({
+                                                  bookId: book.id,
+                                                  field: "start"
+                                                });
+                                              }}
+                                            >
+                                              {tomorrowPlan[book.id]?.start || "시작"}
+                                            </button>
+                                            <span className="time-divider">―</span>
+                                            <button
+                                              type="button"
+                                              className={
+                                                "books-plan-time-btn" +
+                                                (!tomorrowPlan[book.id]?.end
+                                                  ? " books-plan-time-btn--placeholder"
+                                                  : "")
+                                              }
+                                              onClick={() => {
+                                                hapticSelection();
+                                                setTimePicker({
+                                                  bookId: book.id,
+                                                  field: "end"
+                                                });
+                                              }}
+                                            >
+                                              {tomorrowPlan[book.id]?.end || "종료"}
+                                            </button>
+                                          </div>
+                                        </div>
+                                      </div>
+                                    ))}
+                                  </>
+                                ) : null}
+                              </div>
+                              <div className="record-primary-save-wrap">
+                                <button
+                                  type="button"
+                                  className="timeline-save-button"
+                                  disabled={todayLogSaving}
+                                  onClick={handleSaveTodayLog}
+                                >
+                                  {todayLogSaving ? "저장 중..." : "기록 저장"}
+                                </button>
+                                {todayLogMessage ? (
+                                  <p className="settings-hint record-save-feedback">
+                                    {todayLogMessage}
+                                  </p>
+                                ) : null}
+                              </div>
+                            </>
+                          ) : showTomorrowPlanReadonly ? (
+                            <div className="record-life-group">
+                              <h3 className="record-life-group-title">내일 계획</h3>
+                              {progressBooks.length > 0 ? (
+                                progressBooks.map(book => {
+                                  const p = tomorrowPlan[book.id];
+                                  const range = (p?.text || "").trim();
+                                  const start = p?.start || "";
+                                  const end = p?.end || "";
+                                  const timePart =
+                                    start || end
+                                      ? `${start || "—"} ~ ${end || "—"}`
+                                      : "";
+                                  return (
+                                    <div key={book.id} className="progress-day-book">
+                                      <div className="progress-day-book-name">
+                                        {book.name}
+                                      </div>
+                                      <div className="progress-day-book-plan">
+                                        내일 계획: {range || "미설정"}
+                                        {timePart ? ` · ${timePart}` : ""}
+                                      </div>
+                                    </div>
+                                  );
+                                })
+                              ) : null}
+                            </div>
+                          ) : (
+                            progressBooks.map(book => (
                               <div key={book.id} className="progress-day-book">
                                 <div className="progress-day-book-name">{book.name}</div>
                                 <div className="progress-day-book-plan">
@@ -737,33 +1187,14 @@ export function StudentLegacyView(props: {
                                         const ranges = blocks
                                           .filter(b => b.subject === book.name)
                                           .map(b => `${b.start}~${b.end}`);
-                                        return ranges.length > 0 ? ranges.join(", ") : "미설정";
+                                        return ranges.length > 0
+                                          ? ranges.join(", ")
+                                          : "미설정";
                                       })()
                                     : "미설정"}
                                 </div>
                               </div>
-                            )
-                          )}
-                          {isTomorrowCard && progressBooks.length > 0 && (
-                            <button
-                              type="button"
-                              className="progress-footer-btn week-tomorrow-save"
-                              disabled={tomorrowPlanSaving}
-                              onClick={async () => {
-                                setTomorrowPlanSaving(true);
-                                try {
-                                  await saveTomorrowPlan();
-                                  hapticSuccess();
-                                } finally {
-                                  setTomorrowPlanSaving(false);
-                                }
-                              }}
-                            >
-                              {tomorrowPlanSaving ? "저장 중…" : "내일 계획 저장"}
-                            </button>
-                          )}
-                          {isTomorrowCard && progressBooks.length === 0 && (
-                            <p className="week-hint">책 관리에서 책을 먼저 추가해 주세요.</p>
+                            ))
                           )}
                         </div>
                       </div>
@@ -806,6 +1237,173 @@ export function StudentLegacyView(props: {
               >
                 <span className="timeline-add-button__icon">＋</span>
               </button>
+            </div>
+          </section>
+
+          <section className="section records-life-section">
+            <div className="section-header records-section-header">
+              <h2 className="section-title">생활 기록</h2>
+            </div>
+            <div className="week-frame">
+              <div className="progress-cards-scroll" ref={lifeRecordScrollRef}>
+                <div className="progress-cards-container">
+                  {getWeekDaysIncludingTomorrowSeoul(progressWeekOffset).map(day => {
+                    const todayKey = getDateKeySeoul(0);
+                    const isTodayCard = day.key === todayKey;
+                    return (
+                      <div
+                        key={`life-${day.key}`}
+                        data-weekday-card
+                        data-weekday-key={day.key}
+                        className={
+                          "progress-day-card" +
+                          (isTodayCard ? " progress-day-card--today" : "")
+                        }
+                      >
+                        <div className="progress-day-card-header">{day.label}</div>
+                        <div className="progress-day-card-body">
+                          {isTodayCard ? (
+                            <>
+                              <div className="record-life-group">
+                                <h3 className="record-life-group-title">오늘 기록</h3>
+                                <div className="record-day-block">
+                                  <div className="field record-day-field">
+                                    <label className="field-label">수면시간</label>
+                                    <input
+                                      type="number"
+                                      min={0}
+                                      max={24}
+                                      step={0.5}
+                                      className="field-input record-day-input"
+                                      value={todaySleepHours}
+                                      onChange={e =>
+                                        setTodaySleepHours(e.target.value)
+                                      }
+                                    />
+                                  </div>
+                                  <div className="field record-day-field">
+                                    <label className="field-label">스트레스</label>
+                                    <div className="record-slider-row">
+                                      <div className="record-slider-pill">
+                                        <div
+                                          className="record-slider-pill__fill"
+                                          style={{
+                                            width: recordLifeSliderFillPct(
+                                              todayStress
+                                            )
+                                          }}
+                                        />
+                                        <input
+                                          type="range"
+                                          className="record-slider-pill__input"
+                                          min={1}
+                                          max={5}
+                                          step={1}
+                                          value={todayStress}
+                                          onChange={e =>
+                                            setTodayStress(e.target.value)
+                                          }
+                                          aria-valuetext={`${todayStress}단계`}
+                                        />
+                                      </div>
+                                      <span className="record-slider-value">
+                                        {todayStress}
+                                      </span>
+                                    </div>
+                                  </div>
+                                  <div className="field record-day-field">
+                                    <label className="field-label">집중도</label>
+                                    <div className="record-slider-row">
+                                      <div className="record-slider-pill">
+                                        <div
+                                          className="record-slider-pill__fill"
+                                          style={{
+                                            width: recordLifeSliderFillPct(
+                                              todayConcentration
+                                            )
+                                          }}
+                                        />
+                                        <input
+                                          type="range"
+                                          className="record-slider-pill__input"
+                                          min={1}
+                                          max={5}
+                                          step={1}
+                                          value={todayConcentration}
+                                          onChange={e =>
+                                            setTodayConcentration(e.target.value)
+                                          }
+                                          aria-valuetext={`${todayConcentration}단계`}
+                                        />
+                                      </div>
+                                      <span className="record-slider-value">
+                                        {todayConcentration}
+                                      </span>
+                                    </div>
+                                  </div>
+                                  <div className="field record-day-field record-day-memo">
+                                    <label className="field-label">
+                                      오늘 생활 좋았던 점과 나빴던 점
+                                    </label>
+                                    <textarea
+                                      className="field-input record-day-input"
+                                      value={todayMemo}
+                                      onChange={e => setTodayMemo(e.target.value)}
+                                      rows={3}
+                                    />
+                                  </div>
+                                </div>
+                              </div>
+                              <div className="record-life-group">
+                                <div className="record-life-group-head-row">
+                                  <h3 className="record-life-group-title">내일 계획</h3>
+                                  <button
+                                    type="button"
+                                    className="records-tomorrow-coach-btn"
+                                    onClick={() => tryOpenCoachTomorrowPlan("life")}
+                                  >
+                                    AI 코치와 함께 계획 짜기
+                                  </button>
+                                </div>
+                                <div className="record-day-block">
+                                  <div className="field record-day-field record-day-memo">
+                                    <label className="field-label">
+                                      내일 실천할 한 가지
+                                    </label>
+                                    <textarea
+                                      className="field-input record-day-input"
+                                      value={todayTomorrowPractice}
+                                      onChange={e =>
+                                        setTodayTomorrowPractice(e.target.value)
+                                      }
+                                      rows={2}
+                                    />
+                                  </div>
+                                </div>
+                              </div>
+                              <div className="record-primary-save-wrap">
+                                <button
+                                  type="button"
+                                  className="timeline-save-button"
+                                  disabled={todayLogSaving}
+                                  onClick={handleSaveTodayLog}
+                                >
+                                  {todayLogSaving ? "저장 중..." : "기록 저장"}
+                                </button>
+                                {todayLogMessage ? (
+                                  <p className="settings-hint record-save-feedback">
+                                    {todayLogMessage}
+                                  </p>
+                                ) : null}
+                              </div>
+                            </>
+                          ) : null}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
             </div>
           </section>
         </>
@@ -959,285 +1557,68 @@ export function StudentLegacyView(props: {
               ))}
             </div>
           )}
-          {!storeLoading &&
-            storeApps.length === 0 &&
-            !storeError && (
-              <p className="empty-state">아직 등록된 앱이 없어요.</p>
-            )}
-          {!storeLoading &&
-            storeApps.length > 0 &&
-            displayedStoreApps.length === 0 &&
-            !storeError && (
-              <p className="empty-state">이 종류의 앱이 없어요.</p>
-            )}
-
-          {storeDetailApp ? (
-            <div
-              className="dday-modal dday-modal--open"
-              onClick={() => setStoreDetailApp(null)}
-            >
-              <div
-                className="dday-modal-inner"
-                onClick={e => e.stopPropagation()}
-              >
-                <div className="dday-modal-header">
-                  <span className="dday-modal-title">{storeDetailApp.name}</span>
-                </div>
-                <div className="dday-modal-body">
-                  {storeDetailApp.category ? (
-                    <p className="store-detail-category">{storeDetailApp.category}</p>
-                  ) : null}
-                  <p className="store-detail-description">
-                    {String(storeDetailApp.description ?? "").trim() ||
-                      "등록된 설명이 없습니다."}
-                  </p>
-                </div>
-                <div className="dday-modal-footer">
-                  <button
-                    type="button"
-                    className="modal-primary"
-                    onClick={() => setStoreDetailApp(null)}
-                  >
-                    닫기
-                  </button>
-                </div>
-              </div>
-            </div>
-          ) : null}
-        </section>
-      )}
-
-      {tab === "settings" && (
-        <section className="section">
-          <div className="settings-list">
-            <button className="settings-item">
-              <span className="settings-label">이메일</span>
-              <span className="settings-value">{userEmail || "로그인 필요"}</span>
-            </button>
-            <button
-              className="settings-item"
-              onClick={() => {
-                setEditUnlocked(true);
-                setRequestSent(false);
-              }}
-            >
-              <span className="settings-label">오늘 플랜 수정 승인</span>
-              <span className="settings-value">{editUnlocked ? "승인됨" : "대기"}</span>
-            </button>
-            <button
-              className="settings-item"
-              onClick={() => {
-                window.location.hash = "#/parent/report";
-              }}
-            >
-              <span className="settings-label">학부모 리포트 보기</span>
-              <span className="settings-value">열기</span>
-            </button>
-            <button
-              className="settings-item"
-              onClick={() => {
-                hapticSelection();
-                window.location.hash = "#/student/home";
-              }}
-            >
-              <span className="settings-label">AI 학습 코치</span>
-              <span className="settings-value">열기</span>
-            </button>
-            <button
-              type="button"
-              className="settings-item"
-              onClick={() => setShowGuideModal(true)}
-            >
-              <span className="settings-label">앱 사용 설명서</span>
-              <span className="settings-value">보기</span>
-            </button>
-            {meRole === "student" && (
-              <>
+          {storeDetailApp
+            ? createPortal(
                 <div
-                  className="settings-item"
-                  style={{
-                    cursor: "default",
-                    flexDirection: "column",
-                    alignItems: "stretch",
-                    gap: 10
-                  }}
+                  className={
+                    "store-detail-overlay" +
+                    (storeDetailReveal.revealed
+                      ? " store-detail-overlay--open"
+                      : "")
+                  }
+                  role="presentation"
+                  onClick={() =>
+                    storeDetailReveal.beginClose(() => setStoreDetailApp(null))
+                  }
                 >
-                  <span className="settings-label">학부모와 계정 연결</span>
-                  <div className="field" style={{ width: "100%" }}>
-                    <label className="field-label">학부모 이메일</label>
-                    <input
-                      className="field-input"
-                      placeholder="parent@example.com"
-                      value={studentParentEmail}
-                      onChange={e => setStudentParentEmail(e.target.value)}
-                    />
-                  </div>
-                  <button
-                    type="button"
-                    className="progress-footer-btn"
-                    onClick={async () => {
-                      if (!authToken) return;
-                      const parentEmail = studentParentEmail.trim();
-                      if (!parentEmail) return;
-                      try {
-                        const res = await fetch(`${apiBase}/api/student/request-parent`, {
-                          method: "POST",
-                          headers: {
-                            "Content-Type": "application/json",
-                            Authorization: `Bearer ${authToken}`
-                          },
-                          body: JSON.stringify({ parentEmail })
-                        });
-                        if (!res.ok) return;
-                        setStudentParentEmail("");
-                        const lr = await fetch(`${apiBase}/api/student/link-requests`, {
-                          headers: {
-                            Authorization: `Bearer ${authToken}`
-                          }
-                        });
-                        if (lr.ok) {
-                          const d = await lr.json();
-                          setStudentWaitingOnParent(d.waitingOnParent || []);
-                          setStudentWaitingOnMe(d.waitingOnMe || []);
-                        }
-                      } catch {
-                        // ignore
-                      }
-                    }}
-                  >
-                    연결 요청 보내기
-                  </button>
-                </div>
-                {studentWaitingOnParent.length > 0 && (
                   <div
-                    className="settings-item"
-                    style={{ cursor: "default", flexDirection: "column", alignItems: "stretch" }}
+                    className="store-detail-sheet"
+                    role="dialog"
+                    aria-modal="true"
+                    aria-labelledby="store-detail-title"
+                    onClick={e => e.stopPropagation()}
                   >
-                    <span className="settings-label">학부모 승인 대기</span>
-                    {studentWaitingOnParent.map(row => (
-                      <span key={row.id} className="settings-hint">
-                        {row.parent_email}
+                    <div className="dday-modal-header">
+                      <span className="dday-modal-title" id="store-detail-title">
+                        {storeDetailApp.name}
                       </span>
-                    ))}
-                  </div>
-                )}
-                {studentWaitingOnMe.length > 0 && (
-                  <div
-                    className="settings-item"
-                    style={{
-                      cursor: "default",
-                      flexDirection: "column",
-                      alignItems: "stretch",
-                      gap: 8
-                    }}
-                  >
-                    <span className="settings-label">학부모 연결 요청</span>
-                    {studentWaitingOnMe.map(row => (
-                      <div
-                        key={row.id}
-                        style={{
-                          display: "flex",
-                          flexDirection: "column",
-                          gap: 8
-                        }}
+                    </div>
+                    <div className="dday-modal-body">
+                      {storeDetailApp.category ? (
+                        <p className="store-detail-category store-detail-category--muted">
+                          {storeDetailApp.category}
+                        </p>
+                      ) : null}
+                      <p className="store-detail-description">
+                        {String(storeDetailApp.description ?? "").trim()}
+                      </p>
+                    </div>
+                    <div className="dday-modal-footer">
+                      <button
+                        type="button"
+                        className="modal-primary"
+                        onClick={() =>
+                          storeDetailReveal.beginClose(() =>
+                            setStoreDetailApp(null)
+                          )
+                        }
                       >
-                        <span className="settings-hint">{row.parent_email}</span>
-                        <div style={{ display: "flex", gap: 8 }}>
-                          <button
-                            type="button"
-                            className="progress-footer-btn"
-                            onClick={async () => {
-                              if (!authToken) return;
-                              const res = await fetch(
-                                `${apiBase}/api/student/link-confirm`,
-                                {
-                                  method: "POST",
-                                  headers: {
-                                    "Content-Type": "application/json",
-                                    Authorization: `Bearer ${authToken}`
-                                  },
-                                  body: JSON.stringify({ requestId: row.id })
-                                }
-                              );
-                              if (!res.ok) return;
-                              const lr = await fetch(`${apiBase}/api/student/link-requests`, {
-                                headers: {
-                                  Authorization: `Bearer ${authToken}`
-                                }
-                              });
-                              if (lr.ok) {
-                                const d = await lr.json();
-                                setStudentWaitingOnParent(d.waitingOnParent || []);
-                                setStudentWaitingOnMe(d.waitingOnMe || []);
-                              }
-                            }}
-                          >
-                            승인 — 이 학부모와 연결
-                          </button>
-                          <button
-                            type="button"
-                            className="progress-footer-btn"
-                            onClick={async () => {
-                              if (!authToken) return;
-                              await fetch(`${apiBase}/api/link/reject`, {
-                                method: "POST",
-                                headers: {
-                                  "Content-Type": "application/json",
-                                  Authorization: `Bearer ${authToken}`
-                                },
-                                body: JSON.stringify({ requestId: row.id })
-                              });
-                              const lr = await fetch(`${apiBase}/api/student/link-requests`, {
-                                headers: {
-                                  Authorization: `Bearer ${authToken}`
-                                }
-                              });
-                              if (lr.ok) {
-                                const d = await lr.json();
-                                setStudentWaitingOnParent(d.waitingOnParent || []);
-                                setStudentWaitingOnMe(d.waitingOnMe || []);
-                              }
-                            }}
-                          >
-                            거절
-                          </button>
-                        </div>
-                      </div>
-                    ))}
+                        닫기
+                      </button>
+                    </div>
                   </div>
-                )}
-              </>
-            )}
-            <button
-              type="button"
-              className="settings-item"
-              onClick={() => {
-                hapticWarning();
-                handleWithdrawAccount();
-              }}
-            >
-              <span className="settings-label">회원 탈퇴</span>
-              <span className="settings-value">계정 삭제</span>
-            </button>
-            <button
-              type="button"
-              className="settings-item"
-              onClick={() => {
-                hapticWarning();
-                handleLogout();
-              }}
-            >
-              <span className="settings-label">로그아웃</span>
-              <span className="settings-value">계정 전환</span>
-            </button>
-          </div>
-          {requestSent && (
-            <p className="settings-hint">
-              학생이 수정 요청을 보냈습니다. 위 버튼으로 승인할 수 있습니다.
-            </p>
-          )}
+                </div>,
+                document.body
+              )
+            : null}
         </section>
       )}
+
+      {tab === "notifications" && (
+        <NotificationsPage hapticSelection={hapticSelection} />
+      )}
+
+      </TabTransitionPanel>
 
       {timePicker !== null && (
         <TimePickerSheet
@@ -1269,6 +1650,81 @@ export function StudentLegacyView(props: {
           hapticSelection={hapticSelection}
         />
       )}
+
+      <div
+        className={
+          "dday-modal" +
+          (coachPlanHintReveal.revealed ? " dday-modal--open" : "")
+        }
+        onClick={() =>
+          coachPlanHintReveal.beginClose(() => setCoachPlanHintOpen(false))
+        }
+        role="presentation"
+      >
+        <div
+          className="dday-modal-inner"
+          onClick={e => e.stopPropagation()}
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="coach-plan-hint-title"
+        >
+          <div className="dday-modal-header">
+            <span className="dday-modal-title" id="coach-plan-hint-title">
+              오늘 기록을 먼저 작성해 주세요
+            </span>
+          </div>
+          <div className="dday-modal-body">
+            <p
+              className="settings-hint"
+              style={{ marginTop: 0, lineHeight: 1.55, fontSize: 13 }}
+            >
+              AI 코치와 내일 계획을 세울 때는, 기록 탭에 적어 둔 오늘 생활 좋았던 점과
+              나빴던 점, 그리고 오늘 탭에서 공부한 내용을 함께 참고하는 방식으로
+              이어갈 예정이에요. 먼저 아래 항목을 채운 뒤 다시 눌러 주세요.
+            </p>
+            {coachPlanHintKind === "study" ? (
+              <ul
+                className="settings-hint"
+                style={{
+                  margin: "12px 0 0",
+                  paddingLeft: 18,
+                  lineHeight: 1.6,
+                  fontSize: 13
+                }}
+              >
+                <li>오늘 학습 시간</li>
+                <li>오늘 공부 좋았던 점과 나빴던 점</li>
+                <li>오늘 공부한 내용을 설명해보세요</li>
+              </ul>
+            ) : (
+              <ul
+                className="settings-hint"
+                style={{
+                  margin: "12px 0 0",
+                  paddingLeft: 18,
+                  lineHeight: 1.6,
+                  fontSize: 13
+                }}
+              >
+                <li>오늘 생활 좋았던 점과 나빴던 점</li>
+              </ul>
+            )}
+          </div>
+          <div className="dday-modal-footer">
+            <button
+              type="button"
+              className="modal-primary"
+              onClick={() =>
+                coachPlanHintReveal.beginClose(() =>
+                  setCoachPlanHintOpen(false)
+                )
+              }
+            >
+              확인
+            </button>
+          </div>
+        </div>
+      </div>
     </>
   );
 }

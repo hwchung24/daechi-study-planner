@@ -1,10 +1,11 @@
-import React from "react";
+import React, { useCallback, useLayoutEffect, useRef, useState } from "react";
+import { motion, useReducedMotion } from "framer-motion";
 import {
   ArrowLeft,
   Bot,
   BookOpen,
   Calendar,
-  CalendarDays,
+  ClipboardList,
   Clock,
   FileText,
   Home,
@@ -21,10 +22,73 @@ function NavIcon({ children }: { children: React.ReactNode }) {
   );
 }
 
-type TabKey = "today" | "week" | "store" | "settings";
+type TabKey = "today" | "records" | "store" | "profile" | "notifications";
 type CoachStudentTabKey = "home" | "coach";
 type ParentTabKey = "link" | "report";
 type CoachParentTabKey = "home" | "timeline" | "guide" | "profile";
+
+type PillMetrics = {
+  left: number;
+  top: number;
+  width: number;
+  height: number;
+  visible: boolean;
+};
+
+function useBottomNavSlidingPill(
+  navRef: React.RefObject<HTMLElement | null>,
+  enabled: boolean,
+  measureKey: string
+) {
+  const [pill, setPill] = useState<PillMetrics>({
+    left: 0,
+    top: 0,
+    width: 0,
+    height: 0,
+    visible: false
+  });
+
+  const measure = useCallback(() => {
+    const nav = navRef.current;
+    if (!nav || !enabled) {
+      setPill({ left: 0, top: 0, width: 0, height: 0, visible: false });
+      return;
+    }
+    const active = nav.querySelector(".nav-item-active");
+    if (!active || !(active instanceof HTMLElement)) {
+      setPill({ left: 0, top: 0, width: 0, height: 0, visible: false });
+      return;
+    }
+    const navR = nav.getBoundingClientRect();
+    const aR = active.getBoundingClientRect();
+    setPill({
+      left: aR.left - navR.left,
+      top: aR.top - navR.top,
+      width: aR.width,
+      height: aR.height,
+      visible: true
+    });
+  }, [enabled, navRef]);
+
+  useLayoutEffect(() => {
+    if (!enabled) {
+      setPill({ left: 0, top: 0, width: 0, height: 0, visible: false });
+      return;
+    }
+    measure();
+    const nav = navRef.current;
+    if (!nav) return;
+    const ro = new ResizeObserver(() => measure());
+    ro.observe(nav);
+    window.addEventListener("resize", measure);
+    return () => {
+      ro.disconnect();
+      window.removeEventListener("resize", measure);
+    };
+  }, [enabled, measureKey, measure, navRef]);
+
+  return pill;
+}
 
 export function AppBottomNav(props: {
   showStudentShell: boolean;
@@ -59,11 +123,54 @@ export function AppBottomNav(props: {
 
   const coachStudentMode = Boolean(coachStudentTab);
   const coachParentMode = Boolean(coachParentTab);
+  const reduceMotion = useReducedMotion();
+
+  const studentNavRef = useRef<HTMLElement | null>(null);
+  const parentNavRef = useRef<HTMLElement | null>(null);
+
+  const studentMeasureKey = coachStudentMode
+    ? `c:${coachStudentTab}`
+    : `p:${tab}`;
+  const parentMeasureKey = coachParentMode
+    ? `cp:${coachParentTab}`
+    : `pp:${parentTab}`;
+
+  const studentPill = useBottomNavSlidingPill(
+    studentNavRef,
+    showStudentShell,
+    studentMeasureKey
+  );
+  const parentPill = useBottomNavSlidingPill(
+    parentNavRef,
+    !roleLoading && parentView && meRole === "parent",
+    parentMeasureKey
+  );
+
+  const pillTransition = reduceMotion
+    ? { duration: 0.08, ease: "easeOut" as const }
+    : { type: "spring" as const, stiffness: 420, damping: 34, mass: 0.82 };
 
   return (
     <>
       {showStudentShell && (
-        <nav className="bottom-nav" aria-label="하단 내비게이션">
+        <nav
+          ref={studentNavRef}
+          className="bottom-nav bottom-nav--sliding-pill"
+          aria-label="하단 내비게이션"
+        >
+          <motion.div
+            className="bottom-nav__pill"
+            aria-hidden
+            initial={false}
+            animate={{
+              left: studentPill.left,
+              top: studentPill.top,
+              width: studentPill.visible ? studentPill.width : 0,
+              height: studentPill.visible ? studentPill.height : 0,
+              opacity: studentPill.visible ? 1 : 0
+            }}
+            transition={pillTransition}
+          />
           <button
             className={
               "nav-item" +
@@ -79,14 +186,27 @@ export function AppBottomNav(props: {
           <button
             className={
               "nav-item" +
-              (!coachStudentMode && tab === "week" ? " nav-item-active" : "")
+              (!coachStudentMode && tab === "records" ? " nav-item-active" : "")
             }
-            onClick={() => onStudentNavClick("week")}
+            onClick={() => onStudentNavClick("records")}
           >
             <NavIcon>
-              <CalendarDays size={20} strokeWidth={2} />
+              <ClipboardList size={20} strokeWidth={2} />
             </NavIcon>
-            <span className="nav-label">주간</span>
+            <span className="nav-label">기록</span>
+          </button>
+          <button
+            type="button"
+            className={
+              "nav-item" +
+              (coachStudentMode ? " nav-item-active" : "")
+            }
+            onClick={() => onCoachStudentNavClick("coach")}
+          >
+            <NavIcon>
+              <Bot size={20} strokeWidth={2} />
+            </NavIcon>
+            <span className="nav-label">코치</span>
           </button>
           <button
             className={
@@ -104,37 +224,37 @@ export function AppBottomNav(props: {
             type="button"
             className={
               "nav-item" +
-              (coachStudentMode && coachStudentTab === "home"
-                ? " nav-item-active"
-                : "")
+              (!coachStudentMode && tab === "profile" ? " nav-item-active" : "")
             }
-            onClick={() => onCoachStudentNavClick("home")}
+            onClick={() => onStudentNavClick("profile")}
           >
             <NavIcon>
-              <Home size={20} strokeWidth={2} />
+              <User size={20} strokeWidth={2} />
             </NavIcon>
-            <span className="nav-label">학생홈</span>
-          </button>
-          <button
-            type="button"
-            className={
-              "nav-item" +
-              (coachStudentMode && coachStudentTab === "coach"
-                ? " nav-item-active"
-                : "")
-            }
-            onClick={() => onCoachStudentNavClick("coach")}
-          >
-            <NavIcon>
-              <Bot size={20} strokeWidth={2} />
-            </NavIcon>
-            <span className="nav-label">코치</span>
+            <span className="nav-label">프로필</span>
           </button>
         </nav>
       )}
 
       {!roleLoading && parentView && meRole === "parent" && (
-        <nav className="bottom-nav" aria-label="하단 내비게이션">
+        <nav
+          ref={parentNavRef}
+          className="bottom-nav bottom-nav--sliding-pill"
+          aria-label="하단 내비게이션"
+        >
+          <motion.div
+            className="bottom-nav__pill"
+            aria-hidden
+            initial={false}
+            animate={{
+              left: parentPill.left,
+              top: parentPill.top,
+              width: parentPill.visible ? parentPill.width : 0,
+              height: parentPill.visible ? parentPill.height : 0,
+              opacity: parentPill.visible ? 1 : 0
+            }}
+            transition={pillTransition}
+          />
           {coachParentMode ? (
             <>
               <button

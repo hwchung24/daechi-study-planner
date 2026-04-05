@@ -41,9 +41,6 @@ export function AuthScreen(props: {
         <h2 key={authMode} className="auth-title auth-title--enter">
           {authMode === "login" ? "로그인" : "회원가입"}
         </h2>
-        <p className="auth-desc">
-          계정으로 로그인하면 학습 플랜이 계정별로 안전하게 저장됩니다.
-        </p>
         <div
           className={
             "auth-tabs auth-tabs--segmented" +

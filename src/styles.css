@@ -28,6 +28,19 @@
   --dur-haptic: 130ms;
   /* 디데이 모달 기준 — 중앙 팝업·시트 열림/닫힘 길이 통일 */
   --dur-modal: 360ms;
+  --modal-overlay-rgb: 15, 23, 42;
+  --modal-overlay-opacity: 0.38;
+  --modal-backdrop-blur: 12px;
+  --modal-surface-bg: #ffffff;
+  --modal-surface-shadow: 0 16px 44px rgba(15, 23, 42, 0.14),
+    0 2px 10px rgba(15, 23, 42, 0.06);
+  --modal-radius: 18px;
+  --modal-inner-transform-from: scale(0.96) translateY(10px);
+  /* 하단 플로팅 네비 바로 위까지 — 여백 최소(네비 높이·safe-area만) */
+  --app-bottom-nav-clearance: max(
+    68px,
+    calc(env(safe-area-inset-bottom, 0px) + 58px)
+  );
 }
 
 *,
@@ -40,8 +53,6 @@ html {
   height: 100%;
   overscroll-behavior: none;
   overflow: hidden;
-  scrollbar-width: none;
-  -ms-overflow-style: none;
 }
 
 body {
@@ -60,22 +71,18 @@ body {
   overscroll-behavior: none;
   overflow: hidden;
   padding-bottom: max(env(safe-area-inset-bottom), 0px);
+}
+
+/* 전역: 가로·세로 스크롤은 유지, 스크롤바(막대)만 숨김 */
+* {
   scrollbar-width: none;
   -ms-overflow-style: none;
 }
 
-html::-webkit-scrollbar,
-body::-webkit-scrollbar,
-.app-main::-webkit-scrollbar,
-.coach-shell::-webkit-scrollbar,
-.coach-page::-webkit-scrollbar,
-.today-cards-scroll::-webkit-scrollbar,
-.progress-cards-scroll::-webkit-scrollbar,
-.today-timeline-scroll::-webkit-scrollbar,
-.books-list::-webkit-scrollbar {
-  width: 0;
-  height: 0;
-  display: none;
+*::-webkit-scrollbar {
+  width: 0 !important;
+  height: 0 !important;
+  display: none !important;
 }
 
 input,
@@ -179,6 +186,45 @@ select {
   }
 }
 
+/* 알림: 셸 상단 18px·safe-area 이중 여백 제거(status-bar-safe 한 줄만 사용) */
+.app-shell.app-shell--notifications {
+  padding-top: 0;
+  padding-left: max(0px, env(safe-area-inset-left, 0px));
+  padding-right: max(0px, env(safe-area-inset-right, 0px));
+}
+
+.app-header.app-header--notifications {
+  padding: 0;
+}
+
+/* 알림: 글로벌 제목 자리 34px 스페이서 제거 → 메인의 알림 바로 바로 이어짐 */
+.app-header.app-header--notifications .header-top {
+  display: none;
+}
+
+/* 알림: 회색 safe 줄 없이 흰 바가 상단부터(노치는 바 안 패딩으로만) */
+.app-header.app-header--notifications .status-bar-safe {
+  display: none;
+}
+
+.app-main.app-main--notifications {
+  padding-top: 0;
+  padding-left: 0;
+  padding-right: 0;
+  padding-bottom: var(--app-bottom-nav-clearance);
+}
+
+/* 모바일: 알림 화면에서는 하단 탭 숨김 + 본문 하단 여백만 safe-area */
+@media (max-width: 767px) {
+  .app-shell.app-shell--notifications .bottom-nav {
+    display: none;
+  }
+
+  .app-main.app-main--notifications {
+    padding-bottom: max(16px, env(safe-area-inset-bottom, 0px));
+  }
+}
+
 .status-bar-safe {
   height: max(10px, env(safe-area-inset-top));
 }
@@ -195,9 +241,18 @@ select {
 }
 
 .header-title-group {
+  flex: 1;
+  min-width: 0;
   display: flex;
   flex-direction: column;
   gap: 0;
+}
+
+/* 알림 탭: 상단 제목은 페이지 안에서만 표시 */
+.header-title-group--spacer {
+  flex: 1;
+  min-height: 34px;
+  pointer-events: none;
 }
 
 .header-title-row {
@@ -206,41 +261,41 @@ select {
   gap: 10px;
 }
 
+.header-actions {
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+  margin-left: auto;
+}
+
+.header-icon-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  border: none;
+  border-radius: 12px;
+  background: rgba(248, 250, 252, 0.9);
+  color: var(--accent-strong);
+  cursor: pointer;
+  transition: background 0.15s ease, box-shadow 0.15s ease;
+}
+
+.header-icon-btn:hover {
+  background: #ffffff;
+  box-shadow: 0 0 0 1px var(--accent-border);
+}
+
+.header-icon-btn:active {
+  transform: scale(0.96);
+}
+
 .header-title {
   font-size: 28px;
   margin: 0;
   letter-spacing: -0.03em;
-}
-
-.profile-chip {
-  border-radius: 999px;
-  padding: 4px 10px 4px 4px;
-  border: 0.5px solid var(--border-soft);
-  background: #ffffff;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  box-shadow: var(--shadow-soft);
-  cursor: default;
-}
-
-.profile-avatar {
-  width: 26px;
-  height: 26px;
-  border-radius: 999px;
-  background: var(--accent);
-  color: white;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 13px;
-  font-weight: 600;
-}
-
-.profile-label {
-  font-size: 12px;
-  color: var(--text-sub);
-  font-weight: 500;
 }
 
 .header-date-row {
@@ -348,10 +403,31 @@ select {
   scroll-behavior: smooth;
 }
 
+.app-main__transition-root {
+  width: 100%;
+  min-height: 0;
+}
+
+.app-main--today-fixed > .app-main__transition-root,
+.app-main.app-main--coach-chat > .app-main__transition-root {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.app-main--today-fixed .student-tab-transition {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
 .app-main--today-fixed {
   overflow-y: hidden;
   display: flex;
   flex-direction: column;
+  padding-bottom: var(--app-bottom-nav-clearance);
 }
 
 /* AI 코치 채팅: 스크롤 메인 안에서 min-height:100%가 깨져 입력창 위로 큰 빈칸이 생기는 문제 방지 */
@@ -372,7 +448,223 @@ select {
   overflow: hidden;
 }
 
+.app-main.app-main--coach-chat .coach-shell__tab-panel {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
 .app-main.app-main--coach-chat .coach-page--chat {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+/* 통합 코치: 프로필·탭 아래에 패널이 오므로 셸→페이지까지 flex 연결 */
+.app-main.app-main--coach-chat .coach-shell--unified > .coach-page--unified {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.app-main.app-main--coach-chat
+  .coach-shell--unified
+  > .coach-page--unified
+  > .coach-subtab-row {
+  flex-shrink: 0;
+}
+
+.app-main.app-main--coach-chat .coach-chat-embedded {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.coach-subtab-row {
+  margin-bottom: 14px;
+}
+
+.notifications-page.section {
+  margin: 0 0 18px;
+  width: 100%;
+  max-width: none;
+  box-sizing: border-box;
+}
+
+/* 상단 바: 둥근 막대 (노치 아래 띄움) */
+.notifications-page__bar {
+  margin: calc(8px + env(safe-area-inset-top, 0px))
+    max(14px, env(safe-area-inset-left, 0px)) 18px
+    max(14px, env(safe-area-inset-right, 0px));
+  padding: 14px 18px 16px;
+  background: var(--accent);
+  border: none;
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-soft);
+}
+
+.notifications-page__bar-inner {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 44px;
+}
+
+.notifications-page__title {
+  margin: 0;
+  padding: 0;
+  font-size: 28px;
+  font-weight: 950;
+  letter-spacing: -0.03em;
+  line-height: 1.15;
+  color: rgba(255, 255, 255, 0.96);
+}
+
+.notifications-page__empty {
+  margin: 16px 0 0;
+  padding: 0 max(10px, env(safe-area-inset-left, 0px)) 0
+    max(10px, env(safe-area-inset-right, 0px));
+  text-align: left;
+  font-size: 15px;
+  line-height: 1.5;
+  color: var(--text-sub);
+  font-weight: 500;
+}
+
+.notifications-page__bar .notifications-back-btn {
+  margin: 0;
+  color: rgba(255, 255, 255, 0.92);
+}
+
+.notifications-page__bar .notifications-back-btn:hover {
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.notifications-page__bar .notifications-back-btn:active {
+  background: rgba(255, 255, 255, 0.18);
+}
+
+.notifications-back-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  margin: 0 0 0 -6px;
+  border: none;
+  border-radius: 12px;
+  background: transparent;
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--accent-strong);
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+
+.notifications-back-btn:hover {
+  background: rgba(248, 250, 252, 0.95);
+}
+
+.notifications-back-btn:active {
+  transform: scale(0.98);
+}
+
+.student-profile-page {
+  padding-top: 4px;
+  padding-bottom: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 22px;
+}
+
+.student-profile-page .coach-profile-card {
+  margin-bottom: 0;
+}
+
+/* 프로필: 상단 카드와 동일 coach-card 계열 — 설정 목록은 카드 안 그룹만 구분 */
+.student-profile-settings-card {
+  margin-top: 0;
+  margin-bottom: 0;
+}
+
+.student-profile-settings-list {
+  margin-top: 12px;
+  border-radius: 12px;
+  border: 0.5px solid rgba(148, 163, 184, 0.32);
+  background: rgba(248, 250, 252, 0.92);
+  overflow: hidden;
+}
+
+.student-profile-settings-list .settings-item {
+  background: transparent;
+  border-bottom-color: rgba(148, 163, 184, 0.22);
+}
+
+.student-profile-settings-list .settings-item:last-child {
+  border-bottom: none;
+}
+
+.student-profile-settings-list .settings-item--stack {
+  padding-top: 12px;
+  padding-bottom: 12px;
+}
+
+.student-profile-settings-list .settings-hint {
+  margin: 4px 0 0;
+}
+
+.student-profile-parent-link-card {
+  margin-top: 0;
+  margin-bottom: 0;
+}
+
+.student-profile-link-status {
+  margin-top: 16px;
+  padding-top: 14px;
+  border-top: 0.5px solid rgba(148, 163, 184, 0.28);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.student-profile-link-status--requests {
+  gap: 12px;
+}
+
+.student-profile-link-status__title {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text-main);
+}
+
+.student-profile-link-status__hint {
+  font-size: 12px;
+  color: var(--text-sub);
+  line-height: 1.45;
+}
+
+.student-profile-link-request-row {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.student-profile-link-request-row__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.coach-unified-tab-panel--fill {
   flex: 1 1 auto;
   min-height: 0;
   display: flex;
@@ -387,8 +679,140 @@ select {
   -webkit-overflow-scrolling: touch;
 }
 
+/* 내일 계획 협업: 상단 카드·하단 입력 고정, 대화만 스크롤 */
+.coach-tomorrow-collab {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding-bottom: 4px;
+}
+
+.app-main.app-main--coach-chat .coach-tomorrow-collab__chat {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.coach-tomorrow-collab__metrics {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px 16px;
+  margin-top: 10px;
+}
+
+.coach-tomorrow-collab__metric {
+  font-size: 12.5px;
+  line-height: 1.45;
+  color: rgba(71, 85, 105, 0.92);
+}
+
+.coach-tomorrow-collab__metric strong {
+  font-weight: 950;
+  color: rgba(15, 23, 42, 0.92);
+  margin-left: 4px;
+}
+
+.coach-tomorrow-collab__banner {
+  margin: 0;
+  padding: 10px 12px;
+  border-radius: 14px;
+  font-size: 12.5px;
+  line-height: 1.45;
+  color: #b91c1c;
+  background: rgba(254, 226, 226, 0.65);
+  border: 1px solid rgba(248, 113, 113, 0.35);
+}
+
+.coach-tomorrow-collab__footer {
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding-top: 2px;
+}
+
+.coach-tomorrow-collab__input {
+  margin-top: 0;
+}
+
+.coach-tomorrow-collab__apply-in-bubble {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid rgba(148, 163, 184, 0.22);
+}
+
+.coach-tomorrow-collab__apply-bubble-btn {
+  width: 100%;
+  justify-content: center;
+  font-size: 12.8px;
+  font-weight: 700;
+  padding: 9px 12px;
+}
+
 .app-main.app-main--coach-chat .coach-chat-starters {
   flex-shrink: 0;
+}
+
+/* 내일 계획: 첫 선택 말풍선(첫 메시지 전만 표시) — 82%·픽셀 상한 */
+.coach-tomorrow-collab__coach-offer-row {
+  align-items: flex-start;
+}
+
+.coach-tomorrow-collab__coach-offer-row .coach-tomorrow-collab__coach-offer.coach-bubble {
+  flex: 0 1 auto;
+  align-self: flex-start;
+  width: 100%;
+  max-width: min(82%, 300px);
+  min-width: 0;
+}
+
+.coach-tomorrow-collab__coach-offer .coach-bubble__line {
+  margin-bottom: 0;
+}
+
+.coach-tomorrow-collab__coach-picks {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 8px;
+  width: 100%;
+}
+
+/* 본문(.coach-bubble__line)과 동일 12.8px · 행간, 덜 두꺼운 굵기로 통일 */
+.coach-tomorrow-collab__coach-pick {
+  display: block;
+  width: 100%;
+  box-sizing: border-box;
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  background: var(--accent-strong);
+  border-radius: 12px;
+  padding: 7px 12px;
+  font-family: inherit;
+  font-size: 12.8px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  line-height: 1.52;
+  color: rgba(255, 255, 255, 0.96);
+  cursor: pointer;
+  text-align: center;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.coach-tomorrow-collab__coach-pick:hover:not(:disabled) {
+  background: var(--accent-hover);
+}
+
+.coach-tomorrow-collab__coach-pick:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.coach-tomorrow-collab__coach-pick:active:not(:disabled) {
+  transform: translateY(1px);
+  background: var(--accent-hover);
 }
 
 .app-main.app-main--coach-chat .coach-chat-input {
@@ -400,10 +824,15 @@ select {
 .today-study-layout {
   flex: 1;
   min-height: 0;
-  overflow: hidden;
+  overflow-x: hidden;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
   display: flex;
   flex-direction: column;
   gap: 14px;
+  /* 스크롤 끝: 네비와 겹치지 않을 만큼만 (app-main이 대부분 담당) */
+  padding-bottom: 6px;
+  box-sizing: border-box;
 }
 
 .today-study-layout .section {
@@ -415,24 +844,34 @@ select {
   min-height: 0;
   display: flex;
   flex-direction: column;
+  gap: 12px;
+}
+
+.today-commitment-below-scroll {
+  flex-shrink: 0;
+  padding: 0 2px 2px;
 }
 
 .today-cards-scroll {
-  flex: 1;
+  flex: 1 1 auto;
   min-height: 0;
   display: flex;
+  align-items: stretch;
   overflow-x: auto;
   overflow-y: hidden;
   scroll-snap-type: x mandatory;
   -webkit-overflow-scrolling: touch;
-  min-height: min(520px, calc(100dvh - 190px));
+  /* 뷰포트 고정 min-height 없음 — 세로는 부모가 준 높이만(약속 카드 위까지) */
 }
 
 .today-cards-container {
   display: flex;
+  align-items: stretch;
+  align-self: stretch;
   gap: 12px;
   padding: 4px 2px;
   min-width: 100%;
+  box-sizing: border-box;
 }
 
 .today-cards-container > .progress-card,
@@ -449,11 +888,83 @@ select {
   display: flex;
   flex-direction: column;
   gap: 12px;
-  min-height: calc(100dvh - 190px);
+  align-self: stretch;
+  /* 스크롤 영역 세로를 꽉 채워 타임라인 카드가 아래 약속 카드 직전까지 이어짐 */
 }
 
 .timeline-page .progress-card {
   margin-top: 0;
+}
+
+.timeline-page .today-summary-card,
+.timeline-page .timeline-sync-banner {
+  flex-shrink: 0;
+}
+
+.timeline-sync-banner {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px 12px;
+  margin-bottom: 10px;
+  border-radius: 12px;
+  border: 0.5px solid rgba(248, 113, 113, 0.35);
+  background: rgba(254, 242, 242, 0.96);
+}
+
+.timeline-sync-banner__text {
+  flex: 1;
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.45;
+  color: #991b1b;
+}
+
+.timeline-sync-banner--success {
+  border-color: rgba(34, 197, 94, 0.35);
+  background: rgba(240, 253, 244, 0.96);
+}
+
+.timeline-sync-banner__text--success {
+  color: #166534;
+}
+
+.timeline-sync-banner__dismiss {
+  flex-shrink: 0;
+  margin: 0;
+  padding: 4px 10px;
+  border: none;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.7);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-sub);
+  cursor: pointer;
+}
+
+.parent-plan-add-request-detail {
+  margin-top: 4px;
+  padding: 12px 12px;
+  border-radius: 12px;
+  border: 0.5px solid var(--border-soft);
+  background: rgba(248, 250, 252, 0.96);
+  font-size: 14px;
+  line-height: 1.45;
+}
+
+.parent-plan-add-request-line {
+  margin: 0 0 8px;
+}
+
+.parent-plan-add-request-line:last-child {
+  margin-bottom: 0;
+}
+
+.parent-plan-add-request-k {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--text-sub);
+  margin-right: 4px;
 }
 
 .timeline-page > .timeline-card-with-action {
@@ -521,19 +1032,17 @@ select {
 .today-progress-bar-row {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 10px;
 }
 
-.today-progress-bar-row .progress-bar-track {
+.today-progress-bar-row .record-slider-pill {
   margin-top: 0;
   flex: 1;
 }
 
-.today-progress-text {
-  font-size: 13px;
-  font-weight: 500;
-  color: var(--text-sub);
+.today-progress-pct {
   flex-shrink: 0;
+  min-width: 40px;
 }
 
 /* 오늘 기록: 다른 progress-card와 동일 표면(흰 배경·그림자) */
@@ -544,7 +1053,7 @@ select {
   color: var(--text-main);
   display: flex;
   flex-direction: column;
-  min-height: min(520px, calc(100dvh - 190px));
+  min-height: min(520px, calc(100dvh - 220px));
 }
 
 .today-log-card__header {
@@ -592,6 +1101,264 @@ select {
   margin-top: 10px;
 }
 
+/* 생활·학습 기록: 오늘 기록 / 내일 계획 소제목 + 카드 묶음 */
+.record-life-group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.record-life-group-title {
+  margin: 0;
+  padding: 0 2px;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: var(--accent-strong);
+}
+
+.record-life-group-head-row {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+}
+
+.record-life-group-head-row .record-life-group-title {
+  flex: 1;
+  min-width: 0;
+  padding-right: 0;
+}
+
+.records-tomorrow-coach-btn {
+  flex-shrink: 0;
+  margin: 0;
+  padding: 6px 10px;
+  border-radius: 999px;
+  border: 0.5px solid rgba(26, 47, 82, 0.2);
+  background: rgba(255, 255, 255, 0.95);
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.25;
+  color: var(--accent-strong);
+  cursor: pointer;
+  text-align: center;
+  white-space: nowrap;
+  transition: transform var(--dur-fast) var(--ease-press),
+    background var(--dur-fast) var(--ease-press),
+    box-shadow var(--dur-fast) var(--ease-press);
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.06);
+}
+
+.records-tomorrow-coach-btn:active {
+  transform: scale(0.98);
+}
+
+/* 기록 탭 요일 카드 — 생활 기록 블록 · 학습 내일 편집 행 톤 통일 */
+.record-day-block {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  border: 0.5px solid var(--border-soft);
+  background: #f8fafc;
+}
+
+.record-day-field {
+  flex: none;
+}
+
+.record-day-field .field-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-sub);
+  letter-spacing: -0.01em;
+}
+
+.record-day-input,
+.progress-day-book--editable .books-plan-range.field-input {
+  border-radius: 12px;
+  padding: 8px 10px;
+  font-size: 14px;
+  border: 0.5px solid rgba(148, 163, 184, 0.55);
+  background: #ffffff;
+  color: var(--text-main);
+  transition: border-color 0.15s ease-out, box-shadow 0.15s ease-out;
+}
+
+.record-day-input:focus,
+.progress-day-book--editable .books-plan-range.field-input:focus {
+  border-color: var(--accent-strong);
+  box-shadow: 0 0 0 1px var(--accent-ring);
+  outline: none;
+}
+
+.record-day-memo textarea.record-day-input {
+  min-height: 72px;
+  resize: vertical;
+  line-height: 1.45;
+}
+
+.record-slider-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+/* 오늘 기록 스트레스·집중: 캡슐 트랙 + 채움(애플 볼륨 HUD 느낌, 동그란 썸 없음) */
+.record-slider-pill {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  height: 28px;
+  border-radius: 999px;
+  background: rgba(15, 23, 42, 0.07);
+  box-shadow: inset 0 1px 2px rgba(15, 23, 42, 0.06);
+  overflow: hidden;
+}
+
+.record-slider-pill__fill {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 0%;
+  border-radius: inherit;
+  background: linear-gradient(
+      180deg,
+      rgba(255, 255, 255, 0.28) 0%,
+      rgba(255, 255, 255, 0) 48%
+    ),
+    var(--accent-strong);
+  transition: width 0.42s var(--ease-standard);
+  pointer-events: none;
+}
+
+.record-slider-pill__input {
+  position: relative;
+  z-index: 1;
+  display: block;
+  width: 100%;
+  height: 28px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  -webkit-appearance: none;
+  appearance: none;
+  background: transparent;
+  cursor: pointer;
+}
+
+.record-slider-pill__input:focus {
+  outline: none;
+}
+
+.record-slider-pill__input:focus-visible {
+  box-shadow: 0 0 0 2px var(--accent-ring);
+  border-radius: 10px;
+}
+
+.record-slider-pill__input::-webkit-slider-runnable-track {
+  height: 28px;
+  background: transparent;
+  border: none;
+}
+
+.record-slider-pill__input::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 52px;
+  height: 40px;
+  margin-top: -6px;
+  border: none;
+  border-radius: 999px;
+  background: transparent;
+  box-shadow: none;
+  cursor: pointer;
+}
+
+.record-slider-pill__input::-moz-range-track {
+  height: 28px;
+  background: transparent;
+  border: none;
+}
+
+.record-slider-pill__input::-moz-range-thumb {
+  width: 52px;
+  height: 40px;
+  border: none;
+  border-radius: 999px;
+  background: transparent;
+  cursor: pointer;
+}
+
+.record-slider-pill__input::-moz-focus-outer {
+  border: 0;
+}
+
+.record-slider-value {
+  min-width: 28px;
+  text-align: right;
+  font-size: 14px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: var(--accent-strong);
+}
+
+.record-primary-save-wrap {
+  margin-top: 2px;
+  padding-top: 10px;
+  border-top: 0.5px solid var(--border-soft);
+}
+
+.record-primary-save-wrap .timeline-save-button {
+  width: 100%;
+}
+
+.record-save-feedback {
+  margin: 8px 0 0;
+  text-align: center;
+  font-size: 11px;
+}
+
+.record-day-empty-hint {
+  margin: 4px 0 0;
+  text-align: center;
+}
+
+.records-section-header {
+  margin-bottom: 6px;
+}
+
+.records-section-hint {
+  margin: 4px 0 0;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.records-life-placeholder {
+  margin: 0;
+}
+
+.records-life-section,
+.records-study-section {
+  margin-top: 2px;
+}
+
+/* 학습 기록 오늘 카드: 공부 좋았던/나빴던 점·오늘 공부한 내용 — 생활 record-day-block · 편집 책 행과 동일 표면 */
+.record-study-reflection-card {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  border: 0.5px solid rgba(148, 163, 184, 0.35);
+  background: #f8fafc;
+}
+
 .timeline-save-button {
   width: 100%;
   border: none;
@@ -618,15 +1385,94 @@ select {
 }
 
 /* 타임라인 페이지 안 오늘의 핵심: 카드 열과 동일 표면·간격만 열 gap으로 */
-.timeline-page .coach-hero {
+.timeline-page .coach-hero,
+.today-commitment-below-scroll .coach-hero {
   margin-bottom: 0;
   border: 0.5px solid var(--border-soft);
   box-shadow: var(--shadow-soft);
   background: #ffffff;
 }
 
-.timeline-page .coach-hero__bg {
+.timeline-page .coach-hero__bg,
+.today-commitment-below-scroll .coach-hero__bg {
   background: #ffffff;
+}
+
+.practice-commitment-card .coach-hero__bg {
+  pointer-events: none;
+}
+
+button.practice-commitment-card {
+  display: block;
+  width: 100%;
+  margin: 0;
+  padding: 0;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+  transition: transform var(--dur-fast) var(--ease-press),
+    box-shadow var(--dur-med) var(--ease-standard);
+}
+
+button.practice-commitment-card:disabled {
+  opacity: 0.72;
+  cursor: not-allowed;
+}
+
+button.practice-commitment-card:not(:disabled):active {
+  transform: scale(0.988);
+}
+
+.practice-commitment-card--done .coach-hero__bg {
+  background: var(--accent-done-bg);
+}
+
+.practice-commitment-card--done {
+  border-color: var(--accent-border-strong);
+}
+
+.practice-commitment-card--done .check-circle {
+  border-color: var(--accent);
+  background: var(--accent);
+}
+
+.practice-commitment-card__row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+
+.practice-commitment-card__status {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--accent-strong);
+}
+
+.practice-commitment-card--done .practice-commitment-card__status {
+  color: var(--accent-strong);
+}
+
+.practice-commitment-card .coach-hero__content {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+
+.practice-commitment-title {
+  margin-top: 2px;
+}
+
+.practice-commitment-body {
+  white-space: pre-wrap;
+  word-break: break-word;
+  line-height: 1.45;
 }
 
 .dday-modal {
@@ -636,30 +1482,40 @@ select {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: rgba(15, 23, 42, 0);
-  backdrop-filter: blur(0px);
+  padding: max(12px, env(safe-area-inset-top)) max(12px, env(safe-area-inset-right))
+    max(12px, env(safe-area-inset-bottom)) max(12px, env(safe-area-inset-left));
+  box-sizing: border-box;
+  background: rgba(var(--modal-overlay-rgb), 0);
+  backdrop-filter: blur(0);
+  -webkit-backdrop-filter: blur(0);
   opacity: 0;
   pointer-events: none;
   transition:
     opacity var(--dur-modal) var(--ease-standard),
     background var(--dur-modal) var(--ease-standard),
-    backdrop-filter var(--dur-modal) var(--ease-standard);
+    backdrop-filter var(--dur-modal) var(--ease-standard),
+    -webkit-backdrop-filter var(--dur-modal) var(--ease-standard);
 }
 
 .dday-modal--open {
-  background: rgba(15, 23, 42, 0.35);
-  backdrop-filter: blur(8px);
+  background: rgba(var(--modal-overlay-rgb), var(--modal-overlay-opacity));
+  backdrop-filter: blur(var(--modal-backdrop-blur));
+  -webkit-backdrop-filter: blur(var(--modal-backdrop-blur));
   opacity: 1;
   pointer-events: auto;
 }
 
 .dday-modal-inner {
-  width: min(92vw, 360px);
-  border-radius: 18px;
-  background: #ffffff;
-  box-shadow: var(--shadow-soft);
-  padding: 14px 14px 12px;
-  transform: scale(0.96) translateY(6px);
+  width: min(92vw, 380px);
+  max-height: min(88dvh, 640px);
+  overflow: auto;
+  -webkit-overflow-scrolling: touch;
+  border-radius: var(--modal-radius);
+  background: var(--modal-surface-bg);
+  border: 0.5px solid var(--border-soft);
+  box-shadow: var(--modal-surface-shadow);
+  padding: 16px 16px 14px;
+  transform: var(--modal-inner-transform-from);
   opacity: 0;
   transition:
     opacity var(--dur-modal) var(--ease-standard),
@@ -669,6 +1525,21 @@ select {
 .dday-modal--open .dday-modal-inner {
   opacity: 1;
   transform: scale(1) translateY(0);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .dday-modal,
+  .dday-modal-inner {
+    transition-duration: 0.2s;
+  }
+
+  .dday-modal-inner {
+    transform: translateY(6px);
+  }
+
+  .dday-modal--open .dday-modal-inner {
+    transform: translateY(0);
+  }
 }
 
 .dday-modal-header {
@@ -693,6 +1564,22 @@ select {
   gap: 8px;
 }
 
+/* 오늘 계획 추가 요청: 책·시간 피커까지 한 화면에 담기 위해 모달 높이 상한 확대 (내부 스크롤 완화) */
+.dday-modal-inner--add-task {
+  max-height: min(96dvh, 900px);
+}
+
+/* 같은 모달: 섹션 라벨(책·범위·시간)은 강조, 시작/종료는 보조 캡션으로 (기본 field-label ↔ 인라인 라벨 역할 정렬) */
+.dday-modal-inner--add-task .field-label {
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.dday-modal-inner--add-task .add-plan-time-inline-label {
+  font-size: 11px;
+  font-weight: 400;
+}
+
 /* 시간 설정 — 디데이와 동일한 중앙 모달 (dday-modal 재사용) */
 .time-picker-modal.dday-modal {
   z-index: 100001;
@@ -702,7 +1589,8 @@ select {
   gap: 12px;
 }
 
-.time-picker-modal .time-picker-preview {
+.time-picker-modal .time-picker-preview,
+.time-picker-inline .time-picker-preview {
   text-align: center;
   font-size: 28px;
   font-weight: 700;
@@ -713,14 +1601,16 @@ select {
   padding: 4px 0 2px;
 }
 
-.time-picker-modal .time-picker-columns {
+.time-picker-modal .time-picker-columns,
+.time-picker-inline .time-picker-columns {
   display: flex;
   gap: 10px;
   padding: 0;
   min-height: 0;
 }
 
-.time-picker-modal .time-picker-col {
+.time-picker-modal .time-picker-col,
+.time-picker-inline .time-picker-col {
   flex: 1;
   min-width: 0;
   display: flex;
@@ -728,7 +1618,8 @@ select {
   align-items: stretch;
 }
 
-.time-picker-modal .time-picker-col-label {
+.time-picker-modal .time-picker-col-label,
+.time-picker-inline .time-picker-col-label {
   text-align: center;
   font-size: 11px;
   font-weight: 700;
@@ -736,18 +1627,20 @@ select {
   padding: 0 0 6px;
 }
 
-.time-picker-modal .time-picker-col-scroll {
+.time-picker-modal .time-picker-col-scroll,
+.time-picker-inline .time-picker-col-scroll {
   overflow-y: auto;
   -webkit-overflow-scrolling: touch;
   border-radius: 14px;
   border: 0.5px solid var(--border-soft);
-  background: linear-gradient(180deg, #f8fafc 0%, #eef2f7 100%);
+  background: #f1f5f9;
   padding: 6px 4px;
   max-height: 200px;
   scroll-snap-type: y proximity;
 }
 
-.time-picker-modal .time-picker-option {
+.time-picker-modal .time-picker-option,
+.time-picker-inline .time-picker-option {
   display: block;
   width: 100%;
   border: none;
@@ -763,15 +1656,80 @@ select {
   scroll-snap-align: center;
 }
 
-.time-picker-modal .time-picker-option:hover {
+.time-picker-modal .time-picker-option:hover,
+.time-picker-inline .time-picker-option:hover {
   background: rgba(255, 255, 255, 0.75);
   color: var(--accent-strong);
 }
 
-.time-picker-modal .time-picker-option--active {
+.time-picker-modal .time-picker-option--active,
+.time-picker-inline .time-picker-option--active {
   background: #ffffff;
   color: var(--accent-strong);
   box-shadow: 0 2px 8px rgba(15, 23, 42, 0.08);
+}
+
+/* 오늘 계획 추가 요청 모달: 인라인 시간 — 라벨 제거 후 미리보기 ↔ 스크롤 간격 */
+.dday-modal-body .time-picker-inline:not(.date-picker-inline) .time-picker-scroll {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding-top: 2px;
+}
+
+.dday-modal-body .time-picker-inline:not(.date-picker-inline) .time-picker-preview {
+  font-size: 22px;
+  padding: 8px 0 4px;
+}
+
+.dday-modal-body .time-picker-inline .time-picker-col-scroll {
+  max-height: 150px;
+}
+
+/* 시간 전용 시트 모달: 동일 (TimePickerSheet) */
+.time-picker-modal-body .time-picker-scroll {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding-top: 2px;
+}
+
+.time-picker-modal-body .time-picker-preview {
+  padding: 8px 0 4px;
+}
+
+/* 날짜 스크롤: 3열 (시간 선택과 동일 패턴) */
+.date-picker-columns.time-picker-columns {
+  gap: 8px;
+}
+
+/* 라벨 제거 후에도 미리보기 ↔ 스크롤 사이 여유 (예전 열 헤더 높이 대체) */
+.dday-modal-body .date-picker-inline .time-picker-scroll {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding-top: 2px;
+}
+
+.dday-modal-body .date-picker-inline .time-picker-preview {
+  font-size: 20px;
+  letter-spacing: -0.02em;
+  padding: 8px 0 4px;
+}
+
+.add-plan-time-inline-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-top: 4px;
+}
+
+.add-plan-time-inline-label {
+  display: block;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text-sub);
+  margin-bottom: 4px;
 }
 
 .week-switch-card {
@@ -879,11 +1837,6 @@ select {
   padding: 4px 2px 14px;
   margin: 0 -2px;
   -webkit-overflow-scrolling: touch;
-  scrollbar-width: thin;
-}
-
-.store-filter-row::-webkit-scrollbar {
-  height: 4px;
 }
 
 .store-filter-btn {
@@ -913,6 +1866,14 @@ select {
   background: var(--accent-strong);
   border-color: var(--accent-strong);
   color: #f9fafb;
+}
+
+/* 오늘 계획 추가 요청 모달: 책 선택 — 코치/앱스토어와 동일 가로 스크롤 필 */
+.add-plan-book-picker {
+  margin-left: -4px;
+  margin-right: -4px;
+  padding-top: 2px;
+  padding-bottom: 10px;
 }
 
 .store-grid {
@@ -993,6 +1954,79 @@ select {
   line-height: 1.55;
   color: var(--text-main);
   white-space: pre-wrap;
+}
+
+/* 앱스토어 상세: body 포털 — dday-modal 과 동일 토큰 */
+.store-detail-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 100000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: max(16px, env(safe-area-inset-top)) max(16px, env(safe-area-inset-right))
+    max(20px, env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left));
+  box-sizing: border-box;
+  background: rgba(var(--modal-overlay-rgb), 0);
+  backdrop-filter: blur(0);
+  -webkit-backdrop-filter: blur(0);
+  opacity: 0;
+  pointer-events: none;
+  transition:
+    opacity var(--dur-modal) var(--ease-standard),
+    background var(--dur-modal) var(--ease-standard),
+    backdrop-filter var(--dur-modal) var(--ease-standard),
+    -webkit-backdrop-filter var(--dur-modal) var(--ease-standard);
+}
+
+.store-detail-overlay--open {
+  background: rgba(var(--modal-overlay-rgb), var(--modal-overlay-opacity));
+  backdrop-filter: blur(var(--modal-backdrop-blur));
+  -webkit-backdrop-filter: blur(var(--modal-backdrop-blur));
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.store-detail-sheet {
+  width: min(100%, 380px);
+  max-height: min(88dvh, 640px);
+  overflow: auto;
+  -webkit-overflow-scrolling: touch;
+  border-radius: var(--modal-radius);
+  background: var(--modal-surface-bg);
+  border: 0.5px solid var(--border-soft);
+  box-shadow: var(--modal-surface-shadow);
+  padding: 16px 16px 14px;
+  transform: var(--modal-inner-transform-from);
+  opacity: 0;
+  transition:
+    opacity var(--dur-modal) var(--ease-standard),
+    transform var(--dur-modal) var(--ease-standard);
+}
+
+.store-detail-overlay--open .store-detail-sheet {
+  opacity: 1;
+  transform: scale(1) translateY(0);
+}
+
+.store-detail-category--muted {
+  color: var(--text-sub);
+  font-weight: 500;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .store-detail-overlay,
+  .store-detail-sheet {
+    transition-duration: 0.2s;
+  }
+
+  .store-detail-sheet {
+    transform: translateY(6px);
+  }
+
+  .store-detail-overlay--open .store-detail-sheet {
+    transform: translateY(0);
+  }
 }
 
 .store-icon {
@@ -1350,28 +2384,57 @@ select {
   box-shadow: none;
 }
 
+/* 하단 시트 — 오버레이·블러는 중앙 모달과 동일 토큰 */
 .modal-backdrop {
   position: fixed;
   inset: 0;
-  background: rgba(15, 23, 42, 0.0);
+  z-index: 100000;
   display: flex;
   align-items: flex-end;
   justify-content: center;
-  z-index: 20;
-  animation: modal-backdrop-fade var(--dur-modal) var(--ease-standard) forwards;
+  padding: 0 max(0px, env(safe-area-inset-left)) max(0px, env(safe-area-inset-bottom))
+    max(0px, env(safe-area-inset-right));
+  box-sizing: border-box;
+  background: rgba(var(--modal-overlay-rgb), 0);
+  backdrop-filter: blur(0);
+  -webkit-backdrop-filter: blur(0);
+  opacity: 0;
+  pointer-events: none;
+  transition:
+    opacity var(--dur-modal) var(--ease-standard),
+    background var(--dur-modal) var(--ease-standard),
+    backdrop-filter var(--dur-modal) var(--ease-standard),
+    -webkit-backdrop-filter var(--dur-modal) var(--ease-standard);
+}
+
+.modal-backdrop.modal-backdrop--open {
+  background: rgba(var(--modal-overlay-rgb), var(--modal-overlay-opacity));
+  backdrop-filter: blur(var(--modal-backdrop-blur));
+  -webkit-backdrop-filter: blur(var(--modal-backdrop-blur));
+  opacity: 1;
+  pointer-events: auto;
 }
 
 .modal-sheet {
   width: 100%;
   max-width: 420px;
   margin: 0 auto;
-  border-radius: 22px 22px 0 0;
-  background: #f9fafb;
-  padding: 14px 16px 18px;
-  box-shadow: 0 -2px 12px rgba(15, 23, 42, 0.25);
-  transform: translateY(22px) scale(0.985);
+  border-radius: var(--modal-radius) var(--modal-radius) 0 0;
+  background: var(--modal-surface-bg);
+  border: 0.5px solid var(--border-soft);
+  border-bottom: none;
+  padding: 16px 16px max(18px, env(safe-area-inset-bottom));
+  box-shadow: var(--modal-surface-shadow);
+  transform: translateY(100%);
   opacity: 0;
-  animation: modal-sheet-slide var(--dur-modal) var(--ease-standard) forwards;
+  transition:
+    opacity var(--dur-modal) var(--ease-standard),
+    transform var(--dur-modal) var(--ease-standard);
+}
+
+.modal-backdrop.modal-backdrop--open .modal-sheet {
+  opacity: 1;
+  transform: translateY(0);
 }
 
 .modal-header {
@@ -1381,8 +2444,10 @@ select {
 }
 
 .modal-title {
-  font-size: 14px;
-  font-weight: 600;
+  font-size: 16px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: var(--text-main);
 }
 
 .modal-body {
@@ -1660,23 +2725,18 @@ select {
   background: var(--accent-hover);
 }
 
-@keyframes modal-backdrop-fade {
-  from {
-    background: rgba(15, 23, 42, 0);
+@media (prefers-reduced-motion: reduce) {
+  .modal-backdrop,
+  .modal-sheet {
+    transition-duration: 0.2s;
   }
-  to {
-    background: rgba(15, 23, 42, 0.35);
-  }
-}
 
-@keyframes modal-sheet-slide {
-  from {
-    transform: translateY(22px) scale(0.985);
-    opacity: 0;
+  .modal-sheet {
+    transform: translateY(16px);
   }
-  to {
-    transform: translateY(0) scale(1);
-    opacity: 1;
+
+  .modal-backdrop.modal-backdrop--open .modal-sheet {
+    transform: translateY(0);
   }
 }
 
@@ -1832,14 +2892,23 @@ select {
 }
 
 .progress-day-book-name {
-  font-size: 14px;
+  font-size: 12px;
   font-weight: 600;
+  letter-spacing: -0.01em;
+  color: var(--text-sub);
   margin-bottom: 4px;
 }
 
 .progress-day-book-plan {
   font-size: 12px;
+  font-weight: 500;
+  line-height: 1.45;
   color: var(--text-sub);
+}
+
+.progress-day-book--editable {
+  background: #f8fafc;
+  border-color: rgba(148, 163, 184, 0.35);
 }
 
 .progress-day-book--editable .books-plan-inputs {
@@ -1867,9 +2936,9 @@ select {
 .progress-day-book--editable .books-plan-time-btn {
   flex: 1;
   min-width: 0;
-  border-radius: 14px;
+  border-radius: 12px;
   border: 0.5px solid var(--accent-border);
-  background: linear-gradient(180deg, #ffffff 0%, #f8fafc 100%);
+  background: #ffffff;
   padding: 8px 10px;
   font-size: 14px;
   font-weight: 600;
@@ -1888,11 +2957,6 @@ select {
 .progress-day-book--editable .books-plan-time-btn--placeholder {
   color: var(--text-sub);
   font-weight: 500;
-}
-
-.week-tomorrow-save {
-  width: 100%;
-  margin-top: 12px;
 }
 
 .progress-day-book-pct-row {
@@ -1959,7 +3023,10 @@ select {
 }
 
 .books-name {
-  font-size: 14px;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  color: var(--text-main);
 }
 
 .books-delete {
@@ -1984,7 +3051,7 @@ select {
 }
 
 .books-empty {
-  font-size: 13px;
+  font-size: 12px;
   color: var(--text-sub);
   padding: 4px 0;
 }
@@ -2078,6 +3145,7 @@ select {
   left: 18px;
   right: 18px;
   bottom: 10px;
+  z-index: 9000;
   border-radius: 999px;
   padding: 4px;
   background: rgba(249, 249, 251, 0.92);
@@ -2087,6 +3155,26 @@ select {
   gap: 4px;
   backdrop-filter: blur(24px);
   box-shadow: 0 8px 20px rgba(15, 23, 42, 0.1);
+}
+
+/* 가로·세로 네비 공통: 남색 필이 활성 탭 영역으로 슬라이드 (위치·크기는 JS 측정) */
+.bottom-nav__pill {
+  position: absolute;
+  z-index: 0;
+  border-radius: 999px;
+  background: var(--accent-strong);
+  box-shadow: 0 1px 3px rgba(26, 47, 82, 0.25);
+  pointer-events: none;
+}
+
+.bottom-nav--sliding-pill .nav-item {
+  position: relative;
+  z-index: 1;
+}
+
+.bottom-nav--sliding-pill .nav-item-active {
+  background: transparent;
+  color: #f9fafb;
 }
 
 @supports (padding-bottom: env(safe-area-inset-bottom)) {
@@ -2189,6 +3277,32 @@ button:active:not(:disabled),
     padding: 8px 4px 28px;
   }
 
+  .app-main.app-main--today-fixed {
+    padding-bottom: var(--app-bottom-nav-clearance);
+  }
+
+  /* 알림: 왼쪽은 레일·여백 유지, 본문 열은 가로 전폭 */
+  .app-shell.app-shell--notifications {
+    padding-left: max(20px, env(safe-area-inset-left, 0px));
+    padding-right: max(0px, env(safe-area-inset-right, 0px));
+    padding-top: 0;
+    padding-bottom: 20px;
+  }
+
+  .app-header.app-header--notifications,
+  .app-main.app-main--notifications {
+    max-width: none;
+    width: 100%;
+    justify-self: stretch;
+  }
+
+  .app-main.app-main--notifications {
+    padding-top: 0;
+    padding-left: 0;
+    padding-right: 0;
+    padding-bottom: var(--app-bottom-nav-clearance);
+  }
+
   .section {
     max-width: none;
   }
@@ -2216,6 +3330,15 @@ button:active:not(:disabled),
     background: rgba(249, 249, 251, 0.96);
     border: 1px solid var(--border-soft);
     box-shadow: var(--shadow-soft);
+  }
+
+  .bottom-nav__pill {
+    border-radius: 14px;
+  }
+
+  /* 슬라이딩 필과 겹치는 왼쪽 막대 제거 */
+  .bottom-nav--sliding-pill .nav-item::before {
+    display: none;
   }
 
   .nav-item {
@@ -2293,8 +3416,10 @@ button:active:not(:disabled),
   align-items: center;
   justify-content: center;
   background: #ffffff;
-  animation: splash-screen-fade 1.75s ease-in-out forwards;
+  animation: splash-screen-fade 2.15s cubic-bezier(0.33, 0.86, 0.22, 1)
+    forwards;
   pointer-events: none;
+  will-change: opacity, transform;
 }
 
 .splash-screen__inner {
@@ -2310,53 +3435,83 @@ button:active:not(:disabled),
   height: auto;
   max-height: min(68vh, 520px);
   object-fit: contain;
-  animation: splash-logo-motion 1.75s ease-out forwards;
+  /* 입장만 부드럽게; 퇴장은 부모 페이드에 맡김(이중 페이드·튐 방지) */
+  animation: splash-logo-motion 2.15s cubic-bezier(0.33, 0.86, 0.22, 1)
+    forwards;
 }
 
 @keyframes splash-screen-fade {
   0% {
     opacity: 0;
-  }
-  14% {
-    opacity: 1;
-  }
-  71% {
-    opacity: 1;
-  }
-  100% {
-    opacity: 0;
-  }
-}
-
-/* 로고만 살짝 들어온 뒤 마지막에 가볍게 올라가며 사라짐 (부모 페이드와 합성) */
-@keyframes splash-logo-motion {
-  0% {
-    opacity: 0;
-    transform: translateY(14px) scale(0.94);
+    transform: translate3d(0, 18px, 0);
   }
   22% {
     opacity: 1;
-    transform: translateY(0) scale(1);
+    transform: translate3d(0, 0, 0);
   }
-  62% {
+  72% {
     opacity: 1;
-    transform: translateY(0) scale(1);
+    transform: translate3d(0, 0, 0);
   }
   100% {
     opacity: 0;
-    transform: translateY(-10px) scale(1);
+    transform: translate3d(0, -22px, 0);
+  }
+}
+
+/* 화면 전체가 아래→위로 들어온 뒤, 퇴장 시 위로 빠짐 — 로고는 스케일만 */
+@keyframes splash-logo-motion {
+  0% {
+    opacity: 0;
+    transform: scale(0.94);
+  }
+  28% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1);
   }
 }
 
 @media (prefers-reduced-motion: reduce) {
   .splash-screen {
-    animation-duration: 0.55s;
-    animation-timing-function: ease-out;
+    animation: splash-screen-fade-reduced 0.65s cubic-bezier(0.25, 0.1, 0.25, 1)
+      forwards;
   }
 
   .splash-screen__logo {
-    animation-duration: 0.55s;
-    animation-timing-function: ease-out;
+    animation: splash-logo-motion-reduced 0.65s cubic-bezier(0.25, 0.1, 0.25, 1)
+      forwards;
+  }
+}
+
+@keyframes splash-screen-fade-reduced {
+  0% {
+    opacity: 0;
+    transform: translate3d(0, 8px, 0);
+  }
+  35% {
+    opacity: 1;
+    transform: translate3d(0, 0, 0);
+  }
+  72% {
+    opacity: 1;
+    transform: translate3d(0, 0, 0);
+  }
+  100% {
+    opacity: 0;
+    transform: translate3d(0, -10px, 0);
+  }
+}
+
+@keyframes splash-logo-motion-reduced {
+  0% {
+    opacity: 0;
+  }
+  100% {
+    opacity: 1;
   }
 }
 
@@ -2678,10 +3833,6 @@ button:active:not(:disabled),
   scroll-snap-type: x mandatory;
   padding-bottom: 4px;
   margin-bottom: 16px;
-}
-
-.coach-horizontal-cards::-webkit-scrollbar {
-  display: none;
 }
 
 .coach-horizontal-cards__item {
@@ -3041,6 +4192,20 @@ button:active:not(:disabled),
   background: var(--accent-strong);
   box-shadow: 0 10px 24px rgba(36, 59, 107, 0.18);
   flex-shrink: 0;
+  overflow: hidden;
+}
+
+.coach-avatar--logo {
+  padding: 3px;
+  background: #ffffff;
+  border: 1px solid rgba(148, 163, 184, 0.22);
+}
+
+.coach-avatar--logo img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  display: block;
 }
 
 .coach-bubble {

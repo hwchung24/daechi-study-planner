@@ -302,6 +302,10 @@ CREATE TABLE IF NOT EXISTS student_coach_logs (
   study_minutes INTEGER,
   plan_completion_rate INTEGER,
   memo TEXT,
+  tomorrow_practice TEXT,
+  tomorrow_practice_done BOOLEAN,
+  study_evaluation TEXT,
+  metacognition_reflection TEXT,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
@@ -322,4 +326,47 @@ CREATE INDEX IF NOT EXISTS idx_student_coach_messages_user
 -- 타임라인 블록에 책·계획 구간 (기존 DB는 migrate 시 컬럼 추가)
 ALTER TABLE study_blocks ADD COLUMN IF NOT EXISTS book_id BIGINT REFERENCES study_books(id) ON DELETE SET NULL;
 ALTER TABLE study_blocks ADD COLUMN IF NOT EXISTS planned_range TEXT;
+
+ALTER TABLE student_coach_logs ADD COLUMN IF NOT EXISTS tomorrow_practice TEXT;
+ALTER TABLE student_coach_logs ADD COLUMN IF NOT EXISTS study_evaluation TEXT;
+ALTER TABLE student_coach_logs ADD COLUMN IF NOT EXISTS metacognition_reflection TEXT;
+ALTER TABLE student_coach_logs ADD COLUMN IF NOT EXISTS tomorrow_practice_done BOOLEAN;
+
+-- 학생 인앱 알림 (헤더 벨 뱃지 등)
+CREATE TABLE IF NOT EXISTS student_in_app_notifications (
+  id BIGSERIAL PRIMARY KEY,
+  user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  title TEXT NOT NULL DEFAULT '',
+  body TEXT,
+  read_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_sian_user_unread
+  ON student_in_app_notifications (user_id)
+  WHERE read_at IS NULL;
+
+-- 학생 → 학부모 승인 대기: 오늘 타임라인 블록 추가 요청
+CREATE TABLE IF NOT EXISTS parent_plan_add_requests (
+  id BIGSERIAL PRIMARY KEY,
+  student_user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  target_date TEXT NOT NULL,
+  book_id BIGINT NOT NULL REFERENCES study_books(id) ON DELETE CASCADE,
+  planned_range TEXT,
+  start_time TEXT NOT NULL,
+  end_time TEXT NOT NULL,
+  subject_snapshot TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'pending'
+    CHECK (status IN ('pending', 'approved', 'rejected')),
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  resolved_at TIMESTAMPTZ,
+  resolved_by_parent_user_id BIGINT NULL REFERENCES users(id) ON DELETE SET NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_ppadd_pending_parent_queue
+  ON parent_plan_add_requests (status, created_at);
+
+CREATE INDEX IF NOT EXISTS idx_ppadd_student_pending
+  ON parent_plan_add_requests (student_user_id)
+  WHERE status = 'pending';
 

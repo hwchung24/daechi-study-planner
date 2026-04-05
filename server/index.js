@@ -19,6 +19,9 @@ const {
   createStudyBook,
   softDeleteStudyBook,
   getMe,
+  getUserByIdForAuth,
+  updateUserEmail,
+  updateUserPasswordHash,
   listParentStudents,
   parentRequestLink,
   studentRequestParent,
@@ -28,6 +31,12 @@ const {
   parentConfirmLinkRequest,
   rejectLinkRequest,
   parentHasStudent,
+  countLinkedParentsForStudent,
+  getActiveStudyBookForStudent,
+  createParentPlanAddRequest,
+  listPendingPlanAddRequestsForParent,
+  approvePlanAddRequestByParent,
+  rejectPlanAddRequestByParent,
   getLatestParentAiReport,
   ensureConnected,
   createWebclipSession,
@@ -45,9 +54,14 @@ const {
   upsertStudentCoachProfile,
   getStudentCoachProfile,
   insertStudentCoachLog,
+  upsertStudentCoachLog,
+  setStudentCoachLogTomorrowPractice,
+  setStudentCoachLogTomorrowPracticeDone,
   listRecentStudentCoachLogs,
+  listStudentCoachLogsInWeekRange,
   insertStudentCoachMessage,
   listRecentStudentCoachMessages,
+  countUnreadStudentNotifications,
   deleteUser
 } = require("./db");
 const {
@@ -165,6 +179,267 @@ function buildCoachSnapshot(profile, logs = []) {
     },
     nextActions
   };
+}
+
+/** 순간 → 서울 달력 YYYY-MM-DD (pg DATE가 JS Date로 올 때 UTC일자와 어긋나는 것 방지) */
+function formatYmdSeoulFromInstant(d) {
+  if (!(d instanceof Date) || Number.isNaN(d.getTime())) return "";
+  try {
+    const parts = new Intl.DateTimeFormat("en-CA", {
+      timeZone: "Asia/Seoul",
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit"
+    }).formatToParts(d);
+    const y = parts.find(p => p.type === "year")?.value;
+    const mo = parts.find(p => p.type === "month")?.value;
+    const day = parts.find(p => p.type === "day")?.value;
+    if (y && mo && day) {
+      return `${y}-${String(mo).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+    }
+  } catch {
+    // ignore
+  }
+  const u = new Date(d.getTime() + 9 * 3600000);
+  return `${u.getUTCFullYear()}-${String(u.getUTCMonth() + 1).padStart(2, "0")}-${String(
+    u.getUTCDate()
+  ).padStart(2, "0")}`;
+}
+
+function addDaysToSeoulDateKey(isoKey, delta) {
+  const anchor = new Date(`${isoKey}T12:00:00+09:00`);
+  const next = new Date(anchor.getTime() + delta * 86400000);
+  return formatYmdSeoulFromInstant(next);
+}
+
+function weekdayMon0FromIsoDate(isoKey) {
+  const m = String(isoKey).match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!m) return 0;
+  const utc = new Date(Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3])));
+  return (utc.getUTCDay() + 6) % 7;
+}
+
+/** 서울 달력 이번 주 월요일 키 (offsetWeeks: 0=이번 주) — 클라이언트 getWeekStartKeySeoul과 동일 로직 */
+function getWeekStartKeySeoul(offsetWeeks = 0) {
+  const todayKey = formatYmdSeoulFromInstant(new Date());
+  let mondayKey = todayKey;
+  for (let back = 0; back < 7; back++) {
+    const key = addDaysToSeoulDateKey(todayKey, -back);
+    if (weekdayMon0FromIsoDate(key) === 0) {
+      mondayKey = key;
+      break;
+    }
+  }
+  return addDaysToSeoulDateKey(mondayKey, -7 * offsetWeeks);
+}
+
+function getWeekDayKeysSeoul(offsetWeeks = 0) {
+  const monday = getWeekStartKeySeoul(offsetWeeks);
+  const keys = [];
+  for (let i = 0; i < 7; i++) {
+    keys.push(addDaysToSeoulDateKey(monday, i));
+  }
+  return keys;
+}
+
+/** Postgres DATE / JSON 직렬화 ISO 문자열 → 앱 기준(서울) YYYY-MM-DD */
+function formatPgLogDate(v) {
+  if (v == null) return "";
+  if (typeof v === "string") {
+    const s = v.trim();
+    if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
+    const d = new Date(s);
+    if (!Number.isNaN(d.getTime()) && /\d{4}-\d{2}-\d{2}/.test(s)) {
+      return formatYmdSeoulFromInstant(d);
+    }
+    const m = s.match(/^(\d{4}-\d{2}-\d{2})/);
+    return m ? m[1] : "";
+  }
+  const d = v instanceof Date ? v : new Date(v);
+  return formatYmdSeoulFromInstant(d);
+}
+
+/** 클라이언트가 보낸 이번 주 월요일(YYYY-MM-DD) 기준 7일 키 — 서버 TZ와 무관 */
+function getWeekKeysFromMonday(mondayIso) {
+  const parts = String(mondayIso || "")
+    .trim()
+    .split("-")
+    .map(Number);
+  const y = parts[0];
+  const mo = parts[1];
+  const d = parts[2];
+  if (!Number.isFinite(y) || !Number.isFinite(mo) || !Number.isFinite(d)) {
+    return getWeekDayKeysSeoul(0);
+  }
+  const keys = [];
+  for (let i = 0; i < 7; i++) {
+    const t = new Date(Date.UTC(y, mo - 1, d + i));
+    keys.push(
+      `${t.getUTCFullYear()}-${String(t.getUTCMonth() + 1).padStart(2, "0")}-${String(
+        t.getUTCDate()
+      ).padStart(2, "0")}`
+    );
+  }
+  return keys;
+}
+
+/** student_coach_logs 행들 → 그래프와 동일한 이번 주 7일 시계열 */
+function buildWeekRhythmPayloadFromLogs(logRows, weekMondayIso = null) {
+  const weekKeys =
+    weekMondayIso && isIsoDate(weekMondayIso)
+      ? getWeekKeysFromMonday(weekMondayIso)
+      : getWeekDayKeysSeoul(0);
+  const byDate = new Map();
+  for (const r of logRows || []) {
+    const k = formatPgLogDate(r.log_date);
+    if (k && !byDate.has(k)) byDate.set(k, r);
+  }
+  return weekKeys.map(dateKey => {
+    const r = byDate.get(dateKey);
+    if (!r) {
+      return {
+        date: dateKey,
+        sleepHours: null,
+        stressScore: null,
+        concentrationScore: null,
+        concentrationPercent: null,
+        studyMinutes: null,
+        planCompletionRate: null,
+        steps: null,
+        mealsRegularity: null
+      };
+    }
+    const concNum =
+      r.concentration_score != null &&
+      Number.isFinite(Number(r.concentration_score))
+        ? Number(r.concentration_score)
+        : null;
+    return {
+      date: dateKey,
+      sleepHours:
+        r.sleep_hours != null && Number.isFinite(Number(r.sleep_hours))
+          ? Number(r.sleep_hours)
+          : null,
+      stressScore:
+        r.stress_score != null && Number.isFinite(Number(r.stress_score))
+          ? Number(r.stress_score)
+          : null,
+      concentrationScore: concNum,
+      concentrationPercent:
+        concNum == null ? null : Math.round((concNum / 5) * 100),
+      studyMinutes:
+        r.study_minutes != null && Number.isFinite(Number(r.study_minutes))
+          ? Number(r.study_minutes)
+          : null,
+      planCompletionRate:
+        r.plan_completion_rate != null &&
+        Number.isFinite(Number(r.plan_completion_rate))
+          ? Number(r.plan_completion_rate)
+          : null,
+      steps:
+        r.steps != null && Number.isFinite(Number(r.steps))
+          ? Number(r.steps)
+          : null,
+      mealsRegularity:
+        r.meals_regularity != null &&
+        Number.isFinite(Number(r.meals_regularity))
+          ? Number(r.meals_regularity)
+          : null
+    };
+  });
+}
+
+function normalizePatternSeverity(s) {
+  const t = String(s || "").trim();
+  if (t === "높음" || t === "보통" || t === "낮음") return t;
+  return "보통";
+}
+
+function sanitizeAiPatterns(raw) {
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .slice(0, 6)
+    .map((p, i) => {
+      const title = String(p?.title || "").trim().slice(0, 80);
+      const explanation = String(p?.explanation || "").trim().slice(0, 500);
+      const recommendation = String(p?.recommendation || "").trim().slice(0, 500);
+      if (!title || !explanation) return null;
+      return {
+        key: `ai_pat_${i}`,
+        title,
+        severity: normalizePatternSeverity(p?.severity),
+        explanation,
+        recommendation:
+          recommendation || "하루 한 가지 작은 루틴부터 조정해 보세요."
+      };
+    })
+    .filter(Boolean);
+}
+
+/** 마크다운·앞뒤 잡담이 섞인 응답에서 patterns JSON 추출 */
+function parsePatternsJsonFromAssistantText(text) {
+  const t = String(text || "").trim();
+  if (!t) return null;
+  const tryParse = s => {
+    try {
+      return JSON.parse(s);
+    } catch {
+      return null;
+    }
+  };
+  let obj = tryParse(t);
+  if (obj && Array.isArray(obj.patterns)) return obj;
+  const fenced = t.match(/```(?:json)?\s*([\s\S]*?)```/i);
+  if (fenced) {
+    obj = tryParse(fenced[1].trim());
+    if (obj && Array.isArray(obj.patterns)) return obj;
+  }
+  const start = t.indexOf("{");
+  const end = t.lastIndexOf("}");
+  if (start >= 0 && end > start) {
+    obj = tryParse(t.slice(start, end + 1));
+    if (obj && Array.isArray(obj.patterns)) return obj;
+  }
+  return null;
+}
+
+async function openAiPatternCompletion(payload) {
+  const userContent = JSON.stringify(payload);
+  const systemContent =
+    "너는 한국 중·고등학생 학습 코치다. 입력 JSON의 weekRhythm 배열만 근거로 2~6개의 패턴을 진단한다. null은 해당 날 미기록. 의학·정신질환 진단, 자해 조장, 시험 부정행위는 금지. 반드시 아래 형태의 JSON만 출력하고 다른 글자는 쓰지 마라: {\"patterns\":[{\"title\":\"짧은 제목\",\"severity\":\"낮음\"|\"보통\"|\"높음\",\"explanation\":\"2~4문장\",\"recommendation\":\"실행 팁 1~2문장\"}]}. 기록이 거의 없으면 patterns는 1개로 짧게 안내한다.";
+  const messages = [
+    { role: "system", content: systemContent },
+    { role: "user", content: userContent }
+  ];
+  const baseArgs = {
+    model: OPENAI_MODEL,
+    temperature: 0.35,
+    max_tokens: 1400,
+    messages
+  };
+  let text = "";
+  try {
+    const res = await openai.chat.completions.create({
+      ...baseArgs,
+      response_format: { type: "json_object" }
+    });
+    text = String(res.choices?.[0]?.message?.content || "").trim();
+  } catch (e) {
+    console.warn(
+      "[pattern-insights] json_object 모드 실패, 일반 모드로 재시도:",
+      e?.message || e
+    );
+    const res = await openai.chat.completions.create(baseArgs);
+    text = String(res.choices?.[0]?.message?.content || "").trim();
+  }
+  let parsed = parsePatternsJsonFromAssistantText(text);
+  let lastText = text;
+  if (!parsed && text) {
+    const res2 = await openai.chat.completions.create(baseArgs);
+    lastText = String(res2.choices?.[0]?.message?.content || "").trim();
+    parsed = parsePatternsJsonFromAssistantText(lastText);
+  }
+  return { parsed, rawText: lastText };
 }
 
 function isIsoDate(v) {
@@ -340,7 +615,12 @@ function authMiddleware(req, res, next) {
   try {
     const token = auth.slice(7);
     const decoded = jwt.verify(token, JWT_SECRET);
-    req.userId = decoded.userId;
+    const rawId = decoded.userId;
+    const uid = typeof rawId === "string" ? Number(rawId) : rawId;
+    if (!Number.isFinite(Number(uid))) {
+      return res.status(401).json({ error: "로그인 정보가 올바르지 않습니다." });
+    }
+    req.userId = uid;
     next();
   } catch (e) {
     return res
@@ -633,6 +913,97 @@ app.get("/api/me", authMiddleware, async (req, res) => {
   }
 });
 
+async function handleAccountUpdate(req, res) {
+  try {
+    const body = req.body || {};
+    const currentPassword = String(body.currentPassword || "");
+    const emailIn =
+      body.email != null ? String(body.email).trim().toLowerCase() : "";
+    const newPasswordIn =
+      body.newPassword != null ? String(body.newPassword) : "";
+    const hasNameKey = Object.prototype.hasOwnProperty.call(body, "name");
+
+    const user = await getUserByIdForAuth(req.userId);
+    if (!user) {
+      return res.status(404).json({ error: "사용자를 찾을 수 없습니다." });
+    }
+
+    const emailChanged =
+      emailIn.length > 0 && emailIn !== user.email;
+    const passwordChange = newPasswordIn.length > 0;
+
+    if (emailChanged || passwordChange) {
+      if (!currentPassword) {
+        return res
+          .status(400)
+          .json({ error: "현재 비밀번호가 올바르지 않습니다." });
+      }
+      const hash = user.password_hash;
+      if (!hash || typeof hash !== "string") {
+        return res.status(400).json({
+          error:
+            "계정에 저장된 비밀번호 정보가 없습니다. 로그아웃 후 다시 로그인해 보세요."
+        });
+      }
+      let passwordMatches = false;
+      try {
+        passwordMatches = await bcrypt.compare(currentPassword, hash);
+      } catch (bcErr) {
+        console.error("/api/account bcrypt.compare", bcErr);
+        return res.status(400).json({
+          error: "비밀번호 확인에 실패했습니다. 다시 시도해 주세요."
+        });
+      }
+      if (!passwordMatches) {
+        return res
+          .status(400)
+          .json({ error: "현재 비밀번호가 올바르지 않습니다." });
+      }
+    }
+
+    if (emailChanged) {
+      const taken = await findUserByEmail(emailIn);
+      if (taken && Number(taken.id) !== Number(user.id)) {
+        return res.status(400).json({ error: "이미 사용 중인 이메일입니다." });
+      }
+      await updateUserEmail(req.userId, emailIn);
+    }
+
+    if (passwordChange) {
+      if (newPasswordIn.length < 4) {
+        return res
+          .status(400)
+          .json({ error: "비밀번호는 4자 이상이어야 합니다." });
+      }
+      const hash = await bcrypt.hash(newPasswordIn, 10);
+      await updateUserPasswordHash(req.userId, hash);
+    }
+
+    if (hasNameKey && user.role === "student") {
+      const nameIn = String(body.name ?? "").trim();
+      if (nameIn.length > 40) {
+        return res.status(400).json({ error: "이름은 40자 이내로 입력해 주세요." });
+      }
+      if (nameIn.length > 0) {
+        await upsertStudentCoachProfile(req.userId, { name: nameIn });
+      }
+    }
+
+    const me = await getMe(req.userId);
+    res.json({ ok: true, user: me });
+  } catch (e) {
+    if (e && e.code === "23505") {
+      return res.status(400).json({ error: "이미 사용 중인 이메일입니다." });
+    }
+    console.error("/api/account error", e);
+    res.status(500).json({ error: "계정 정보를 저장하지 못했습니다." });
+  }
+}
+
+/** PUT·POST 둘 다 허용 (일부 프록시·구버전 클라이언트에서 PUT만 404 나는 경우 대비) */
+app.put("/api/account", authMiddleware, handleAccountUpdate);
+app.post("/api/account", authMiddleware, handleAccountUpdate);
+
 app.post("/api/account/withdraw", authMiddleware, async (req, res) => {
   try {
     const ok = await deleteUser(req.userId);
@@ -720,6 +1091,74 @@ app.post("/api/parent/link-confirm", authMiddleware, async (req, res) => {
   }
 });
 
+// 학부모: 자녀가 보낸 오늘 계획 추가 승인 대기 목록
+app.get("/api/parent/plan-add-requests", authMiddleware, async (req, res) => {
+  try {
+    const me = await getMe(req.userId);
+    if (!me || me.role !== "parent") {
+      return res.status(403).json({ error: "권한이 없습니다." });
+    }
+    const requests = await listPendingPlanAddRequestsForParent(req.userId);
+    res.json({ requests });
+  } catch (e) {
+    console.error("/api/parent/plan-add-requests error", e);
+    res.status(500).json({ error: "목록을 불러오지 못했습니다." });
+  }
+});
+
+app.post(
+  "/api/parent/plan-add-requests/:id/approve",
+  authMiddleware,
+  async (req, res) => {
+    try {
+      const me = await getMe(req.userId);
+      if (!me || me.role !== "parent") {
+        return res.status(403).json({ error: "권한이 없습니다." });
+      }
+      const requestId = Number(req.params.id || 0);
+      if (!requestId) {
+        return res.status(400).json({ error: "요청 id가 필요합니다." });
+      }
+      const result = await approvePlanAddRequestByParent(
+        requestId,
+        req.userId
+      );
+      if (!result.ok) {
+        return res.status(400).json({ error: result.error || "승인에 실패했습니다." });
+      }
+      res.json({ ok: true });
+    } catch (e) {
+      console.error("/api/parent/plan-add-requests/:id/approve error", e);
+      res.status(500).json({ error: "승인에 실패했습니다." });
+    }
+  }
+);
+
+app.post(
+  "/api/parent/plan-add-requests/:id/reject",
+  authMiddleware,
+  async (req, res) => {
+    try {
+      const me = await getMe(req.userId);
+      if (!me || me.role !== "parent") {
+        return res.status(403).json({ error: "권한이 없습니다." });
+      }
+      const requestId = Number(req.params.id || 0);
+      if (!requestId) {
+        return res.status(400).json({ error: "요청 id가 필요합니다." });
+      }
+      const result = await rejectPlanAddRequestByParent(requestId, req.userId);
+      if (!result.ok) {
+        return res.status(400).json({ error: result.error || "거절에 실패했습니다." });
+      }
+      res.json({ ok: true });
+    } catch (e) {
+      console.error("/api/parent/plan-add-requests/:id/reject error", e);
+      res.status(500).json({ error: "거절에 실패했습니다." });
+    }
+  }
+);
+
 // 학생 → 학부모 연결 요청 (학부모 승인 필요)
 app.post("/api/student/request-parent", authMiddleware, async (req, res) => {
   try {
@@ -776,6 +1215,61 @@ app.post("/api/student/link-confirm", authMiddleware, async (req, res) => {
   } catch (e) {
     console.error("/api/student/link-confirm error", e);
     res.status(500).json({ error: "승인에 실패했습니다." });
+  }
+});
+
+// 학생: 오늘 타임라인 추가 → 연결된 학부모에게 승인 요청
+app.post("/api/student/plan-add-request", authMiddleware, async (req, res) => {
+  try {
+    const me = await getMe(req.userId);
+    if (!me || me.role !== "student") {
+      return res.status(403).json({ error: "학생만 요청할 수 있습니다." });
+    }
+    const { bookId, plannedRange, startTime, endTime, date } = req.body || {};
+    const bid = Number(bookId);
+    const d = String(date || "")
+      .trim()
+      .slice(0, 10);
+    if (!Number.isFinite(bid) || !/^\d{4}-\d{2}-\d{2}$/.test(d)) {
+      return res
+        .status(400)
+        .json({ error: "bookId와 date(YYYY-MM-DD)가 필요합니다." });
+    }
+    const st = String(startTime || "").trim();
+    const et = String(endTime || "").trim();
+    if (!st || !et) {
+      return res.status(400).json({ error: "시작·종료 시간이 필요합니다." });
+    }
+    const n = await countLinkedParentsForStudent(req.userId);
+    if (n === 0) {
+      return res.status(400).json({
+        error:
+          "연결된 학부모 계정이 없습니다. 프로필에서 학부모와 먼저 연결해 주세요.",
+        code: "NO_LINKED_PARENT"
+      });
+    }
+    const bookRow = await getActiveStudyBookForStudent(req.userId, bid);
+    if (!bookRow) {
+      return res.status(400).json({ error: "책을 찾을 수 없습니다." });
+    }
+    const name = String(bookRow.name || "").trim() || "과목";
+    const row = await createParentPlanAddRequest({
+      studentUserId: req.userId,
+      targetDate: d,
+      bookId: bid,
+      plannedRange:
+        plannedRange != null ? String(plannedRange) : null,
+      startTime: st,
+      endTime: et,
+      subjectSnapshot: name
+    });
+    if (!row) {
+      return res.status(500).json({ error: "요청을 저장하지 못했습니다." });
+    }
+    res.json({ ok: true, id: row.id });
+  } catch (e) {
+    console.error("/api/student/plan-add-request error", e);
+    res.status(500).json({ error: "요청을 보내지 못했습니다." });
   }
 });
 
@@ -992,6 +1486,20 @@ app.get("/api/student/lock-status", authMiddleware, async (req, res) => {
   }
 });
 
+app.get("/api/student/notifications/summary", authMiddleware, async (req, res) => {
+  try {
+    const me = await getMe(req.userId);
+    if (!me || me.role !== "student") {
+      return res.status(403).json({ error: "권한이 없습니다." });
+    }
+    const unreadCount = await countUnreadStudentNotifications(req.userId);
+    res.json({ unreadCount });
+  } catch (e) {
+    console.error("/api/student/notifications/summary error", e);
+    res.status(500).json({ error: "알림 상태를 불러오지 못했습니다." });
+  }
+});
+
 app.get("/api/parent/lock-status", authMiddleware, async (req, res) => {
   try {
     const me = await getMe(req.userId);
@@ -1094,23 +1602,119 @@ app.get("/api/student/coach/state", authMiddleware, async (req, res) => {
       return res.status(403).json({ error: "권한이 없습니다." });
     }
     const profile = await getStudentCoachProfile(req.userId);
-    const logs = await listRecentStudentCoachLogs(req.userId, 14);
+    const weekStart = String(req.query.weekStart || "").trim();
+    const logs =
+      weekStart && isIsoDate(weekStart)
+        ? await listStudentCoachLogsInWeekRange(req.userId, weekStart)
+        : await listRecentStudentCoachLogs(req.userId, 21);
     const snapshot = buildCoachSnapshot(profile, logs);
     res.json({
       snapshot,
-      logs: logs.slice(0, 7).map(r => ({
-        date: String(r.log_date),
+      logs: logs.map(r => ({
+        date: formatPgLogDate(r.log_date),
         sleepHours: r.sleep_hours,
         concentrationScore: r.concentration_score,
         stressScore: r.stress_score,
         steps: r.steps,
         planCompletionRate: r.plan_completion_rate,
-        studyMinutes: r.study_minutes
+        studyMinutes: r.study_minutes,
+        memo: r.memo,
+        tomorrowPractice: r.tomorrow_practice,
+        tomorrowPracticeDone: r.tomorrow_practice_done,
+        studyEvaluation: r.study_evaluation,
+        metacognitionReflection: r.metacognition_reflection
       }))
     });
   } catch (e) {
     console.error("/api/student/coach/state error", e);
     res.status(500).json({ error: "코치 상태를 불러오지 못했습니다." });
+  }
+});
+
+app.get("/api/student/coach/pattern-insights", authMiddleware, async (req, res) => {
+  try {
+    const me = await getMe(req.userId);
+    if (!me || me.role !== "student") {
+      return res.status(403).json({ error: "권한이 없습니다." });
+    }
+    const weekStart = String(req.query.weekStart || "").trim();
+    const logs =
+      weekStart && isIsoDate(weekStart)
+        ? await listStudentCoachLogsInWeekRange(req.userId, weekStart)
+        : await listRecentStudentCoachLogs(req.userId, 21);
+    const rhythmWeek = buildWeekRhythmPayloadFromLogs(
+      logs,
+      weekStart && isIsoDate(weekStart) ? weekStart : null
+    );
+    const recordedDays = rhythmWeek.filter(
+      d =>
+        d.sleepHours != null ||
+        d.studyMinutes != null ||
+        d.concentrationScore != null ||
+        d.stressScore != null
+    ).length;
+
+    if (!openai) {
+      return res.json({
+        patterns: [],
+        usedOpenAi: false,
+        rhythmWeek,
+        recordedDayCount: recordedDays
+      });
+    }
+
+    const payload = {
+      weekRhythm: rhythmWeek,
+      recordedDayCount: recordedDays,
+      fieldHelp: {
+        sleepHours: "시간, 미기록은 null",
+        stressScore: "1~5 (높을수록 스트레스 큼)",
+        concentrationScore: "1~5",
+        concentrationPercent: "대략 0~100 환산",
+        studyMinutes: "분",
+        planCompletionRate: "0~100",
+        steps: "걸음 수",
+        mealsRegularity: "1~5"
+      }
+    };
+
+    const { parsed, rawText } = await openAiPatternCompletion(payload);
+    if (!parsed || !Array.isArray(parsed.patterns)) {
+      console.warn(
+        "[pattern-insights] JSON 파싱 실패, 응답 앞 240자:",
+        String(rawText || "").slice(0, 240)
+      );
+      return res.status(502).json({
+        error:
+          "AI 응답 형식이 맞지 않습니다. 잠시 후 다시 시도하거나 OPENAI_MODEL을 gpt-4o-mini로 두고 확인해 주세요."
+      });
+    }
+    let patterns = sanitizeAiPatterns(parsed.patterns);
+    if (patterns.length === 0) {
+      patterns = [
+        {
+          key: "ai_pat_0",
+          title: recordedDays < 2 ? "기록이 더 필요해요" : "패턴 요약",
+          severity: "낮음",
+          explanation:
+            recordedDays < 2
+              ? "이번 주에 입력된 날이 적어요. 오늘 공부 탭에서 하루 기록을 쌓으면 그래프·AI 분석이 정확해져요."
+              : "응답은 왔지만 항목이 비어 있었어요. 새로고침 후 다시 시도해 보세요.",
+          recommendation:
+            "수면·스트레스·집중·공부 시간·목표 달성률을 같은 날에 저장해 두면 한 주 흐름을 보기 좋아요."
+        }
+      ];
+    }
+    res.json({
+      patterns,
+      usedOpenAi: true,
+      model: OPENAI_MODEL,
+      rhythmWeek,
+      recordedDayCount: recordedDays
+    });
+  } catch (e) {
+    console.error("/api/student/coach/pattern-insights error", e);
+    res.status(500).json({ error: "패턴 분석에 실패했습니다." });
   }
 });
 
@@ -1150,11 +1754,14 @@ app.post("/api/student/coach/log", authMiddleware, async (req, res) => {
       return res.status(403).json({ error: "권한이 없습니다." });
     }
     const body = req.body || {};
-    if (body.date && !isIsoDate(body.date)) {
-      return res.status(400).json({ error: "date 형식은 YYYY-MM-DD여야 합니다." });
-    }
+    /*
+     * '오늘 기록'은 클라이언트 date를 쓰지 않음.
+     * (1) toISOString() 폴백 등으로 서버가 UTC 일자를 쓰면 한국 4/5인데 4/4로 저장됨
+     * (2) 기기 Intl/타임존과 PG 서울 달력 불일치 방지
+     * log_date는 DB COALESCE(..., (now() AT TIME ZONE 'Asia/Seoul')::date)로만 결정.
+     */
     const logInput = {
-      date: body.date ? String(body.date) : null,
+      date: null,
       sleepHours: toNullableNumber(body.sleepHours, 0, 24),
       steps: toNullableNumber(body.steps, 0, 200000),
       mealsRegularity: toNullableNumber(body.mealsRegularity, 1, 5),
@@ -1163,15 +1770,85 @@ app.post("/api/student/coach/log", authMiddleware, async (req, res) => {
       phoneDistractions: toNullableNumber(body.phoneDistractions, 0, 300),
       studyMinutes: toNullableNumber(body.studyMinutes, 0, 1440),
       planCompletionRate: toNullableNumber(body.planCompletionRate, 0, 100),
-      memo: toNullableString(body.memo, 1000)
+      memo: toNullableString(body.memo, 1000),
+      tomorrowPractice: toNullableString(body.tomorrowPractice, 500),
+      studyEvaluation: toNullableString(body.studyEvaluation, 1000),
+      metacognitionReflection: toNullableString(body.metacognitionReflection, 2000)
     };
-    const row = await insertStudentCoachLog(req.userId, logInput);
-    res.json({ ok: true, log: row });
+    if (Object.prototype.hasOwnProperty.call(body, "tomorrowPracticeDone")) {
+      logInput.tomorrowPracticeDone =
+        body.tomorrowPracticeDone === null || body.tomorrowPracticeDone === undefined
+          ? null
+          : Boolean(body.tomorrowPracticeDone);
+    }
+    const row = await upsertStudentCoachLog(req.userId, logInput);
+    const logOut =
+      row && typeof row === "object"
+        ? { ...row, log_date: formatPgLogDate(row.log_date) }
+        : row;
+    res.json({ ok: true, log: logOut });
   } catch (e) {
     console.error("/api/student/coach/log error", e);
     res.status(500).json({ error: "학습 로그 저장에 실패했습니다." });
   }
 });
+
+/** 오늘 날짜 로그의 tomorrow_practice만 갱신 (코치 내일 실천 반영) */
+app.patch("/api/student/coach/log/tomorrow-practice", authMiddleware, async (req, res) => {
+  try {
+    const me = await getMe(req.userId);
+    if (!me || me.role !== "student") {
+      return res.status(403).json({ error: "권한이 없습니다." });
+    }
+    const raw = (req.body || {}).tomorrowPractice;
+    const text =
+      raw === null || raw === undefined
+        ? null
+        : String(raw).trim().slice(0, 500) || null;
+    const row = await setStudentCoachLogTomorrowPractice(req.userId, text);
+    const logOut =
+      row && typeof row === "object"
+        ? { ...row, log_date: formatPgLogDate(row.log_date) }
+        : row;
+    res.json({ ok: true, log: logOut });
+  } catch (e) {
+    console.error("/api/student/coach/log/tomorrow-practice PATCH error", e);
+    res.status(500).json({ error: "내일 실천 저장에 실패했습니다." });
+  }
+});
+
+async function handleStudentTomorrowPracticeDone(req, res) {
+  try {
+    const me = await getMe(req.userId);
+    if (!me || me.role !== "student") {
+      return res.status(403).json({ error: "권한이 없습니다." });
+    }
+    const raw = (req.body || {}).done;
+    if (raw !== true && raw !== false) {
+      return res.status(400).json({ error: "done은 true 또는 false여야 합니다." });
+    }
+    const row = await setStudentCoachLogTomorrowPracticeDone(req.userId, raw);
+    const logOut =
+      row && typeof row === "object"
+        ? { ...row, log_date: formatPgLogDate(row.log_date) }
+        : row;
+    res.json({ ok: true, log: logOut });
+  } catch (e) {
+    console.error("/api/student/coach/log/tomorrow-practice-done error", e);
+    res.status(500).json({ error: "실천 여부 저장에 실패했습니다." });
+  }
+}
+
+app.patch(
+  "/api/student/coach/log/tomorrow-practice-done",
+  authMiddleware,
+  handleStudentTomorrowPracticeDone
+);
+app.post(
+  "/api/student/coach/log/tomorrow-practice-done",
+  authMiddleware,
+  handleStudentTomorrowPracticeDone
+);
 
 app.post("/api/student/coach/chat", authMiddleware, async (req, res) => {
   try {
@@ -1185,6 +1862,8 @@ app.post("/api/student/coach/chat", authMiddleware, async (req, res) => {
     if (!text) {
       return res.status(400).json({ error: "message가 필요합니다." });
     }
+    const rawMode = String((req.body || {}).mode || "").trim().toLowerCase();
+    const chatMode = rawMode === "suneung" ? "suneung" : "learning";
 
     await insertStudentCoachMessage(req.userId, "user", text);
 
@@ -1192,6 +1871,11 @@ app.post("/api/student/coach/chat", authMiddleware, async (req, res) => {
     const logs = await listRecentStudentCoachLogs(req.userId, 14);
     const history = await listRecentStudentCoachMessages(req.userId, 12);
     const snapshot = buildCoachSnapshot(profile, logs);
+
+    const systemLearning =
+      "너는 한국 학생 전용 학습 코치다. 항상 한국어로 답하고, 짧고 실행 가능한 조언을 준다. 의학적 진단·자해 조장·시험 부정행위는 거절한다. 형식: 1)원인 분석 2)오늘의 우선순위 3)실행 팁 4)격려 한 줄";
+    const systemSuneung =
+      "너는 수능(대학수학능력시험) 범위에서 학생과 질의응답하는 과목 코치다. 국어·수학·영어·탐구 등 과목별로 (1) 처음 배우는 개념 (2) 비슷해서 헷갈리는 개념 (3) 풀이가 막히거나 모르는 문제·유형에 대해 학생이 질문하면, 정의·차이·풀이 접근을 짧고 명확히 설명한다. 필요하면 예시·비유·풀이 단계(힌트)를 덧붙인다. 항상 한국어 존댓말. 정당한 학습 범위 안에서만 답한다. 특정 시험의 정답·문제지 유출·답안 그대로 알려 달라는 요청·시험 부정행위 조력은 거절한다. 의학적 진단·자해 조장은 거절한다. 답 형식은 질문에 맞게 가되, 보통 ①핵심 설명 ②헷갈릴 때 구분 포인트 또는 풀이 단계 ③스스로 확인할 질문 한 가지 순으로 짧게 맞춘다.";
 
     let replyText = "";
     let usedOpenAi = false;
@@ -1203,8 +1887,7 @@ app.post("/api/student/coach/chat", authMiddleware, async (req, res) => {
         messages: [
           {
             role: "system",
-            content:
-              "너는 한국 학생 전용 학습 코치다. 항상 한국어로 답하고, 짧고 실행 가능한 조언을 준다. 의학적 진단·자해 조장·시험 부정행위는 거절한다. 형식: 1)원인 분석 2)오늘의 우선순위 3)실행 팁 4)격려 한 줄"
+            content: chatMode === "suneung" ? systemSuneung : systemLearning
           },
           {
             role: "system",
@@ -1224,19 +1907,35 @@ app.post("/api/student/coach/chat", authMiddleware, async (req, res) => {
         });
       }
     } else {
-      replyText = [
-        "1) 원인 분석",
-        `- ${snapshot.heroNarrative}`,
-        "",
-        "2) 오늘의 우선순위",
-        `- ${snapshot.nextActions[0]}`,
-        "",
-        "3) 실행 팁",
-        "- 첫 25분만 시작하면 집중 흐름이 살아납니다.",
-        "",
-        "4) 격려 한 줄",
-        "- 오늘은 완벽보다 시작입니다. 지금 1개만 해도 충분해요."
-      ].join("\n");
+      if (chatMode === "suneung") {
+        replyText = [
+          "1) 핵심 안내",
+          "- 수능 질문 모드에서는 과목(국어·수학·영어·탐구 등)과 함께, 모르는 개념·헷갈리는 개념·막히는 문제를 그대로 질문해 주세요. 그에 맞춰 정의·구분·풀이 접근을 설명해 드릴 수 있어요.",
+          "",
+          "2) 참고",
+          `- 최근 기록 요약: ${snapshot.heroNarrative}`,
+          "",
+          "3) 질문 예시",
+          "- 「미적에서 극한이랑 연속이 헷갈려요」「이 문장 5형식인지 도치인지 모르겠어요」「이 그래프 문제 식부터 못 세우겠어요」처럼 적어 주시면 됩니다.",
+          "",
+          "4) 안내",
+          "- GPT가 연결되면 더 구체적으로 답해 드릴 수 있어요. 정답만 알려 달라는 식의 요청은 도와드리기 어려워요."
+        ].join("\n");
+      } else {
+        replyText = [
+          "1) 원인 분석",
+          `- ${snapshot.heroNarrative}`,
+          "",
+          "2) 오늘의 우선순위",
+          `- ${snapshot.nextActions[0]}`,
+          "",
+          "3) 실행 팁",
+          "- 첫 25분만 시작하면 집중 흐름이 살아납니다.",
+          "",
+          "4) 격려 한 줄",
+          "- 오늘은 완벽보다 시작입니다. 지금 1개만 해도 충분해요."
+        ].join("\n");
+      }
     }
 
     await insertStudentCoachMessage(req.userId, "assistant", replyText);
@@ -1249,6 +1948,262 @@ app.post("/api/student/coach/chat", authMiddleware, async (req, res) => {
   } catch (e) {
     console.error("/api/student/coach/chat error", e);
     res.status(500).json({ error: "코치 답변 생성에 실패했습니다." });
+  }
+});
+
+function extractJsonArrayFromModelText(raw) {
+  const t = String(raw || "").trim();
+  if (!t) return null;
+  const fence = t.match(/```(?:json)?\s*([\s\S]*?)```/i);
+  const inner = fence ? fence[1].trim() : t;
+  try {
+    const parsed = JSON.parse(inner);
+    return Array.isArray(parsed) ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+function extractJsonObjectFromModelText(raw) {
+  const t = String(raw || "").trim();
+  if (!t) return null;
+  const fence = t.match(/```(?:json)?\s*([\s\S]*?)```/i);
+  const inner = fence ? fence[1].trim() : t;
+  try {
+    const parsed = JSON.parse(inner);
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+/** 학생 코치: 내일 계획 협업 대화 */
+app.post("/api/student/coach/tomorrow-plan/message", authMiddleware, async (req, res) => {
+  try {
+    const me = await getMe(req.userId);
+    if (!me || me.role !== "student") {
+      return res.status(403).json({ error: "권한이 없습니다." });
+    }
+    const body = req.body || {};
+    const message = String(body.message || "").trim().slice(0, 2000);
+    const context = body.context;
+    const history = Array.isArray(body.history) ? body.history : [];
+    if (!message) {
+      return res.status(400).json({ error: "message가 필요합니다." });
+    }
+    if (!context || typeof context !== "object") {
+      return res.status(400).json({ error: "context가 필요합니다." });
+    }
+    const hist = history.slice(-24).map(h => ({
+      role: h.role === "assistant" ? "assistant" : "user",
+      content: String(h.content || "").slice(0, 6000)
+    }));
+
+    const focus = context.collabFocus === "life" ? "life" : "study";
+    const systemBlock =
+      focus === "life"
+        ? `너는 한국 중·고등학생의 '내일 실천할 한 가지'를 기록 탭에 적을 문장으로 함께 다듬는 AI 코치다.
+규칙:
+- 항상 한국어 존댓말로, 짧고 구체적으로 답한다.
+- 아래 JSON의 오늘 생활 좋았던 점과 나빴던 점(memo)·기록한 학습 시간(todayStudyMinutes)·지금 적어 둔 내일 실천 초안(draftTomorrowPractice)을 근거로, 실행 가능한 한 가지 실천을 한 문장~두 문장으로 정하도록 질문하거나 제안한다.
+- 하루 전체 시간표·루틴을 쭉 짜는 것이 아니라, '내일 실천할 한 가지' 하나에만 집중한다.
+- 의학적 진단·자해 조장·시험 부정행위는 거절한다.
+
+[학생 상황 JSON]
+${JSON.stringify(context)}`
+        : `너는 한국 중·고등학생의 '내일 학습 계획'을 함께 세우는 AI 코치다.
+규칙:
+- 항상 한국어 존댓말로, 짧고 구체적으로 답한다.
+- 아래 JSON(학생 상황)의 오늘 이행률·시간표 칸·기록한 학습 시간(todayStudyMinutes)·오늘 공부 좋았던 점과 나빴던 점(studyEvaluation)·오늘 공부한 내용 설명(metacognitionReflection)·책별 초안 내일 계획을 근거로 내일 범위(쪽·단원·문항)와 시간을 질문하거나 제안한다.
+- 한 번에 한두 가지만 묻거나 제안한다.
+- 의학적 진단·자해 조장·시험 부정행위는 거절한다.
+
+[학생 상황 JSON]
+${JSON.stringify(context)}`;
+
+    if (!openai) {
+      if (focus === "life") {
+        const replyText =
+          "오늘 생활을 돌아보며, 내일 꼭 한 가지 실천으로 남기고 싶은 것이 있으신가요? 한 문장으로만 적어 보시면 기록 탭「내일 실천할 한 가지」에 맞춰 다듬어 드릴게요. (GPT 연결 시 더 구체적으로 도와드릴 수 있어요.)";
+        return res.json({ ok: true, reply: replyText, usedOpenAi: false, model: null });
+      }
+      const pct = Number(context.todayProgressPercent) || 0;
+      const replyText = `오늘 계획 칸 기준 이행률이 ${pct}%로 보입니다. 내일은 가장 먼저 다루고 싶은 교재 한 권 이름과, 그날 목표로 삼을 공부 범위(예: 몇 쪽~몇 쪽)를 한 줄로 알려 주시겠어요? (GPT 연결 시 더 맞춤 제안을 드릴 수 있어요.)`;
+      return res.json({ ok: true, reply: replyText, usedOpenAi: false, model: null });
+    }
+
+    const response = await openai.chat.completions.create({
+      model: OPENAI_MODEL,
+      temperature: 0.45,
+      max_tokens: 700,
+      messages: [
+        { role: "system", content: systemBlock },
+        ...hist.map(m => ({ role: m.role, content: m.content })),
+        { role: "user", content: message }
+      ]
+    });
+    const replyText = String(response.choices?.[0]?.message?.content || "").trim();
+    if (!replyText) {
+      return res.status(502).json({
+        error: "GPT 응답이 비어 있습니다. 잠시 후 다시 시도해 주세요."
+      });
+    }
+    res.json({
+      ok: true,
+      reply: replyText,
+      usedOpenAi: true,
+      model: OPENAI_MODEL
+    });
+  } catch (e) {
+    console.error("/api/student/coach/tomorrow-plan/message error", e);
+    res.status(500).json({ error: "내일 계획 대화 응답에 실패했습니다." });
+  }
+});
+
+/** 대화를 바탕으로 책별 내일 계획 JSON 생성 */
+app.post("/api/student/coach/tomorrow-plan/synthesize", authMiddleware, async (req, res) => {
+  try {
+    const me = await getMe(req.userId);
+    if (!me || me.role !== "student") {
+      return res.status(403).json({ error: "권한이 없습니다." });
+    }
+    const body = req.body || {};
+    const context = body.context;
+    const history = Array.isArray(body.history) ? body.history : [];
+    if (!context || typeof context !== "object") {
+      return res.status(400).json({ error: "context가 필요합니다." });
+    }
+    const focus = context.collabFocus === "life" ? "life" : "study";
+    const books = Array.isArray(context.books) ? context.books : [];
+    const allowedIds = new Set(books.map(b => Number(b.id)).filter(Number.isFinite));
+
+    const hist = history.slice(-28).map(h => ({
+      role: h.role === "assistant" ? "assistant" : "user",
+      content: String(h.content || "").slice(0, 6000)
+    }));
+
+    const bookIdsJson = JSON.stringify(books.map(b => b.id));
+
+    if (focus === "life") {
+      if (!openai) {
+        const fallback =
+          "내일 아침에 10분만이라도 실천할 한 가지를 기록 탭에 적어 주세요.";
+        return res.json({
+          ok: true,
+          tomorrowPractice: fallback.slice(0, 500),
+          usedOpenAi: false,
+          model: null
+        });
+      }
+      const systemLife = `너는 한국 학생의 '내일 실천할 한 가지' 문장을 기록 탭에 넣을 수 있게 정리한다.
+대화와 상황 JSON을 반영해, 실행 가능한 한 가지 실천을 한 문장 또는 짧은 두 문장(500자 이내)으로만 출력한다.
+
+출력: JSON 객체 하나만. 설명·마크다운·코드펜스 금지.
+스키마: {"tomorrowPractice":"..."}`;
+
+      const response = await openai.chat.completions.create({
+        model: OPENAI_MODEL,
+        temperature: 0.35,
+        max_tokens: 400,
+        messages: [
+          { role: "system", content: systemLife },
+          { role: "system", content: `[상황 JSON]\n${JSON.stringify(context)}` },
+          ...hist.map(m => ({ role: m.role, content: m.content })),
+          {
+            role: "user",
+            content:
+              "위 대화를 반영해 내일 실천할 한 가지 문장만 JSON 객체로 출력하라."
+          }
+        ]
+      });
+      const raw = String(response.choices?.[0]?.message?.content || "").trim();
+      const obj = extractJsonObjectFromModelText(raw);
+      const tp = String(obj?.tomorrowPractice ?? "").trim().slice(0, 500);
+      if (!tp) {
+        return res.status(502).json({
+          error:
+            "내일 실천 문장을 해석하지 못했습니다. 대화를 조금 더 한 뒤 다시 시도해 주세요."
+        });
+      }
+      return res.json({
+        ok: true,
+        tomorrowPractice: tp,
+        usedOpenAi: true,
+        model: OPENAI_MODEL
+      });
+    }
+
+    if (!openai) {
+      const pct = Number(context.todayProgressPercent) || 0;
+      const plans = books.map(b => ({
+        bookId: Number(b.id),
+        plannedRange: `${String(b.name || "")}: 오늘 이행률 ${pct}%. 대화를 바탕으로 범위를 직접 다듬어 주세요.`,
+        startTime: null,
+        endTime: null
+      }));
+      return res.json({ ok: true, plans, usedOpenAi: false, model: null });
+    }
+
+    const systemSynth = `너는 한국 학생의 내일 학습 계획을 책(교재)별로 정리한다.
+대화와 상황 JSON을 반영해 각 책에 대해 내일 공부 범위(plannedRange)와 가능하면 시작·종료 시각을 제안한다.
+
+출력: JSON 배열만. 설명·마크다운·코드펜스 금지.
+스키마: [{"bookId":number,"plannedRange":string,"startTime":string|null,"endTime":string|null}]
+bookId는 반드시 다음 중 하나만: ${bookIdsJson}
+시각은 "HH:MM" 24시간 형식이거나 null.`;
+
+    const response = await openai.chat.completions.create({
+      model: OPENAI_MODEL,
+      temperature: 0.25,
+      max_tokens: 1200,
+      messages: [
+        { role: "system", content: systemSynth },
+        { role: "system", content: `[상황 JSON]\n${JSON.stringify(context)}` },
+        ...hist.map(m => ({ role: m.role, content: m.content })),
+        {
+          role: "user",
+          content:
+            "위 대화 전체를 반영해, 각 등록 교재에 대한 내일 계획만 JSON 배열로 출력하라."
+        }
+      ]
+    });
+    const raw = String(response.choices?.[0]?.message?.content || "").trim();
+    const arr = extractJsonArrayFromModelText(raw);
+    if (!arr || arr.length === 0) {
+      return res.status(502).json({
+        error: "계획 JSON을 해석하지 못했습니다. 대화를 조금 더 한 뒤 다시 시도해 주세요."
+      });
+    }
+    const normHHMM = v => {
+      const s = v != null ? String(v).trim() : "";
+      if (!s) return null;
+      const m = s.match(/^(\d{1,2}):(\d{2})$/);
+      if (!m) return null;
+      const h = Math.min(23, Math.max(0, parseInt(m[1], 10)));
+      const mm = Math.min(59, Math.max(0, parseInt(m[2], 10)));
+      return `${String(h).padStart(2, "0")}:${String(mm).padStart(2, "0")}`;
+    };
+    const plans = [];
+    for (const row of arr) {
+      const bookId = Number(row.bookId);
+      if (!Number.isFinite(bookId) || !allowedIds.has(bookId)) continue;
+      const plannedRange = String(row.plannedRange || "").trim().slice(0, 500);
+      plans.push({
+        bookId,
+        plannedRange: plannedRange || "범위를 기록 탭에서 입력해 주세요.",
+        startTime: normHHMM(row.startTime),
+        endTime: normHHMM(row.endTime)
+      });
+    }
+    if (plans.length === 0) {
+      return res.status(502).json({
+        error: "유효한 책별 계획이 없습니다. 대화를 조금 더 한 뒤 다시 시도해 주세요."
+      });
+    }
+    res.json({ ok: true, plans, usedOpenAi: true, model: OPENAI_MODEL });
+  } catch (e) {
+    console.error("/api/student/coach/tomorrow-plan/synthesize error", e);
+    res.status(500).json({ error: "내일 계획 반영용 데이터 생성에 실패했습니다." });
   }
 });
 

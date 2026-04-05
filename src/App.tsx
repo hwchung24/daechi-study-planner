@@ -1,11 +1,15 @@
-import React, { useCallback, useEffect, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Capacitor } from "@capacitor/core";
 import { AppConfig } from "@capacitor-community/mdm-appconfig";
+import { Bell, BellDot } from "lucide-react";
 import SplashScreen from "./SplashScreen";
 import { AuthScreen } from "./components/AuthScreen";
 import { AppBottomNav } from "./components/AppBottomNav";
+import { PageTransition } from "./components/PageTransition";
 import { ParentLegacyView, type ParentTabKey } from "./components/parent/ParentLegacyView";
 import { StudentLegacyView, type TabKey } from "./components/student/StudentLegacyView";
+import { StudentProfilePage } from "./components/student/StudentProfilePage";
+import { TimePickerInline } from "./components/TimePickerSheet";
 import { useOnlineStatus } from "./hooks/useOnlineStatus";
 import { StudentCoachApp, type StudentTabKey as CoachStudentTabKey } from "./coach/student/StudentCoachApp";
 import { ParentCoachApp, type ParentTabKey as CoachParentTabKey } from "./coach/parent/ParentCoachApp";
@@ -28,9 +32,19 @@ import {
   resolvePreferredSerial,
   scrubSerialFromLocation
 } from "./lib/hashRouteUtils";
-import { getDateKey, getWeekStartKey } from "./lib/weekDates";
+import {
+  getDateKey,
+  getWeekStartKey,
+  getWeekStartKeySeoul,
+  seoulDateKeyFromApiValue
+} from "./lib/weekDates";
 import { MODAL_TRANSITION_MS } from "./lib/uiTiming";
+import { useModalReveal } from "./lib/useModalReveal";
 import { API_BASE } from "./lib/apiBase";
+import {
+  DAECHI_COACH_LOG_SAVED_EVENT,
+  DAECHI_COACH_LOG_SAVED_STORAGE_KEY
+} from "./lib/coachEvents";
 import type { ParentLockStatus, StudentLockStatus } from "./types/lockStatus";
 import type { ProgressBook, ProgressPlan, StudyBlock } from "./types/planner";
 
@@ -46,6 +60,19 @@ type StudyStoreApp = {
 };
 
 type AppRoute = "student" | "parent" | "auth";
+
+type ParentPlanAddRequestRow = {
+  id: number;
+  student_user_id: number;
+  target_date: string;
+  book_id: number;
+  planned_range: string | null;
+  start_time: string;
+  end_time: string;
+  subject_snapshot: string;
+  created_at: string;
+  student_email: string;
+};
 
 function normalizeDayKey(raw: string | undefined | null): string {
   return String(raw ?? "")
@@ -130,6 +157,8 @@ const App: React.FC = () => {
   const [authPassword, setAuthPassword] = useState("");
   const [authError, setAuthError] = useState("");
   const [blocks, setBlocks] = useState<StudyBlock[]>([]);
+  /** 오늘 탭에서 타임라인 주기적 재조회(학부모 승인 반영) */
+  const [timelineRefreshNonce, setTimelineRefreshNonce] = useState(0);
 
   const [tab, setTab] = useState<TabKey>("today");
   const [route, setRoute] = useState<AppRoute>(getInitialRoute);
@@ -140,7 +169,15 @@ const App: React.FC = () => {
   const [authLeaving, setAuthLeaving] = useState(false);
   const [mainEnter, setMainEnter] = useState(false);
   const [meRole, setMeRole] = useState<string | null>(null);
-  /** 할 일 추가: study_books.id */
+  /** /api/me 1회 이상 끝났는지(실패 포함). false면 헤더에 무한 «불러오는 중» */
+  const [meRoleResolved, setMeRoleResolved] = useState(true);
+  const [profileLoadError, setProfileLoadError] = useState<string | null>(
+    null
+  );
+  const [meFetchNonce, setMeFetchNonce] = useState(0);
+  /** 기록 탭 저장 시 코치용 coach/state(메모·학습 시간 등) 재동기화 */
+  const [coachLogSyncNonce, setCoachLogSyncNonce] = useState(0);
+  /** 오늘 계획 추가 요청: study_books.id */
   const [addBlockBookId, setAddBlockBookId] = useState<number | null>(null);
   const [addBlockPlan, setAddBlockPlan] = useState("");
   const [startInput, setStartInput] = useState("18:00");
@@ -148,9 +185,11 @@ const App: React.FC = () => {
   const [showAddModal, setShowAddModal] = useState(false);
   const [showRequestModal, setShowRequestModal] = useState(false);
   const [showGuideModal, setShowGuideModal] = useState(false);
+  const [authConfirmKind, setAuthConfirmKind] = useState<
+    "logout" | "withdraw" | null
+  >(null);
   const [requestReason, setRequestReason] = useState("");
   const [editUnlocked, setEditUnlocked] = useState(false);
-  const [requestSent, setRequestSent] = useState(false);
 
   const [progressWeekOffset, setProgressWeekOffset] = useState(0);
   const [progressBooks, setProgressBooks] = useState<ProgressBook[]>([]);
@@ -159,6 +198,24 @@ const App: React.FC = () => {
     progressBooksRef.current = progressBooks;
   }, [progressBooks]);
   const [checkSettingsOpen, setCheckSettingsOpen] = useState(false);
+  const [planRequestNotice, setPlanRequestNotice] = useState("");
+  const [showPlanAddNoParentModal, setShowPlanAddNoParentModal] =
+    useState(false);
+  const [parentPlanAddRequests, setParentPlanAddRequests] = useState<
+    ParentPlanAddRequestRow[]
+  >([]);
+  const [parentPlanAddBusy, setParentPlanAddBusy] = useState(false);
+
+  const addModalReveal = useModalReveal(showAddModal);
+  const noParentPlanModalReveal = useModalReveal(showPlanAddNoParentModal);
+  const parentPlanAddModalReveal = useModalReveal(
+    parentPlanAddRequests.length > 0
+  );
+  const requestModalReveal = useModalReveal(showRequestModal);
+  const guideModalReveal = useModalReveal(showGuideModal);
+  const authConfirmReveal = useModalReveal(authConfirmKind !== null);
+  const checkSettingsModalReveal = useModalReveal(checkSettingsOpen);
+
   const [newBookName, setNewBookName] = useState("");
   const [booksModalMounted, setBooksModalMounted] = useState(false);
   const [booksModalReveal, setBooksModalReveal] = useState(false);
@@ -179,6 +236,15 @@ const App: React.FC = () => {
   const [midCheckTime, setMidCheckTime] = useState("14:00");
   const [finalCheckTime, setFinalCheckTime] = useState("22:00");
   const [tomorrowPlan, setTomorrowPlan] = useState<ProgressPlan>({});
+  const [todayStudyEvaluation, setTodayStudyEvaluation] = useState("");
+  const [todayMetacognitionReflection, setTodayMetacognitionReflection] =
+    useState("");
+  const [coachTodayMemo, setCoachTodayMemo] = useState("");
+  const [coachDraftTomorrowPractice, setCoachDraftTomorrowPractice] =
+    useState("");
+  const [coachTodayStudyMinutes, setCoachTodayStudyMinutes] = useState<
+    number | null
+  >(null);
 
   const [parentStudents, setParentStudents] = useState<
     Array<{ id: number; email: string }>
@@ -205,6 +271,13 @@ const App: React.FC = () => {
   );
   const [coachStudentTab, setCoachStudentTab] = useState<CoachStudentTabKey | null>(
     () => parseCoachStudentTabFromHash()
+  );
+  const [coachStudentCoachLayout, setCoachStudentCoachLayout] = useState<
+    "scroll" | "chat"
+  >(() =>
+    typeof window !== "undefined" && parseCoachStudentTabFromHash() === "coach"
+      ? "chat"
+      : "scroll"
   );
   const [coachParentTab, setCoachParentTab] = useState<CoachParentTabKey | null>(
     () => parseCoachParentTabFromHash()
@@ -244,10 +317,10 @@ const App: React.FC = () => {
     useState<StudentLockStatus | null>(null);
   const [studentLockMessage, setStudentLockMessage] = useState("");
   const [timelineSyncError, setTimelineSyncError] = useState("");
+  const [studentNotificationUnreadCount, setStudentNotificationUnreadCount] =
+    useState(0);
   const [parentLockStatus, setParentLockStatus] =
     useState<ParentLockStatus | null>(null);
-
-  const isLocked = Boolean(studentLockStatus?.locked);
 
   useEffect(() => {
     try {
@@ -297,9 +370,26 @@ const App: React.FC = () => {
         return;
       }
       setRoute(parseRouteFromHash());
-      setTab(parseStudentTabFromHash());
+      try {
+        if (window.location.hash === "#/settings") {
+          const u = new URL(window.location.href);
+          u.hash = "#/profile";
+          window.history.replaceState({}, "", u.toString());
+        }
+      } catch {
+        // ignore
+      }
+      const studentTab = parseStudentTabFromHash();
+      setTab(studentTab);
       setParentTab(parseParentTabFromHash());
-      setCoachStudentTab(parseCoachStudentTabFromHash());
+      const coachFromHash = parseCoachStudentTabFromHash();
+      if (studentTab === "notifications") {
+        setCoachStudentTab(null);
+        setCoachStudentCoachLayout("scroll");
+      } else {
+        setCoachStudentTab(coachFromHash);
+        setCoachStudentCoachLayout(coachFromHash === "coach" ? "chat" : "scroll");
+      }
       setCoachParentTab(parseCoachParentTabFromHash());
     };
     const onHash = () => syncRouteFromHash();
@@ -333,25 +423,86 @@ const App: React.FC = () => {
   }, [authToken]);
 
   useEffect(() => {
-    if (!authToken) return;
-    const run = async () => {
+    if (!authToken) {
+      setMeRole(null);
+      setMeRoleResolved(true);
+      setProfileLoadError(null);
+      return;
+    }
+
+    let cancelled = false;
+    setMeRoleResolved(false);
+    setProfileLoadError(null);
+
+    const done = () => {
+      if (!cancelled) setMeRoleResolved(true);
+    };
+
+    (async () => {
       try {
         const res = await fetch(`${API_BASE}/api/me`, {
           headers: { Authorization: `Bearer ${authToken}` }
         });
-        if (!res.ok) return;
+        if (cancelled) return;
+
+        if (res.status === 401) {
+          try {
+            localStorage.removeItem("daechi_planner_token");
+            localStorage.removeItem("daechi_planner_user_email");
+          } catch {
+            // ignore
+          }
+          setAuthToken(null);
+          setUserEmail(null);
+          setMeRole(null);
+          window.location.hash = "#/auth";
+          done();
+          return;
+        }
+
+        if (!res.ok) {
+          const data = await res.json().catch(() => ({}));
+          setProfileLoadError(
+            String((data as { error?: string }).error || "").trim() ||
+              "계정 정보를 불러오지 못했습니다."
+          );
+          setMeRole(null);
+          done();
+          return;
+        }
+
         const data = await res.json();
         setMeRole(
           data.role != null && data.role !== ""
             ? String(data.role).toLowerCase()
             : null
         );
+        if (data.email != null && String(data.email).trim() !== "") {
+          const em = String(data.email).trim();
+          setUserEmail(em);
+          try {
+            localStorage.setItem("daechi_planner_user_email", em);
+          } catch {
+            // ignore
+          }
+        }
+        setProfileLoadError(null);
       } catch {
-        // ignore
+        if (!cancelled) {
+          setProfileLoadError(
+            `서버에 연결할 수 없습니다. API 주소(${API_BASE})에서 서버가 떠 있는지 확인해 주세요.`
+          );
+          setMeRole(null);
+        }
+      } finally {
+        done();
       }
+    })();
+
+    return () => {
+      cancelled = true;
     };
-    run();
-  }, [authToken]);
+  }, [authToken, meFetchNonce]);
 
   useEffect(() => {
     if (!authToken || meRole !== "student") return;
@@ -413,6 +564,36 @@ const App: React.FC = () => {
       window.clearInterval(timerId);
     };
   }, [authToken, meRole]);
+
+  useEffect(() => {
+    if (!authToken || meRole !== "student") {
+      setStudentNotificationUnreadCount(0);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch(
+          `${API_BASE}/api/student/notifications/summary`,
+          {
+            headers: { Authorization: `Bearer ${authToken}` },
+            cache: "no-store"
+          }
+        );
+        if (!res.ok || cancelled) return;
+        const data = (await res.json()) as { unreadCount?: unknown };
+        const n = Number(data.unreadCount);
+        if (!cancelled && Number.isFinite(n) && n >= 0) {
+          setStudentNotificationUnreadCount(Math.floor(n));
+        }
+      } catch {
+        if (!cancelled) setStudentNotificationUnreadCount(0);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [authToken, meRole, meFetchNonce, tab]);
 
   // 학부모 계정이면 항상 학부모 페이지로 (학습 플래너 대신)
   useEffect(() => {
@@ -539,6 +720,60 @@ const App: React.FC = () => {
     run();
   }, [authToken, meRole]);
 
+  // 학생: 오늘 학습 기록(공부 좋았던/나빴던 점·메타인지) — 코치/기록/계획 협업에서 공유
+  useEffect(() => {
+    if (!authToken || meRole !== "student") return;
+    const dayKey = getDateKey(0);
+    const weekStart = getWeekStartKeySeoul(0);
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch(
+          `${API_BASE}/api/student/coach/state?weekStart=${encodeURIComponent(weekStart)}`,
+          {
+            headers: { Authorization: `Bearer ${authToken}` },
+            cache: "no-store"
+          }
+        );
+        if (!res.ok || cancelled) return;
+        const data = (await res.json()) as {
+          logs?: Array<{
+            date?: string;
+            studyEvaluation?: string | null;
+            metacognitionReflection?: string | null;
+            memo?: string | null;
+            tomorrowPractice?: string | null;
+            studyMinutes?: number | null;
+          }>;
+        };
+        const row = (data.logs || []).find(
+          l => seoulDateKeyFromApiValue(l.date) === dayKey
+        );
+        if (!row || cancelled) return;
+        setTodayStudyEvaluation(String(row.studyEvaluation ?? ""));
+        setTodayMetacognitionReflection(String(row.metacognitionReflection ?? ""));
+        setCoachTodayMemo(String(row.memo ?? ""));
+        setCoachDraftTomorrowPractice(String(row.tomorrowPractice ?? ""));
+        const sm = row.studyMinutes;
+        setCoachTodayStudyMinutes(
+          sm != null && Number.isFinite(Number(sm)) ? Number(sm) : null
+        );
+      } catch {
+        /* ignore */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [authToken, meRole, coachLogSyncNonce]);
+
+  useEffect(() => {
+    if (!authToken || meRole !== "student") return;
+    const bump = () => setCoachLogSyncNonce(n => n + 1);
+    window.addEventListener(DAECHI_COACH_LOG_SAVED_EVENT, bump);
+    return () => window.removeEventListener(DAECHI_COACH_LOG_SAVED_EVENT, bump);
+  }, [authToken, meRole]);
+
   // 학생: 오늘 공부 타임라인 — DB study_blocks (항상 오늘이 속한 주만 조회, 주간 탭 offset과 무관)
   useEffect(() => {
     if (!authToken || meRole !== "student") return;
@@ -610,7 +845,45 @@ const App: React.FC = () => {
       }
     };
     run();
+  }, [authToken, meRole, timelineRefreshNonce]);
+
+  useEffect(() => {
+    if (!authToken || meRole !== "student" || tab !== "today") return;
+    const id = window.setInterval(() => {
+      setTimelineRefreshNonce(n => n + 1);
+    }, 22000);
+    return () => window.clearInterval(id);
+  }, [authToken, meRole, tab]);
+
+  const refreshParentPlanAddRequests = useCallback(async () => {
+    if (!authToken || meRole !== "parent") return;
+    try {
+      const res = await fetch(`${API_BASE}/api/parent/plan-add-requests`, {
+        headers: { Authorization: `Bearer ${authToken}` }
+      });
+      if (!res.ok) return;
+      const data = (await res.json().catch(() => ({}))) as {
+        requests?: ParentPlanAddRequestRow[];
+      };
+      setParentPlanAddRequests(
+        Array.isArray(data.requests) ? data.requests : []
+      );
+    } catch {
+      // ignore
+    }
   }, [authToken, meRole]);
+
+  useEffect(() => {
+    if (!authToken || meRole !== "parent") {
+      setParentPlanAddRequests([]);
+      return;
+    }
+    void refreshParentPlanAddRequests();
+    const t = window.setInterval(() => {
+      void refreshParentPlanAddRequests();
+    }, 25000);
+    return () => window.clearInterval(t);
+  }, [authToken, meRole, refreshParentPlanAddRequests]);
 
   // 학부모 페이지: 연결된 학생 목록 로딩
   useEffect(() => {
@@ -812,11 +1085,12 @@ const App: React.FC = () => {
     [authToken]
   );
 
-  const saveTomorrowPlan = async () => {
+  const saveTomorrowPlan = async (planOverride?: ProgressPlan): Promise<boolean> => {
     if (!authToken) {
       window.location.hash = "#/auth";
-      return;
+      return false;
     }
+    const plan = planOverride ?? tomorrowPlan;
     try {
       const res = await fetch(`${API_BASE}/api/plan`, {
         method: "PUT",
@@ -828,9 +1102,9 @@ const App: React.FC = () => {
           date: getDateKey(1),
           plans: progressBooks.map(book => ({
             bookName: book.name,
-            plannedRange: tomorrowPlan[book.id]?.text || "",
-            startTime: tomorrowPlan[book.id]?.start || null,
-            endTime: tomorrowPlan[book.id]?.end || null
+            plannedRange: plan[book.id]?.text || "",
+            startTime: plan[book.id]?.start || null,
+            endTime: plan[book.id]?.end || null
           }))
         })
       });
@@ -841,7 +1115,7 @@ const App: React.FC = () => {
           data.error ||
             "잠금 상태에서는 오늘 계획을 수정할 수 없습니다."
         );
-        return;
+        return false;
       }
       if (res.ok) {
         setStudentLockMessage("");
@@ -866,11 +1140,69 @@ const App: React.FC = () => {
         } catch {
           // ignore
         }
-      } else {
-        hapticWarning();
+        return true;
       }
+      hapticWarning();
+      return false;
     } catch {
       hapticWarning();
+      return false;
+    }
+  };
+
+  const applyCoachTomorrowPlanAndGoRecords = async (
+    next: ProgressPlan
+  ): Promise<boolean> => {
+    setTomorrowPlan(next);
+    const ok = await saveTomorrowPlan(next);
+    if (ok) {
+      hapticSuccess();
+      window.location.hash = "#/records";
+    }
+    return ok;
+  };
+
+  const applyCoachTomorrowPracticeAndGoRecords = async (
+    text: string
+  ): Promise<boolean> => {
+    if (!authToken) {
+      window.location.hash = "#/auth";
+      return false;
+    }
+    const trimmed = text.trim();
+    if (!trimmed) {
+      hapticWarning();
+      return false;
+    }
+    try {
+      const res = await fetch(`${API_BASE}/api/student/coach/log/tomorrow-practice`, {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${authToken}`
+        },
+        body: JSON.stringify({ tomorrowPractice: trimmed })
+      });
+      if (!res.ok) {
+        hapticWarning();
+        return false;
+      }
+      setCoachDraftTomorrowPractice(trimmed);
+      hapticSuccess();
+      try {
+        window.dispatchEvent(new CustomEvent(DAECHI_COACH_LOG_SAVED_EVENT));
+        localStorage.setItem(
+          DAECHI_COACH_LOG_SAVED_STORAGE_KEY,
+          String(Date.now())
+        );
+      } catch {
+        // ignore
+      }
+      window.location.hash = "#/records";
+      return true;
+    } catch {
+      hapticWarning();
+      return false;
     }
   };
 
@@ -888,14 +1220,8 @@ const App: React.FC = () => {
     window.location.hash = "#/auth";
   };
 
-  const handleWithdrawAccount = async () => {
+  const performWithdrawAccount = async () => {
     if (!authToken) return;
-
-    const ok = window.confirm(
-      "정말로 회원 탈퇴를 하시겠습니까?\n이 작업은 되돌릴 수 없습니다."
-    );
-    if (!ok) return;
-
     try {
       await fetch(`${API_BASE}/api/account/withdraw`, {
         method: "POST",
@@ -908,13 +1234,26 @@ const App: React.FC = () => {
     } catch {
       // ignore (logout still proceeds)
     }
-
     handleLogout();
   };
 
-  const handleAdd = () => {
-    if (isLocked) {
-      setShowRequestModal(true);
+  const confirmAuthAction = () => {
+    if (authConfirmKind === "logout") {
+      authConfirmReveal.beginClose(() => {
+        setAuthConfirmKind(null);
+        handleLogout();
+      });
+    } else if (authConfirmKind === "withdraw") {
+      authConfirmReveal.beginClose(() => {
+        setAuthConfirmKind(null);
+        void performWithdrawAccount();
+      });
+    }
+  };
+
+  const handleAdd = async () => {
+    if (!authToken) {
+      setTimelineSyncError("로그인이 필요합니다.");
       return;
     }
     const book =
@@ -927,31 +1266,54 @@ const App: React.FC = () => {
     if (!start || !end) return;
     hapticImpactLight();
     const planTrim = addBlockPlan.trim();
-    const newId = Date.now();
-    const newBlock: StudyBlock = {
-      id: newId,
-      subject: book.name,
-      start,
-      end,
-      done: false,
-      bookId: book.id,
-      plannedRange: planTrim || undefined
-    };
-    setBlocks(prev => {
-      const next = sortStudyBlocksByStart([...prev, newBlock]);
-      void syncBlocksToServer(next).then(ok => {
-        if (!ok) {
-          setBlocks(p => p.filter(b => b.id !== newId));
-        }
+    try {
+      const res = await fetch(`${API_BASE}/api/student/plan-add-request`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${authToken}`
+        },
+        body: JSON.stringify({
+          bookId: book.id,
+          plannedRange: planTrim || null,
+          startTime: start,
+          endTime: end,
+          date: getDateKey(0)
+        })
       });
-      return next;
-    });
-    setAddBlockPlan("");
-    setShowAddModal(false);
+      const data = (await res.json().catch(() => ({}))) as {
+        error?: string;
+        code?: string;
+      };
+      if (res.status === 400 && data.code === "NO_LINKED_PARENT") {
+        setShowPlanAddNoParentModal(true);
+        return;
+      }
+      if (!res.ok) {
+        setTimelineSyncError(
+          String(data.error || "").trim() ||
+            "요청을 보내지 못했습니다. 잠시 후 다시 시도해 주세요."
+        );
+        hapticWarning();
+        return;
+      }
+      setAddBlockPlan("");
+      addModalReveal.beginClose(() => setShowAddModal(false));
+      setPlanRequestNotice(
+        "학부모에게 요청을 보냈습니다. 승인되면 오늘 계획에 반영돼요."
+      );
+      hapticSuccess();
+    } catch {
+      setTimelineSyncError(
+        "네트워크 오류로 요청을 보내지 못했습니다. 연결을 확인해 주세요."
+      );
+      hapticWarning();
+    }
   };
 
   const openAddPlanModal = () => {
     setTimelineSyncError("");
+    setPlanRequestNotice("");
     setAddBlockBookId(progressBooks[0]?.id ?? null);
     setAddBlockPlan("");
     setStartInput("18:00");
@@ -960,14 +1322,48 @@ const App: React.FC = () => {
   };
 
   const roleLoading = Boolean(
-    authToken && route !== "auth" && meRole === null
+    authToken && route !== "auth" && !meRoleResolved
+  );
+  const profileLoadFailed = Boolean(
+    authToken && route !== "auth" && meRoleResolved && profileLoadError
   );
   const parentView = meRole === "parent" || route === "parent";
   const showStudentShell =
-    route !== "auth" && !roleLoading && !parentView;
+    route !== "auth" &&
+    !roleLoading &&
+    !parentView &&
+    !profileLoadFailed;
   const coachStudentMode = showStudentShell && coachStudentTab !== null;
+
   const coachParentMode =
-    !roleLoading && parentView && meRole === "parent" && coachParentTab !== null;
+    !roleLoading &&
+    !profileLoadFailed &&
+    parentView &&
+    meRole === "parent" &&
+    coachParentTab !== null;
+
+  const studentNotificationsView =
+    showStudentShell && !coachStudentMode && tab === "notifications";
+
+  const appMainPageKey = useMemo(() => {
+    if (roleLoading) return "loading";
+    if (profileLoadFailed) return "profile-error";
+    /* 코치·학부모 탭 전환은 각 셸 안 TabTransitionPanel에서 처리 (이중 애니메이션 방지) */
+    if (coachStudentMode && coachStudentTab) return "student-coach";
+    if (coachParentMode && coachParentTab) return "parent-coach";
+    if (parentView && !coachParentMode) return "parent-legacy";
+    if (showStudentShell) return "student";
+    return "idle";
+  }, [
+    roleLoading,
+    profileLoadFailed,
+    coachStudentMode,
+    coachStudentTab,
+    coachParentMode,
+    coachParentTab,
+    parentView,
+    showStudentShell
+  ]);
 
   useEffect(() => {
     if (!mainEnter) return;
@@ -1084,54 +1480,83 @@ const App: React.FC = () => {
       ) : splashDone ? (
       <div
         className={
-          "app-shell" + (mainEnter ? " app-shell--enter" : "")
+          "app-shell" +
+          (mainEnter ? " app-shell--enter" : "") +
+          (studentNotificationsView ? " app-shell--notifications" : "")
         }
       >
-        <header className="app-header">
+        <header
+          className={
+            "app-header" +
+            (studentNotificationsView ? " app-header--notifications" : "")
+          }
+        >
           <div className="status-bar-safe" />
           <div className="header-top">
-            <div className="header-title-group">
-              <div className="header-title-row">
-              <h1 className="header-title">
-                {roleLoading && "불러오는 중…"}
-                {!roleLoading &&
-                  parentView &&
-                  (meRole === "parent"
-                    ? coachParentMode
-                      ? coachParentTab === "timeline"
-                        ? "학습 타임라인"
-                        : coachParentTab === "guide"
-                          ? "대화 가이드"
-                          : coachParentTab === "profile"
-                            ? "학부모 프로필"
-                            : "학부모 홈"
-                      : parentTab === "link"
-                      ? "자녀 연결"
-                      : "AI 리포트"
-                    : "학부모")}
-                {showStudentShell &&
-                  (coachStudentMode
-                    ? coachStudentTab === "coach"
-                          ? "AI 코치"
-                          : "학생 홈"
-                    : tab === "today"
-                      ? "오늘 공부"
-                      : tab === "week"
-                        ? "이번 주"
-                        : tab === "store"
-                          ? "학습 앱스토어"
-                          : "설정")}
-              </h1>
+            {!studentNotificationsView ? (
+              <div className="header-title-group">
+                <div className="header-title-row">
+                  <h1 className="header-title">
+                    {roleLoading && "불러오는 중…"}
+                    {!roleLoading &&
+                      parentView &&
+                      (meRole === "parent"
+                        ? coachParentMode
+                          ? coachParentTab === "timeline"
+                            ? "학습 타임라인"
+                            : coachParentTab === "guide"
+                              ? "대화 가이드"
+                              : coachParentTab === "profile"
+                                ? "학부모 프로필"
+                                : "학부모 홈"
+                          : parentTab === "link"
+                            ? "자녀 연결"
+                            : "AI 리포트"
+                        : "학부모")}
+                    {showStudentShell &&
+                      (coachStudentMode
+                        ? "AI 코치"
+                        : tab === "profile"
+                          ? "프로필"
+                          : tab === "today"
+                            ? "오늘 공부"
+                            : tab === "records"
+                              ? "기록"
+                              : tab === "store"
+                                ? "학습 앱스토어"
+                                : "오늘 공부")}
+                  </h1>
+                </div>
               </div>
-            </div>
-            <div className="profile-chip">
-              <span className="profile-avatar">
-                {(userEmail || "D").charAt(0).toUpperCase()}
-              </span>
-              {userEmail && (
-                <span className="profile-label">{userEmail}</span>
-              )}
-            </div>
+            ) : (
+              <div className="header-title-group header-title-group--spacer" aria-hidden />
+            )}
+            {showStudentShell && !parentView && tab !== "notifications" ? (
+              <div className="header-actions">
+                <button
+                  type="button"
+                  className="header-icon-btn"
+                  aria-label={
+                    studentNotificationUnreadCount > 0
+                      ? "알림, 읽지 않은 알림 있음"
+                      : "알림"
+                  }
+                  onClick={() => {
+                    hapticSelection();
+                    setCoachStudentTab(null);
+                    setCoachStudentCoachLayout("scroll");
+                    setTab("notifications");
+                    window.location.hash = "#/notifications";
+                  }}
+                >
+                  {studentNotificationUnreadCount > 0 ? (
+                    <BellDot size={22} strokeWidth={2} aria-hidden />
+                  ) : (
+                    <Bell size={22} strokeWidth={2} aria-hidden />
+                  )}
+                </button>
+              </div>
+            ) : null}
           </div>
 
           {/* 오늘 공부의 진행률은 StudentLegacyView에서 3섹션 레이아웃으로 렌더링합니다. */}
@@ -1145,115 +1570,169 @@ const App: React.FC = () => {
               : "") +
             (showStudentShell &&
             coachStudentMode &&
-            coachStudentTab === "coach"
+            coachStudentCoachLayout === "chat"
               ? " app-main--coach-chat"
-              : "")
+              : "") +
+            (studentNotificationsView ? " app-main--notifications" : "")
           }
         >
-          {roleLoading && (
-            <p className="empty-state">불러오는 중…</p>
-          )}
-          {!roleLoading && coachStudentMode && coachStudentTab && (
-            <StudentCoachApp
-              tab={coachStudentTab}
-            />
-          )}
-          {!roleLoading && coachParentMode && coachParentTab && (
-            <ParentCoachApp
-              tab={coachParentTab}
-            />
-          )}
-          {!roleLoading && parentView && !coachParentMode && (
-            <ParentLegacyView
-              apiBase={API_BASE}
-              authToken={authToken}
-              meRole={meRole}
-              parentTab={parentTab}
-              parentLinkEmail={parentLinkEmail}
-              setParentLinkEmail={setParentLinkEmail}
-              parentWaitingOnStudent={parentWaitingOnStudent}
-              parentWaitingOnMe={parentWaitingOnMe}
-              parentStudents={parentStudents}
-              parentStudentId={parentStudentId}
-              setParentStudentId={setParentStudentId}
-              parentWeekOffset={parentWeekOffset}
-              setParentWeekOffset={setParentWeekOffset}
-              parentReport={parentReport}
-              parentAiDaily={parentAiDaily}
-              parentPlannerEnabled={parentPlannerEnabled}
-              setParentPlannerEnabled={setParentPlannerEnabled}
-              parentPlannerTime={parentPlannerTime}
-              setParentPlannerTime={setParentPlannerTime}
-              parentPlannerSaving={parentPlannerSaving}
-              setParentPlannerSaving={setParentPlannerSaving}
-              parentPlannerMessage={parentPlannerMessage}
-              setParentPlannerMessage={setParentPlannerMessage}
-              parentLockStatus={parentLockStatus}
-              setParentLockStatus={setParentLockStatus}
-              setParentTab={setParentTab}
-              setParentWaitingOnStudent={setParentWaitingOnStudent}
-              setParentWaitingOnMe={setParentWaitingOnMe}
-              setParentStudents={setParentStudents}
-              setParentAiDaily={setParentAiDaily}
-              hapticSelection={hapticSelection}
-              hapticWarning={hapticWarning}
-              handleLogout={handleLogout}
-              handleWithdrawAccount={handleWithdrawAccount}
-            />
-          )}
+          <PageTransition
+            pageKey={appMainPageKey}
+            className="app-main__transition-root"
+          >
+            {roleLoading && (
+              <p className="empty-state">불러오는 중…</p>
+            )}
+            {profileLoadFailed && (
+              <div className="section" style={{ padding: "16px 8px" }}>
+                <p className="empty-state" style={{ marginBottom: 14 }}>
+                  {profileLoadError}
+                </p>
+                <button
+                  type="button"
+                  className="modal-primary"
+                  onClick={() => setMeFetchNonce(n => n + 1)}
+                >
+                  다시 시도
+                </button>
+              </div>
+            )}
+            {!roleLoading && coachStudentMode && coachStudentTab && (
+              <StudentCoachApp
+                tab={coachStudentTab}
+                authToken={authToken}
+                onLayoutModeChange={setCoachStudentCoachLayout}
+                blocks={blocks}
+                progressBooks={progressBooks}
+                tomorrowPlan={tomorrowPlan}
+                todayStudyEvaluation={todayStudyEvaluation}
+                todayMetacognitionReflection={todayMetacognitionReflection}
+                todayMemo={coachTodayMemo}
+                draftTomorrowPractice={coachDraftTomorrowPractice}
+                todayStudyMinutes={coachTodayStudyMinutes}
+                onApplyTomorrowPlanAndGoRecords={applyCoachTomorrowPlanAndGoRecords}
+                onApplyTomorrowPracticeAndGoRecords={
+                  applyCoachTomorrowPracticeAndGoRecords
+                }
+              />
+            )}
+            {!roleLoading && coachParentMode && coachParentTab && (
+              <ParentCoachApp
+                tab={coachParentTab}
+              />
+            )}
+            {!roleLoading && parentView && !coachParentMode && (
+              <ParentLegacyView
+                apiBase={API_BASE}
+                authToken={authToken}
+                meRole={meRole}
+                parentTab={parentTab}
+                parentLinkEmail={parentLinkEmail}
+                setParentLinkEmail={setParentLinkEmail}
+                parentWaitingOnStudent={parentWaitingOnStudent}
+                parentWaitingOnMe={parentWaitingOnMe}
+                parentStudents={parentStudents}
+                parentStudentId={parentStudentId}
+                setParentStudentId={setParentStudentId}
+                parentWeekOffset={parentWeekOffset}
+                setParentWeekOffset={setParentWeekOffset}
+                parentReport={parentReport}
+                parentAiDaily={parentAiDaily}
+                parentPlannerEnabled={parentPlannerEnabled}
+                setParentPlannerEnabled={setParentPlannerEnabled}
+                parentPlannerTime={parentPlannerTime}
+                setParentPlannerTime={setParentPlannerTime}
+                parentPlannerSaving={parentPlannerSaving}
+                setParentPlannerSaving={setParentPlannerSaving}
+                parentPlannerMessage={parentPlannerMessage}
+                setParentPlannerMessage={setParentPlannerMessage}
+                parentLockStatus={parentLockStatus}
+                setParentLockStatus={setParentLockStatus}
+                setParentTab={setParentTab}
+                setParentWaitingOnStudent={setParentWaitingOnStudent}
+                setParentWaitingOnMe={setParentWaitingOnMe}
+                setParentStudents={setParentStudents}
+                setParentAiDaily={setParentAiDaily}
+                hapticSelection={hapticSelection}
+                hapticWarning={hapticWarning}
+                onLogoutPress={() => setAuthConfirmKind("logout")}
+                onWithdrawPress={() => setAuthConfirmKind("withdraw")}
+              />
+            )}
 
-
-          {showStudentShell && !coachStudentMode && (
-            <StudentLegacyView
-              tab={tab}
-              apiBase={API_BASE}
-              authToken={authToken}
-              userEmail={userEmail}
-              meRole={meRole}
-              blocks={blocks}
-              toggleDone={toggleDone}
-              studentLockStatus={studentLockStatus}
-              studentLockMessage={studentLockMessage}
-              timelineSyncError={timelineSyncError}
-              onDismissTimelineSyncError={() => setTimelineSyncError("")}
-              progressWeekOffset={progressWeekOffset}
-              setProgressWeekOffset={setProgressWeekOffset}
-              progressBooks={progressBooks}
-              removeProgressBook={removeProgressBook}
-              tomorrowPlan={tomorrowPlan}
-              setTomorrowPlan={setTomorrowPlan}
-              saveTomorrowPlan={saveTomorrowPlan}
-              setBooksModalOpen={setBooksModalOpen}
-              onOpenAddPlan={openAddPlanModal}
-              setCheckSettingsOpen={setCheckSettingsOpen}
-              storeApps={storeApps}
-              storeLoading={storeLoading}
-              storeError={storeError}
-              storeSavingId={storeSavingId}
-              setStoreSavingId={setStoreSavingId}
-              setStoreError={setStoreError}
-              setStoreApps={setStoreApps}
-              resolvePreferredSerial={resolvePreferredSerial}
-              studentParentEmail={studentParentEmail}
-              setStudentParentEmail={setStudentParentEmail}
-              studentWaitingOnParent={studentWaitingOnParent}
-              studentWaitingOnMe={studentWaitingOnMe}
-              setStudentWaitingOnParent={setStudentWaitingOnParent}
-              setStudentWaitingOnMe={setStudentWaitingOnMe}
-              editUnlocked={editUnlocked}
-              setEditUnlocked={setEditUnlocked}
-              setRequestSent={setRequestSent}
-              requestSent={requestSent}
-              setShowGuideModal={setShowGuideModal}
-              hapticSelection={hapticSelection}
-              hapticWarning={hapticWarning}
-              hapticImpactLight={hapticImpactLight}
-              hapticSuccess={hapticSuccess}
-              handleLogout={handleLogout}
-              handleWithdrawAccount={handleWithdrawAccount}
-            />
-          )}
-
+            {showStudentShell && !coachStudentMode && tab === "profile" && (
+              <StudentProfilePage
+                authToken={authToken}
+                apiBase={API_BASE}
+                userEmail={userEmail}
+                meRole={meRole}
+                studentParentEmail={studentParentEmail}
+                setStudentParentEmail={setStudentParentEmail}
+                studentWaitingOnParent={studentWaitingOnParent}
+                studentWaitingOnMe={studentWaitingOnMe}
+                setStudentWaitingOnParent={setStudentWaitingOnParent}
+                setStudentWaitingOnMe={setStudentWaitingOnMe}
+                editUnlocked={editUnlocked}
+                setEditUnlocked={setEditUnlocked}
+                setShowGuideModal={setShowGuideModal}
+                hapticSelection={hapticSelection}
+                hapticWarning={hapticWarning}
+                hapticSuccess={hapticSuccess}
+                onUserEmailUpdated={(email: string) => {
+                  setUserEmail(email);
+                  try {
+                    localStorage.setItem("daechi_planner_user_email", email);
+                  } catch {
+                    // ignore
+                  }
+                }}
+                onLogoutPress={() => setAuthConfirmKind("logout")}
+                onWithdrawPress={() => setAuthConfirmKind("withdraw")}
+              />
+            )}
+            {showStudentShell && !coachStudentMode && tab !== "profile" && (
+              <StudentLegacyView
+                tab={tab}
+                apiBase={API_BASE}
+                authToken={authToken}
+                meRole={meRole}
+                blocks={blocks}
+                toggleDone={toggleDone}
+                studentLockStatus={studentLockStatus}
+                studentLockMessage={studentLockMessage}
+                timelineSyncError={timelineSyncError}
+                onDismissTimelineSyncError={() => setTimelineSyncError("")}
+                planRequestNotice={planRequestNotice}
+                onDismissPlanRequestNotice={() => setPlanRequestNotice("")}
+                progressWeekOffset={progressWeekOffset}
+                setProgressWeekOffset={setProgressWeekOffset}
+                progressBooks={progressBooks}
+                removeProgressBook={removeProgressBook}
+                tomorrowPlan={tomorrowPlan}
+                setTomorrowPlan={setTomorrowPlan}
+                saveTomorrowPlan={saveTomorrowPlan}
+                todayStudyEvaluation={todayStudyEvaluation}
+                setTodayStudyEvaluation={setTodayStudyEvaluation}
+                todayMetacognitionReflection={todayMetacognitionReflection}
+                setTodayMetacognitionReflection={setTodayMetacognitionReflection}
+                setBooksModalOpen={setBooksModalOpen}
+                onOpenAddPlan={openAddPlanModal}
+                setCheckSettingsOpen={setCheckSettingsOpen}
+                storeApps={storeApps}
+                storeLoading={storeLoading}
+                storeError={storeError}
+                storeSavingId={storeSavingId}
+                setStoreSavingId={setStoreSavingId}
+                setStoreError={setStoreError}
+                setStoreApps={setStoreApps}
+                resolvePreferredSerial={resolvePreferredSerial}
+                hapticSelection={hapticSelection}
+                hapticWarning={hapticWarning}
+                hapticImpactLight={hapticImpactLight}
+                hapticSuccess={hapticSuccess}
+              />
+            )}
+          </PageTransition>
         </main>
 
         <AppBottomNav
@@ -1268,19 +1747,21 @@ const App: React.FC = () => {
           onStudentNavClick={nextTab => {
               hapticSelection();
             setCoachStudentTab(null);
+            setCoachStudentCoachLayout("scroll");
             setTab(nextTab);
             window.location.hash =
               nextTab === "today"
                 ? "#/today"
-                : nextTab === "week"
-                  ? "#/week"
+                : nextTab === "records"
+                  ? "#/records"
                   : nextTab === "store"
                     ? "#/store"
-                    : "#/settings";
+                    : "#/profile";
           }}
           onCoachStudentNavClick={nextTab => {
               hapticSelection();
             setCoachStudentTab(nextTab);
+            setCoachStudentCoachLayout(nextTab === "coach" ? "chat" : "scroll");
             window.location.hash =
               nextTab === "coach" ? "#/student/coach" : "#/student/home";
           }}
@@ -1311,70 +1792,88 @@ const App: React.FC = () => {
 
         {showAddModal && (
           <div
-            className="dday-modal dday-modal--open"
-            onClick={() => setShowAddModal(false)}
+            className={
+              "dday-modal" +
+              (addModalReveal.revealed ? " dday-modal--open" : "")
+            }
+            onClick={() =>
+              addModalReveal.beginClose(() => setShowAddModal(false))
+            }
           >
             <div
-              className="dday-modal-inner"
+              className="dday-modal-inner dday-modal-inner--add-task"
               onClick={e => {
                 e.stopPropagation();
               }}
             >
               <div className="dday-modal-header">
-                <span className="dday-modal-title">할 일 추가</span>
+                <span className="dday-modal-title">오늘 계획 추가 요청</span>
               </div>
               <div className="dday-modal-body">
                 <div className="field">
-                  <label className="field-label">책</label>
-                  <select
-                    className="field-input"
-                    value={addBlockBookId != null ? String(addBlockBookId) : ""}
-                    onChange={e => {
-                      const v = e.target.value;
-                      setAddBlockBookId(v ? Number(v) : null);
-                    }}
-                  >
-                    <option value="">책을 선택하세요</option>
-                    {progressBooks.map(b => (
-                      <option key={b.id} value={b.id}>
-                        {b.name}
-                      </option>
-                    ))}
-                  </select>
-                  {progressBooks.length === 0 && (
+                  <label className="field-label" id="add-plan-book-label">
+                    책
+                  </label>
+                  {progressBooks.length > 0 ? (
+                    <div
+                      className="store-filter-row add-plan-book-picker"
+                      role="listbox"
+                      aria-labelledby="add-plan-book-label"
+                    >
+                      {progressBooks.map(b => (
+                        <button
+                          key={b.id}
+                          type="button"
+                          role="option"
+                          aria-selected={addBlockBookId === b.id}
+                          className={
+                            "store-filter-btn" +
+                            (addBlockBookId === b.id
+                              ? " store-filter-btn--active"
+                              : "")
+                          }
+                          onClick={() => {
+                            hapticSelection();
+                            setAddBlockBookId(b.id);
+                          }}
+                        >
+                          {b.name}
+                        </button>
+                      ))}
+                    </div>
+                  ) : (
                     <p className="settings-hint" style={{ marginTop: 6 }}>
-                      주간 탭의 책 관리에서 책을 먼저 추가해 주세요.
+                      등록된 책이 없습니다. 기록 탭에서 책을 추가해 주세요.
                     </p>
                   )}
                 </div>
                 <div className="field">
-                  <label className="field-label">계획</label>
+                  <label className="field-label">범위</label>
                   <input
                     className="field-input"
-                    placeholder="예: 10~20쪽, 2단원"
                     value={addBlockPlan}
                     onChange={e => setAddBlockPlan(e.target.value)}
                   />
                 </div>
-                <div className="add-row time-row">
-                  <div className="field time-field">
-                    <label className="field-label">시작</label>
-                    <input
-                      type="time"
-                      className="field-input"
-                      value={startInput}
-                      onChange={e => setStartInput(e.target.value)}
-                    />
-                  </div>
-                  <div className="time-divider">―</div>
-                  <div className="field time-field">
-                    <label className="field-label">종료</label>
-                    <input
-                      type="time"
-                      className="field-input"
-                      value={endInput}
-                      onChange={e => setEndInput(e.target.value)}
-                    />
+                <div className="field">
+                  <label className="field-label">시간</label>
+                  <div className="add-plan-time-inline-stack">
+                    <div className="add-plan-time-inline-row">
+                      <span className="add-plan-time-inline-label">시작</span>
+                      <TimePickerInline
+                        value={startInput}
+                        onChange={setStartInput}
+                        hapticSelection={hapticSelection}
+                      />
+                    </div>
+                    <div className="add-plan-time-inline-row">
+                      <span className="add-plan-time-inline-label">종료</span>
+                      <TimePickerInline
+                        value={endInput}
+                        onChange={setEndInput}
+                        hapticSelection={hapticSelection}
+                      />
+                    </div>
                   </div>
                 </div>
               </div>
@@ -1382,7 +1881,9 @@ const App: React.FC = () => {
                 <button
                   type="button"
                   className="modal-secondary"
-                  onClick={() => setShowAddModal(false)}
+                  onClick={() =>
+                    addModalReveal.beginClose(() => setShowAddModal(false))
+                  }
                 >
                   취소
                 </button>
@@ -1397,7 +1898,220 @@ const App: React.FC = () => {
                     !normalizeBlockTime(endInput)
                   }
                 >
-                  추가
+                  요청
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {showPlanAddNoParentModal && (
+          <div
+            className={
+              "dday-modal" +
+              (noParentPlanModalReveal.revealed ? " dday-modal--open" : "")
+            }
+            onClick={() =>
+              noParentPlanModalReveal.beginClose(() =>
+                setShowPlanAddNoParentModal(false)
+              )
+            }
+          >
+            <div
+              className="dday-modal-inner"
+              onClick={e => {
+                e.stopPropagation();
+              }}
+            >
+              <div className="dday-modal-header">
+                <span className="dday-modal-title">학부모 연결 필요</span>
+              </div>
+              <div className="dday-modal-body">
+                <p
+                  className="settings-hint"
+                  style={{ margin: 0, lineHeight: 1.5 }}
+                >
+                  오늘 계획 추가 요청을 보내려면 연결된 학부모 계정이 있어야 합니다.
+                  프로필에서 학부모와 계정을 먼저 연결해 주세요.
+                </p>
+              </div>
+              <div className="dday-modal-footer">
+                <button
+                  type="button"
+                  className="modal-primary"
+                  onClick={() =>
+                    noParentPlanModalReveal.beginClose(() =>
+                      setShowPlanAddNoParentModal(false)
+                    )
+                  }
+                >
+                  확인
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {parentPlanAddRequests.length > 0 && parentPlanAddRequests[0] ? (
+          <div
+            className={
+              "dday-modal" +
+              (parentPlanAddModalReveal.revealed ? " dday-modal--open" : "")
+            }
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="parent-plan-add-title"
+          >
+            <div
+              className="dday-modal-inner"
+              onClick={e => {
+                e.stopPropagation();
+              }}
+            >
+              <div className="dday-modal-header">
+                <span
+                  className="dday-modal-title"
+                  id="parent-plan-add-title"
+                >
+                  오늘 계획 추가를 허용하시겠습니까?
+                </span>
+              </div>
+              <div className="dday-modal-body">
+                <p
+                  className="settings-hint"
+                  style={{ margin: "0 0 10px", lineHeight: 1.5 }}
+                >
+                  자녀가 오늘 타임라인에 공부 블록 추가를 요청했습니다.
+                </p>
+                <div className="parent-plan-add-request-detail">
+                  <p className="parent-plan-add-request-line">
+                    <span className="parent-plan-add-request-k">자녀</span>{" "}
+                    {parentPlanAddRequests[0].student_email}
+                  </p>
+                  <p className="parent-plan-add-request-line">
+                    <span className="parent-plan-add-request-k">책</span>{" "}
+                    {parentPlanAddRequests[0].subject_snapshot}
+                  </p>
+                  {parentPlanAddRequests[0].planned_range ? (
+                    <p className="parent-plan-add-request-line">
+                      <span className="parent-plan-add-request-k">범위</span>{" "}
+                      {parentPlanAddRequests[0].planned_range}
+                    </p>
+                  ) : null}
+                  <p className="parent-plan-add-request-line">
+                    <span className="parent-plan-add-request-k">시간</span>{" "}
+                    {normalizeBlockTime(parentPlanAddRequests[0].start_time)} –{" "}
+                    {normalizeBlockTime(parentPlanAddRequests[0].end_time)}
+                  </p>
+                </div>
+              </div>
+              <div className="dday-modal-footer">
+                <button
+                  type="button"
+                  className="modal-secondary"
+                  disabled={parentPlanAddBusy}
+                  onClick={async () => {
+                    const head = parentPlanAddRequests[0];
+                    if (!authToken || !head) return;
+                    setParentPlanAddBusy(true);
+                    hapticSelection();
+                    try {
+                      const res = await fetch(
+                        `${API_BASE}/api/parent/plan-add-requests/${head.id}/reject`,
+                        {
+                          method: "POST",
+                          headers: { Authorization: `Bearer ${authToken}` }
+                        }
+                      );
+                      if (!res.ok) hapticWarning();
+                      else hapticSuccess();
+                      await refreshParentPlanAddRequests();
+                    } finally {
+                      setParentPlanAddBusy(false);
+                    }
+                  }}
+                >
+                  거절
+                </button>
+                <button
+                  type="button"
+                  className="modal-primary"
+                  disabled={parentPlanAddBusy}
+                  onClick={async () => {
+                    const head = parentPlanAddRequests[0];
+                    if (!authToken || !head) return;
+                    setParentPlanAddBusy(true);
+                    hapticImpactLight();
+                    try {
+                      const res = await fetch(
+                        `${API_BASE}/api/parent/plan-add-requests/${head.id}/approve`,
+                        {
+                          method: "POST",
+                          headers: { Authorization: `Bearer ${authToken}` }
+                        }
+                      );
+                      if (!res.ok) {
+                        hapticWarning();
+                      } else {
+                        hapticSuccess();
+                      }
+                      await refreshParentPlanAddRequests();
+                    } finally {
+                      setParentPlanAddBusy(false);
+                    }
+                  }}
+                >
+                  허용
+                </button>
+              </div>
+            </div>
+          </div>
+        ) : null}
+
+        {authConfirmKind && (
+          <div
+            className={
+              "dday-modal" +
+              (authConfirmReveal.revealed ? " dday-modal--open" : "")
+            }
+            onClick={() =>
+              authConfirmReveal.beginClose(() => setAuthConfirmKind(null))
+            }
+          >
+            <div
+              className="dday-modal-inner"
+              onClick={e => {
+                e.stopPropagation();
+              }}
+            >
+              <div className="dday-modal-header">
+                <span className="dday-modal-title">
+                  {authConfirmKind === "logout" ? "로그아웃" : "회원 탈퇴"}
+                </span>
+              </div>
+              <div className="dday-modal-body">
+                <p className="settings-hint" style={{ margin: 0, lineHeight: 1.5 }}>
+                  {authConfirmKind === "logout"
+                    ? "정말 로그아웃할까요?"
+                    : "정말 회원 탈퇴할까요? 이 작업은 되돌릴 수 없습니다."}
+                </p>
+              </div>
+              <div className="dday-modal-footer">
+                <button
+                  type="button"
+                  className="modal-secondary"
+                  onClick={() =>
+                    authConfirmReveal.beginClose(() => setAuthConfirmKind(null))
+                  }
+                >
+                  취소
+                </button>
+                <button
+                  type="button"
+                  className="modal-primary"
+                  onClick={confirmAuthAction}
+                >
+                  {authConfirmKind === "logout" ? "로그아웃" : "탈퇴하기"}
                 </button>
               </div>
             </div>
@@ -1406,11 +2120,16 @@ const App: React.FC = () => {
 
         {showRequestModal && (
           <div
-            className="modal-backdrop"
-            onClick={() => {
-              setShowRequestModal(false);
-              setRequestReason("");
-            }}
+            className={
+              "modal-backdrop" +
+              (requestModalReveal.revealed ? " modal-backdrop--open" : "")
+            }
+            onClick={() =>
+              requestModalReveal.beginClose(() => {
+                setShowRequestModal(false);
+                setRequestReason("");
+              })
+            }
           >
             <div
               className="modal-sheet"
@@ -1426,7 +2145,6 @@ const App: React.FC = () => {
                   <label className="field-label">사유</label>
                   <input
                     className="field-input"
-                    placeholder="예: 수행평가, 병원 일정"
                     value={requestReason}
                     onChange={e => setRequestReason(e.target.value)}
                   />
@@ -1436,10 +2154,12 @@ const App: React.FC = () => {
                 <button
                   type="button"
                   className="modal-secondary"
-                  onClick={() => {
-                    setShowRequestModal(false);
-                    setRequestReason("");
-                  }}
+                  onClick={() =>
+                    requestModalReveal.beginClose(() => {
+                      setShowRequestModal(false);
+                      setRequestReason("");
+                    })
+                  }
                 >
                   취소
                 </button>
@@ -1448,8 +2168,9 @@ const App: React.FC = () => {
                   className="modal-primary"
                   onClick={() => {
                     if (!requestReason.trim()) return;
-                    setRequestSent(true);
-                    setShowRequestModal(false);
+                    requestModalReveal.beginClose(() =>
+                      setShowRequestModal(false)
+                    );
                   }}
                   disabled={!requestReason.trim()}
                 >
@@ -1462,39 +2183,26 @@ const App: React.FC = () => {
 
         {showGuideModal && (
           <div
-            className="modal-backdrop"
-            onClick={() => setShowGuideModal(false)}
+            className={
+              "modal-backdrop" +
+              (guideModalReveal.revealed ? " modal-backdrop--open" : "")
+            }
+            onClick={() =>
+              guideModalReveal.beginClose(() => setShowGuideModal(false))
+            }
           >
             <div className="modal-sheet" onClick={e => e.stopPropagation()}>
               <div className="modal-header">
                 <span className="modal-title">앱 사용 설명서</span>
               </div>
-              <div className="modal-body">
-                <div className="field">
-                  <label className="field-label">핵심 안내</label>
-                  <div className="settings-hint" style={{ marginTop: 0, lineHeight: 1.6 }}>
-                    매일 정해진 시간 이후에는 오늘 계획 수정이 제한됩니다. 수정이 필요하면
-                    요청을 보내고 승인 후에 편집할 수 있습니다.
-                  </div>
-                </div>
-                <div className="field">
-                  <label className="field-label">오늘 공부</label>
-                  <div className="settings-hint" style={{ marginTop: 0, lineHeight: 1.6 }}>
-                    타임라인을 등록하고 완료 체크를 하며 진행률을 확인합니다.
-                  </div>
-                </div>
-                <div className="field">
-                  <label className="field-label">이번 주</label>
-                  <div className="settings-hint" style={{ marginTop: 0, lineHeight: 1.6 }}>
-                    주간 카드에서 계획과 진도를 확인하고 필요한 입력을 저장합니다.
-                  </div>
-                </div>
-              </div>
+              <div className="modal-body" />
               <div className="modal-footer">
                 <button
                   type="button"
                   className="modal-secondary"
-                  onClick={() => setShowGuideModal(false)}
+                  onClick={() =>
+                    guideModalReveal.beginClose(() => setShowGuideModal(false))
+                  }
                 >
                   닫기
                 </button>
@@ -1521,7 +2229,6 @@ const App: React.FC = () => {
                 <div className="books-add-row">
                   <input
                     className="field-input"
-                    placeholder="책 이름 입력"
                     value={newBookName}
                     onChange={e => setNewBookName(e.target.value)}
                   />
@@ -1598,8 +2305,17 @@ const App: React.FC = () => {
 
         {checkSettingsOpen && (
           <div
-            className="modal-backdrop"
-            onClick={() => setCheckSettingsOpen(false)}
+            className={
+              "modal-backdrop" +
+              (checkSettingsModalReveal.revealed
+                ? " modal-backdrop--open"
+                : "")
+            }
+            onClick={() =>
+              checkSettingsModalReveal.beginClose(() =>
+                setCheckSettingsOpen(false)
+              )
+            }
           >
             <div
               className="modal-sheet"
@@ -1632,14 +2348,22 @@ const App: React.FC = () => {
                 <button
                   type="button"
                   className="modal-secondary"
-                  onClick={() => setCheckSettingsOpen(false)}
+                  onClick={() =>
+                    checkSettingsModalReveal.beginClose(() =>
+                      setCheckSettingsOpen(false)
+                    )
+                  }
                 >
                   닫기
                 </button>
                 <button
                   type="button"
                   className="modal-primary"
-                  onClick={() => setCheckSettingsOpen(false)}
+                  onClick={() =>
+                    checkSettingsModalReveal.beginClose(() =>
+                      setCheckSettingsOpen(false)
+                    )
+                  }
                 >
                   저장
                 </button>

@@ -43,6 +43,72 @@ async function main() {
   } catch {
     // ignore
   }
+  try {
+    await pool.query(`
+      ALTER TABLE student_coach_logs ADD COLUMN IF NOT EXISTS tomorrow_practice TEXT;
+    `);
+  } catch {
+    // ignore
+  }
+  try {
+    await pool.query(`
+      ALTER TABLE student_coach_logs ADD COLUMN IF NOT EXISTS study_evaluation TEXT;
+    `);
+  } catch {
+    // ignore
+  }
+  try {
+    await pool.query(`
+      ALTER TABLE student_coach_logs ADD COLUMN IF NOT EXISTS metacognition_reflection TEXT;
+    `);
+  } catch {
+    // ignore
+  }
+  try {
+    await pool.query(`
+      ALTER TABLE student_coach_logs ADD COLUMN IF NOT EXISTS tomorrow_practice_done BOOLEAN;
+    `);
+  } catch {
+    // ignore
+  }
+  try {
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS parent_plan_add_requests (
+        id BIGSERIAL PRIMARY KEY,
+        student_user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        target_date TEXT NOT NULL,
+        book_id BIGINT NOT NULL REFERENCES study_books(id) ON DELETE CASCADE,
+        planned_range TEXT,
+        start_time TEXT NOT NULL,
+        end_time TEXT NOT NULL,
+        subject_snapshot TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'pending'
+          CHECK (status IN ('pending', 'approved', 'rejected')),
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        resolved_at TIMESTAMPTZ,
+        resolved_by_parent_user_id BIGINT NULL REFERENCES users(id) ON DELETE SET NULL
+      );
+    `);
+  } catch {
+    // ignore
+  }
+  try {
+    await pool.query(`
+      CREATE INDEX IF NOT EXISTS idx_ppadd_pending_parent_queue
+        ON parent_plan_add_requests (status, created_at);
+    `);
+  } catch {
+    // ignore
+  }
+  try {
+    await pool.query(`
+      CREATE INDEX IF NOT EXISTS idx_ppadd_student_pending
+        ON parent_plan_add_requests (student_user_id)
+        WHERE status = 'pending';
+    `);
+  } catch {
+    // ignore
+  }
 }
 
 main()

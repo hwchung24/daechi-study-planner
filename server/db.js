@@ -69,6 +69,30 @@ async function getMe(userId) {
   return res.rows[0] || null;
 }
 
+async function getUserByIdForAuth(userId) {
+  const res = await query(
+    "SELECT id, email, password_hash, role FROM users WHERE id = $1",
+    [userId]
+  );
+  return res.rows[0] || null;
+}
+
+async function updateUserEmail(userId, newEmail) {
+  const trimmed = String(newEmail).trim().toLowerCase();
+  const res = await query(
+    "UPDATE users SET email = $1 WHERE id = $2 RETURNING id, email, role",
+    [trimmed, userId]
+  );
+  return res.rows[0] || null;
+}
+
+async function updateUserPasswordHash(userId, passwordHash) {
+  await query("UPDATE users SET password_hash = $1 WHERE id = $2", [
+    passwordHash,
+    userId
+  ]);
+}
+
 async function deleteUser(userId) {
   const res = await query("DELETE FROM users WHERE id = $1", [userId]);
   return res.rowCount > 0;
@@ -872,7 +896,11 @@ async function hasStudyPlanContentForDate(userId, date) {
          JOIN study_plans sp ON sp.study_day_id = sd.id
          WHERE sd.user_id = $1
            AND sd.date = $2
-           AND COALESCE(NULLIF(BTRIM(sp.planned_range), ''), NULLIF(sp.start_time, ''), NULLIF(sp.end_time, '')) IS NOT NULL
+           AND (
+             NULLIF(BTRIM(COALESCE(sp.planned_range, '')), '') IS NOT NULL
+             OR NULLIF(TRIM(COALESCE(sp.start_time::text, '')), '') IS NOT NULL
+             OR NULLIF(TRIM(COALESCE(sp.end_time::text, '')), '') IS NOT NULL
+           )
        ) AS has_plans`,
     [userId, date]
   );
@@ -1138,8 +1166,8 @@ async function getStudentCoachProfile(userId) {
 async function insertStudentCoachLog(userId, log = {}) {
   const res = await query(
     `INSERT INTO student_coach_logs
-      (user_id, log_date, sleep_hours, steps, meals_regularity, concentration_score, stress_score, phone_distractions, study_minutes, plan_completion_rate, memo)
-     VALUES ($1, COALESCE($2::date, CURRENT_DATE), $3, $4, $5, $6, $7, $8, $9, $10, $11)
+      (user_id, log_date, sleep_hours, steps, meals_regularity, concentration_score, stress_score, phone_distractions, study_minutes, plan_completion_rate, memo, tomorrow_practice, tomorrow_practice_done, study_evaluation, metacognition_reflection)
+     VALUES ($1, COALESCE($2::date, (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Seoul')::date), $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
      RETURNING *`,
     [
       userId,
@@ -1152,10 +1180,140 @@ async function insertStudentCoachLog(userId, log = {}) {
       Number.isFinite(Number(log.phoneDistractions)) ? Number(log.phoneDistractions) : null,
       Number.isFinite(Number(log.studyMinutes)) ? Number(log.studyMinutes) : null,
       Number.isFinite(Number(log.planCompletionRate)) ? Number(log.planCompletionRate) : null,
-      log.memo || null
+      log.memo || null,
+      log.tomorrowPractice || null,
+      Object.prototype.hasOwnProperty.call(log, "tomorrowPracticeDone")
+        ? log.tomorrowPracticeDone === null || log.tomorrowPracticeDone === undefined
+          ? null
+          : Boolean(log.tomorrowPracticeDone)
+        : null,
+      log.studyEvaluation || null,
+      log.metacognitionReflection || null
     ]
   );
   return res.rows[0] || null;
+}
+
+/** 같은 user+날짜는 하루 한 행만 유지 (재저장 시 그래프에 최신값 반영) */
+async function upsertStudentCoachLog(userId, log = {}) {
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    const prevRes = await client.query(
+      `SELECT tomorrow_practice_done FROM student_coach_logs
+       WHERE user_id = $1 AND log_date = COALESCE($2::date, (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Seoul')::date)`,
+      [userId, log.date || null]
+    );
+    const prevDone = prevRes.rows[0]?.tomorrow_practice_done;
+    let mergedDone = prevDone ?? null;
+    if (Object.prototype.hasOwnProperty.call(log, "tomorrowPracticeDone")) {
+      mergedDone =
+        log.tomorrowPracticeDone === null || log.tomorrowPracticeDone === undefined
+          ? null
+          : Boolean(log.tomorrowPracticeDone);
+    }
+    await client.query(
+      `DELETE FROM student_coach_logs
+       WHERE user_id = $1 AND log_date = COALESCE($2::date, (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Seoul')::date)`,
+      [userId, log.date || null]
+    );
+    const res = await client.query(
+      `INSERT INTO student_coach_logs
+        (user_id, log_date, sleep_hours, steps, meals_regularity, concentration_score, stress_score, phone_distractions, study_minutes, plan_completion_rate, memo, tomorrow_practice, tomorrow_practice_done, study_evaluation, metacognition_reflection)
+       VALUES ($1, COALESCE($2::date, (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Seoul')::date), $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
+       RETURNING *`,
+      [
+        userId,
+        log.date || null,
+        Number.isFinite(Number(log.sleepHours)) ? Number(log.sleepHours) : null,
+        Number.isFinite(Number(log.steps)) ? Number(log.steps) : null,
+        Number.isFinite(Number(log.mealsRegularity)) ? Number(log.mealsRegularity) : null,
+        Number.isFinite(Number(log.concentrationScore)) ? Number(log.concentrationScore) : null,
+        Number.isFinite(Number(log.stressScore)) ? Number(log.stressScore) : null,
+        Number.isFinite(Number(log.phoneDistractions)) ? Number(log.phoneDistractions) : null,
+        Number.isFinite(Number(log.studyMinutes)) ? Number(log.studyMinutes) : null,
+        Number.isFinite(Number(log.planCompletionRate)) ? Number(log.planCompletionRate) : null,
+        log.memo || null,
+        log.tomorrowPractice || null,
+        mergedDone,
+        log.studyEvaluation || null,
+        log.metacognitionReflection || null
+      ]
+    );
+    await client.query("COMMIT");
+    return res.rows[0] || null;
+  } catch (e) {
+    await client.query("ROLLBACK");
+    throw e;
+  } finally {
+    client.release();
+  }
+}
+
+/** 기록「내일 실천할 한 가지」만 갱신 (코치 계획 탭 반영 등, 다른 컬럼 유지) */
+async function setStudentCoachLogTomorrowPractice(userId, text) {
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    const upd = await client.query(
+      `UPDATE student_coach_logs SET tomorrow_practice = $2
+       WHERE user_id = $1 AND log_date = (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Seoul')::date`,
+      [userId, text || null]
+    );
+    if (upd.rowCount === 0) {
+      await client.query(
+        `INSERT INTO student_coach_logs (user_id, log_date, tomorrow_practice)
+         VALUES ($1, (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Seoul')::date, $2)`,
+        [userId, text || null]
+      );
+    }
+    const sel = await client.query(
+      `SELECT * FROM student_coach_logs
+       WHERE user_id = $1 AND log_date = (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Seoul')::date
+       LIMIT 1`,
+      [userId]
+    );
+    await client.query("COMMIT");
+    return sel.rows[0] || null;
+  } catch (e) {
+    await client.query("ROLLBACK");
+    throw e;
+  } finally {
+    client.release();
+  }
+}
+
+/** 오늘 공부 탭에서 어제 적은 실천 약속 이행 여부만 갱신 (전체 기록 저장 없이) */
+async function setStudentCoachLogTomorrowPracticeDone(userId, done) {
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    const upd = await client.query(
+      `UPDATE student_coach_logs SET tomorrow_practice_done = $2
+       WHERE user_id = $1 AND log_date = (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Seoul')::date`,
+      [userId, Boolean(done)]
+    );
+    if (upd.rowCount === 0) {
+      await client.query(
+        `INSERT INTO student_coach_logs (user_id, log_date, tomorrow_practice_done)
+         VALUES ($1, (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Seoul')::date, $2)`,
+        [userId, Boolean(done)]
+      );
+    }
+    const sel = await client.query(
+      `SELECT * FROM student_coach_logs
+       WHERE user_id = $1 AND log_date = (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Seoul')::date
+       LIMIT 1`,
+      [userId]
+    );
+    await client.query("COMMIT");
+    return sel.rows[0] || null;
+  } catch (e) {
+    await client.query("ROLLBACK");
+    throw e;
+  } finally {
+    client.release();
+  }
 }
 
 async function listRecentStudentCoachLogs(userId, limit = 14) {
@@ -1166,6 +1324,20 @@ async function listRecentStudentCoachLogs(userId, limit = 14) {
      ORDER BY log_date DESC, created_at DESC
      LIMIT $2`,
     [userId, Math.max(1, Number(limit) || 14)]
+  );
+  return res.rows;
+}
+
+/** 이번 주(월요일 weekMondayIso ~ 일요일) 로그 — 앱 getWeekDays(0)과 날짜 키 일치 */
+async function listStudentCoachLogsInWeekRange(userId, weekMondayIso) {
+  const res = await query(
+    `SELECT *
+     FROM student_coach_logs
+     WHERE user_id = $1
+       AND log_date >= $2::date
+       AND log_date <= ($2::date + interval '6 days')::date
+     ORDER BY log_date DESC, created_at DESC`,
+    [userId, weekMondayIso]
   );
   return res.rows;
 }
@@ -1192,6 +1364,236 @@ async function listRecentStudentCoachMessages(userId, limit = 20) {
   return res.rows.reverse();
 }
 
+function hhmmFromDb(t) {
+  const s = String(t ?? "").trim();
+  if (!s) return "";
+  return s.length >= 5 ? s.slice(0, 5) : s;
+}
+
+function blockTimeSortKeyMin(t) {
+  const m = String(t ?? "")
+    .trim()
+    .match(/^(\d{1,2}):(\d{2})/);
+  if (!m) return 0;
+  return Number(m[1]) * 60 + Number(m[2]);
+}
+
+async function getStudyBlocksReplacePayloadForDate(userId, dateStr) {
+  const d = String(dateStr || "")
+    .trim()
+    .slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(d)) return [];
+  const dayRes = await query(
+    `SELECT sd.id FROM study_days sd
+     WHERE sd.user_id = $1
+       AND left(split_part(trim(COALESCE(sd.date::text, '')), 'T', 1), 10) = $2`,
+    [userId, d]
+  );
+  if (dayRes.rows.length === 0) return [];
+  const studyDayId = dayRes.rows[0].id;
+  const hasExtended = await studyBlocksHasExtendedCols();
+  const sel = hasExtended
+    ? "subject, start_time, end_time, done, focus_score, book_id, planned_range"
+    : "subject, start_time, end_time, done, focus_score";
+  const blocksRes = await query(
+    `SELECT ${sel} FROM study_blocks WHERE study_day_id = $1 ORDER BY start_time ASC`,
+    [studyDayId]
+  );
+  return blocksRes.rows.map(row => {
+    const base = {
+      subject: row.subject,
+      startTime: hhmmFromDb(row.start_time),
+      endTime: hhmmFromDb(row.end_time),
+      done: !!row.done,
+      focusScore: row.focus_score || null
+    };
+    if (hasExtended) {
+      const bid = row.book_id;
+      return {
+        ...base,
+        bookId: bid != null ? Number(bid) : null,
+        plannedRange:
+          row.planned_range != null && String(row.planned_range).trim() !== ""
+            ? String(row.planned_range).trim()
+            : null
+      };
+    }
+    return base;
+  });
+}
+
+function sortReplaceBlocks(blocks) {
+  return [...blocks].sort(
+    (a, b) => blockTimeSortKeyMin(a.startTime) - blockTimeSortKeyMin(b.startTime)
+  );
+}
+
+async function countLinkedParentsForStudent(studentUserId) {
+  const r = await query(
+    `SELECT COUNT(*)::int AS c FROM parents_students WHERE student_id = $1`,
+    [studentUserId]
+  );
+  return Number(r.rows[0]?.c) || 0;
+}
+
+async function getActiveStudyBookForStudent(userId, bookId) {
+  const res = await query(
+    `SELECT id, name FROM study_books WHERE id = $1 AND user_id = $2 AND active = true`,
+    [bookId, userId]
+  );
+  return res.rows[0] || null;
+}
+
+async function createParentPlanAddRequest({
+  studentUserId,
+  targetDate,
+  bookId,
+  plannedRange,
+  startTime,
+  endTime,
+  subjectSnapshot
+}) {
+  const hm = v => {
+    const t = String(v ?? "").trim();
+    return t.length >= 5 ? t.slice(0, 5) : t;
+  };
+  const res = await query(
+    `INSERT INTO parent_plan_add_requests
+     (student_user_id, target_date, book_id, planned_range, start_time, end_time, subject_snapshot, status)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, 'pending')
+     RETURNING *`,
+    [
+      studentUserId,
+      String(targetDate).slice(0, 10),
+      bookId,
+      plannedRange != null && String(plannedRange).trim() !== ""
+        ? String(plannedRange).trim()
+        : null,
+      hm(startTime),
+      hm(endTime),
+      String(subjectSnapshot).trim()
+    ]
+  );
+  return res.rows[0] || null;
+}
+
+async function listPendingPlanAddRequestsForParent(parentUserId) {
+  const res = await query(
+    `SELECT r.id, r.student_user_id, r.target_date, r.book_id, r.planned_range,
+            r.start_time, r.end_time, r.subject_snapshot, r.created_at,
+            u.email AS student_email
+     FROM parent_plan_add_requests r
+     INNER JOIN users u ON u.id = r.student_user_id
+     INNER JOIN parents p ON p.user_id = $1
+     INNER JOIN parents_students ps ON ps.parent_id = p.id AND ps.student_id = r.student_user_id
+     WHERE r.status = 'pending'
+     ORDER BY r.created_at ASC`,
+    [parentUserId]
+  );
+  return res.rows;
+}
+
+async function approvePlanAddRequestByParent(requestId, parentUserId) {
+  const reqRow = await query(
+    `SELECT * FROM parent_plan_add_requests WHERE id = $1 AND status = 'pending'`,
+    [requestId]
+  );
+  if (reqRow.rows.length === 0) {
+    return { ok: false, error: "요청을 찾을 수 없거나 이미 처리되었습니다." };
+  }
+  const row = reqRow.rows[0];
+  const studentId = Number(row.student_user_id);
+  const has = await parentHasStudent(parentUserId, studentId);
+  if (!has) {
+    return { ok: false, error: "연결된 자녀의 요청만 처리할 수 있습니다." };
+  }
+  const bookCheck = await query(
+    `SELECT id FROM study_books WHERE id = $1 AND user_id = $2 AND active = true`,
+    [row.book_id, studentId]
+  );
+  if (bookCheck.rows.length === 0) {
+    await query(
+      `UPDATE parent_plan_add_requests SET status = 'rejected', resolved_at = now(),
+       resolved_by_parent_user_id = $2 WHERE id = $1`,
+      [requestId, parentUserId]
+    );
+    return { ok: false, error: "해당 책이 더 이상 없어 요청을 닫았습니다." };
+  }
+  const existing = await getStudyBlocksReplacePayloadForDate(
+    studentId,
+    row.target_date
+  );
+  const hasExtended = await studyBlocksHasExtendedCols();
+  const newBlock = hasExtended
+    ? {
+        subject: row.subject_snapshot,
+        startTime: hhmmFromDb(row.start_time),
+        endTime: hhmmFromDb(row.end_time),
+        done: false,
+        focusScore: null,
+        bookId: Number(row.book_id),
+        plannedRange:
+          row.planned_range != null && String(row.planned_range).trim() !== ""
+            ? String(row.planned_range).trim()
+            : null
+      }
+    : {
+        subject: row.subject_snapshot,
+        startTime: hhmmFromDb(row.start_time),
+        endTime: hhmmFromDb(row.end_time),
+        done: false,
+        focusScore: null
+      };
+  const merged = sortReplaceBlocks([...existing, newBlock]);
+  await replaceStudyBlocks(studentId, row.target_date, merged);
+  await query(
+    `UPDATE parent_plan_add_requests
+     SET status = 'approved', resolved_at = now(), resolved_by_parent_user_id = $2
+     WHERE id = $1`,
+    [requestId, parentUserId]
+  );
+  return { ok: true };
+}
+
+async function rejectPlanAddRequestByParent(requestId, parentUserId) {
+  const reqRow = await query(
+    `SELECT * FROM parent_plan_add_requests WHERE id = $1 AND status = 'pending'`,
+    [requestId]
+  );
+  if (reqRow.rows.length === 0) {
+    return { ok: false, error: "요청을 찾을 수 없거나 이미 처리되었습니다." };
+  }
+  const row = reqRow.rows[0];
+  const has = await parentHasStudent(
+    parentUserId,
+    Number(row.student_user_id)
+  );
+  if (!has) {
+    return { ok: false, error: "연결된 자녀의 요청만 처리할 수 있습니다." };
+  }
+  await query(
+    `UPDATE parent_plan_add_requests
+     SET status = 'rejected', resolved_at = now(), resolved_by_parent_user_id = $2
+     WHERE id = $1`,
+    [requestId, parentUserId]
+  );
+  return { ok: true };
+}
+
+async function countUnreadStudentNotifications(userId) {
+  try {
+    const r = await query(
+      `SELECT COUNT(*)::int AS c
+       FROM student_in_app_notifications
+       WHERE user_id = $1 AND read_at IS NULL`,
+      [userId]
+    );
+    return Number(r.rows[0]?.c) || 0;
+  } catch {
+    return 0;
+  }
+}
+
 module.exports = {
   pool,
   query,
@@ -1199,6 +1601,9 @@ module.exports = {
   findUserByEmail,
   createUser,
   getMe,
+  getUserByIdForAuth,
+  updateUserEmail,
+  updateUserPasswordHash,
   deleteUser,
   listParentStudents,
   parentRequestLink,
@@ -1234,9 +1639,14 @@ module.exports = {
   upsertStudentCoachProfile,
   getStudentCoachProfile,
   insertStudentCoachLog,
+  upsertStudentCoachLog,
+  setStudentCoachLogTomorrowPractice,
+  setStudentCoachLogTomorrowPracticeDone,
   listRecentStudentCoachLogs,
+  listStudentCoachLogsInWeekRange,
   insertStudentCoachMessage,
   listRecentStudentCoachMessages,
+  countUnreadStudentNotifications,
   getOrCreateStudyDay,
   replaceStudyBlocks,
   upsertStudyPlans,
@@ -1244,7 +1654,13 @@ module.exports = {
   getStudyPlansForDate,
   listStudyBooks,
   createStudyBook,
-  softDeleteStudyBook
+  softDeleteStudyBook,
+  countLinkedParentsForStudent,
+  getActiveStudyBookForStudent,
+  createParentPlanAddRequest,
+  listPendingPlanAddRequestsForParent,
+  approvePlanAddRequestByParent,
+  rejectPlanAddRequestByParent
 };
 
 

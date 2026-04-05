@@ -1,4 +1,5 @@
 import React, { useMemo } from "react";
+import { TabTransitionPanel } from "../../components/PageTransition";
 import { Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { demoDailyLogs, demoParents, demoStudents } from "../demoData";
 import { buildWeeklyInsight } from "../ai/insight-engine";
@@ -214,7 +215,9 @@ export function ParentCoachApp(props: {
 
   return (
     <div className="coach-shell">
-      {view}
+      <TabTransitionPanel tabKey={props.tab} className="coach-shell__tab-panel">
+        {view}
+      </TabTransitionPanel>
     </div>
   );
 }

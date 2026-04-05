@@ -6,8 +6,9 @@ const TOKEN_STORAGE_KEY = "daechi_planner_token";
 export function parseStudentTabFromHash() {
   if (typeof window === "undefined") return "today" as const;
   const h = window.location.hash;
-  if (h === "#/settings") return "settings" as const;
-  if (h === "#/week") return "week" as const;
+  if (h === "#/profile" || h === "#/settings") return "profile" as const;
+  if (h === "#/notifications") return "notifications" as const;
+  if (h === "#/records" || h === "#/week") return "records" as const;
   if (h === "#/store") return "store" as const;
   return "today" as const;
 }
@@ -20,6 +21,29 @@ export function parseCoachStudentTabFromHash() {
   const seg = (path || "home").replace(/^\/+/, "");
   if (seg === "coach" || seg === "chat") return "coach" as const;
   return "home" as const;
+}
+
+/** 코치 통합 탭(분석/계획/학습 코칭) — URL `?panel=plan` 등 */
+export type CoachStudentPanelParam = "plan" | "analysis" | "chat";
+
+export function readCoachPanelParamFromHash(hash: string): CoachStudentPanelParam | null {
+  if (!hash.startsWith("#/student/")) return null;
+  const q = hash.indexOf("?");
+  if (q < 0) return null;
+  const p = new URLSearchParams(hash.slice(q + 1)).get("panel");
+  if (p === "plan" || p === "analysis" || p === "chat") return p;
+  return null;
+}
+
+export function stripCoachPanelParamFromHash(hash: string): string {
+  if (!hash.includes("?")) return hash;
+  const q = hash.indexOf("?");
+  const base = hash.slice(0, q);
+  const params = new URLSearchParams(hash.slice(q + 1));
+  if (!params.has("panel")) return hash;
+  params.delete("panel");
+  const s = params.toString();
+  return s ? `${base}?${s}` : base;
 }
 
 export function parseCoachParentTabFromHash() {

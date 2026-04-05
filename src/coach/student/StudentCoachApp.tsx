@@ -1,40 +1,59 @@
-import React, { useEffect, useMemo, useState } from "react";
-import { Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
+import React, {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState
+} from "react";
 import { motion } from "framer-motion";
-import { demoDailyLogs, demoStudents } from "../demoData";
-import { buildWeeklyInsight } from "../ai/insight-engine";
-import { useCoachStore } from "../state/useCoachStore";
-import type { NextAction } from "../types";
+import { TabTransitionPanel } from "../../components/PageTransition";
+import { demoStudents } from "../demoData";
+import { useCoachStore, type CoachChatGreetingMode } from "../state/useCoachStore";
+import type { Severity } from "../types";
 import { Card, EmptyState, RiskBadge, SectionHeader, StatPill } from "../ui/components";
 import { API_BASE } from "../../lib/apiBase";
+import {
+  DAECHI_COACH_INITIAL_PANEL_KEY,
+  DAECHI_COACH_LOG_SAVED_EVENT,
+  DAECHI_COACH_LOG_SAVED_STORAGE_KEY
+} from "../../lib/coachEvents";
+import {
+  readCoachPanelParamFromHash,
+  stripCoachPanelParamFromHash
+} from "../../lib/hashRouteUtils";
+import {
+  getWeekDaysSeoul,
+  getWeekStartKeySeoul,
+  seoulDateKeyFromApiValue
+} from "../../lib/weekDates";
+import { useEffectiveBearer } from "../../lib/useEffectiveBearer";
+import type { ProgressBook, ProgressPlan, StudyBlock } from "../../types/planner";
+import { CoachAvatar } from "../CoachAvatar";
+import { CoachTomorrowPlanCollab } from "./CoachTomorrowPlanCollab";
 
 export type StudentTabKey = "home" | "coach";
 
-function ActionChecklist({ actions }: { actions: NextAction[] }) {
-  const done = useCoachStore(s => s.completedActionIds);
-  const toggle = useCoachStore(s => s.toggleActionDone);
-  return (
-    <div className="coach-action-list">
-      {actions.map(a => {
-        const checked = Boolean(done[a.id]);
-        return (
-          <button
-            key={a.id}
-            type="button"
-            className={"coach-action" + (checked ? " is-done" : "")}
-            onClick={() => toggle(a.id)}
-          >
-            <span className={"coach-action__check" + (checked ? " on" : "")} aria-hidden />
-            <div className="coach-action__content">
-              <div className="coach-action__title">{a.title}</div>
-              {a.detail && <div className="coach-action__detail">{a.detail}</div>}
-            </div>
-            {a.tag && <span className="coach-tag">{a.tag}</span>}
-          </button>
-        );
-      })}
-    </div>
-  );
+type CoachPanelKey = "analysis" | "plan" | "chat";
+
+/** Strict Mode 이중 마운트에서도 URL·sessionStorage 기준으로 동일하게 시작 (초기화에서 storage는 제거하지 않음) */
+function readInitialCoachPanelFromWindow(entryTab: StudentTabKey): CoachPanelKey {
+  if (typeof window === "undefined") {
+    return entryTab === "coach" ? "chat" : "analysis";
+  }
+  const fromHash = readCoachPanelParamFromHash(window.location.hash);
+  if (fromHash) return fromHash;
+  try {
+    const v = sessionStorage.getItem(DAECHI_COACH_INITIAL_PANEL_KEY);
+    if (v === "plan" || v === "analysis" || v === "chat") return v;
+  } catch {
+    // ignore
+  }
+  return entryTab === "coach" ? "chat" : "analysis";
+}
+
+function formatCoachLogDateKey(raw: string | undefined | null): string {
+  return seoulDateKeyFromApiValue(raw ?? "");
 }
 
 function PatternCard(props: {
@@ -60,17 +79,45 @@ function PatternCard(props: {
   );
 }
 
-function useCoachApiToken() {
-  const [token, setToken] = useState("");
-  useEffect(() => {
-    try {
-      setToken(String(localStorage.getItem("daechi_planner_token") || ""));
-    } catch {
-      setToken("");
-    }
-  }, []);
-  return token;
+type RemoteCoachLogRow = {
+  date: string;
+  sleepHours: number | null;
+  concentrationScore: number | null;
+  stressScore: number | null;
+  steps: number | null;
+  planCompletionRate: number | null;
+  studyMinutes: number | null;
+};
+
+function numOrNull(a: unknown, b?: unknown): number | null {
+  const n = Number(a ?? b);
+  return Number.isFinite(n) ? n : null;
 }
+
+/** coach/state 응답이 camelCase가 아닐 때(프록시·구버전)에도 그래프에 매칭되게 */
+function normalizeRemoteCoachLog(raw: unknown): RemoteCoachLogRow | null {
+  if (!raw || typeof raw !== "object") return null;
+  const o = raw as Record<string, unknown>;
+  const date = formatCoachLogDateKey(String(o.date ?? o.log_date ?? ""));
+  if (!date) return null;
+  return {
+    date,
+    sleepHours: numOrNull(o.sleepHours, o.sleep_hours),
+    concentrationScore: numOrNull(o.concentrationScore, o.concentration_score),
+    stressScore: numOrNull(o.stressScore, o.stress_score),
+    steps: numOrNull(o.steps),
+    planCompletionRate: numOrNull(o.planCompletionRate, o.plan_completion_rate),
+    studyMinutes: numOrNull(o.studyMinutes, o.study_minutes)
+  };
+}
+
+type AiPatternRow = {
+  key: string;
+  title: string;
+  severity: string;
+  explanation: string;
+  recommendation: string;
+};
 
 type RemoteCoachState = {
   snapshot?: {
@@ -93,373 +140,730 @@ type RemoteCoachState = {
     };
     nextActions?: string[];
   };
+  logs?: RemoteCoachLogRow[];
 };
 
-type LocalStudentProfile = {
-  avatarUrl?: string;
-  goal?: string;
+/** DB 코치 로그 → 이번 주(월~일) 리듬 그래프용 포인트 (없는 날은 null) */
+type RhythmChartRow = {
+  date: string;
+  concentration: number | null;
+  studyMinutes: number | null;
+  sleepHours: number | null;
+  stressScore: number | null;
+  planCompletionRate: number | null;
 };
 
-function HomeTabConnected() {
-  const token = useCoachApiToken();
+function buildRhythmChartRowsFromLogs(
+  apiLogs: RemoteCoachLogRow[] | undefined,
+  offsetWeeks: number
+): RhythmChartRow[] {
+  const weekDays = getWeekDaysSeoul(offsetWeeks);
+  const byDate = new Map<string, RemoteCoachLogRow>();
+  for (const row of apiLogs || []) {
+    const k = formatCoachLogDateKey(row.date);
+    if (k && !byDate.has(k)) byDate.set(k, row);
+  }
+  return weekDays.map(({ key }) => {
+    const r = byDate.get(key);
+    if (!r) {
+      return {
+        date: key,
+        concentration: null,
+        studyMinutes: null,
+        sleepHours: null,
+        stressScore: null,
+        planCompletionRate: null
+      };
+    }
+    const concRaw =
+      r.concentrationScore != null && Number.isFinite(Number(r.concentrationScore))
+        ? Number(r.concentrationScore)
+        : null;
+    const concentration =
+      concRaw == null ? null : Math.round((concRaw / 5) * 100);
+    const sleep =
+      r.sleepHours != null && Number.isFinite(Number(r.sleepHours))
+        ? Number(r.sleepHours)
+        : null;
+    const stress =
+      r.stressScore != null && Number.isFinite(Number(r.stressScore))
+        ? Number(r.stressScore)
+        : null;
+    const study =
+      r.studyMinutes != null && Number.isFinite(Number(r.studyMinutes))
+        ? Number(r.studyMinutes)
+        : null;
+    const plan =
+      r.planCompletionRate != null &&
+      Number.isFinite(Number(r.planCompletionRate))
+        ? Number(r.planCompletionRate)
+        : null;
+    return {
+      date: key,
+      concentration,
+      studyMinutes: study,
+      sleepHours: sleep,
+      stressScore: stress,
+      planCompletionRate: plan
+    };
+  });
+}
+
+type RhythmMetricKey = Exclude<keyof RhythmChartRow, "date">;
+
+/** Recharts 3 Line은 값이 드물 때 점/선이 안 그려지는 경우가 있어 SVG로 고정 렌더 */
+function CoachRhythmSparkline(props: {
+  rows: RhythmChartRow[];
+  dataKey: RhythmMetricKey;
+  yDomain: [number, number];
+  valueFormatter: (v: number) => string;
+}) {
+  const { rows, dataKey, yDomain, valueFormatter } = props;
+  const w = 308;
+  const h = 168;
+  const padL = 36;
+  const padR = 6;
+  const padT = 8;
+  const padB = 36;
+  const innerW = w - padL - padR;
+  const innerH = h - padT - padB;
+  const [yMin, yMax] = yDomain;
+  const ySpan = Math.max(yMax - yMin, 1e-6);
+  const n = Math.max(rows.length, 1);
+
+  const pts = rows.map((row, i) => {
+    const raw = row[dataKey];
+    const v =
+      raw == null || !Number.isFinite(Number(raw)) ? null : Number(raw);
+    const x = padL + (innerW * (i + 0.5)) / n;
+    const y = v == null ? null : padT + innerH * (1 - (v - yMin) / ySpan);
+    return { x, y, v, date: row.date };
+  });
+
+  const segments: { x1: number; y1: number; x2: number; y2: number }[] = [];
+  for (let i = 0; i < pts.length - 1; i++) {
+    const a = pts[i];
+    const b = pts[i + 1];
+    if (a.y != null && b.y != null) {
+      segments.push({ x1: a.x, y1: a.y, x2: b.x, y2: b.y });
+    }
+  }
+
+  const labelShort = (dateKey: string) => String(dateKey).replace(/^\d{4}-/, "");
+
+  return (
+    <svg
+      width="100%"
+      height={h}
+      viewBox={`0 0 ${w} ${h}`}
+      preserveAspectRatio="xMidYMid meet"
+      role="img"
+      aria-label="이번 주 리듬"
+      style={{ display: "block", maxWidth: "100%", minWidth: 280 }}
+    >
+      {[0, 0.5, 1].map(t => {
+        const gy = padT + innerH * (1 - t);
+        return (
+          <line
+            key={t}
+            x1={padL}
+            y1={gy}
+            x2={padL + innerW}
+            y2={gy}
+            stroke="rgba(148,163,184,0.35)"
+            strokeWidth={1}
+          />
+        );
+      })}
+      <text x={2} y={padT + 11} fontSize={10} fill="rgba(100,116,139,0.95)">
+        {yMax}
+      </text>
+      <text x={2} y={padT + innerH + 2} fontSize={10} fill="rgba(100,116,139,0.95)">
+        {yMin}
+      </text>
+      {segments.map((seg, i) => (
+        <line
+          key={`seg-${i}`}
+          x1={seg.x1}
+          y1={seg.y1}
+          x2={seg.x2}
+          y2={seg.y2}
+          stroke="currentColor"
+          strokeWidth={2.5}
+          strokeLinecap="round"
+        />
+      ))}
+      {pts.map((p, i) =>
+        p.v != null && p.y != null ? (
+          <circle
+            key={`dot-${i}`}
+            cx={p.x}
+            cy={p.y}
+            r={5.5}
+            fill="currentColor"
+            stroke="#fff"
+            strokeWidth={1.5}
+          >
+            <title>{`${labelShort(p.date)} · ${valueFormatter(p.v)}`}</title>
+          </circle>
+        ) : null
+      )}
+      {pts.map((p, i) => (
+        <text
+          key={`lbl-${i}`}
+          x={p.x}
+          y={h - 6}
+          textAnchor="middle"
+          fontSize={8}
+          fill="rgba(100,116,139,0.95)"
+          transform={`rotate(-48 ${p.x} ${h - 6})`}
+        >
+          {labelShort(p.date)}
+        </text>
+      ))}
+    </svg>
+  );
+}
+
+type SnapshotMetrics = NonNullable<RemoteCoachState["snapshot"]>["metrics"];
+
+function riskLevelFromSnapshotMetrics(m: SnapshotMetrics | undefined): Severity {
+  if (!m) return "낮음";
+  const stress = Number(m.stress ?? 0);
+  const plan =
+    m.planCompletionRate != null && Number.isFinite(Number(m.planCompletionRate))
+      ? Number(m.planCompletionRate)
+      : null;
+  const sleep =
+    m.sleepHours != null && Number.isFinite(Number(m.sleepHours))
+      ? Number(m.sleepHours)
+      : null;
+  if (stress >= 4 && plan != null && plan < 45) return "높음";
+  if (stress >= 3.8) return "높음";
+  if (plan != null && plan < 55 && sleep != null && sleep < 6) return "보통";
+  if (stress >= 3.2 || (plan != null && plan < 60)) return "보통";
+  return "낮음";
+}
+
+function CoachStudentUnified(props: {
+  apiToken: string;
+  entryTab: StudentTabKey;
+  onLayoutModeChange?: (mode: "scroll" | "chat") => void;
+  blocks?: StudyBlock[];
+  progressBooks?: ProgressBook[];
+  tomorrowPlan?: ProgressPlan;
+  todayStudyEvaluation?: string;
+  todayMetacognitionReflection?: string;
+  todayMemo?: string;
+  draftTomorrowPractice?: string;
+  todayStudyMinutes?: number | null;
+  onApplyTomorrowPlanAndGoRecords?: (next: ProgressPlan) => Promise<boolean>;
+  onApplyTomorrowPracticeAndGoRecords?: (text: string) => Promise<boolean>;
+}) {
+  const token = props.apiToken;
+  const [panel, setPanel] = useState<CoachPanelKey>(() =>
+    readInitialCoachPanelFromWindow(props.entryTab)
+  );
+  const prevEntryTabRef = useRef<StudentTabKey | null>(null);
+
+  /** `?panel=` / sessionStorage만 반영. URL은 사용자가 세그먼트를 누를 때까지 유지(Strict Mode 재마운트·hashchange 오동작 방지). */
+  const tryApplyCoachPanelDeepLink = useCallback((): boolean => {
+    if (typeof window === "undefined") return false;
+    const h = window.location.hash;
+    const fromHash = readCoachPanelParamFromHash(h);
+    if (fromHash) {
+      setPanel(fromHash);
+      try {
+        sessionStorage.removeItem(DAECHI_COACH_INITIAL_PANEL_KEY);
+      } catch {
+        // ignore
+      }
+      return true;
+    }
+    try {
+      const v = sessionStorage.getItem(DAECHI_COACH_INITIAL_PANEL_KEY);
+      if (v === "plan" || v === "analysis" || v === "chat") {
+        sessionStorage.removeItem(DAECHI_COACH_INITIAL_PANEL_KEY);
+        setPanel(v);
+        return true;
+      }
+    } catch {
+      // ignore
+    }
+    return false;
+  }, []);
+
+  const selectCoachPanel = useCallback((next: CoachPanelKey) => {
+    if (typeof window !== "undefined") {
+      const h = window.location.hash;
+      const stripped = stripCoachPanelParamFromHash(h);
+      if (stripped !== h) {
+        window.history.replaceState(
+          null,
+          "",
+          `${window.location.pathname}${window.location.search}${stripped}`
+        );
+      }
+    }
+    setPanel(next);
+  }, []);
+
+  useLayoutEffect(() => {
+    if (tryApplyCoachPanelDeepLink()) {
+      prevEntryTabRef.current = props.entryTab;
+      return;
+    }
+    if (prevEntryTabRef.current === null) {
+      prevEntryTabRef.current = props.entryTab;
+      return;
+    }
+    if (prevEntryTabRef.current !== props.entryTab) {
+      prevEntryTabRef.current = props.entryTab;
+      setPanel(props.entryTab === "coach" ? "chat" : "analysis");
+    }
+  }, [props.entryTab, tryApplyCoachPanelDeepLink]);
+
+  useEffect(() => {
+    const onHash = () => {
+      tryApplyCoachPanelDeepLink();
+    };
+    window.addEventListener("hashchange", onHash);
+    return () => window.removeEventListener("hashchange", onHash);
+  }, [tryApplyCoachPanelDeepLink]);
+
+  useEffect(() => {
+    props.onLayoutModeChange?.(
+      panel === "chat" || panel === "plan" ? "chat" : "scroll"
+    );
+  }, [panel, props.onLayoutModeChange]);
   const activeStudentId = useCoachStore(s => s.activeStudentId);
   const student = useMemo(
     () => demoStudents.find(s => s.id === activeStudentId) || demoStudents[0],
     [activeStudentId]
   );
   const [remote, setRemote] = useState<RemoteCoachState | null>(null);
-  const [localProfile, setLocalProfile] = useState<LocalStudentProfile | null>(null);
-  const [editOpen, setEditOpen] = useState(false);
-  const [avatarInput, setAvatarInput] = useState("");
-  const [goalInput, setGoalInput] = useState("");
+  const [aiPatterns, setAiPatterns] = useState<AiPatternRow[]>([]);
+  const [patternsLoading, setPatternsLoading] = useState(false);
+  const [patternsError, setPatternsError] = useState<string | null>(null);
+  const [patternsUsedOpenAi, setPatternsUsedOpenAi] = useState(false);
+  const coachStateFetchRef = useRef<AbortController | null>(null);
+  const patternFetchRef = useRef<AbortController | null>(null);
 
-  useEffect(() => {
+  const refreshCoachHomeData = useCallback(() => {
     if (!token) return;
-    fetch(`${API_BASE}/api/student/coach/state`, {
+    coachStateFetchRef.current?.abort();
+    const ac = new AbortController();
+    coachStateFetchRef.current = ac;
+    const weekStart = encodeURIComponent(getWeekStartKeySeoul(0));
+    fetch(`${API_BASE}/api/student/coach/state?weekStart=${weekStart}`, {
+      signal: ac.signal,
+      cache: "no-store",
       headers: { Authorization: `Bearer ${token}` }
     })
-      .then(r => (r.ok ? r.json() : Promise.reject(new Error("coach state fetch failed"))))
-      .then(data => setRemote(data))
-      .catch(() => setRemote(null));
+      .then(r => {
+        if (ac.signal.aborted) return Promise.reject(new DOMException("aborted", "AbortError"));
+        return r.ok ? r.json() : Promise.reject(new Error("coach state fetch failed"));
+      })
+      .then(data => {
+        if (ac.signal.aborted) return;
+        const d = data as RemoteCoachState;
+        const rawLogs = Array.isArray(d.logs) ? d.logs : [];
+        setRemote({
+          ...d,
+          logs: rawLogs
+            .map(normalizeRemoteCoachLog)
+            .filter((x): x is RemoteCoachLogRow => x != null)
+        });
+      })
+      .catch((e: unknown) => {
+        if (e instanceof DOMException && e.name === "AbortError") return;
+        if (ac.signal.aborted) return;
+        setRemote(null);
+      });
+  }, [token]);
+
+  const refreshPatternInsights = useCallback(() => {
+    if (!token) return;
+    patternFetchRef.current?.abort();
+    const ac = new AbortController();
+    patternFetchRef.current = ac;
+    setPatternsLoading(true);
+    setPatternsError(null);
+    const weekStart = encodeURIComponent(getWeekStartKeySeoul(0));
+    fetch(`${API_BASE}/api/student/coach/pattern-insights?weekStart=${weekStart}`, {
+      signal: ac.signal,
+      cache: "no-store",
+      headers: { Authorization: `Bearer ${token}` }
+    })
+      .then(async r => {
+        if (ac.signal.aborted) return;
+        const data = await r.json().catch(() => ({}));
+        if (ac.signal.aborted) return;
+        if (!r.ok) {
+          setPatternsError(String((data as { error?: string }).error || "").trim() || "패턴을 불러오지 못했습니다.");
+          setAiPatterns([]);
+          setPatternsUsedOpenAi(false);
+          return;
+        }
+        setPatternsUsedOpenAi(Boolean((data as { usedOpenAi?: boolean }).usedOpenAi));
+        const list = (data as { patterns?: AiPatternRow[] }).patterns;
+        setAiPatterns(Array.isArray(list) ? list : []);
+        setPatternsError(null);
+      })
+      .catch((e: unknown) => {
+        if (e instanceof DOMException && e.name === "AbortError") return;
+        if (ac.signal.aborted) return;
+        setPatternsError("네트워크 오류로 패턴을 불러오지 못했습니다.");
+        setAiPatterns([]);
+        setPatternsUsedOpenAi(false);
+      })
+      .finally(() => {
+        if (!ac.signal.aborted) {
+          setPatternsLoading(false);
+        }
+      });
   }, [token]);
 
   useEffect(() => {
-    try {
-      const raw = localStorage.getItem("daechi_student_profile_custom");
-      if (!raw) return;
-      const parsed = JSON.parse(raw) as LocalStudentProfile;
-      setLocalProfile(parsed);
-    } catch {
-      setLocalProfile(null);
+    if (!token) {
+      setRemote(null);
+      setAiPatterns([]);
+      setPatternsError(null);
+      setPatternsUsedOpenAi(false);
+      setPatternsLoading(false);
+      return;
     }
-  }, []);
-
-  const saveLocalProfile = () => {
-    const next: LocalStudentProfile = {
-      avatarUrl: avatarInput.trim() || undefined,
-      goal: goalInput.trim() || undefined
+    let cancelled = false;
+    const runState = () => {
+      if (cancelled) return;
+      refreshCoachHomeData();
     };
-    setLocalProfile(next);
-    try {
-      localStorage.setItem("daechi_student_profile_custom", JSON.stringify(next));
-    } catch {
-      // ignore
-    }
-    setEditOpen(false);
-  };
+    const runPatterns = () => {
+      if (cancelled) return;
+      refreshPatternInsights();
+    };
+    runState();
+    runPatterns();
+    const onLogSaved = () => {
+      if (cancelled) return;
+      runState();
+      runPatterns();
+    };
+    const onVisible = () => {
+      if (cancelled || document.visibilityState !== "visible") return;
+      runState();
+    };
+    const onStorage = (e: StorageEvent) => {
+      if (e.key !== DAECHI_COACH_LOG_SAVED_STORAGE_KEY || cancelled) return;
+      runState();
+      runPatterns();
+    };
+    window.addEventListener(DAECHI_COACH_LOG_SAVED_EVENT, onLogSaved);
+    window.addEventListener("storage", onStorage);
+    document.addEventListener("visibilitychange", onVisible);
+    return () => {
+      cancelled = true;
+      coachStateFetchRef.current?.abort();
+      patternFetchRef.current?.abort();
+      window.removeEventListener(DAECHI_COACH_LOG_SAVED_EVENT, onLogSaved);
+      window.removeEventListener("storage", onStorage);
+      document.removeEventListener("visibilitychange", onVisible);
+    };
+  }, [token, refreshCoachHomeData, refreshPatternInsights]);
 
-  const insight = useMemo(() => buildWeeklyInsight(student.id, demoDailyLogs), [student.id]);
+  const displayPatterns = useMemo((): AiPatternRow[] => {
+    if (patternsLoading) return [];
+    return aiPatterns;
+  }, [patternsLoading, aiPatterns]);
 
-  const remoteActions = (remote?.snapshot?.nextActions || []).map((title, idx) => ({
-    id: `remote_action_${idx}`,
-    title,
-    detail: "",
-    tag: "집중" as const
-  }));
+  const rhythmChartData = useMemo((): RhythmChartRow[] => {
+    if (!token || !remote) return buildRhythmChartRowsFromLogs(undefined, 0);
+    return buildRhythmChartRowsFromLogs(remote.logs, 0);
+  }, [token, remote]);
 
-  const heroNarrative = remote?.snapshot?.heroNarrative || insight.heroNarrative;
+  const studyMinutesMax = useMemo(() => {
+    const nums = rhythmChartData
+      .map(r => r.studyMinutes)
+      .filter((n): n is number => n != null && Number.isFinite(n));
+    return Math.max(240, nums.length ? Math.max(...nums) : 0);
+  }, [rhythmChartData]);
+
+  const weeklyCharts = useMemo(
+    () =>
+      [
+        {
+          key: "sleep",
+          title: "이번 주 수면 패턴",
+          dataKey: "sleepHours" as const,
+          color: "var(--accent-strong)",
+          yDomain: [0, 10] as [number, number],
+          tooltipLabel: "수면 시간",
+          valueFormatter: (v: number) => `${v.toFixed(1)}시간`
+        },
+        {
+          key: "stress",
+          title: "이번 주 스트레스 점수",
+          dataKey: "stressScore" as const,
+          color: "var(--accent-soft)",
+          yDomain: [1, 5] as [number, number],
+          tooltipLabel: "스트레스 점수",
+          valueFormatter: (v: number) => `${v.toFixed(1)}/5`
+        },
+        {
+          key: "concentration",
+          title: "이번 주 학습 집중도",
+          dataKey: "concentration" as const,
+          color: "var(--accent-strong)",
+          yDomain: [0, 100] as [number, number],
+          tooltipLabel: "집중도",
+          valueFormatter: (v: number) => `${Math.round(v)}%`
+        },
+        {
+          key: "studyMinutes",
+          title: "이번 주 공부 시간",
+          dataKey: "studyMinutes" as const,
+          color: "#4f46e5",
+          yDomain: [0, studyMinutesMax] as [number, number],
+          tooltipLabel: "공부 시간(분)",
+          valueFormatter: (v: number) => `${Math.round(v)}분`
+        },
+        {
+          key: "planCompletionRate",
+          title: "이번 주 목표 달성률",
+          dataKey: "planCompletionRate" as const,
+          color: "#16a34a",
+          yDomain: [0, 100] as [number, number],
+          tooltipLabel: "목표 달성률",
+          valueFormatter: (v: number) => `${Math.round(v)}%`
+        }
+      ] as const,
+    [studyMinutesMax]
+  );
+
+  const coachRiskLevel: Severity = token
+    ? riskLevelFromSnapshotMetrics(remote?.snapshot?.metrics)
+    : "낮음";
+
+  const heroNarrative = token
+    ? remote?.snapshot?.heroNarrative ||
+      "현재 학습 흐름은 유지되고 있어요. 오늘은 우선순위 한 가지부터 시작해 보세요."
+    : "로그인하고 오늘 공부 탭에서 기록을 남기면 맞춤 요약과 그래프가 표시돼요.";
   const profile = remote?.snapshot?.profile;
 
-  const displayName = profile?.name || student.name;
-  const rawSchoolLevel = profile?.schoolLevel || student.schoolLevel;
-  const displaySchoolLevel =
-    rawSchoolLevel === "고" ? "고등학교" : rawSchoolLevel === "중" ? "중학교" : rawSchoolLevel;
-  const displayGrade = profile?.grade ?? student.grade;
-  const displayGoal = localProfile?.goal || profile?.goal || student.goal;
-  const avatarUrl = localProfile?.avatarUrl;
-
-  const weeklyCharts: Array<{
-    key: string;
-    title: string;
-    dataKey: "sleepHours" | "stressScore" | "concentration" | "studyMinutes" | "planCompletionRate";
-    color: string;
-    yDomain: [number, number];
-    tooltipLabel: string;
-    valueFormatter?: (value: number) => string;
-  }> = [
-    {
-      key: "sleep",
-      title: "이번 주 수면 패턴",
-      dataKey: "sleepHours",
-      color: "var(--accent-strong)",
-      yDomain: [0, 10],
-      tooltipLabel: "수면 시간",
-      valueFormatter: v => `${v.toFixed(1)}시간`
-    },
-    {
-      key: "stress",
-      title: "이번 주 스트레스 점수",
-      dataKey: "stressScore",
-      color: "var(--accent-soft)",
-      yDomain: [1, 5],
-      tooltipLabel: "스트레스 점수",
-      valueFormatter: v => `${v.toFixed(1)}/5`
-    },
-    {
-      key: "concentration",
-      title: "이번 주 학습 집중도",
-      dataKey: "concentration",
-      color: "var(--accent-strong)",
-      yDomain: [0, 100],
-      tooltipLabel: "집중도",
-      valueFormatter: v => `${Math.round(v)}%`
-    },
-    {
-      key: "studyMinutes",
-      title: "이번 주 공부 시간",
-      dataKey: "studyMinutes",
-      color: "#4f46e5",
-      yDomain: [0, Math.max(240, Math.max(...insight.metrics7d.map(m => m.studyMinutes)) || 0)],
-      tooltipLabel: "공부 시간(분)",
-      valueFormatter: v => `${Math.round(v)}분`
-    },
-    {
-      key: "planCompletionRate",
-      title: "이번 주 목표 달성률",
-      dataKey: "planCompletionRate",
-      color: "#16a34a",
-      yDomain: [0, 100],
-      tooltipLabel: "목표 달성률",
-      valueFormatter: v => `${Math.round(v)}%`
-    }
-  ];
+  /** 로그인 시 데모(현우) 이름이 잠깐 보였다가 서버 기본값으로 바뀌는 깜빡임 방지 */
+  const displayName = token
+    ? remote
+      ? String(profile?.name ?? "").trim() || "학생"
+      : "학생"
+    : profile?.name || student.name;
 
   return (
-    <div className="coach-page">
-      <Card className="coach-card coach-card--padded coach-profile-card">
-        <div className="coach-profile-card__main">
-          <div className="coach-profile-card__avatar-wrap">
-            {avatarUrl ? (
-              <div
-                className="coach-profile-card__avatar coach-profile-card__avatar--image"
-                style={{ backgroundImage: `url(${avatarUrl})` }}
-              />
-            ) : (
-              <div className="coach-profile-card__avatar">
-                <span>{(displayName || "S").charAt(0).toUpperCase()}</span>
-              </div>
-            )}
-          </div>
-          <div className="coach-profile-card__info">
-            <div className="coach-profile-card__name-row">
-              <span className="coach-profile-card__name">{displayName}</span>
-              {displaySchoolLevel != null && displayGrade != null && (
-                <span className="coach-profile-card__grade-pill">
-                  {displaySchoolLevel} {displayGrade}학년
-                </span>
-              )}
-            </div>
-            <div className="coach-profile-card__goal">
-              {displayGoal ? `목표 · ${displayGoal}` : "아직 목표를 설정하지 않았어요."}
-            </div>
-          </div>
-        </div>
-        <button
-          type="button"
-          className="coach-ghost-btn"
-          style={{ marginTop: 10, width: "100%" }}
-          onClick={() => {
-            window.location.hash = "#/settings";
-          }}
-        >
-          설정으로 이동
-        </button>
-        <button
-          type="button"
-          className="coach-ghost-btn"
-          style={{ marginTop: 6, width: "100%" }}
-          onClick={() => {
-            setAvatarInput(avatarUrl || "");
-            setGoalInput(displayGoal || "");
-            setEditOpen(true);
-          }}
-        >
-          프로필 편집
-        </button>
-      </Card>
-
-      <Card className="coach-card coach-card--padded coach-home-insight-card">
-        <div className="coach-home-insight-card__top">
-          <span className="coach-home-insight-card__eyebrow">AI 분석 결과</span>
-          <RiskBadge level={insight.riskLevel} />
-        </div>
-        <div className="coach-home-insight-card__title">
-          {profile?.name || student.name}님을 위한 한 줄 요약
-        </div>
-        <p className="coach-home-insight-card__body">{heroNarrative}</p>
-        <button
-          type="button"
-          className="coach-primary-btn coach-home-insight-card__cta"
-          onClick={() => {
-            const el = document.getElementById("coach-actions");
-            el?.scrollIntoView({ behavior: "smooth", block: "start" });
-          }}
-        >
-          추천 행동 보기
-        </button>
-      </Card>
-
-      <Card className="coach-card coach-card--padded">
-        <SectionHeader title="이번 주 리듬" right={<StatPill label="리스크" value={insight.riskLevel} />} />
-        <div
-          className="coach-rhythm-scroll"
-          style={{
-            display: "flex",
-            overflowX: "auto",
-            gap: 12,
-            paddingBottom: 6,
-            marginTop: 4
-          }}
-          aria-label="이번 주 리듬 상세 그래프"
-        >
-          {weeklyCharts.map(chart => (
-            <div
-              key={chart.key}
-              className="coach-rhythm-scroll__item"
-              style={{
-                flex: "0 0 auto",
-                minWidth: 260
-              }}
-            >
-              <div className="coach-rhythm-scroll__title" style={{ fontSize: 14, fontWeight: 600, marginBottom: 6 }}>
-                {chart.title}
-              </div>
-              <div className="coach-chart">
-                <ResponsiveContainer width="100%" height={160}>
-                  <LineChart data={insight.metrics7d}>
-                    <XAxis dataKey="date" tick={{ fontSize: 11 }} tickFormatter={d => String(d).slice(5)} />
-                    <YAxis tick={{ fontSize: 11 }} width={34} domain={chart.yDomain} />
-                    <Tooltip
-                      contentStyle={{
-                        borderRadius: 12,
-                        border: "1px solid rgba(148,163,184,0.35)",
-                        boxShadow: "0 10px 30px rgba(15,23,42,0.10)"
-                      }}
-                      labelFormatter={l => `날짜 ${String(l).slice(5)}`}
-                      formatter={(v: any) => {
-                        const num = typeof v === "number" ? v : Number(v);
-                        const label = chart.tooltipLabel;
-                        if (chart.valueFormatter) {
-                          return [chart.valueFormatter(num), label];
-                        }
-                        return [v, label];
-                      }}
-                    />
-                    <Line type="monotone" dataKey={chart.dataKey} stroke={chart.color} strokeWidth={3} dot={false} />
-                  </LineChart>
-                </ResponsiveContainer>
-              </div>
-            </div>
-          ))}
-        </div>
-      </Card>
-
-      <div className="coach-stack">
-        <SectionHeader title="감지된 패턴" />
-        <div className="coach-pattern-grid">
-          {insight.patterns.slice(0, 6).map(p => (
-            <PatternCard
-              key={p.key}
-              title={p.title}
-              severity={p.severity}
-              explanation={p.explanation}
-              recommendation={p.recommendation}
-            />
-          ))}
-        </div>
-      </div>
-
-      <div className="coach-stack" id="coach-actions">
-        <SectionHeader
-          title="AI 추천 다음 행동"
-        />
-        {(remoteActions.length > 0 ? remoteActions : insight.nextActions).length ? (
-          <ActionChecklist actions={remoteActions.length > 0 ? remoteActions : insight.nextActions} />
-        ) : (
-          <EmptyState title="추천 행동이 없습니다." />
-        )}
-      </div>
-
+    <div className="coach-page coach-page--unified">
       <div
-        className={"dday-modal" + (editOpen ? " dday-modal--open" : "")}
-        onClick={() => setEditOpen(false)}
+        className="store-filter-row coach-subtab-row"
+        role="tablist"
+        aria-label="코치 구분"
       >
-        <div className="dday-modal-inner" onClick={e => e.stopPropagation()}>
-          <div className="dday-modal-header">
-            <span className="dday-modal-title">프로필 편집</span>
-          </div>
-          <div className="dday-modal-body">
-            <div className="field">
-              <label className="field-label">프로필 사진</label>
-              <input
-                className="field-input"
-                placeholder="이미지 URL 붙여넣기"
-                value={avatarInput.startsWith("data:") ? "" : avatarInput}
-                onChange={e => setAvatarInput(e.target.value)}
-              />
-              {avatarInput.startsWith("data:") && (
-                <p className="settings-hint" style={{ marginTop: 6 }}>
-                  선택한 사진이 적용돼요. URL을 입력하면 그쪽이 우선해요.
+        <button
+          type="button"
+          role="tab"
+          aria-selected={panel === "analysis"}
+          className={
+            "store-filter-btn" +
+            (panel === "analysis" ? " store-filter-btn--active" : "")
+          }
+          onClick={() => selectCoachPanel("analysis")}
+        >
+          분석
+        </button>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={panel === "plan"}
+          className={
+            "store-filter-btn" +
+            (panel === "plan" ? " store-filter-btn--active" : "")
+          }
+          onClick={() => selectCoachPanel("plan")}
+        >
+          계획
+        </button>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={panel === "chat"}
+          className={
+            "store-filter-btn" +
+            (panel === "chat" ? " store-filter-btn--active" : "")
+          }
+          onClick={() => selectCoachPanel("chat")}
+        >
+          학습 코칭
+        </button>
+      </div>
+
+      <TabTransitionPanel
+        tabKey={panel}
+        className={
+          panel === "chat" || panel === "plan"
+            ? "coach-shell__tab-panel coach-unified-tab-panel--fill"
+            : "coach-unified-tab-panel"
+        }
+      >
+        {panel === "analysis" ? (
+          <>
+            <Card className="coach-card coach-card--padded coach-home-insight-card">
+              <div className="coach-home-insight-card__top">
+                <span className="coach-home-insight-card__eyebrow">AI 분석 결과</span>
+                <RiskBadge level={coachRiskLevel} />
+              </div>
+              <div className="coach-home-insight-card__title">
+                {displayName}님을 위한 한 줄 요약
+              </div>
+              <p className="coach-home-insight-card__body">{heroNarrative}</p>
+              <button
+                type="button"
+                className="coach-primary-btn coach-home-insight-card__cta"
+                onClick={() => selectCoachPanel("plan")}
+              >
+                내일 계획 같이 짜기
+              </button>
+            </Card>
+
+            <Card className="coach-card coach-card--padded">
+              <SectionHeader title="이번 주 리듬" right={<StatPill label="리스크" value={coachRiskLevel} />} />
+              <div
+                className="coach-rhythm-scroll"
+                style={{
+                  display: "flex",
+                  overflowX: "auto",
+                  gap: 12,
+                  paddingBottom: 6,
+                  marginTop: 4
+                }}
+                aria-label="이번 주 리듬 상세 그래프"
+              >
+                {weeklyCharts.map(chart => (
+                  <div
+                    key={chart.key}
+                    className="coach-rhythm-scroll__item"
+                    style={{
+                      flex: "0 0 auto",
+                      minWidth: 300
+                    }}
+                  >
+                    <div className="coach-rhythm-scroll__title" style={{ fontSize: 14, fontWeight: 600, marginBottom: 6 }}>
+                      {chart.title}
+                    </div>
+                    <div className="coach-chart" style={{ color: chart.color }}>
+                      <CoachRhythmSparkline
+                        rows={rhythmChartData}
+                        dataKey={chart.dataKey}
+                        yDomain={chart.yDomain}
+                        valueFormatter={chart.valueFormatter}
+                      />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </Card>
+
+            <div className="coach-stack">
+              <SectionHeader title="감지된 패턴" />
+              {patternsLoading && (
+                <p className="coach-muted" style={{ padding: "0 4px 10px", fontSize: 13 }}>
+                  이번 주 기록을 바탕으로 패턴을 분석하는 중…
                 </p>
               )}
-              <label className="coach-profile-file-label">
-                <input
-                  type="file"
-                  accept="image/*"
-                  className="coach-profile-file-input"
-                  onChange={e => {
-                    const f = e.target.files?.[0];
-                    if (!f) return;
-                    const reader = new FileReader();
-                    reader.onload = () => {
-                      setAvatarInput(String(reader.result || ""));
-                    };
-                    reader.readAsDataURL(f);
-                    e.target.value = "";
-                  }}
-                />
-                갤러리에서 사진 선택
-              </label>
-              <p className="settings-hint" style={{ marginTop: 6 }}>
-                URL을 붙이거나, 기기에서 사진을 고를 수 있어요.
-              </p>
+              {!patternsLoading && patternsError && token && (
+                <p className="coach-muted" style={{ padding: "0 4px 10px", fontSize: 13 }}>
+                  {patternsError}
+                </p>
+              )}
+              {displayPatterns.length > 0 ? (
+                <div className="coach-pattern-grid">
+                  {displayPatterns.map(p => (
+                    <PatternCard
+                      key={p.key}
+                      title={p.title}
+                      severity={p.severity}
+                      explanation={p.explanation}
+                      recommendation={p.recommendation}
+                    />
+                  ))}
+                </div>
+              ) : (
+                !patternsLoading && (
+                  <EmptyState
+                    title="표시할 패턴이 없어요"
+                    body={
+                      !token
+                        ? "로그인하면 저장된 이번 주 기록을 바탕으로 패턴을 불러옵니다."
+                        : patternsError
+                          ? undefined
+                          : !patternsUsedOpenAi
+                            ? "서버에 OPENAI_API_KEY가 설정되어 있어야 이번 주 DB 기록으로 AI 패턴 분석이 됩니다."
+                            : "이번 주 오늘 공부 탭 기록을 더 남기면 분석이 풍부해져요."
+                    }
+                  />
+                )
+              )}
             </div>
-            <div className="field" style={{ marginTop: 10 }}>
-              <label className="field-label">나의 목표</label>
-              <input
-                className="field-input"
-                placeholder="예: 중간고사 상위 10% 안에 들기"
-                value={goalInput}
-                onChange={e => setGoalInput(e.target.value)}
+          </>
+        ) : panel === "plan" ? (
+          props.blocks != null &&
+          props.progressBooks != null &&
+          props.tomorrowPlan != null &&
+          props.onApplyTomorrowPlanAndGoRecords != null &&
+          props.onApplyTomorrowPracticeAndGoRecords != null ? (
+            <CoachTomorrowPlanCollab
+              apiToken={token}
+              blocks={props.blocks}
+              progressBooks={props.progressBooks}
+              tomorrowPlan={props.tomorrowPlan}
+              studyEvaluation={props.todayStudyEvaluation ?? ""}
+              metacognitionReflection={props.todayMetacognitionReflection ?? ""}
+              todayMemo={props.todayMemo ?? ""}
+              draftTomorrowPractice={props.draftTomorrowPractice ?? ""}
+              todayStudyMinutes={props.todayStudyMinutes ?? null}
+              onApplyAndReturnToRecords={props.onApplyTomorrowPlanAndGoRecords}
+              onApplyTomorrowPracticeAndGoRecords={
+                props.onApplyTomorrowPracticeAndGoRecords
+              }
+            />
+          ) : (
+            <div className="coach-stack">
+              <EmptyState
+                title="내일 계획 협업을 불러올 수 없어요"
+                body="앱 메인에서 학생으로 로그인한 뒤 다시 시도해 주세요."
               />
             </div>
-          </div>
-          <div className="dday-modal-footer">
-            <button type="button" className="modal-secondary" onClick={() => setEditOpen(false)}>
-              취소
-            </button>
-            <button type="button" className="modal-primary" onClick={saveLocalProfile}>
-              저장
-            </button>
-          </div>
-        </div>
-      </div>
+          )
+        ) : (
+          <CoachChatTabConnected apiToken={token} />
+        )}
+      </TabTransitionPanel>
     </div>
   );
 }
 
-function CoachChatTabConnected() {
-  const token = useCoachApiToken();
+function CoachChatTabConnected(props: { apiToken: string }) {
+  const token = props.apiToken;
 
   const messages = useCoachStore(s => s.messages);
   const addMessage = useCoachStore(s => s.addMessage);
   const [draft, setDraft] = useState("");
   const [typing, setTyping] = useState(false);
   const [coachAiMode, setCoachAiMode] = useState<"unknown" | "live" | "template">("unknown");
+  const [coachMode, setCoachMode] = useState<CoachChatGreetingMode>("learning");
 
-  const send = async (text: string) => {
+  const hasUserTurn = messages.some(m => m.role === "user");
+
+  const send = async (text: string, modeOverride?: CoachChatGreetingMode) => {
     const trimmed = text.trim();
     if (!trimmed || typing) return;
+    const effectiveMode = modeOverride ?? coachMode;
+    setCoachMode(effectiveMode);
     addMessage({ id: `u_${Date.now()}`, role: "user", createdAt: Date.now(), text: trimmed });
     setDraft("");
     setTyping(true);
@@ -471,7 +875,10 @@ function CoachChatTabConnected() {
           "Content-Type": "application/json",
           Authorization: `Bearer ${token}`
         },
-        body: JSON.stringify({ message: trimmed })
+        body: JSON.stringify({
+          message: trimmed,
+          mode: effectiveMode === "suneung" ? "suneung" : "learning"
+        })
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(String(data?.error || "코치 응답을 받지 못했습니다."));
@@ -502,15 +909,22 @@ function CoachChatTabConnected() {
     });
   };
 
-  const starters = [
+  const startersLearning = [
     "오늘 집중이 안 된 이유가 뭐야?",
     "내일은 뭘 먼저 하면 좋을까?",
     "왜 계획은 세우는데 실행이 안 될까?",
     "시험 전에는 루틴을 어떻게 유지해?"
   ];
+  const startersSuneung = [
+    "수학에서 극한이랑 연속이 헷갈려요. 차이를 설명해 주세요",
+    "영어 도치 동사랑 5형식이 비슷해 보이는데 어떻게 구분해요?",
+    "이차함수 그래프 문제에서 식 세우는 게 막혀요. 접근 순서 알려 주세요",
+    "탐구에서 반응 속도식 세우는 유형이 안 풀려요. 개념부터 짚어 주세요"
+  ];
+  const starters = coachMode === "suneung" ? startersSuneung : startersLearning;
 
   return (
-    <div className="coach-page coach-page--chat">
+    <div className="coach-chat-embedded">
       {coachAiMode === "template" && (
         <p className="coach-muted" style={{ padding: "0 4px 10px", fontSize: 13, lineHeight: 1.45 }}>
           GPT 연결 없이 규칙 기반 답변입니다. 실제 GPT를 쓰려면 서버 폴더의{" "}
@@ -521,7 +935,7 @@ function CoachChatTabConnected() {
       <div className="coach-chat">
         {messages.map(m => (
           <div key={m.id} className={"coach-bubble-row " + (m.role === "user" ? "is-user" : "is-coach")}>
-            {m.role === "coach" && <span className="coach-avatar">AI</span>}
+            {m.role === "coach" && <CoachAvatar />}
             <motion.div
               className={"coach-bubble " + (m.role === "user" ? "coach-bubble--user" : "coach-bubble--coach")}
               initial={{ opacity: 0, y: 6 }}
@@ -538,7 +952,7 @@ function CoachChatTabConnected() {
         ))}
         {typing && (
           <div className="coach-bubble-row is-coach">
-            <span className="coach-avatar">AI</span>
+            <CoachAvatar />
             <div className="coach-bubble coach-bubble--coach">
               <span className="coach-typing">
                 <span className="dot" />
@@ -548,16 +962,59 @@ function CoachChatTabConnected() {
             </div>
           </div>
         )}
+        {!hasUserTurn && !typing && (
+          <div
+            className="coach-bubble-row is-coach coach-tomorrow-collab__coach-offer-row"
+            aria-label="코치 선택지"
+          >
+            <CoachAvatar />
+            <motion.div
+              className="coach-bubble coach-bubble--coach coach-tomorrow-collab__coach-offer"
+              initial={{ opacity: 0, y: 6 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.18 }}
+            >
+              <div className="coach-bubble__line">
+                학습 습관·루틴 코칭과 수능 과목 질의응답 중에서 골라 주세요. 직접 입력하셔도
+                돼요.
+              </div>
+              <div className="coach-tomorrow-collab__coach-picks">
+                <button
+                  type="button"
+                  className="coach-tomorrow-collab__coach-pick"
+                  disabled={!token}
+                  onClick={() =>
+                    void send("학습 코칭으로 이야기하고 싶어요", "learning")
+                  }
+                >
+                  학습 코칭
+                </button>
+                <button
+                  type="button"
+                  className="coach-tomorrow-collab__coach-pick"
+                  disabled={!token}
+                  onClick={() =>
+                    void send("수능 과목 질문이 있어요", "suneung")
+                  }
+                >
+                  수능 질의응답
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
         <div id="coach-chat-bottom" />
       </div>
 
-      <div className="coach-chat-starters" aria-label="추천 질문">
-        {starters.map(s => (
-          <button key={s} type="button" className="coach-starter" onClick={() => send(s)}>
-            {s}
-          </button>
-        ))}
-      </div>
+      {hasUserTurn && (
+        <div className="coach-chat-starters" aria-label="추천 질문">
+          {starters.map(s => (
+            <button key={s} type="button" className="coach-starter" onClick={() => send(s)}>
+              {s}
+            </button>
+          ))}
+        </div>
+      )}
 
       <div className="coach-chat-input">
         <input
@@ -585,18 +1042,40 @@ function CoachChatTabConnected() {
 
 export function StudentCoachApp(props: {
   tab: StudentTabKey;
+  authToken: string | null;
+  onLayoutModeChange?: (mode: "scroll" | "chat") => void;
+  blocks?: StudyBlock[];
+  progressBooks?: ProgressBook[];
+  tomorrowPlan?: ProgressPlan;
+  todayStudyEvaluation?: string;
+  todayMetacognitionReflection?: string;
+  todayMemo?: string;
+  draftTomorrowPractice?: string;
+  todayStudyMinutes?: number | null;
+  onApplyTomorrowPlanAndGoRecords?: (next: ProgressPlan) => Promise<boolean>;
+  onApplyTomorrowPracticeAndGoRecords?: (text: string) => Promise<boolean>;
 }) {
-  const T = useMemo(() => {
-    const map: Record<StudentTabKey, React.ReactNode> = {
-      home: <HomeTabConnected />,
-      coach: <CoachChatTabConnected />
-    };
-    return map[props.tab] || map.home;
-  }, [props.tab]);
+  const apiToken = useEffectiveBearer(props.authToken);
 
   return (
-    <div className="coach-shell">
-      {T}
+    <div className="coach-shell coach-shell--unified">
+      <CoachStudentUnified
+        apiToken={apiToken}
+        entryTab={props.tab}
+        onLayoutModeChange={props.onLayoutModeChange}
+        blocks={props.blocks}
+        progressBooks={props.progressBooks}
+        tomorrowPlan={props.tomorrowPlan}
+        todayStudyEvaluation={props.todayStudyEvaluation}
+        todayMetacognitionReflection={props.todayMetacognitionReflection}
+        todayMemo={props.todayMemo}
+        draftTomorrowPractice={props.draftTomorrowPractice}
+        todayStudyMinutes={props.todayStudyMinutes}
+        onApplyTomorrowPlanAndGoRecords={props.onApplyTomorrowPlanAndGoRecords}
+        onApplyTomorrowPracticeAndGoRecords={
+          props.onApplyTomorrowPracticeAndGoRecords
+        }
+      />
     </div>
   );
 }

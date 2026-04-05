@@ -4,7 +4,8 @@ type Props = {
   onComplete: () => void;
 };
 
-const SPLASH_FALLBACK_MS = 2400;
+/** CSS splash-screen-fade 길이(2.15s) + 여유 */
+const SPLASH_FALLBACK_MS = 2800;
 
 /**
  * 앱 최초 실행 시 브랜드 로고를 보여 주는 런치/스플래시 화면.

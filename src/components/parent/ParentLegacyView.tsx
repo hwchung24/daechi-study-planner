@@ -1,4 +1,5 @@
 import React from "react";
+import { TabTransitionPanel } from "../PageTransition";
 import { getWeekRangeLabel } from "../../lib/weekDates";
 import type { ParentLockStatus } from "../../types/lockStatus";
 
@@ -55,8 +56,8 @@ export function ParentLegacyView(props: {
   setParentAiDaily: (v: ParentAiDaily | null) => void;
   hapticSelection: () => void;
   hapticWarning: () => void;
-  handleLogout: () => void;
-  handleWithdrawAccount: () => void;
+  onLogoutPress: () => void;
+  onWithdrawPress: () => void;
 }) {
   const {
     apiBase,
@@ -91,8 +92,8 @@ export function ParentLegacyView(props: {
     setParentAiDaily,
     hapticSelection,
     hapticWarning,
-    handleLogout,
-    handleWithdrawAccount
+    onLogoutPress,
+    onWithdrawPress
   } = props;
 
   if (meRole !== "parent") {
@@ -101,7 +102,6 @@ export function ParentLegacyView(props: {
         <div className="section-header">
           <h2 className="section-title">학부모</h2>
         </div>
-        <p className="empty-state">학부모 계정으로 로그인해야 이 화면을 볼 수 있어요.</p>
       </section>
     );
   }
@@ -121,6 +121,7 @@ export function ParentLegacyView(props: {
 
   return (
     <>
+      <TabTransitionPanel tabKey={parentTab} className="parent-tab-transition">
       {parentTab === "link" && (
         <section className="section">
           <div className="section-header">
@@ -132,7 +133,6 @@ export function ParentLegacyView(props: {
               <label className="field-label">자녀 학생 이메일</label>
               <input
                 className="field-input"
-                placeholder="student@example.com"
                 value={parentLinkEmail}
                 onChange={e => setParentLinkEmail(e.target.value)}
               />
@@ -192,7 +192,6 @@ export function ParentLegacyView(props: {
                   }}
                 >
                   <span className="settings-label">{row.student_email}</span>
-                  <span className="settings-hint">학생이 앱에서 승인하면 연결됩니다.</span>
                 </div>
               ))}
             </div>
@@ -315,12 +314,10 @@ export function ParentLegacyView(props: {
           </div>
 
           {parentStudents.length === 0 && (
-            <p className="empty-state" style={{ marginTop: 14 }}>
-              연결된 자녀가 없어요.{" "}
+            <div style={{ marginTop: 14 }}>
               <button
                 type="button"
                 className="progress-footer-btn"
-                style={{ display: "inline", padding: "2px 8px", marginLeft: 4 }}
                 onClick={() => {
                   hapticSelection();
                   setParentTab("link");
@@ -329,8 +326,7 @@ export function ParentLegacyView(props: {
               >
                 자녀 연결
               </button>
-              탭에서 요청을 보내 주세요.
-            </p>
+            </div>
           )}
 
           {parentStudents.length > 0 && (
@@ -535,17 +531,8 @@ export function ParentLegacyView(props: {
                       {parentAiDaily.summary_text}
                     </span>
                   </div>
-                  <p className="settings-hint" style={{ marginTop: 10 }}>
-                    기준일 {String(parentAiDaily.report_date).slice(0, 10)} · 한국시간 매일
-                    자정 자동 생성
-                  </p>
                 </div>
-              ) : (
-                <p className="settings-hint">
-                  한국시간 매일 자정 자동 생성됩니다. 서버에 OPENAI_API_KEY가 있어야 하며,
-                  자녀 계정에 학습 기록이 있으면 더 풍부해집니다.
-                </p>
-              )}
+              ) : null}
               <button
                 type="button"
                 className="progress-footer-btn"
@@ -587,9 +574,7 @@ export function ParentLegacyView(props: {
           )}
 
           <div style={{ marginTop: 14 }}>
-            {!report ? (
-              <p className="empty-state">리포트를 불러오는 중이에요.</p>
-            ) : (
+            {!report ? null : (
               <div className="progress-card">
                 <div className="progress-row">
                   <span className="progress-label">총 학습 시간</span>
@@ -604,7 +589,7 @@ export function ParentLegacyView(props: {
                   <span className="progress-meta">
                     {report.summaryLines?.length
                       ? report.summaryLines.join(" ")
-                      : "이번 주 요약이 아직 없어요."}
+                      : ""}
                   </span>
                 </div>
                 {report.stats?.focusDistribution && (
@@ -622,6 +607,7 @@ export function ParentLegacyView(props: {
           </div>
         </section>
       )}
+      </TabTransitionPanel>
 
       <section className="section">
         <div className="settings-list">
@@ -630,7 +616,7 @@ export function ParentLegacyView(props: {
             className="settings-item"
             onClick={() => {
               hapticWarning();
-              handleWithdrawAccount();
+              onWithdrawPress();
             }}
           >
             <span className="settings-label">회원 탈퇴</span>
@@ -641,7 +627,7 @@ export function ParentLegacyView(props: {
             className="settings-item"
             onClick={() => {
               hapticWarning();
-              handleLogout();
+              onLogoutPress();
             }}
           >
             <span className="settings-label">로그아웃</span>
