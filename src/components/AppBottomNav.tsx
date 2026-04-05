@@ -22,7 +22,7 @@ function NavIcon({ children }: { children: React.ReactNode }) {
   );
 }
 
-type TabKey = "today" | "records" | "store" | "profile" | "notifications";
+type TabKey = "today" | "records" | "store" | "profile";
 type CoachStudentTabKey = "home" | "coach";
 type ParentTabKey = "link" | "report";
 type CoachParentTabKey = "home" | "timeline" | "guide" | "profile";

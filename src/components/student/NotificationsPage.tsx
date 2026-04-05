@@ -1,30 +1,12 @@
 import React from "react";
-import { ArrowLeft } from "lucide-react";
 
-export function NotificationsPage(props: {
-  hapticSelection?: () => void;
-}) {
-  const goBack = () => {
-    props.hapticSelection?.();
-    window.location.hash = "#/today";
-  };
-
+/**
+ * 알림 목록 본문 — `App`의 중앙 모달(`dday-modal`) 본문에 넣어 사용합니다.
+ */
+export function NotificationsPage() {
   return (
-    <section className="section notifications-page">
-      <div className="notifications-page__bar">
-        <div className="notifications-page__bar-inner">
-          <button
-            type="button"
-            className="notifications-back-btn"
-            onClick={goBack}
-            aria-label="이전 화면"
-          >
-            <ArrowLeft size={22} strokeWidth={2} aria-hidden />
-          </button>
-          <h1 className="notifications-page__title">알림</h1>
-        </div>
-      </div>
-      <p className="notifications-page__empty">새 알림이 없습니다.</p>
-    </section>
+    <p className="notifications-page__empty notifications-page__empty--modal">
+      새 알림이 없습니다.
+    </p>
   );
 }

@@ -7,7 +7,8 @@ export function parseStudentTabFromHash() {
   if (typeof window === "undefined") return "today" as const;
   const h = window.location.hash;
   if (h === "#/profile" || h === "#/settings") return "profile" as const;
-  if (h === "#/notifications") return "notifications" as const;
+  /** #/notifications 는 알림 모달만 열고 본문 탭은 오늘로 유지 */
+  if (h === "#/notifications") return "today" as const;
   if (h === "#/records" || h === "#/week") return "records" as const;
   if (h === "#/store") return "store" as const;
   return "today" as const;

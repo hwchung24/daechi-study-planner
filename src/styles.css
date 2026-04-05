@@ -186,45 +186,6 @@ select {
   }
 }
 
-/* 알림: 셸 상단 18px·safe-area 이중 여백 제거(status-bar-safe 한 줄만 사용) */
-.app-shell.app-shell--notifications {
-  padding-top: 0;
-  padding-left: max(0px, env(safe-area-inset-left, 0px));
-  padding-right: max(0px, env(safe-area-inset-right, 0px));
-}
-
-.app-header.app-header--notifications {
-  padding: 0;
-}
-
-/* 알림: 글로벌 제목 자리 34px 스페이서 제거 → 메인의 알림 바로 바로 이어짐 */
-.app-header.app-header--notifications .header-top {
-  display: none;
-}
-
-/* 알림: 회색 safe 줄 없이 흰 바가 상단부터(노치는 바 안 패딩으로만) */
-.app-header.app-header--notifications .status-bar-safe {
-  display: none;
-}
-
-.app-main.app-main--notifications {
-  padding-top: 0;
-  padding-left: 0;
-  padding-right: 0;
-  padding-bottom: var(--app-bottom-nav-clearance);
-}
-
-/* 모바일: 알림 화면에서는 하단 탭 숨김 + 본문 하단 여백만 safe-area */
-@media (max-width: 767px) {
-  .app-shell.app-shell--notifications .bottom-nav {
-    display: none;
-  }
-
-  .app-main.app-main--notifications {
-    padding-bottom: max(16px, env(safe-area-inset-bottom, 0px));
-  }
-}
-
 .status-bar-safe {
   height: max(10px, env(safe-area-inset-top));
 }
@@ -537,6 +498,11 @@ select {
   line-height: 1.5;
   color: var(--text-sub);
   font-weight: 500;
+}
+
+.notifications-page__empty--modal {
+  margin: 0;
+  padding: 0;
 }
 
 .notifications-page__bar .notifications-back-btn {
@@ -1001,6 +967,17 @@ select {
   line-height: 1;
 }
 
+.timeline-add-button__icon--lucide {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 0;
+}
+
+.timeline-add-button__icon--lucide svg {
+  display: block;
+}
+
 .today-summary-row {
   display: flex;
   align-items: center;
@@ -1137,23 +1114,31 @@ select {
   margin: 0;
   padding: 6px 10px;
   border-radius: 999px;
-  border: 0.5px solid rgba(26, 47, 82, 0.2);
-  background: rgba(255, 255, 255, 0.95);
+  border: 0.5px solid var(--accent-strong);
+  background: var(--accent-strong);
   font-size: 11px;
   font-weight: 600;
   line-height: 1.25;
-  color: var(--accent-strong);
+  color: #f9fafb;
   cursor: pointer;
   text-align: center;
   white-space: nowrap;
   transition: transform var(--dur-fast) var(--ease-press),
     background var(--dur-fast) var(--ease-press),
+    border-color var(--dur-fast) var(--ease-press),
     box-shadow var(--dur-fast) var(--ease-press);
-  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.06);
+  box-shadow: 0 2px 6px rgba(26, 47, 82, 0.22);
+}
+
+.records-tomorrow-coach-btn:hover {
+  background: var(--accent-hover);
+  border-color: var(--accent-hover);
 }
 
 .records-tomorrow-coach-btn:active {
   transform: scale(0.98);
+  background: var(--accent);
+  border-color: var(--accent);
 }
 
 /* 기록 탭 요일 카드 — 생활 기록 블록 · 학습 내일 편집 행 톤 통일 */
@@ -1306,6 +1291,21 @@ select {
   font-weight: 600;
   font-variant-numeric: tabular-nums;
   color: var(--accent-strong);
+}
+
+/* 생활 기록: 오른쪽 숫자 칸 너비 고정 → 슬라이더 바(캡슐) 가로 길이 유지 */
+.record-day-block .record-slider-value {
+  flex: 0 0 5rem;
+  width: 5rem;
+  min-width: 5rem;
+  box-sizing: border-box;
+}
+
+/* 학습 기록 탭 · 오늘 학습 시간(분) — '1440분'까지 들어가도록 조금 더 넓게 */
+.record-study-reflection-card .record-slider-value--study-min {
+  flex: 0 0 6rem;
+  width: 6rem;
+  min-width: 6rem;
 }
 
 .record-primary-save-wrap {
@@ -1564,7 +1564,7 @@ button.practice-commitment-card:not(:disabled):active {
   gap: 8px;
 }
 
-/* 오늘 계획 추가 요청: 책·시간 피커까지 한 화면에 담기 위해 모달 높이 상한 확대 (내부 스크롤 완화) */
+/* 오늘 계획 수정 요청: 책·시간 피커까지 한 화면에 담기 위해 모달 높이 상한 확대 (내부 스크롤 완화) */
 .dday-modal-inner--add-task {
   max-height: min(96dvh, 900px);
 }
@@ -1669,7 +1669,7 @@ button.practice-commitment-card:not(:disabled):active {
   box-shadow: 0 2px 8px rgba(15, 23, 42, 0.08);
 }
 
-/* 오늘 계획 추가 요청 모달: 인라인 시간 — 라벨 제거 후 미리보기 ↔ 스크롤 간격 */
+/* 오늘 계획 수정 요청 모달: 인라인 시간 — 라벨 제거 후 미리보기 ↔ 스크롤 간격 */
 .dday-modal-body .time-picker-inline:not(.date-picker-inline) .time-picker-scroll {
   display: flex;
   flex-direction: column;
@@ -1868,7 +1868,7 @@ button.practice-commitment-card:not(:disabled):active {
   color: #f9fafb;
 }
 
-/* 오늘 계획 추가 요청 모달: 책 선택 — 코치/앱스토어와 동일 가로 스크롤 필 */
+/* 오늘 계획 수정 요청 모달: 책 선택 — 코치/앱스토어와 동일 가로 스크롤 필 */
 .add-plan-book-picker {
   margin-left: -4px;
   margin-right: -4px;
@@ -3281,28 +3281,6 @@ button:active:not(:disabled),
     padding-bottom: var(--app-bottom-nav-clearance);
   }
 
-  /* 알림: 왼쪽은 레일·여백 유지, 본문 열은 가로 전폭 */
-  .app-shell.app-shell--notifications {
-    padding-left: max(20px, env(safe-area-inset-left, 0px));
-    padding-right: max(0px, env(safe-area-inset-right, 0px));
-    padding-top: 0;
-    padding-bottom: 20px;
-  }
-
-  .app-header.app-header--notifications,
-  .app-main.app-main--notifications {
-    max-width: none;
-    width: 100%;
-    justify-self: stretch;
-  }
-
-  .app-main.app-main--notifications {
-    padding-top: 0;
-    padding-left: 0;
-    padding-right: 0;
-    padding-bottom: var(--app-bottom-nav-clearance);
-  }
-
   .section {
     max-width: none;
   }
@@ -3415,7 +3393,8 @@ button:active:not(:disabled),
   display: flex;
   align-items: center;
   justify-content: center;
-  background: #ffffff;
+  /* splash-logo.png 배경색과 동일 (로고 주변 레터박스 없음) */
+  background: #0c1d3b;
   animation: splash-screen-fade 2.15s cubic-bezier(0.33, 0.86, 0.22, 1)
     forwards;
   pointer-events: none;

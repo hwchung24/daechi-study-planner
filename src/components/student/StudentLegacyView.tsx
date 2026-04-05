@@ -7,7 +7,7 @@ import React, {
   useState
 } from "react";
 import { createPortal } from "react-dom";
-import { NotificationsPage } from "./NotificationsPage";
+import { Pencil } from "lucide-react";
 import { DatePickerScroll } from "../DatePickerScroll";
 import { TimePickerSheet } from "../TimePickerSheet";
 import { TabTransitionPanel } from "../PageTransition";
@@ -77,12 +77,62 @@ function recordLifeSliderFillPct(v: string | number): string {
   return `${pct}%`;
 }
 
+const SLEEP_HOURS_MAX = 14;
+
+/** 생활 기록 수면 0–14h 슬라이더 → 필 너비 % */
+function recordSleepSliderFillPct(v: string | number): string {
+  const n = Number(v);
+  if (!Number.isFinite(n)) return "0%";
+  const clamped = Math.max(0, Math.min(SLEEP_HOURS_MAX, n));
+  const pct = (clamped / SLEEP_HOURS_MAX) * 100;
+  return `${pct}%`;
+}
+
+/** 오늘 학습 시간: UI는 시간, 저장/API는 분(정수). 수면과 동일 0~14h, 기본 7h */
+const STUDY_HOURS_MAX = SLEEP_HOURS_MAX;
+const STUDY_HOURS_STEP = 0.5;
+const STUDY_MINUTES_MAX = STUDY_HOURS_MAX * 60;
+const STUDY_MINUTES_STEP = STUDY_HOURS_STEP * 60;
+const DEFAULT_STUDY_MINUTES = 7 * 60;
+
+/** 분 → 슬라이더 값(시간) */
+function studyMinutesToHoursSlider(minStr: string): number {
+  const t = minStr.trim();
+  if (t === "") return 0;
+  const min = Number(t);
+  if (!Number.isFinite(min)) return 0;
+  const h = min / 60;
+  return Math.max(0, Math.min(STUDY_HOURS_MAX, h));
+}
+
+/** 분 → 'N시간' / 미입력 '—' */
+function formatStudyHoursLabel(minStr: string): string {
+  const t = minStr.trim();
+  if (t === "") return "—";
+  const min = Number(t);
+  if (!Number.isFinite(min)) return "—";
+  const h = Math.max(0, Math.min(STUDY_HOURS_MAX, min / 60));
+  if (h % 1 === 0) return `${h}시간`;
+  return `${h.toFixed(1)}시간`;
+}
+
+/** 오늘 학습 0–14h(분 저장) 슬라이더 → 필 너비 % */
+function recordStudyHoursSliderFillPctFromMinutes(minStr: string | number): string {
+  const s = typeof minStr === "string" ? minStr.trim() : String(minStr);
+  if (s === "") return "0%";
+  const min = Number(s);
+  if (!Number.isFinite(min)) return "0%";
+  const clamped = Math.max(0, Math.min(STUDY_MINUTES_MAX, min));
+  const h = clamped / 60;
+  const pct = (h / STUDY_HOURS_MAX) * 100;
+  return `${pct}%`;
+}
+
 export type TabKey =
   | "today"
   | "records"
   | "store"
-  | "profile"
-  | "notifications";
+  | "profile";
 
 type StudyStoreApp = {
   id: string;
@@ -217,11 +267,13 @@ export function StudentLegacyView(props: {
     hapticSuccess
   } = props;
 
-  const [todaySleepHours, setTodaySleepHours] = useState("");
+  const [todaySleepHours, setTodaySleepHours] = useState("7");
   const [todayStress, setTodayStress] = useState("3");
   const [todayConcentration, setTodayConcentration] = useState("3");
-  /** 오늘 학습 시간(분 단위 입력) — 기록 탭·코치 맥락 공유 */
-  const [todayStudyMinutes, setTodayStudyMinutes] = useState("");
+  /** 오늘 학습 시간(내부는 분 정수, UI는 시간 슬라이더) — 기록 탭·코치 맥락 공유 */
+  const [todayStudyMinutes, setTodayStudyMinutes] = useState(
+    String(DEFAULT_STUDY_MINUTES)
+  );
   const [todayMemo, setTodayMemo] = useState("");
   const [todayTomorrowPractice, setTodayTomorrowPractice] = useState("");
   /** 어제 기록의「내일 실천할 한 가지」→ 오늘 실천 약속 문구 */
@@ -438,7 +490,11 @@ export function StudentLegacyView(props: {
         const td = row.tomorrowPracticeDone;
         setCommitmentDoneToday(mergeCommitmentDoneFromServer(td, dayKey));
         if (row.sleepHours != null && Number.isFinite(Number(row.sleepHours))) {
-          setTodaySleepHours(String(row.sleepHours));
+          const sh = Math.max(
+            0,
+            Math.min(SLEEP_HOURS_MAX, Number(row.sleepHours))
+          );
+          setTodaySleepHours(String(sh));
         }
         const s = row.stressScore;
         if (s != null && s >= 1 && s <= 5) setTodayStress(String(s));
@@ -450,9 +506,16 @@ export function StudentLegacyView(props: {
         setTodayMetacognitionReflection(String(row.metacognitionReflection ?? ""));
         const sm = row.studyMinutes;
         if (sm != null && Number.isFinite(Number(sm))) {
-          setTodayStudyMinutes(String(Math.round(Number(sm))));
+          const raw = Math.round(Number(sm));
+          const clamped = Math.max(
+            0,
+            Math.min(STUDY_MINUTES_MAX, raw)
+          );
+          const snapped =
+            Math.round(clamped / STUDY_MINUTES_STEP) * STUDY_MINUTES_STEP;
+          setTodayStudyMinutes(String(snapped));
         } else {
-          setTodayStudyMinutes("");
+          setTodayStudyMinutes(String(DEFAULT_STUDY_MINUTES));
         }
         coachLifeDayHydratedRef.current = sessionKey;
       } catch {
@@ -591,9 +654,15 @@ export function StudentLegacyView(props: {
       return;
     }
     const sleepHours = Number(sleepRaw);
-    if (!Number.isFinite(sleepHours) || sleepHours < 0 || sleepHours > 24) {
+    if (
+      !Number.isFinite(sleepHours) ||
+      sleepHours < 0 ||
+      sleepHours > SLEEP_HOURS_MAX
+    ) {
       hapticWarning();
-      setTodayLogMessage("수면시간은 0~24시간 범위로 입력해 주세요.");
+      setTodayLogMessage(
+        `수면시간은 0~${SLEEP_HOURS_MAX}시간 범위로 입력해 주세요.`
+      );
       return;
     }
     setTodayLogSaving(true);
@@ -607,9 +676,17 @@ export function StudentLegacyView(props: {
       let studyMinutesPayload: number | null = null;
       if (studyMinRaw) {
         const n = Number(studyMinRaw);
-        if (!Number.isFinite(n) || n < 0 || n > 1440 || !Number.isInteger(n)) {
+        if (
+          !Number.isFinite(n) ||
+          n < 0 ||
+          n > STUDY_MINUTES_MAX ||
+          !Number.isInteger(n) ||
+          n % STUDY_MINUTES_STEP !== 0
+        ) {
           hapticWarning();
-          setTodayLogMessage("학습 시간은 0~1440 사이의 정수(분)로 입력해 주세요.");
+          setTodayLogMessage(
+            `학습 시간은 0~${STUDY_HOURS_MAX}시간 사이, ${STUDY_HOURS_STEP}시간(${STUDY_MINUTES_STEP}분) 단위로 입력해 주세요.`
+          );
           return;
         }
         studyMinutesPayload = n;
@@ -823,14 +900,19 @@ export function StudentLegacyView(props: {
                       </div>
                       <button
                         type="button"
-                        className="timeline-add-button"
+                        className="timeline-add-button timeline-add-button--plan-edit"
                         onClick={() => {
                           hapticSelection();
                           onOpenAddPlan();
                         }}
-                        aria-label="오늘 계획 추가 요청"
+                        aria-label="오늘 계획 수정 요청"
                       >
-                        <span className="timeline-add-button__icon">＋</span>
+                        <span
+                          className="timeline-add-button__icon timeline-add-button__icon--lucide"
+                          aria-hidden
+                        >
+                          <Pencil size={20} strokeWidth={2} />
+                        </span>
                       </button>
                     </div>
                   </div>
@@ -1013,19 +1095,47 @@ export function StudentLegacyView(props: {
                                 <div className="record-study-reflection-card">
                                   <div className="field record-day-field">
                                     <label className="field-label">오늘 학습 시간</label>
-                                    <input
-                                      type="number"
-                                      min={0}
-                                      max={1440}
-                                      step={1}
-                                      inputMode="numeric"
-                                      className="field-input record-day-input"
-                                      placeholder="예: 120"
-                                      value={todayStudyMinutes}
-                                      onChange={e =>
-                                        setTodayStudyMinutes(e.target.value)
-                                      }
-                                    />
+                                    <div className="record-slider-row">
+                                      <div className="record-slider-pill">
+                                        <div
+                                          className="record-slider-pill__fill"
+                                          style={{
+                                            width: recordStudyHoursSliderFillPctFromMinutes(
+                                              todayStudyMinutes
+                                            )
+                                          }}
+                                        />
+                                        <input
+                                          type="range"
+                                          className="record-slider-pill__input"
+                                          min={0}
+                                          max={STUDY_HOURS_MAX}
+                                          step={STUDY_HOURS_STEP}
+                                          value={studyMinutesToHoursSlider(
+                                            todayStudyMinutes
+                                          )}
+                                          onChange={e => {
+                                            const hrs = Number(e.target.value);
+                                            if (!Number.isFinite(hrs)) return;
+                                            setTodayStudyMinutes(
+                                              String(Math.round(hrs * 60))
+                                            );
+                                          }}
+                                          aria-valuetext={
+                                            todayStudyMinutes.trim() === ""
+                                              ? "미입력"
+                                              : formatStudyHoursLabel(
+                                                  todayStudyMinutes
+                                                )
+                                          }
+                                        />
+                                      </div>
+                                      <span className="record-slider-value record-slider-value--study-min">
+                                        {formatStudyHoursLabel(
+                                          todayStudyMinutes
+                                        )}
+                                      </span>
+                                    </div>
                                   </div>
                                   <div className="field record-day-field record-day-memo">
                                     <label className="field-label">
@@ -1269,17 +1379,41 @@ export function StudentLegacyView(props: {
                                 <div className="record-day-block">
                                   <div className="field record-day-field">
                                     <label className="field-label">수면시간</label>
-                                    <input
-                                      type="number"
-                                      min={0}
-                                      max={24}
-                                      step={0.5}
-                                      className="field-input record-day-input"
-                                      value={todaySleepHours}
-                                      onChange={e =>
-                                        setTodaySleepHours(e.target.value)
-                                      }
-                                    />
+                                    <div className="record-slider-row">
+                                      <div className="record-slider-pill">
+                                        <div
+                                          className="record-slider-pill__fill"
+                                          style={{
+                                            width: recordSleepSliderFillPct(
+                                              todaySleepHours
+                                            )
+                                          }}
+                                        />
+                                        <input
+                                          type="range"
+                                          className="record-slider-pill__input"
+                                          min={0}
+                                          max={SLEEP_HOURS_MAX}
+                                          step={0.5}
+                                          value={(() => {
+                                            const n = Number(todaySleepHours);
+                                            return Number.isFinite(n)
+                                              ? Math.max(
+                                                  0,
+                                                  Math.min(SLEEP_HOURS_MAX, n)
+                                                )
+                                              : 0;
+                                          })()}
+                                          onChange={e =>
+                                            setTodaySleepHours(e.target.value)
+                                          }
+                                          aria-valuetext={`${todaySleepHours}시간`}
+                                        />
+                                      </div>
+                                      <span className="record-slider-value">
+                                        {`${todaySleepHours}시간`}
+                                      </span>
+                                    </div>
                                   </div>
                                   <div className="field record-day-field">
                                     <label className="field-label">스트레스</label>
@@ -1612,10 +1746,6 @@ export function StudentLegacyView(props: {
               )
             : null}
         </section>
-      )}
-
-      {tab === "notifications" && (
-        <NotificationsPage hapticSelection={hapticSelection} />
       )}
 
       </TabTransitionPanel>

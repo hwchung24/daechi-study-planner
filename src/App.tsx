@@ -9,6 +9,7 @@ import { PageTransition } from "./components/PageTransition";
 import { ParentLegacyView, type ParentTabKey } from "./components/parent/ParentLegacyView";
 import { StudentLegacyView, type TabKey } from "./components/student/StudentLegacyView";
 import { StudentProfilePage } from "./components/student/StudentProfilePage";
+import { NotificationsPage } from "./components/student/NotificationsPage";
 import { TimePickerInline } from "./components/TimePickerSheet";
 import { useOnlineStatus } from "./hooks/useOnlineStatus";
 import { StudentCoachApp, type StudentTabKey as CoachStudentTabKey } from "./coach/student/StudentCoachApp";
@@ -177,7 +178,7 @@ const App: React.FC = () => {
   const [meFetchNonce, setMeFetchNonce] = useState(0);
   /** 기록 탭 저장 시 코치용 coach/state(메모·학습 시간 등) 재동기화 */
   const [coachLogSyncNonce, setCoachLogSyncNonce] = useState(0);
-  /** 오늘 계획 추가 요청: study_books.id */
+  /** 오늘 계획 수정 요청: study_books.id */
   const [addBlockBookId, setAddBlockBookId] = useState<number | null>(null);
   const [addBlockPlan, setAddBlockPlan] = useState("");
   const [startInput, setStartInput] = useState("18:00");
@@ -205,6 +206,7 @@ const App: React.FC = () => {
     ParentPlanAddRequestRow[]
   >([]);
   const [parentPlanAddBusy, setParentPlanAddBusy] = useState(false);
+  const [showNotificationsModal, setShowNotificationsModal] = useState(false);
 
   const addModalReveal = useModalReveal(showAddModal);
   const noParentPlanModalReveal = useModalReveal(showPlanAddNoParentModal);
@@ -215,6 +217,7 @@ const App: React.FC = () => {
   const guideModalReveal = useModalReveal(showGuideModal);
   const authConfirmReveal = useModalReveal(authConfirmKind !== null);
   const checkSettingsModalReveal = useModalReveal(checkSettingsOpen);
+  const notificationsModalReveal = useModalReveal(showNotificationsModal);
 
   const [newBookName, setNewBookName] = useState("");
   const [booksModalMounted, setBooksModalMounted] = useState(false);
@@ -383,19 +386,33 @@ const App: React.FC = () => {
       setTab(studentTab);
       setParentTab(parseParentTabFromHash());
       const coachFromHash = parseCoachStudentTabFromHash();
-      if (studentTab === "notifications") {
-        setCoachStudentTab(null);
-        setCoachStudentCoachLayout("scroll");
-      } else {
-        setCoachStudentTab(coachFromHash);
-        setCoachStudentCoachLayout(coachFromHash === "coach" ? "chat" : "scroll");
-      }
+      setCoachStudentTab(coachFromHash);
+      setCoachStudentCoachLayout(coachFromHash === "coach" ? "chat" : "scroll");
       setCoachParentTab(parseCoachParentTabFromHash());
     };
     const onHash = () => syncRouteFromHash();
     window.addEventListener("hashchange", onHash);
     syncRouteFromHash();
     return () => window.removeEventListener("hashchange", onHash);
+  }, []);
+
+  /** #/notifications 접근 시 알림 모달만 열고 해시는 오늘 탭으로 정리 */
+  useEffect(() => {
+    const openModalFromNotificationsHash = () => {
+      try {
+        if (window.location.hash !== "#/notifications") return;
+        setShowNotificationsModal(true);
+        const u = new URL(window.location.href);
+        u.hash = "#/today";
+        window.history.replaceState({}, "", u.toString());
+      } catch {
+        // ignore
+      }
+    };
+    openModalFromNotificationsHash();
+    window.addEventListener("hashchange", openModalFromNotificationsHash);
+    return () =>
+      window.removeEventListener("hashchange", openModalFromNotificationsHash);
   }, []);
 
   // 미로그인 시 로그인 페이지로 (첫 프레임에서 authToken이 아직 null일 수 있어 localStorage 기준)
@@ -1342,9 +1359,6 @@ const App: React.FC = () => {
     meRole === "parent" &&
     coachParentTab !== null;
 
-  const studentNotificationsView =
-    showStudentShell && !coachStudentMode && tab === "notifications";
-
   const appMainPageKey = useMemo(() => {
     if (roleLoading) return "loading";
     if (profileLoadFailed) return "profile-error";
@@ -1479,59 +1493,46 @@ const App: React.FC = () => {
         />
       ) : splashDone ? (
       <div
-        className={
-          "app-shell" +
-          (mainEnter ? " app-shell--enter" : "") +
-          (studentNotificationsView ? " app-shell--notifications" : "")
-        }
+        className={"app-shell" + (mainEnter ? " app-shell--enter" : "")}
       >
-        <header
-          className={
-            "app-header" +
-            (studentNotificationsView ? " app-header--notifications" : "")
-          }
-        >
+        <header className="app-header">
           <div className="status-bar-safe" />
           <div className="header-top">
-            {!studentNotificationsView ? (
-              <div className="header-title-group">
-                <div className="header-title-row">
-                  <h1 className="header-title">
-                    {roleLoading && "불러오는 중…"}
-                    {!roleLoading &&
-                      parentView &&
-                      (meRole === "parent"
-                        ? coachParentMode
-                          ? coachParentTab === "timeline"
-                            ? "학습 타임라인"
-                            : coachParentTab === "guide"
-                              ? "대화 가이드"
-                              : coachParentTab === "profile"
-                                ? "학부모 프로필"
-                                : "학부모 홈"
-                          : parentTab === "link"
-                            ? "자녀 연결"
-                            : "AI 리포트"
-                        : "학부모")}
-                    {showStudentShell &&
-                      (coachStudentMode
-                        ? "AI 코치"
-                        : tab === "profile"
-                          ? "프로필"
-                          : tab === "today"
-                            ? "오늘 공부"
-                            : tab === "records"
-                              ? "기록"
-                              : tab === "store"
-                                ? "학습 앱스토어"
-                                : "오늘 공부")}
-                  </h1>
-                </div>
+            <div className="header-title-group">
+              <div className="header-title-row">
+                <h1 className="header-title">
+                  {roleLoading && "불러오는 중…"}
+                  {!roleLoading &&
+                    parentView &&
+                    (meRole === "parent"
+                      ? coachParentMode
+                        ? coachParentTab === "timeline"
+                          ? "학습 타임라인"
+                          : coachParentTab === "guide"
+                            ? "대화 가이드"
+                            : coachParentTab === "profile"
+                              ? "학부모 프로필"
+                              : "학부모 홈"
+                        : parentTab === "link"
+                          ? "자녀 연결"
+                          : "AI 리포트"
+                      : "학부모")}
+                  {showStudentShell &&
+                    (coachStudentMode
+                      ? "AI 코치"
+                      : tab === "profile"
+                        ? "프로필"
+                        : tab === "today"
+                          ? "오늘 공부"
+                          : tab === "records"
+                            ? "기록"
+                            : tab === "store"
+                              ? "학습 앱스토어"
+                              : "오늘 공부")}
+                </h1>
               </div>
-            ) : (
-              <div className="header-title-group header-title-group--spacer" aria-hidden />
-            )}
-            {showStudentShell && !parentView && tab !== "notifications" ? (
+            </div>
+            {showStudentShell && !parentView ? (
               <div className="header-actions">
                 <button
                   type="button"
@@ -1545,8 +1546,7 @@ const App: React.FC = () => {
                     hapticSelection();
                     setCoachStudentTab(null);
                     setCoachStudentCoachLayout("scroll");
-                    setTab("notifications");
-                    window.location.hash = "#/notifications";
+                    setShowNotificationsModal(true);
                   }}
                 >
                   {studentNotificationUnreadCount > 0 ? (
@@ -1572,8 +1572,7 @@ const App: React.FC = () => {
             coachStudentMode &&
             coachStudentCoachLayout === "chat"
               ? " app-main--coach-chat"
-              : "") +
-            (studentNotificationsView ? " app-main--notifications" : "")
+              : "")
           }
         >
           <PageTransition
@@ -1807,7 +1806,7 @@ const App: React.FC = () => {
               }}
             >
               <div className="dday-modal-header">
-                <span className="dday-modal-title">오늘 계획 추가 요청</span>
+                <span className="dday-modal-title">오늘 계획 수정 요청</span>
               </div>
               <div className="dday-modal-body">
                 <div className="field">
@@ -1931,7 +1930,7 @@ const App: React.FC = () => {
                   className="settings-hint"
                   style={{ margin: 0, lineHeight: 1.5 }}
                 >
-                  오늘 계획 추가 요청을 보내려면 연결된 학부모 계정이 있어야 합니다.
+                  오늘 계획 수정 요청을 보내려면 연결된 학부모 계정이 있어야 합니다.
                   프로필에서 학부모와 계정을 먼저 연결해 주세요.
                 </p>
               </div>
@@ -1973,7 +1972,7 @@ const App: React.FC = () => {
                   className="dday-modal-title"
                   id="parent-plan-add-title"
                 >
-                  오늘 계획 추가를 허용하시겠습니까?
+                  오늘 계획 수정을 허용하시겠습니까?
                 </span>
               </div>
               <div className="dday-modal-body">
@@ -1981,7 +1980,7 @@ const App: React.FC = () => {
                   className="settings-hint"
                   style={{ margin: "0 0 10px", lineHeight: 1.5 }}
                 >
-                  자녀가 오늘 타임라인에 공부 블록 추가를 요청했습니다.
+                  자녀가 오늘 타임라인 계획 수정을 요청했습니다.
                 </p>
                 <div className="parent-plan-add-request-detail">
                   <p className="parent-plan-add-request-line">
@@ -2067,6 +2066,55 @@ const App: React.FC = () => {
             </div>
           </div>
         ) : null}
+
+        {showNotificationsModal && (
+          <div
+            className={
+              "dday-modal" +
+              (notificationsModalReveal.revealed ? " dday-modal--open" : "")
+            }
+            onClick={() =>
+              notificationsModalReveal.beginClose(() =>
+                setShowNotificationsModal(false)
+              )
+            }
+          >
+            <div
+              className="dday-modal-inner"
+              onClick={e => {
+                e.stopPropagation();
+              }}
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="notifications-modal-title"
+            >
+              <div className="dday-modal-header">
+                <span
+                  className="dday-modal-title"
+                  id="notifications-modal-title"
+                >
+                  알림
+                </span>
+              </div>
+              <div className="dday-modal-body">
+                <NotificationsPage />
+              </div>
+              <div className="dday-modal-footer">
+                <button
+                  type="button"
+                  className="modal-primary"
+                  onClick={() =>
+                    notificationsModalReveal.beginClose(() =>
+                      setShowNotificationsModal(false)
+                    )
+                  }
+                >
+                  닫기
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
 
         {authConfirmKind && (
           <div
