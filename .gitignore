@@ -8,3 +8,15 @@ dist/
 .DS_Store
 *.log
 coach-mvp/
+
+# Local editor settings
+.vscode/settings.json
+
+# Temporary local test files
+.placeholder
+.placeholder2
+placeholder.tmp
+placeholder3
+placeholder4
+placeholder5
+test.txt
