@@ -145,6 +145,23 @@ type StudyStoreApp = {
   removedAt?: string | null;
 };
 
+type AppAllowanceSlot = {
+  title: string;
+  source: "schedule" | "plan" | "free";
+  startTime: string;
+  endTime: string;
+  reason: string;
+  allowedApps: Array<Pick<StudyStoreApp, "id" | "name" | "category">>;
+};
+
+type AppAllowancePlan = {
+  targetDate: string;
+  summary: string;
+  slots: AppAllowanceSlot[];
+  usedOpenAi: boolean;
+  model: string | null;
+};
+
 /** scroll-snap + scrollIntoView 조합에서 월요일로 붙는 문제 방지 — 날짜 키로 카드 찾아 가로 중앙 정렬 */
 function centerRecordsStripOnDateKey(
   scrollEl: HTMLDivElement | null,
@@ -304,6 +321,9 @@ export function StudentLegacyView(props: {
   const [storeDetailApp, setStoreDetailApp] = useState<StudyStoreApp | null>(
     null
   );
+  const [appAllowancePlan, setAppAllowancePlan] = useState<AppAllowancePlan | null>(
+    null
+  );
 
   const [coachPlanHintOpen, setCoachPlanHintOpen] = useState(false);
   const [coachPlanHintKind, setCoachPlanHintKind] = useState<"study" | "life">(
@@ -313,6 +333,7 @@ export function StudentLegacyView(props: {
   const ddayModalReveal = useModalReveal(ddayEditOpen);
   const coachPlanHintReveal = useModalReveal(coachPlanHintOpen);
   const storeDetailReveal = useModalReveal(storeDetailApp != null);
+  const appAllowanceReveal = useModalReveal(appAllowancePlan != null);
 
   const tryOpenCoachTomorrowPlan = useCallback(
     (kind: "study" | "life") => {
@@ -341,7 +362,7 @@ export function StudentLegacyView(props: {
       } catch {
         // ignore
       }
-      window.location.hash = "#/student/home?panel=plan";
+      setAppPath("#/student/home?panel=plan");
     },
     [
       hapticSelection,
@@ -360,13 +381,65 @@ export function StudentLegacyView(props: {
   }, [tab]);
 
   useEffect(() => {
-    if (!storeDetailApp) return;
+    if (!storeDetailApp && !appAllowancePlan) return;
     const prev = document.body.style.overflow;
     document.body.style.overflow = "hidden";
     return () => {
       document.body.style.overflow = prev;
     };
-  }, [storeDetailApp]);
+  }, [storeDetailApp, appAllowancePlan]);
+
+  const buildTomorrowPlanDraftPayload = useCallback(() => {
+    return progressBooks
+      .map(book => ({
+        bookId: book.id,
+        bookName: book.name,
+        plannedRange: tomorrowPlan[book.id]?.text || "",
+        startTime: tomorrowPlan[book.id]?.start || "",
+        endTime: tomorrowPlan[book.id]?.end || ""
+      }))
+      .filter(
+        item =>
+          item.bookName.trim() ||
+          item.plannedRange.trim() ||
+          item.startTime.trim() ||
+          item.endTime.trim()
+      );
+  }, [progressBooks, tomorrowPlan]);
+
+  const requestAppAllowancePlan = useCallback(async () => {
+    if (!authToken) return null;
+    try {
+      const res = await fetch(`${apiBase}/api/student/coach/app-timetable`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${authToken}`
+        },
+        body: JSON.stringify({
+          planDraft: buildTomorrowPlanDraftPayload(),
+          serial: resolvePreferredSerial() || undefined
+        })
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) return null;
+      return {
+        targetDate: String((data as { targetDate?: string }).targetDate || ""),
+        summary: String((data as { summary?: string }).summary || ""),
+        slots: Array.isArray((data as { slots?: AppAllowanceSlot[] }).slots)
+          ? ((data as { slots?: AppAllowanceSlot[] }).slots || [])
+          : [],
+        usedOpenAi: Boolean((data as { usedOpenAi?: boolean }).usedOpenAi),
+        model:
+          typeof (data as { model?: string | null }).model === "string" ||
+          (data as { model?: string | null }).model === null
+            ? ((data as { model?: string | null }).model ?? null)
+            : null
+      } satisfies AppAllowancePlan;
+    } catch {
+      return null;
+    }
+  }, [apiBase, authToken, buildTomorrowPlanDraftPayload]);
 
   const updateDdayLabelFromDate = (dateStr: string | null) => {
     if (!dateStr) {
@@ -737,6 +810,26 @@ export function StudentLegacyView(props: {
         localStorage.setItem(DAECHI_COACH_LOG_SAVED_STORAGE_KEY, String(Date.now()));
       } catch {
         // ignore
+      }
+      setAppAllowancePlan({
+        targetDate: getDateKeySeoul(1),
+        summary: "학생 일정과 내일 계획을 바탕으로 앱 허용 시간표를 생성 중이에요.",
+        slots: [],
+        usedOpenAi: false,
+        model: null
+      });
+      const generatedPlan = await requestAppAllowancePlan();
+      if (generatedPlan) {
+        setAppAllowancePlan(generatedPlan);
+      } else {
+        setAppAllowancePlan({
+          targetDate: getDateKeySeoul(1),
+          summary:
+            "시간표를 자동 생성하지 못했어요. 그래도 내일 허용 앱 팝업은 열어 두었어요. 앱스토어 보기를 눌러 설치 앱 상태를 먼저 확인해 주세요.",
+          slots: [],
+          usedOpenAi: false,
+          model: null
+        });
       }
     } catch {
       hapticWarning();
@@ -1749,6 +1842,122 @@ export function StudentLegacyView(props: {
       )}
 
       </TabTransitionPanel>
+
+      {appAllowancePlan
+        ? createPortal(
+            <div
+              className={
+                "dday-modal" +
+                (appAllowanceReveal.revealed ? " dday-modal--open" : "")
+              }
+              role="presentation"
+              onClick={() =>
+                appAllowanceReveal.beginClose(() => setAppAllowancePlan(null))
+              }
+            >
+              <div
+                className="dday-modal-inner app-allow-plan-modal-inner"
+                role="dialog"
+                aria-modal="true"
+                aria-labelledby="app-allow-plan-title"
+                onClick={e => e.stopPropagation()}
+              >
+                <div className="dday-modal-header app-allow-plan-header">
+                  <div>
+                    <span className="dday-modal-title" id="app-allow-plan-title">
+                      내일 앱 허용 시간표
+                    </span>
+                    {appAllowancePlan.targetDate ? (
+                      <p className="app-allow-plan-date">{appAllowancePlan.targetDate}</p>
+                    ) : null}
+                  </div>
+                  <span className="app-allow-plan-badge">
+                    {appAllowancePlan.usedOpenAi ? "GPT 추천" : "기본 추천"}
+                  </span>
+                </div>
+                <div className="dday-modal-body">
+                  <p className="app-allow-plan-summary">
+                    {appAllowancePlan.summary ||
+                      "내일 일정과 계획을 기준으로 앱 허용 후보를 정리했어요."}
+                  </p>
+                  {appAllowancePlan.slots.length > 0 ? (
+                    <div className="app-allow-plan-slot-list">
+                      {appAllowancePlan.slots.map((slot, index) => (
+                        <section
+                          key={`${slot.startTime}-${slot.endTime}-${index}`}
+                          className="app-allow-plan-slot"
+                        >
+                          <div className="app-allow-plan-slot__top">
+                            <div>
+                              <div className="app-allow-plan-slot__time">
+                                {slot.startTime} - {slot.endTime}
+                              </div>
+                              <div className="app-allow-plan-slot__title">{slot.title}</div>
+                            </div>
+                            <span className="app-allow-plan-slot__source">
+                              {slot.source === "schedule"
+                                ? "일정"
+                                : slot.source === "plan"
+                                  ? "계획"
+                                  : "빈 시간"}
+                            </span>
+                          </div>
+                          {slot.reason ? (
+                            <p className="app-allow-plan-slot__reason">{slot.reason}</p>
+                          ) : null}
+                          <div className="app-allow-plan-slot__apps">
+                            {slot.allowedApps.length > 0 ? (
+                              slot.allowedApps.map(app => (
+                                <span key={app.id} className="app-allow-plan-chip">
+                                  {app.name}
+                                </span>
+                              ))
+                            ) : (
+                              <span className="app-allow-plan-chip app-allow-plan-chip--empty">
+                                허용 앱 없음
+                              </span>
+                            )}
+                          </div>
+                        </section>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="app-allow-plan-empty">
+                      내일 일정이나 계획 시간이 더 정리되면 시간대별 허용 앱을 더 정확히 추천할 수 있어요.
+                    </p>
+                  )}
+                  {appAllowancePlan.usedOpenAi && appAllowancePlan.model ? (
+                    <p className="app-allow-plan-model">생성 모델: {appAllowancePlan.model}</p>
+                  ) : null}
+                </div>
+                <div className="dday-modal-footer">
+                  <button
+                    type="button"
+                    className="modal-secondary"
+                    onClick={() =>
+                      appAllowanceReveal.beginClose(() => {
+                        setAppAllowancePlan(null);
+                        window.location.hash = "#/store";
+                      })
+                    }
+                  >
+                    앱스토어 보기
+                  </button>
+                  <button
+                    type="button"
+                    className="modal-primary"
+                    onClick={() =>
+                      appAllowanceReveal.beginClose(() => setAppAllowancePlan(null))
+                    }
+                  >
+                    확인
+                  </button>
+                </div>
+              </div>
+            </div>,
+            document.body
+          )
+        : null}
 
       {timePicker !== null && (
         <TimePickerSheet

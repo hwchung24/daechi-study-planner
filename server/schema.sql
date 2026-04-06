@@ -369,6 +369,19 @@ CREATE INDEX IF NOT EXISTS idx_sian_user_unread
   ON student_in_app_notifications (user_id)
   WHERE read_at IS NULL;
 
+CREATE TABLE IF NOT EXISTS parent_in_app_notifications (
+  id BIGSERIAL PRIMARY KEY,
+  user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  title TEXT NOT NULL DEFAULT '',
+  body TEXT,
+  read_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_pian_user_unread
+  ON parent_in_app_notifications (user_id)
+  WHERE read_at IS NULL;
+
 -- 학생 → 학부모 승인 대기: 오늘 타임라인 블록 추가 요청
 CREATE TABLE IF NOT EXISTS parent_plan_add_requests (
   id BIGSERIAL PRIMARY KEY,

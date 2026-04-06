@@ -15,6 +15,7 @@ import { useModalReveal } from "../../lib/useModalReveal";
 import type { StudentLinkRow } from "./StudentLegacyView";
 
 const STUDENT_PROFILE_LS_KEY = "daechi_student_profile_custom";
+const STUDENT_PROFILE_NAME_LS_KEY = "daechi_student_profile_name";
 
 type LocalStudentProfile = {
   avatarUrl?: string;
@@ -31,6 +32,11 @@ type RemoteCoachState = {
       targetSubjects?: string[];
     };
   };
+};
+
+type StudentLinkedParentRow = {
+  id: number | string;
+  email: string;
 };
 
 export function StudentProfilePage(props: {
@@ -96,6 +102,16 @@ export function StudentProfilePage(props: {
   const [scheduleTime, setScheduleTime] = useState("18:00");
   const [scheduleEndTime, setScheduleEndTime] = useState("19:00");
   const [scheduleError, setScheduleError] = useState("");
+  const [parentLinkFeedback, setParentLinkFeedback] = useState("");
+  const [linkedParents, setLinkedParents] = useState<StudentLinkedParentRow[]>([]);
+  const [cachedProfileName, setCachedProfileName] = useState<string>(() => {
+    if (typeof window === "undefined") return "";
+    try {
+      return String(localStorage.getItem(STUDENT_PROFILE_NAME_LS_KEY) || "").trim();
+    } catch {
+      return "";
+    }
+  });
   const fetchRef = useRef<AbortController | null>(null);
 
   const accountModalReveal = useModalReveal(accountEditOpen);
@@ -118,6 +134,38 @@ export function StudentProfilePage(props: {
       .catch(() => {
         setScheduleItems([]);
       });
+  }, [apiBase, token]);
+
+  const refreshStudentLinkRequests = useCallback(async () => {
+    if (!token) {
+      setStudentWaitingOnParent([]);
+      setStudentWaitingOnMe([]);
+      return;
+    }
+    const res = await fetch(`${apiBase}/api/student/link-requests`, {
+      headers: { Authorization: `Bearer ${token}` }
+    });
+    if (!res.ok) {
+      throw new Error("연결 요청 목록을 불러오지 못했습니다.");
+    }
+    const data = await res.json();
+    setStudentWaitingOnParent(data.waitingOnParent || []);
+    setStudentWaitingOnMe(data.waitingOnMe || []);
+  }, [apiBase, token, setStudentWaitingOnMe, setStudentWaitingOnParent]);
+
+  const refreshLinkedParents = useCallback(async () => {
+    if (!token) {
+      setLinkedParents([]);
+      return;
+    }
+    const res = await fetch(`${apiBase}/api/student/parents`, {
+      headers: { Authorization: `Bearer ${token}` }
+    });
+    if (!res.ok) {
+      throw new Error("연결된 학부모 목록을 불러오지 못했습니다.");
+    }
+    const data = await res.json();
+    setLinkedParents(Array.isArray(data?.parents) ? data.parents : []);
   }, [apiBase, token]);
 
   const addScheduleItem = async () => {
@@ -200,6 +248,15 @@ export function StudentProfilePage(props: {
       .then((data: RemoteCoachState) => {
         if (ac.signal.aborted) return;
         setRemote(data);
+        const nextName = String(data?.snapshot?.profile?.name ?? "").trim();
+        if (nextName) {
+          setCachedProfileName(nextName);
+          try {
+            localStorage.setItem(STUDENT_PROFILE_NAME_LS_KEY, nextName);
+          } catch {
+            // ignore
+          }
+        }
       })
       .catch((e: unknown) => {
         if (e instanceof DOMException && e.name === "AbortError") return;
@@ -227,6 +284,12 @@ export function StudentProfilePage(props: {
   useEffect(() => {
     refreshSchedules();
   }, [refreshSchedules]);
+
+  useEffect(() => {
+    refreshLinkedParents().catch(() => {
+      setLinkedParents([]);
+    });
+  }, [refreshLinkedParents]);
 
   useEffect(() => {
     const onUpdated = () => refreshSchedules();
@@ -309,6 +372,17 @@ export function StudentProfilePage(props: {
       if (data.user?.email) {
         onUserEmailUpdated(String(data.user.email));
       }
+      if (meRole === "student") {
+        const nextName = accountName.trim();
+        if (nextName) {
+          setCachedProfileName(nextName);
+          try {
+            localStorage.setItem(STUDENT_PROFILE_NAME_LS_KEY, nextName);
+          } catch {
+            // ignore
+          }
+        }
+      }
       hapticSuccess();
       accountModalReveal.beginClose(() => {
         setAccountEditOpen(false);
@@ -344,11 +418,12 @@ export function StudentProfilePage(props: {
   };
 
   const profile = remote?.snapshot?.profile;
+  const resolvedProfileName = String(profile?.name ?? "").trim() || cachedProfileName;
   const displayName = token
     ? remote
-      ? String(profile?.name ?? "").trim() || "학생"
-      : "학생"
-    : profile?.name || student.name;
+      ? resolvedProfileName || "학생"
+      : resolvedProfileName
+    : resolvedProfileName || student.name;
   const rawSchoolLevel = profile?.schoolLevel || student.schoolLevel;
   const displaySchoolLevel =
     rawSchoolLevel === "고" ? "고등학교" : rawSchoolLevel === "중" ? "중학교" : rawSchoolLevel;
@@ -482,6 +557,16 @@ export function StudentProfilePage(props: {
         {meRole === "student" && (
           <Card className="coach-card coach-card--padded student-profile-parent-link-card">
             <SectionHeader title="학부모와 계정 연결" />
+            {linkedParents.length > 0 && (
+              <div className="student-profile-link-status" style={{ marginTop: 12 }}>
+                <span className="student-profile-link-status__title">연결된 학부모</span>
+                {linkedParents.map(parent => (
+                  <span key={parent.id} className="student-profile-link-status__hint">
+                    {parent.email}
+                  </span>
+                ))}
+              </div>
+            )}
             <div className="field" style={{ marginTop: 12 }}>
               <label className="field-label" htmlFor="student-parent-email">
                 학부모 이메일
@@ -498,37 +583,50 @@ export function StudentProfilePage(props: {
               className="coach-primary-btn"
               style={{ marginTop: 10 }}
               onClick={async () => {
-                if (!props.authToken) return;
+                if (!token) return;
                 const parentEmail = studentParentEmail.trim();
-                if (!parentEmail) return;
+                if (!parentEmail) {
+                  setParentLinkFeedback("학부모 이메일을 입력해 주세요.");
+                  hapticWarning();
+                  return;
+                }
                 try {
                   const res = await fetch(`${apiBase}/api/student/request-parent`, {
                     method: "POST",
                     headers: {
                       "Content-Type": "application/json",
-                      Authorization: `Bearer ${props.authToken}`
+                      Authorization: `Bearer ${token}`
                     },
                     body: JSON.stringify({ parentEmail })
                   });
-                  if (!res.ok) return;
-                  setStudentParentEmail("");
-                  const lr = await fetch(`${apiBase}/api/student/link-requests`, {
-                    headers: {
-                      Authorization: `Bearer ${props.authToken}`
+                  const data = await res.json().catch(() => ({}));
+                  if (!res.ok) {
+                    const msg = String(data?.error || "연결 요청에 실패했습니다.").trim();
+                    setParentLinkFeedback(msg);
+                    if (msg.includes("이미 진행 중") || msg.includes("이미 연결")) {
+                      await refreshStudentLinkRequests();
                     }
-                  });
-                  if (lr.ok) {
-                    const d = await lr.json();
-                    setStudentWaitingOnParent(d.waitingOnParent || []);
-                    setStudentWaitingOnMe(d.waitingOnMe || []);
+                    hapticWarning();
+                    return;
                   }
+                  setStudentParentEmail("");
+                  await refreshStudentLinkRequests();
+                  await refreshLinkedParents();
+                  setParentLinkFeedback("학부모에게 연결 요청을 보냈어요.");
+                  hapticSuccess();
                 } catch {
-                  // ignore
+                  setParentLinkFeedback("네트워크 오류로 연결 요청을 보내지 못했습니다.");
+                  hapticWarning();
                 }
               }}
             >
               연결 요청 보내기
             </button>
+            {parentLinkFeedback ? (
+              <p className="settings-hint" style={{ marginTop: 10 }}>
+                {parentLinkFeedback}
+              </p>
+            ) : null}
             {studentWaitingOnParent.length > 0 && (
               <div className="student-profile-link-status">
                 <span className="student-profile-link-status__title">학부모 승인 대기</span>
@@ -550,26 +648,27 @@ export function StudentProfilePage(props: {
                         type="button"
                         className="progress-footer-btn"
                         onClick={async () => {
-                          if (!props.authToken) return;
+                            if (!token) return;
                           const res = await fetch(`${apiBase}/api/student/link-confirm`, {
                             method: "POST",
                             headers: {
                               "Content-Type": "application/json",
-                              Authorization: `Bearer ${props.authToken}`
+                                Authorization: `Bearer ${token}`
                             },
                             body: JSON.stringify({ requestId: row.id })
                           });
-                          if (!res.ok) return;
-                          const lr = await fetch(`${apiBase}/api/student/link-requests`, {
-                            headers: {
-                              Authorization: `Bearer ${props.authToken}`
+                            if (!res.ok) {
+                              const data = await res.json().catch(() => ({}));
+                              setParentLinkFeedback(
+                                String(data?.error || "연결 승인에 실패했습니다.")
+                              );
+                              hapticWarning();
+                              return;
                             }
-                          });
-                          if (lr.ok) {
-                            const d = await lr.json();
-                            setStudentWaitingOnParent(d.waitingOnParent || []);
-                            setStudentWaitingOnMe(d.waitingOnMe || []);
-                          }
+                            await refreshStudentLinkRequests();
+                            await refreshLinkedParents();
+                            setParentLinkFeedback("학부모 계정과 연결했어요.");
+                            hapticSuccess();
                         }}
                       >
                         승인 — 이 학부모와 연결
@@ -578,25 +677,18 @@ export function StudentProfilePage(props: {
                         type="button"
                         className="progress-footer-btn"
                         onClick={async () => {
-                          if (!props.authToken) return;
+                            if (!token) return;
                           await fetch(`${apiBase}/api/link/reject`, {
                             method: "POST",
                             headers: {
                               "Content-Type": "application/json",
-                              Authorization: `Bearer ${props.authToken}`
+                                Authorization: `Bearer ${token}`
                             },
                             body: JSON.stringify({ requestId: row.id })
                           });
-                          const lr = await fetch(`${apiBase}/api/student/link-requests`, {
-                            headers: {
-                              Authorization: `Bearer ${props.authToken}`
-                            }
-                          });
-                          if (lr.ok) {
-                            const d = await lr.json();
-                            setStudentWaitingOnParent(d.waitingOnParent || []);
-                            setStudentWaitingOnMe(d.waitingOnMe || []);
-                          }
+                            await refreshStudentLinkRequests();
+                          await refreshLinkedParents();
+                            setParentLinkFeedback("연결 요청을 거절했어요.");
                         }}
                       >
                         거절

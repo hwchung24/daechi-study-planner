@@ -23,6 +23,8 @@ const {
   updateUserEmail,
   updateUserPasswordHash,
   listParentStudents,
+  listLinkedParentUserIdsForStudent,
+  listStudentParents,
   parentRequestLink,
   studentRequestParent,
   listParentLinkRequests,
@@ -67,6 +69,12 @@ const {
   cancelStudentProfileScheduleOccurrence,
   deleteStudentProfileSchedule,
   countUnreadStudentNotifications,
+  listStudentNotifications,
+  markStudentNotificationsReadAll,
+  countUnreadParentNotifications,
+  listParentNotifications,
+  markParentNotificationsReadAll,
+  createParentNotificationForLinkedParents,
   deleteUser
 } = require("./db");
 const {
@@ -87,6 +95,7 @@ const {
 const {
   findDeviceBySerial,
   findAppByBundleIdOrName,
+  listInstalledAppsForDevice,
   findInstalledAppForDevice,
   createAppInCatalog,
   createAssignmentGroup,
@@ -926,7 +935,11 @@ function hhmmToMinutes(value) {
     .trim()
     .match(/^(\d{2}):(\d{2})$/);
   if (!m) return null;
-  return Number(m[1]) * 60 + Number(m[2]);
+  const hour = Number(m[1]);
+  const minute = Number(m[2]);
+  if (hour === 24 && minute === 0) return 24 * 60;
+  if (hour < 0 || hour > 23 || minute < 0 || minute > 59) return null;
+  return hour * 60 + minute;
 }
 
 function weekdayKeyFromDate(dateText) {
@@ -1003,6 +1016,365 @@ function serializeScheduleRowsForPrompt(rows) {
         : null,
     excludedDates: Array.isArray(row.excluded_dates) ? row.excluded_dates : []
   }));
+}
+
+function minutesToHhmm(totalMinutes) {
+  const n = Number(totalMinutes);
+  if (!Number.isFinite(n)) return null;
+  const rounded = Math.round(n);
+  if (rounded >= 24 * 60) return "24:00";
+  const safe = Math.max(0, Math.min(23 * 60 + 59, rounded));
+  const hour = Math.floor(safe / 60);
+  const minute = safe % 60;
+  return `${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}`;
+}
+
+function normalizeTomorrowPlanDraft(rawPlanDraft, books = []) {
+  const byId = new Map(
+    (books || []).map(book => [Number(book.id), String(book.name || "").trim()])
+  );
+  if (!Array.isArray(rawPlanDraft)) return [];
+  return rawPlanDraft
+    .map(item => {
+      const bookId = Number(item?.bookId || 0);
+      const bookName = String(item?.bookName || byId.get(bookId) || "")
+        .trim()
+        .slice(0, 120);
+      const plannedRange = String(item?.plannedRange || item?.text || "")
+        .trim()
+        .slice(0, 240);
+      const startTime = String(item?.startTime || item?.start || "")
+        .trim()
+        .slice(0, 5);
+      const endTime = String(item?.endTime || item?.end || "")
+        .trim()
+        .slice(0, 5);
+      return {
+        bookId: Number.isFinite(bookId) && bookId > 0 ? bookId : null,
+        bookName,
+        plannedRange,
+        startTime: /^\d{2}:\d{2}$/.test(startTime) ? startTime : "",
+        endTime: /^\d{2}:\d{2}$/.test(endTime) ? endTime : ""
+      };
+    })
+    .filter(item => item.bookName || item.plannedRange || item.startTime || item.endTime);
+}
+
+function normalizeInstalledAppsForPrompt(rows) {
+  return (rows || [])
+    .map(app => ({
+      id: String(app.id || app.app_key || app.bundleId || "").trim(),
+      name: String(app.name || "").trim(),
+      category: String(app.category || "").trim() || "기기 앱",
+      description: String(app.description || app.bundleId || "").trim(),
+      bundleId: String(app.bundleId || "").trim() || null
+    }))
+    .filter(app => app.id && app.name);
+}
+
+function pickFallbackAllowedApps(installedApps, slot) {
+  const list = Array.isArray(installedApps) ? installedApps : [];
+  if (list.length === 0) return [];
+  const text = `${slot?.title || ""} ${slot?.detail || ""} ${slot?.reason || ""}`
+    .trim()
+    .toLowerCase();
+  return list
+    .filter(app => {
+      const name = String(app.name || "").trim().toLowerCase();
+      return Boolean(name) && text.includes(name);
+    })
+    .slice(0, 3);
+}
+
+function fillDailyCoverageSlots(slots) {
+  const sorted = [...(slots || [])].sort(
+    (a, b) => hhmmToMinutes(a.startTime) - hhmmToMinutes(b.startTime)
+  );
+  const covered = [];
+  let cursor = 0;
+
+  for (const slot of sorted) {
+    const startMin = hhmmToMinutes(slot.startTime);
+    const endMin = hhmmToMinutes(slot.endTime);
+    if (startMin == null || endMin == null || endMin <= startMin) continue;
+    const safeStart = Math.max(cursor, startMin);
+    if (safeStart > cursor) {
+      covered.push({
+        title: "계획 없음",
+        source: "free",
+        startTime: minutesToHhmm(cursor),
+        endTime: minutesToHhmm(safeStart),
+        reason: "학습 계획이나 등록 일정이 없는 시간대입니다.",
+        allowedApps: []
+      });
+    }
+    covered.push({
+      ...slot,
+      startTime: minutesToHhmm(safeStart),
+      endTime: minutesToHhmm(endMin)
+    });
+    cursor = Math.max(cursor, endMin);
+  }
+
+  if (cursor < 24 * 60) {
+    covered.push({
+      title: "계획 없음",
+      source: "free",
+      startTime: minutesToHhmm(cursor),
+      endTime: minutesToHhmm(24 * 60),
+      reason: "학습 계획이나 등록 일정이 없는 시간대입니다.",
+      allowedApps: []
+    });
+  }
+
+  if (covered.length === 0) {
+    return [
+      {
+        title: "계획 없음",
+        source: "free",
+        startTime: "00:00",
+        endTime: "24:00",
+        reason: "학습 계획이나 등록 일정이 없는 하루입니다.",
+        allowedApps: []
+      }
+    ];
+  }
+  return covered;
+}
+
+function buildFallbackAppAllowancePlan({ tomorrowKey, scheduleRows, planRows, installedApps }) {
+  const slots = [];
+  const pushSlot = slot => {
+    const startMin = hhmmToMinutes(slot.startTime);
+    const endMin = hhmmToMinutes(slot.endTime);
+    if (startMin == null || endMin == null || endMin <= startMin) return;
+    slots.push({
+      title: String(slot.title || "").trim() || "시간표",
+      source: slot.source === "schedule" ? "schedule" : "plan",
+      startTime: slot.startTime,
+      endTime: slot.endTime,
+      reason: String(slot.reason || "").trim().slice(0, 180),
+      detail: String(slot.detail || "").trim().slice(0, 180)
+    });
+  };
+
+  for (const row of scheduleRows || []) {
+    const startTime = String(row.start_time || "").slice(0, 5);
+    const endTime = String(row.end_time || "").slice(0, 5);
+    pushSlot({
+      title: String(row.title || "").trim(),
+      source: "schedule",
+      startTime,
+      endTime,
+      reason: "학생 일정에 이미 등록된 고정 시간대입니다.",
+      detail: row.note || row.recurrence_rule || ""
+    });
+  }
+
+  const timedPlanRows = (planRows || []).filter(
+    item => /^\d{2}:\d{2}$/.test(String(item.startTime || "")) && /^\d{2}:\d{2}$/.test(String(item.endTime || ""))
+  );
+  for (const row of timedPlanRows) {
+    pushSlot({
+      title: row.bookName ? `${row.bookName} 공부` : "내일 계획 공부",
+      source: "plan",
+      startTime: row.startTime,
+      endTime: row.endTime,
+      reason: "내일 계획에 직접 적은 공부 시간입니다.",
+      detail: row.plannedRange || ""
+    });
+  }
+
+  slots.sort((a, b) => hhmmToMinutes(a.startTime) - hhmmToMinutes(b.startTime));
+
+  const untimedPlans = (planRows || []).filter(
+    item => !(/^\d{2}:\d{2}$/.test(String(item.startTime || "")) && /^\d{2}:\d{2}$/.test(String(item.endTime || "")))
+  );
+  const windows = [];
+  let cursor = 0;
+  for (const slot of slots) {
+    const startMin = hhmmToMinutes(slot.startTime);
+    const endMin = hhmmToMinutes(slot.endTime);
+    if (startMin == null || endMin == null) continue;
+    if (startMin - cursor >= 50) {
+      windows.push({ start: cursor, end: startMin });
+    }
+    cursor = Math.max(cursor, endMin + 10);
+  }
+  if (24 * 60 - cursor >= 50) {
+    windows.push({ start: cursor, end: 24 * 60 });
+  }
+
+  let windowIndex = 0;
+  let fallbackCursor = cursor;
+  for (const row of untimedPlans) {
+    let startMin = null;
+    let endMin = null;
+    while (windowIndex < windows.length) {
+      const window = windows[windowIndex];
+      if (window.end - window.start < 50) {
+        windowIndex += 1;
+        continue;
+      }
+      startMin = window.start;
+      endMin = Math.min(window.start + 90, window.end);
+      window.start = endMin + 10;
+      if (window.start >= window.end - 40) windowIndex += 1;
+      break;
+    }
+    if (startMin == null || endMin == null || endMin <= startMin) {
+      startMin = Math.min(fallbackCursor, 23 * 60);
+      endMin = Math.min(startMin + 60, 24 * 60);
+      fallbackCursor = endMin + 10;
+    }
+    const startTime = minutesToHhmm(startMin);
+    const endTime = minutesToHhmm(endMin);
+    if (!startTime || !endTime) continue;
+    pushSlot({
+      title: row.bookName ? `${row.bookName} 공부` : "내일 계획 공부",
+      source: "plan",
+      startTime,
+      endTime,
+      reason: "고정 시간이 없어 비어 있는 시간대에 우선 배치했습니다.",
+      detail: row.plannedRange || ""
+    });
+  }
+
+  const normalizedSlots = slots
+    .sort((a, b) => hhmmToMinutes(a.startTime) - hhmmToMinutes(b.startTime))
+    .map(slot => ({
+      title: slot.title,
+      source: slot.source,
+      startTime: slot.startTime,
+      endTime: slot.endTime,
+      reason: slot.reason,
+      allowedApps: pickFallbackAllowedApps(installedApps, slot)
+    }));
+
+  const fullDaySlots = fillDailyCoverageSlots(normalizedSlots);
+
+  const weekday = getKoreanWeekdayNameFromIsoDate(tomorrowKey);
+  const relatedCount = normalizedSlots.filter(slot => slot.source !== "free").length;
+  const summary =
+    relatedCount > 0
+      ? `내일 ${weekday ? `${weekday}요일 ` : ""}일정과 계획만 반영해 24시간 시간표로 정리했어요.`
+      : "내일 일정이나 학습 계획이 없어 24시간 전체를 계획 없음으로 표시했어요.";
+
+  return { summary, slots: fullDaySlots };
+}
+
+function normalizeAppAllowanceResponse(raw, installedApps) {
+  if (!raw || typeof raw !== "object") return null;
+  const installedById = new Map((installedApps || []).map(app => [app.id, app]));
+  const installedByName = new Map(
+    (installedApps || []).map(app => [String(app.name || "").trim().toLowerCase(), app])
+  );
+  const slots = Array.isArray(raw.slots)
+    ? raw.slots
+        .map(slot => {
+          const startTime = String(slot?.startTime || "").trim().slice(0, 5);
+          const endTime = String(slot?.endTime || "").trim().slice(0, 5);
+          const startMin = hhmmToMinutes(startTime);
+          const endMin = hhmmToMinutes(endTime);
+          if (startMin == null || endMin == null || endMin <= startMin) return null;
+          const picked = [];
+          const rawIds = Array.isArray(slot?.allowedAppIds) ? slot.allowedAppIds : [];
+          const rawNames = Array.isArray(slot?.allowedAppNames) ? slot.allowedAppNames : [];
+          for (const candidate of rawIds) {
+            const app = installedById.get(String(candidate || "").trim());
+            if (app && !picked.some(item => item.id === app.id)) picked.push(app);
+          }
+          for (const candidate of rawNames) {
+            const app = installedByName.get(String(candidate || "").trim().toLowerCase());
+            if (app && !picked.some(item => item.id === app.id)) picked.push(app);
+          }
+          return {
+            title: String(slot?.title || "").trim().slice(0, 120) || "시간표",
+            source:
+              slot?.source === "schedule"
+                ? "schedule"
+                : slot?.source === "free"
+                  ? "free"
+                  : "plan",
+            startTime,
+            endTime,
+            reason: String(slot?.reason || "").trim().slice(0, 180),
+            allowedApps: picked.slice(0, 3)
+          };
+        })
+        .filter(Boolean)
+        .sort((a, b) => hhmmToMinutes(a.startTime) - hhmmToMinutes(b.startTime))
+    : [];
+  const fullDaySlots = fillDailyCoverageSlots(slots);
+  return {
+    summary: String(raw.summary || "").trim().slice(0, 240),
+    slots: fullDaySlots
+  };
+}
+
+async function generateStudentAppAllowancePlan({
+  tomorrowKey,
+  tomorrowSchedules,
+  tomorrowPlans,
+  installedApps
+}) {
+  const fallback = buildFallbackAppAllowancePlan({
+    tomorrowKey,
+    scheduleRows: tomorrowSchedules,
+    planRows: tomorrowPlans,
+    installedApps
+  });
+  if (!openai) {
+    return { ...fallback, usedOpenAi: false, model: null };
+  }
+
+  const promptPayload = {
+    tomorrowDate: tomorrowKey,
+    tomorrowWeekday: getKoreanWeekdayNameFromIsoDate(tomorrowKey),
+    schedules: serializeScheduleRowsForPrompt(tomorrowSchedules),
+    studyPlans: (tomorrowPlans || []).map(item => ({
+      bookName: item.bookName,
+      plannedRange: item.plannedRange,
+      startTime: item.startTime || null,
+      endTime: item.endTime || null
+    })),
+    installedApps
+  };
+
+  try {
+    const response = await openai.chat.completions.create({
+      model: OPENAI_MODEL,
+      temperature: 0.35,
+      max_tokens: 1100,
+      response_format: { type: "json_object" },
+      messages: [
+        {
+          role: "system",
+          content:
+            "너는 한국 학생의 내일 휴대폰 허용 앱 시간표를 짜는 코치다. 반드시 학습 계획(studyPlans)과 등록 일정(schedules)에 직접 근거한 내용만 사용해야 하며, 제공되지 않은 새로운 공부 주제·앱·활동을 임의로 만들면 안 된다. schedules는 고정 일정이므로 시간을 바꾸지 않는다. studyPlans 중 startTime/endTime이 둘 다 있는 항목도 고정 시간으로 유지한다. 시간이 없는 studyPlans만 남는 시간대에 배치할 수 있다. 결과는 00:00부터 24:00까지 하루 전체가 빈틈없이 이어지는 슬롯이어야 하며, 슬롯끼리 절대 겹치면 안 된다. 계획이나 일정이 없는 구간은 source를 free, title을 계획 없음, allowedAppIds를 빈 배열로 둔다. installedApps에 있는 id만 allowedAppIds에 넣을 수 있고, 계획/일정 텍스트와 직접 관련이 없는 앱은 넣지 않는다. 반드시 JSON 객체만 출력한다. 형식은 {\"summary\":\"한두 문장\",\"slots\":[{\"title\":\"표시 제목\",\"source\":\"schedule\"|\"plan\"|\"free\",\"startTime\":\"HH:MM\",\"endTime\":\"HH:MM\",\"reason\":\"짧은 근거\",\"allowedAppIds\":[\"quizlet\"]}]} 이다."
+        },
+        {
+          role: "user",
+          content: JSON.stringify(promptPayload)
+        }
+      ]
+    });
+    const rawText = String(response.choices?.[0]?.message?.content || "").trim();
+    const parsed = parseJsonObjectFromAssistantText(rawText);
+    const normalized = normalizeAppAllowanceResponse(parsed, installedApps);
+    if (!normalized || normalized.slots.length === 0) {
+      return { ...fallback, usedOpenAi: false, model: null };
+    }
+    return {
+      summary: normalized.summary || fallback.summary,
+      slots: normalized.slots,
+      usedOpenAi: true,
+      model: OPENAI_MODEL
+    };
+  } catch (e) {
+    console.warn("/api/student/coach/app-timetable openai fallback:", e?.message || e);
+    return { ...fallback, usedOpenAi: false, model: null };
+  }
 }
 
 function summarizeWeekDataForCoach(weekData) {
@@ -2057,6 +2429,21 @@ app.get("/api/student/link-requests", authMiddleware, async (req, res) => {
   }
 });
 
+// 학생: 연결된 학부모 목록
+app.get("/api/student/parents", authMiddleware, async (req, res) => {
+  try {
+    const me = await getMe(req.userId);
+    if (!me || me.role !== "student") {
+      return res.status(403).json({ error: "권한이 없습니다." });
+    }
+    const parents = await listStudentParents(req.userId);
+    res.json({ parents });
+  } catch (e) {
+    console.error("/api/student/parents error", e);
+    res.status(500).json({ error: "목록을 불러오지 못했습니다." });
+  }
+});
+
 // 학생: 학부모가 보낸 요청 승인
 app.post("/api/student/link-confirm", authMiddleware, async (req, res) => {
   try {
@@ -2127,6 +2514,11 @@ app.post("/api/student/plan-add-request", authMiddleware, async (req, res) => {
     if (!row) {
       return res.status(500).json({ error: "요청을 저장하지 못했습니다." });
     }
+    await createParentNotificationForLinkedParents(
+      req.userId,
+      "오늘 계획 수정 요청",
+      `${String(me.email || "학생")}(이)가 ${d} ${st}-${et} ${name}${plannedRange ? ` · ${String(plannedRange).trim()}` : ""} 계획 수정을 요청했어요.`
+    );
     res.json({ ok: true, id: row.id });
   } catch (e) {
     console.error("/api/student/plan-add-request error", e);
@@ -2358,6 +2750,76 @@ app.get("/api/student/notifications/summary", authMiddleware, async (req, res) =
   } catch (e) {
     console.error("/api/student/notifications/summary error", e);
     res.status(500).json({ error: "알림 상태를 불러오지 못했습니다." });
+  }
+});
+
+app.get("/api/student/notifications", authMiddleware, async (req, res) => {
+  try {
+    const me = await getMe(req.userId);
+    if (!me || me.role !== "student") {
+      return res.status(403).json({ error: "권한이 없습니다." });
+    }
+    const notifications = await listStudentNotifications(req.userId);
+    res.json({ notifications });
+  } catch (e) {
+    console.error("/api/student/notifications error", e);
+    res.status(500).json({ error: "알림 목록을 불러오지 못했습니다." });
+  }
+});
+
+app.post("/api/student/notifications/read-all", authMiddleware, async (req, res) => {
+  try {
+    const me = await getMe(req.userId);
+    if (!me || me.role !== "student") {
+      return res.status(403).json({ error: "권한이 없습니다." });
+    }
+    await markStudentNotificationsReadAll(req.userId);
+    res.json({ ok: true });
+  } catch (e) {
+    console.error("/api/student/notifications/read-all error", e);
+    res.status(500).json({ error: "알림 읽음 처리에 실패했습니다." });
+  }
+});
+
+app.get("/api/parent/notifications/summary", authMiddleware, async (req, res) => {
+  try {
+    const me = await getMe(req.userId);
+    if (!me || me.role !== "parent") {
+      return res.status(403).json({ error: "권한이 없습니다." });
+    }
+    const unreadCount = await countUnreadParentNotifications(req.userId);
+    res.json({ unreadCount });
+  } catch (e) {
+    console.error("/api/parent/notifications/summary error", e);
+    res.status(500).json({ error: "알림 상태를 불러오지 못했습니다." });
+  }
+});
+
+app.get("/api/parent/notifications", authMiddleware, async (req, res) => {
+  try {
+    const me = await getMe(req.userId);
+    if (!me || me.role !== "parent") {
+      return res.status(403).json({ error: "권한이 없습니다." });
+    }
+    const notifications = await listParentNotifications(req.userId);
+    res.json({ notifications });
+  } catch (e) {
+    console.error("/api/parent/notifications error", e);
+    res.status(500).json({ error: "알림 목록을 불러오지 못했습니다." });
+  }
+});
+
+app.post("/api/parent/notifications/read-all", authMiddleware, async (req, res) => {
+  try {
+    const me = await getMe(req.userId);
+    if (!me || me.role !== "parent") {
+      return res.status(403).json({ error: "권한이 없습니다." });
+    }
+    await markParentNotificationsReadAll(req.userId);
+    res.json({ ok: true });
+  } catch (e) {
+    console.error("/api/parent/notifications/read-all error", e);
+    res.status(500).json({ error: "알림 읽음 처리에 실패했습니다." });
   }
 });
 
@@ -2647,6 +3109,80 @@ app.post("/api/student/coach/log", authMiddleware, async (req, res) => {
   } catch (e) {
     console.error("/api/student/coach/log error", e);
     res.status(500).json({ error: "학습 로그 저장에 실패했습니다." });
+  }
+});
+
+app.post("/api/student/coach/app-timetable", authMiddleware, async (req, res) => {
+  try {
+    const me = await getMe(req.userId);
+    if (!me || me.role !== "student") {
+      return res.status(403).json({ error: "권한이 없습니다." });
+    }
+
+    const serialFromBody = String((req.body || {}).serial || "").trim();
+    if (isLikelySerial(serialFromBody)) {
+      await linkDeviceToUserBySerial(req.userId, serialFromBody).catch(() => {
+        // ignore
+      });
+    }
+    await attachDeviceByCookieIfPresent(req, req.userId).catch(() => {
+      // ignore
+    });
+
+    const todayKey = formatYmdSeoulFromInstant(new Date());
+    const tomorrowKey = addDaysToSeoulDateKey(todayKey, 1);
+    const [scheduleRows, books, linkedSerial] = await Promise.all([
+      listStudentProfileSchedules(req.userId),
+      listStudyBooks(req.userId),
+      getActiveDeviceSerialForUser(req.userId)
+    ]);
+
+    const tomorrowSchedules = (scheduleRows || []).filter(row =>
+      scheduleOccursOnDate(row, tomorrowKey)
+    );
+    let installedApps = [];
+    if (linkedSerial) {
+      const device = await findDeviceBySerial(linkedSerial).catch(() => null);
+      if (device?.id) {
+        const simpleMdmApps = await listInstalledAppsForDevice(Number(device.id)).catch(
+          () => []
+        );
+        installedApps = normalizeInstalledAppsForPrompt(simpleMdmApps);
+      }
+    }
+    const draftPlans = normalizeTomorrowPlanDraft((req.body || {}).planDraft, books);
+    let tomorrowPlans = draftPlans;
+    if (tomorrowPlans.length === 0) {
+      const data = await getStudyPlansForDate(req.userId, tomorrowKey);
+      tomorrowPlans = (Array.isArray(data?.plans) ? data.plans : []).map(item => ({
+        bookId: Number(item.book_id || 0) || null,
+        bookName: String(item.book_name || "").trim(),
+        plannedRange: String(item.planned_range || "").trim(),
+        startTime: String(item.start_time || "").trim().slice(0, 5),
+        endTime: String(item.end_time || "").trim().slice(0, 5)
+      }));
+    }
+
+    const plan = await generateStudentAppAllowancePlan({
+      tomorrowKey,
+      tomorrowSchedules,
+      tomorrowPlans,
+      installedApps
+    });
+
+    res.json({
+      ok: true,
+      targetDate: tomorrowKey,
+      schedulesCount: tomorrowSchedules.length,
+      installedAppsCount: installedApps.length,
+      summary: plan.summary,
+      slots: plan.slots,
+      usedOpenAi: plan.usedOpenAi,
+      model: plan.model
+    });
+  } catch (e) {
+    console.error("/api/student/coach/app-timetable error", e);
+    res.status(500).json({ error: "앱 허용 시간표 생성에 실패했습니다." });
   }
 });
 

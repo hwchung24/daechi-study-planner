@@ -1,3 +1,5 @@
+import { setAppPath } from "../../lib/appNavigation";
+
 // 일정 관리 버튼을 AI 코치 첫 메시지 버튼 그룹에 동적으로 추가합니다.
 function initializeCoachScheduleButton() {
   if (typeof window === "undefined" || typeof document === "undefined") return;
@@ -9,7 +11,7 @@ function initializeCoachScheduleButton() {
     button.className = `coach-secondary-btn ${BUTTON_CLASS}`;
     button.textContent = "일정 관리";
     button.addEventListener("click", () => {
-      window.location.hash = "#/profile";
+      setAppPath("#/profile");
     });
     return button;
   };
@@ -108,6 +110,11 @@ function httpErrorMessage(res: Response, bodyText: string, fallback: string): st
   return `${fallback} (HTTP ${res.status})`;
 }
 
+function isLikelyNetworkTypeError(error: TypeError): boolean {
+  const msg = String(error.message || "");
+  return /fetch|network|load failed|failed to fetch/i.test(msg);
+}
+
 function buildCollabContext(params: {
   blocks: StudyBlock[];
   progressBooks: ProgressBook[];
@@ -134,9 +141,50 @@ function buildCollabContext(params: {
   } = params;
   const total = blocks.length;
   const done = blocks.filter(b => b.done).length;
+  const booksById = new Map(progressBooks.map(book => [book.id, book.name]));
   return {
     collabFocus,
-    // ...existing code...
+    books: progressBooks.map(book => ({
+      id: Number(book.id),
+      name: String(book.name || "").trim()
+    })),
+    todayProgressPercent,
+    todayBlocksSummary: {
+      totalSlots: total,
+      doneSlots: done,
+      pendingSlots: Math.max(0, total - done)
+    },
+    todayBlocks: blocks.map(block => ({
+      id: block.id,
+      subject: String(block.subject || "").trim(),
+      start: String(block.start || "").trim(),
+      end: String(block.end || "").trim(),
+      done: Boolean(block.done),
+      bookId: Number.isFinite(Number(block.bookId)) ? Number(block.bookId) : null,
+      bookName:
+        block.bookId != null && booksById.has(Number(block.bookId))
+          ? String(booksById.get(Number(block.bookId)) || "")
+          : "",
+      plannedRange: String(block.plannedRange || "").trim()
+    })),
+    tomorrowPlanDraft: progressBooks.map(book => {
+      const draft = tomorrowPlan[book.id];
+      return {
+        bookId: book.id,
+        bookName: String(book.name || "").trim(),
+        plannedRange: String(draft?.text || "").trim(),
+        startTime: String(draft?.start || "").trim(),
+        endTime: String(draft?.end || "").trim()
+      };
+    }),
+    studyEvaluation: String(studyEvaluation || "").trim(),
+    metacognitionReflection: String(metacognitionReflection || "").trim(),
+    todayMemo: String(todayMemo || "").trim(),
+    draftTomorrowPractice: String(draftTomorrowPractice || "").trim(),
+    todayStudyMinutes:
+      todayStudyMinutes != null && Number.isFinite(Number(todayStudyMinutes))
+        ? Number(todayStudyMinutes)
+        : null
   };
 }
 
@@ -344,7 +392,7 @@ export function CoachTomorrowPlanCollab(props: CoachTomorrowPlanCollabProps) {
       ]);
     } catch (e) {
       const netHint =
-        e instanceof TypeError
+        e instanceof TypeError && isLikelyNetworkTypeError(e)
           ? `서버에 연결할 수 없습니다. 터미널에서 백엔드(node server, 보통 포트 3000)를 켠 뒤 다시 시도해 주세요.${
               API_BASE ? ` (API: ${API_BASE})` : ""
             }`

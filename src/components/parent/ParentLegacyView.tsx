@@ -1,9 +1,11 @@
 import React from "react";
 import { TabTransitionPanel } from "../PageTransition";
+import { setAppPath } from "../../lib/appNavigation";
 import { getWeekRangeLabel } from "../../lib/weekDates";
 import type { ParentLockStatus } from "../../types/lockStatus";
+import { ParentProfilePage } from "./ParentProfilePage";
 
-export type ParentTabKey = "link" | "report";
+export type ParentTabKey = "report" | "profile";
 
 type ParentLinkRow = {
   id: number;
@@ -23,6 +25,7 @@ export function ParentLegacyView(props: {
   apiBase: string;
   authToken: string | null;
   meRole: string | null;
+  userEmail: string | null;
   parentTab: ParentTabKey;
   parentLinkEmail: string;
   setParentLinkEmail: (v: string) => void;
@@ -56,13 +59,16 @@ export function ParentLegacyView(props: {
   setParentAiDaily: (v: ParentAiDaily | null) => void;
   hapticSelection: () => void;
   hapticWarning: () => void;
+  hapticSuccess: () => void;
   onLogoutPress: () => void;
   onWithdrawPress: () => void;
+  onUserEmailUpdated: (email: string) => void;
 }) {
   const {
     apiBase,
     authToken,
     meRole,
+    userEmail,
     parentTab,
     parentLinkEmail,
     setParentLinkEmail,
@@ -92,8 +98,10 @@ export function ParentLegacyView(props: {
     setParentAiDaily,
     hapticSelection,
     hapticWarning,
+    hapticSuccess,
     onLogoutPress,
-    onWithdrawPress
+    onWithdrawPress,
+    onUserEmailUpdated
   } = props;
 
   if (meRole !== "parent") {
@@ -122,168 +130,26 @@ export function ParentLegacyView(props: {
   return (
     <>
       <TabTransitionPanel tabKey={parentTab} className="parent-tab-transition">
-      {parentTab === "link" && (
-        <section className="section">
-          <div className="section-header">
-            <h2 className="section-title">자녀와 계정 연결</h2>
-          </div>
-
-          <div className="settings-list" style={{ marginTop: 14 }}>
-            <div className="field" style={{ marginTop: 6 }}>
-              <label className="field-label">자녀 학생 이메일</label>
-              <input
-                className="field-input"
-                value={parentLinkEmail}
-                onChange={e => setParentLinkEmail(e.target.value)}
-              />
-            </div>
-            <button
-              type="button"
-              className="modal-primary"
-              onClick={async () => {
-                if (!authToken) return;
-                const studentEmail = parentLinkEmail.trim();
-                if (!studentEmail) return;
-                try {
-                  const res = await fetch(`${apiBase}/api/parent/link-request`, {
-                    method: "POST",
-                    headers: {
-                      "Content-Type": "application/json",
-                      Authorization: `Bearer ${authToken}`
-                    },
-                    body: JSON.stringify({ studentEmail })
-                  });
-                  if (!res.ok) return;
-                  setParentLinkEmail("");
-                  const lr = await fetch(`${apiBase}/api/parent/link-requests`, {
-                    headers: {
-                      Authorization: `Bearer ${authToken}`
-                    }
-                  });
-                  if (lr.ok) {
-                    const d = await lr.json();
-                    setParentWaitingOnStudent(d.waitingOnStudent || []);
-                    setParentWaitingOnMe(d.waitingOnMe || []);
-                  }
-                } catch {
-                  // ignore
-                }
-              }}
-            >
-              연결 요청 보내기
-            </button>
-          </div>
-
-          {parentWaitingOnStudent.length > 0 && (
-            <div className="settings-list" style={{ marginTop: 14 }}>
-              <div className="section-header">
-                <h3 className="section-title" style={{ fontSize: 16 }}>
-                  자녀 승인 대기
-                </h3>
-              </div>
-              {parentWaitingOnStudent.map(row => (
-                <div
-                  key={row.id}
-                  className="settings-item"
-                  style={{
-                    cursor: "default",
-                    flexDirection: "column",
-                    alignItems: "stretch"
-                  }}
-                >
-                  <span className="settings-label">{row.student_email}</span>
-                </div>
-              ))}
-            </div>
-          )}
-
-          {parentWaitingOnMe.length > 0 && (
-            <div className="settings-list" style={{ marginTop: 14 }}>
-              <div className="section-header">
-                <h3 className="section-title" style={{ fontSize: 16 }}>
-                  자녀가 보낸 연결 요청
-                </h3>
-              </div>
-              {parentWaitingOnMe.map(row => (
-                <div
-                  key={row.id}
-                  className="settings-item"
-                  style={{ cursor: "default", flexDirection: "column", gap: 8 }}
-                >
-                  <span className="settings-label">{row.student_email}</span>
-                  <div style={{ display: "flex", gap: 8 }}>
-                    <button
-                      type="button"
-                      className="progress-footer-btn"
-                      onClick={async () => {
-                        if (!authToken) return;
-                        const res = await fetch(`${apiBase}/api/parent/link-confirm`, {
-                          method: "POST",
-                          headers: {
-                            "Content-Type": "application/json",
-                            Authorization: `Bearer ${authToken}`
-                          },
-                          body: JSON.stringify({ requestId: row.id })
-                        });
-                        if (!res.ok) return;
-                        const lr = await fetch(`${apiBase}/api/parent/link-requests`, {
-                          headers: {
-                            Authorization: `Bearer ${authToken}`
-                          }
-                        });
-                        if (lr.ok) {
-                          const d = await lr.json();
-                          setParentWaitingOnStudent(d.waitingOnStudent || []);
-                          setParentWaitingOnMe(d.waitingOnMe || []);
-                        }
-                        const st = await fetch(`${apiBase}/api/parent/students`, {
-                          headers: {
-                            Authorization: `Bearer ${authToken}`
-                          }
-                        });
-                        if (st.ok) {
-                          const sd = await st.json();
-                          const next = sd.students || [];
-                          setParentStudents(next);
-                          if (next.length > 0) setParentStudentId(next[0].id);
-                        }
-                      }}
-                    >
-                      승인 — 이 자녀와 연결
-                    </button>
-                    <button
-                      type="button"
-                      className="progress-footer-btn"
-                      onClick={async () => {
-                        if (!authToken) return;
-                        await fetch(`${apiBase}/api/link/reject`, {
-                          method: "POST",
-                          headers: {
-                            "Content-Type": "application/json",
-                            Authorization: `Bearer ${authToken}`
-                          },
-                          body: JSON.stringify({ requestId: row.id })
-                        });
-                        const lr = await fetch(`${apiBase}/api/parent/link-requests`, {
-                          headers: {
-                            Authorization: `Bearer ${authToken}`
-                          }
-                        });
-                        if (lr.ok) {
-                          const d = await lr.json();
-                          setParentWaitingOnStudent(d.waitingOnStudent || []);
-                          setParentWaitingOnMe(d.waitingOnMe || []);
-                        }
-                      }}
-                    >
-                      거절
-                    </button>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-        </section>
+      {parentTab === "profile" && (
+        <ParentProfilePage
+          authToken={authToken}
+          apiBase={apiBase}
+          userEmail={userEmail}
+          parentLinkEmail={parentLinkEmail}
+          setParentLinkEmail={setParentLinkEmail}
+          parentWaitingOnStudent={parentWaitingOnStudent}
+          parentWaitingOnMe={parentWaitingOnMe}
+          parentStudents={parentStudents}
+          setParentWaitingOnStudent={setParentWaitingOnStudent}
+          setParentWaitingOnMe={setParentWaitingOnMe}
+          setParentStudents={setParentStudents}
+          setParentStudentId={setParentStudentId}
+          hapticWarning={hapticWarning}
+          hapticSuccess={hapticSuccess}
+          onLogoutPress={onLogoutPress}
+          onWithdrawPress={onWithdrawPress}
+          onUserEmailUpdated={onUserEmailUpdated}
+        />
       )}
 
       {parentTab === "report" && (
@@ -320,11 +186,11 @@ export function ParentLegacyView(props: {
                 className="progress-footer-btn"
                 onClick={() => {
                   hapticSelection();
-                  setParentTab("link");
-                  window.location.hash = "#/parent";
+                  setParentTab("profile");
+                  setAppPath("#/parent");
                 }}
               >
-                자녀 연결
+                학생 연결
               </button>
             </div>
           )}
@@ -608,33 +474,6 @@ export function ParentLegacyView(props: {
         </section>
       )}
       </TabTransitionPanel>
-
-      <section className="section">
-        <div className="settings-list">
-          <button
-            type="button"
-            className="settings-item"
-            onClick={() => {
-              hapticWarning();
-              onWithdrawPress();
-            }}
-          >
-            <span className="settings-label">회원 탈퇴</span>
-            <span className="settings-value">계정 삭제</span>
-          </button>
-          <button
-            type="button"
-            className="settings-item"
-            onClick={() => {
-              hapticWarning();
-              onLogoutPress();
-            }}
-          >
-            <span className="settings-label">로그아웃</span>
-            <span className="settings-value">계정 전환</span>
-          </button>
-        </div>
-      </section>
     </>
   );
 }

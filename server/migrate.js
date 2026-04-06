@@ -109,6 +109,29 @@ async function main() {
   } catch {
     // ignore
   }
+  try {
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS parent_in_app_notifications (
+        id BIGSERIAL PRIMARY KEY,
+        user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        title TEXT NOT NULL DEFAULT '',
+        body TEXT,
+        read_at TIMESTAMPTZ,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+      );
+    `);
+  } catch {
+    // ignore
+  }
+  try {
+    await pool.query(`
+      CREATE INDEX IF NOT EXISTS idx_pian_user_unread
+        ON parent_in_app_notifications (user_id)
+        WHERE read_at IS NULL;
+    `);
+  } catch {
+    // ignore
+  }
 }
 
 main()

@@ -505,6 +505,42 @@ select {
   padding: 0;
 }
 
+.notifications-page__list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.notifications-page__item {
+  border: 1px solid var(--stroke);
+  border-radius: 18px;
+  padding: 14px 16px;
+  background: rgba(255, 255, 255, 0.96);
+  box-shadow: var(--shadow-soft);
+}
+
+.notifications-page__item-title {
+  font-size: 15px;
+  font-weight: 800;
+  color: var(--text-main);
+  line-height: 1.4;
+}
+
+.notifications-page__item-body {
+  margin-top: 6px;
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--text-sub);
+  white-space: pre-wrap;
+}
+
+.notifications-page__item-time {
+  margin-top: 8px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-soft);
+}
+
 .notifications-page__bar .notifications-back-btn {
   margin: 0;
   color: rgba(255, 255, 255, 0.92);
@@ -2235,6 +2271,142 @@ button.practice-commitment-card:not(:disabled):active {
   font-weight: 500;
 }
 
+.app-allow-plan-modal-inner {
+  width: min(94vw, 480px);
+  max-height: min(90dvh, 760px);
+}
+
+.app-allow-plan-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.app-allow-plan-date {
+  margin: 4px 0 0;
+  font-size: 12px;
+  color: var(--text-sub);
+}
+
+.app-allow-plan-badge {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 5px 9px;
+  border-radius: 999px;
+  background: var(--accent-tint-bg);
+  border: 0.5px solid var(--accent-border);
+  color: var(--accent-strong);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.app-allow-plan-summary {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--text-sub);
+}
+
+.app-allow-plan-slot-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.app-allow-plan-slot {
+  border-radius: 14px;
+  border: 0.5px solid rgba(148, 163, 184, 0.28);
+  background: rgba(248, 250, 252, 0.92);
+  padding: 12px;
+}
+
+.app-allow-plan-slot__top {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.app-allow-plan-slot__time {
+  font-size: 13px;
+  font-weight: 800;
+  color: var(--accent-strong);
+}
+
+.app-allow-plan-slot__title {
+  margin-top: 4px;
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text-main);
+}
+
+.app-allow-plan-slot__source {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 42px;
+  padding: 4px 8px;
+  border-radius: 999px;
+  background: #ffffff;
+  border: 0.5px solid rgba(148, 163, 184, 0.3);
+  font-size: 11px;
+  font-weight: 700;
+  color: #475569;
+}
+
+.app-allow-plan-slot__reason {
+  margin: 8px 0 0;
+  font-size: 12px;
+  line-height: 1.5;
+  color: #475569;
+}
+
+.app-allow-plan-slot__apps {
+  margin-top: 10px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.app-allow-plan-chip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 6px 10px;
+  border-radius: 999px;
+  background: #ffffff;
+  border: 0.5px solid rgba(36, 59, 107, 0.2);
+  color: var(--accent-strong);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.app-allow-plan-chip--empty {
+  border-style: dashed;
+  color: #64748b;
+}
+
+.app-allow-plan-empty {
+  margin: 0;
+  padding: 12px;
+  border-radius: 14px;
+  background: rgba(248, 250, 252, 0.9);
+  border: 0.5px solid rgba(148, 163, 184, 0.22);
+  color: var(--text-sub);
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+.app-allow-plan-model {
+  margin: 2px 0 0;
+  font-size: 11px;
+  color: var(--text-sub);
+}
+
 @media (prefers-reduced-motion: reduce) {
   .store-detail-overlay,
   .store-detail-sheet {
@@ -2710,6 +2882,7 @@ button.practice-commitment-card:not(:disabled):active {
 
 /* Auth 전용 페이지 (팝업 아님) */
 .auth-page {
+  position: relative;
   flex: 1 1 auto;
   width: 100%;
   max-width: 100%;
@@ -2717,10 +2890,34 @@ button.practice-commitment-card:not(:disabled):active {
   min-height: 100dvh;
   display: flex;
   flex-direction: column;
-  background: var(--bg);
+  background:
+    radial-gradient(900px 420px at 50% -220px, rgba(255, 255, 255, 0.1), transparent 72%),
+    linear-gradient(180deg, #081b3d 0%, #071634 56%, #06122a 100%);
   box-sizing: border-box;
+  overflow: hidden;
   transition: opacity var(--dur-slow) var(--ease-standard),
     transform var(--dur-slow) var(--ease-standard);
+}
+
+.auth-page::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background-image: url("/coach-ai-avatar.png");
+  background-repeat: no-repeat;
+  background-position: center 20%;
+  background-size: min(58vw, 320px);
+  opacity: 0.2;
+  mix-blend-mode: darken;
+  pointer-events: none;
+}
+
+.auth-page::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(180deg, rgba(3, 10, 24, 0.15), rgba(3, 10, 24, 0.38));
+  pointer-events: none;
 }
 
 .auth-page--leaving {
@@ -2730,27 +2927,44 @@ button.practice-commitment-card:not(:disabled):active {
 }
 
 .auth-page-inner {
+  position: relative;
+  z-index: 2;
   flex: 1 1 auto;
   width: 100%;
-  max-width: 400px;
+  max-width: 460px;
   min-width: 0;
   margin: 0 auto;
-  padding: 16px 20px 32px;
+  padding: 12px 20px 28px;
   display: flex;
   flex-direction: column;
   justify-content: center;
 }
 
+.auth-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.auth-panel.coach-card {
+  background: #ffffff;
+  border: 0.5px solid rgba(148, 163, 184, 0.28);
+  box-shadow: 0 14px 28px rgba(2, 8, 23, 0.22);
+}
+
 .auth-title {
-  margin: 0 0 4px;
-  font-size: 20px;
-  font-weight: 700;
+  margin: 0;
+  font-size: 22px;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  color: #0f172a;
 }
 
 .auth-desc {
-  margin: 0 0 14px;
+  margin: 0;
   font-size: 13px;
-  color: var(--text-sub);
+  color: #4b5563;
+  line-height: 1.45;
 }
 
 /* 로그인/회원가입 · 학생/학부모 세그먼트 탭 (슬라이딩 필) */
@@ -2758,7 +2972,8 @@ button.practice-commitment-card:not(:disabled):active {
   display: flex;
   padding: 3px;
   border-radius: 999px;
-  background: #f3f4f6;
+  border: 0.5px solid rgba(148, 163, 184, 0.38);
+  background: #ffffff;
 }
 
 .auth-tabs--segmented {
@@ -2774,8 +2989,8 @@ button.practice-commitment-card:not(:disabled):active {
   width: calc(50% - 3px);
   height: calc(100% - 6px);
   border-radius: 999px;
-  background: #ffffff;
-  box-shadow: var(--shadow-soft);
+  background: rgba(236, 242, 252, 0.95);
+  box-shadow: 0 2px 8px rgba(2, 8, 23, 0.12);
   pointer-events: none;
   transition: transform 0.32s cubic-bezier(0.4, 0, 0.2, 1);
 }
@@ -2794,12 +3009,12 @@ button.practice-commitment-card:not(:disabled):active {
   font-size: 13px;
   padding: 7px 0;
   cursor: pointer;
-  color: var(--text-sub);
+  color: #5b6b86;
   transition: color 0.28s ease, font-weight 0.2s ease;
 }
 
 .auth-tab.active {
-  color: var(--text-main);
+  color: #143365;
   font-weight: 600;
   background: transparent;
   box-shadow: none;
@@ -2810,16 +3025,16 @@ button.practice-commitment-card:not(:disabled):active {
   max-height: 0;
   opacity: 0;
   overflow: hidden;
-  margin-bottom: 14px;
+  margin-bottom: 6px;
   pointer-events: none;
   transition: max-height 0.38s cubic-bezier(0.4, 0, 0.2, 1),
     opacity 0.3s ease;
 }
 
 .auth-role-wrap--open {
-  max-height: 80px;
+  max-height: 84px;
   opacity: 1;
-  padding-top: 10px;
+  padding-top: 4px;
   pointer-events: auto;
 }
 
@@ -2879,51 +3094,60 @@ button.practice-commitment-card:not(:disabled):active {
 .auth-form {
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 11px;
 }
 
 .auth-field label {
   display: block;
-  font-size: 12px;
-  color: var(--text-sub);
-  margin-bottom: 4px;
+  font-size: 11px;
+  color: #64748b;
+  margin-bottom: 5px;
+  padding-left: 2px;
 }
 
 .auth-input {
   width: 100%;
   border-radius: 12px;
-  border: 0.5px solid var(--border-soft);
-  padding: 9px 12px;
+  border: 0.5px solid rgba(148, 163, 184, 0.44);
+  background: #ffffff;
+  padding: 10px 12px;
   font-size: 14px;
+  color: #0f172a;
   outline: none;
   transition: border-color var(--dur-fast) var(--ease-press),
     box-shadow var(--dur-fast) var(--ease-press),
     transform var(--dur-fast) var(--ease-press);
 }
 
+.auth-input::placeholder {
+  color: rgba(100, 116, 139, 0.7);
+}
+
 .auth-input:focus {
   border-color: var(--accent-strong);
-  box-shadow: 0 0 0 1px var(--accent-ring);
+  background: #ffffff;
+  box-shadow: 0 0 0 2px rgba(36, 59, 107, 0.16);
   transform: translateY(-0.5px);
 }
 
 .auth-error {
   font-size: 12px;
-  color: #dc2626;
+  color: #fecaca;
   min-height: 16px;
 }
 
 .auth-submit {
-  margin-top: 4px;
+  margin-top: 6px;
   width: 100%;
   border-radius: 999px;
   border: none;
   background: var(--accent);
   color: #ffffff;
-  padding: 10px 12px;
+  padding: 11px 12px;
   font-size: 14px;
   font-weight: 600;
   cursor: pointer;
+  box-shadow: 0 8px 16px rgba(36, 59, 107, 0.24);
   transition: transform var(--dur-fast) var(--ease-press),
     background var(--dur-fast) var(--ease-press),
     box-shadow var(--dur-med) var(--ease-standard);
@@ -2936,6 +3160,19 @@ button.practice-commitment-card:not(:disabled):active {
 .auth-submit:disabled {
   opacity: 0.65;
   cursor: wait;
+  box-shadow: none;
+}
+
+@media (min-width: 768px) {
+  .auth-page-inner {
+    max-width: 520px;
+    padding-top: 22px;
+    padding-bottom: 32px;
+  }
+
+  .auth-panel {
+    border-radius: 24px;
+  }
 }
 
 .modal-primary:hover {

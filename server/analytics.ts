@@ -81,6 +81,23 @@ function minutesDiff(start: string, end: string): number {
   return Math.max(0, timeToMinutes(end) - timeToMinutes(start));
 }
 
+function normalizeDateKey(value: unknown): string {
+  if (value == null) return "";
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    const match = trimmed.match(/^(\d{4}-\d{2}-\d{2})/);
+    if (match) return match[1];
+    const parsed = new Date(trimmed);
+    if (!Number.isNaN(parsed.getTime())) {
+      return parsed.toISOString().slice(0, 10);
+    }
+    return "";
+  }
+  const parsed = value instanceof Date ? value : new Date(value as string | number);
+  if (Number.isNaN(parsed.getTime())) return "";
+  return parsed.toISOString().slice(0, 10);
+}
+
 export function computeWeeklyStats(input: WeeklyStatsInput): WeeklyStats {
   const { days, blocks, plans } = input;
   if (days.length === 0) {
@@ -96,7 +113,23 @@ export function computeWeeklyStats(input: WeeklyStatsInput): WeeklyStats {
     };
   }
 
-  const sortedDays = [...days].sort((a, b) =>
+  const normalizedDays = days
+    .map(day => ({ ...day, date: normalizeDateKey(day.date) }))
+    .filter(day => day.date);
+  if (normalizedDays.length === 0) {
+    return {
+      weekStart: "",
+      weekEnd: "",
+      totalStudyMinutes: 0,
+      subjectTimes: [],
+      completionRates: [],
+      focusDistribution: { best: 0, good: 0, ok: 0, bad: 0 },
+      consecutiveAbsentDays: 0,
+      mostDeferredSubjects: []
+    };
+  }
+
+  const sortedDays = [...normalizedDays].sort((a, b) =>
     a.date.localeCompare(b.date)
   );
   const weekStart = sortedDays[0].date;
@@ -162,11 +195,11 @@ export function computeWeeklyStats(input: WeeklyStatsInput): WeeklyStats {
 
   // 4) 연속 결석일 수 (마지막 날 기준, 뒤에서부터)
   const dayHasStudy = new Map<string, boolean>();
-  for (const d of days) {
+  for (const d of normalizedDays) {
     dayHasStudy.set(d.date, false);
   }
   for (const b of blocks) {
-    const day = days.find(d => d.id === b.study_day_id);
+    const day = normalizedDays.find(d => d.id === b.study_day_id);
     if (!day) continue;
     if (minutesDiff(b.start_time, b.end_time) > 0) {
       dayHasStudy.set(day.date, true);

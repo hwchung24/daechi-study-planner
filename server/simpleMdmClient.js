@@ -86,6 +86,26 @@ async function listApps() {
   return all;
 }
 
+async function listPaginatedCollection(pathWithOptionalQuery) {
+  const all = [];
+  let startingAfter = null;
+
+  while (true) {
+    const separator = pathWithOptionalQuery.includes("?") ? "&" : "?";
+    const pagePath = `${pathWithOptionalQuery}${separator}limit=100${
+      startingAfter ? `&starting_after=${encodeURIComponent(String(startingAfter))}` : ""
+    }`;
+    const data = await simpleMdmRequest(pagePath);
+    const rows = Array.isArray(data?.data) ? data.data : [];
+    all.push(...rows);
+    if (!data?.has_more || rows.length === 0) break;
+    startingAfter = rows[rows.length - 1]?.id;
+    if (!startingAfter) break;
+  }
+
+  return all;
+}
+
 function normalizeSimpleMdmText(value) {
   return String(value || "")
     .trim()
@@ -157,6 +177,92 @@ async function findInstalledAppForDevice(appId, deviceId) {
   );
 }
 
+function normalizeInstalledAppRow(row, catalogById = new Map()) {
+  const attrs = row?.attributes || {};
+  const appId = row?.relationships?.app?.data?.id;
+  const catalog = appId != null ? catalogById.get(Number(appId)) : null;
+  const catalogAttrs = catalog?.attributes || {};
+  const name = String(
+    attrs.name ||
+      attrs.app_name ||
+      attrs.display_name ||
+      catalogAttrs.name ||
+      ""
+  ).trim();
+  const bundleId = String(
+    attrs.bundle_identifier || attrs.bundle_id || catalogAttrs.bundle_identifier || ""
+  ).trim();
+  if (!name && !bundleId) return null;
+  return {
+    id: String(row?.id || appId || bundleId || name).trim(),
+    name: name || bundleId,
+    bundleId: bundleId || null,
+    version: String(attrs.version || attrs.short_version || "").trim() || null,
+    source: "simplemdm"
+  };
+}
+
+async function listInstalledAppsForDevice(deviceId) {
+  const numericDeviceId = Number(deviceId);
+  if (!Number.isFinite(numericDeviceId) || numericDeviceId <= 0) {
+    throw new Error("deviceId가 올바르지 않습니다.");
+  }
+
+  const appsCatalog = await listApps().catch(() => []);
+  const catalogById = new Map(
+    (appsCatalog || []).map(item => [Number(item?.id), item])
+  );
+
+  const endpointCandidates = [
+    `/devices/${numericDeviceId}/installed_apps`,
+    `/installed_apps?device_id=${numericDeviceId}`
+  ];
+
+  for (const path of endpointCandidates) {
+    try {
+      const rows = await listPaginatedCollection(path);
+      const normalized = rows
+        .map(row => normalizeInstalledAppRow(row, catalogById))
+        .filter(Boolean);
+      if (normalized.length > 0) {
+        const seen = new Set();
+        return normalized.filter(app => {
+          const key = `${String(app.bundleId || "").toLowerCase()}::${String(app.name).toLowerCase()}`;
+          if (seen.has(key)) return false;
+          seen.add(key);
+          return true;
+        });
+      }
+    } catch {
+      // Try the next candidate path.
+    }
+  }
+
+  const fallback = [];
+  for (const app of appsCatalog) {
+    const appId = Number(app?.id);
+    if (!Number.isFinite(appId) || appId <= 0) continue;
+    const installed = await findInstalledAppForDevice(appId, numericDeviceId).catch(() => null);
+    if (!installed) continue;
+    const attrs = app?.attributes || {};
+    fallback.push({
+      id: String(installed?.id || appId),
+      name: String(attrs.name || "").trim() || String(attrs.bundle_identifier || `app-${appId}`),
+      bundleId: String(attrs.bundle_identifier || "").trim() || null,
+      version: null,
+      source: "simplemdm"
+    });
+  }
+
+  const seen = new Set();
+  return fallback.filter(app => {
+    const key = `${String(app.bundleId || "").toLowerCase()}::${String(app.name).toLowerCase()}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
 async function createAppInCatalog({ appStoreId, bundleId, name }) {
   const params = new URLSearchParams();
   if (appStoreId) {
@@ -210,6 +316,7 @@ module.exports = {
   findAppByBundleId,
   findAppByName,
   findAppByBundleIdOrName,
+  listInstalledAppsForDevice,
   findInstalledAppForDevice,
   createAppInCatalog,
   createAssignmentGroup,

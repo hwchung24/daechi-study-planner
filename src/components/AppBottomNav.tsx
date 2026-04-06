@@ -24,7 +24,7 @@ function NavIcon({ children }: { children: React.ReactNode }) {
 
 type TabKey = "today" | "records" | "store" | "profile";
 type CoachStudentTabKey = "home" | "coach";
-type ParentTabKey = "link" | "report";
+type ParentTabKey = "report" | "profile";
 type CoachParentTabKey = "home" | "timeline" | "guide" | "profile";
 
 type PillMetrics = {
@@ -319,14 +319,14 @@ export function AppBottomNav(props: {
               <button
                 type="button"
                 className={
-                  "nav-item" + (parentTab === "link" ? " nav-item-active" : "")
+                  "nav-item" + (parentTab === "profile" ? " nav-item-active" : "")
                 }
-                onClick={() => onParentNavClick("link")}
+                onClick={() => onParentNavClick("profile")}
               >
                 <NavIcon>
-                  <Link2 size={20} strokeWidth={2} />
+                  <User size={20} strokeWidth={2} />
                 </NavIcon>
-                <span className="nav-label">연결</span>
+                <span className="nav-label">프로필</span>
               </button>
               <button
                 type="button"

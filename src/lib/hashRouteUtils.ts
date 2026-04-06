@@ -1,11 +1,12 @@
+import { getAppPath } from "./appNavigation";
+
 type AppRoute = "student" | "parent" | "auth";
 
 const DEVICE_SERIAL_STORAGE_KEY = "daechi_device_serial";
 const TOKEN_STORAGE_KEY = "daechi_planner_token";
 
-export function parseStudentTabFromHash() {
-  if (typeof window === "undefined") return "today" as const;
-  const h = window.location.hash;
+export function parseStudentTabFromHash(path = getAppPath()) {
+  const h = path;
   if (h === "#/profile" || h === "#/settings") return "profile" as const;
   /** #/notifications 는 알림 모달만 열고 본문 탭은 오늘로 유지 */
   if (h === "#/notifications") return "today" as const;
@@ -14,12 +15,11 @@ export function parseStudentTabFromHash() {
   return "today" as const;
 }
 
-export function parseCoachStudentTabFromHash() {
-  if (typeof window === "undefined") return null;
-  const h = window.location.hash;
+export function parseCoachStudentTabFromHash(path = getAppPath()) {
+  const h = path;
   if (!h.startsWith("#/student/")) return null;
-  const path = h.slice("#/student/".length).split("?")[0];
-  const seg = (path || "home").replace(/^\/+/, "");
+  const subPath = h.slice("#/student/".length).split("?")[0];
+  const seg = (subPath || "home").replace(/^\/+/, "");
   if (seg === "coach" || seg === "chat") return "coach" as const;
   return "home" as const;
 }
@@ -27,11 +27,11 @@ export function parseCoachStudentTabFromHash() {
 /** 코치 통합 탭(분석/계획/학습 코칭) — URL `?panel=plan` 등 */
 export type CoachStudentPanelParam = "plan" | "analysis" | "chat";
 
-export function readCoachPanelParamFromHash(hash: string): CoachStudentPanelParam | null {
-  if (!hash.startsWith("#/student/")) return null;
-  const q = hash.indexOf("?");
+export function readCoachPanelParamFromHash(path: string): CoachStudentPanelParam | null {
+  if (!path.startsWith("#/student/")) return null;
+  const q = path.indexOf("?");
   if (q < 0) return null;
-  const p = new URLSearchParams(hash.slice(q + 1)).get("panel");
+  const p = new URLSearchParams(path.slice(q + 1)).get("panel");
   if (p === "plan" || p === "analysis" || p === "chat") return p;
   return null;
 }
@@ -47,32 +47,29 @@ export function stripCoachPanelParamFromHash(hash: string): string {
   return s ? `${base}?${s}` : base;
 }
 
-export function parseCoachParentTabFromHash() {
-  if (typeof window === "undefined") return null;
-  const h = window.location.hash;
-  if (h === "#/parent" || h === "#/parent/report") return null;
+export function parseCoachParentTabFromHash(path = getAppPath()) {
+  const h = path;
+  if (h === "#/parent" || h === "#/parent/report" || h === "#/parent/profile") return null;
   if (!h.startsWith("#/parent/")) return null;
-  const path = h.slice("#/parent/".length).split("?")[0];
-  const seg = (path || "home").replace(/^\/+/, "");
+  const subPath = h.slice("#/parent/".length).split("?")[0];
+  const seg = (subPath || "home").replace(/^\/+/, "");
   if (seg === "timeline") return "timeline" as const;
   if (seg === "guide") return "guide" as const;
   if (seg === "profile") return "profile" as const;
   return "home" as const;
 }
 
-export function parseRouteFromHash(): AppRoute {
-  if (typeof window === "undefined") return "student";
-  const h = window.location.hash;
+export function parseRouteFromHash(path = getAppPath()): AppRoute {
+  const h = path;
   if (h.startsWith("#/parent")) return "parent";
   if (h === "#/auth") return "auth";
   return "student";
 }
 
-export function parseParentTabFromHash() {
-  if (typeof window === "undefined") return "link" as const;
-  return window.location.hash === "#/parent/report"
-    ? ("report" as const)
-    : ("link" as const);
+export function parseParentTabFromHash(path = getAppPath()) {
+  if (path === "#/parent/report") return "report" as const;
+  if (path === "#/parent/profile") return "profile" as const;
+  return "profile" as const;
 }
 
 export function getInitialRoute(): AppRoute {
@@ -84,10 +81,10 @@ export function getInitialRoute(): AppRoute {
     return "auth";
   }
   if (!token) return "auth";
-  const h = window.location.hash;
+  const h = getAppPath();
   if (h.startsWith("#/parent")) return "parent";
   if (h === "#/auth") return "student";
-  return parseRouteFromHash();
+  return parseRouteFromHash(h);
 }
 
 export function getSerialFromLocation(): string {

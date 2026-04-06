@@ -11,7 +11,7 @@ import { TabTransitionPanel } from "../../components/PageTransition";
 import { demoStudents } from "../demoData";
 import { useCoachStore, type CoachChatGreetingMode } from "../state/useCoachStore";
 import type { Severity } from "../types";
-import { Card, EmptyState, RiskBadge, SectionHeader, StatPill } from "../ui/components";
+import { Card, EmptyState, RiskBadge, SectionHeader } from "../ui/components";
 import { API_BASE } from "../../lib/apiBase";
 import {
   DAECHI_COACH_INITIAL_PANEL_KEY,
@@ -23,6 +23,11 @@ import {
   readCoachPanelParamFromHash,
   stripCoachPanelParamFromHash
 } from "../../lib/hashRouteUtils";
+import {
+  getAppPath,
+  replaceAppPath,
+  subscribeAppPathChange
+} from "../../lib/appNavigation";
 import {
   getDateKeySeoul,
   getWeekDaysSeoul,
@@ -43,7 +48,7 @@ function readInitialCoachPanelFromWindow(entryTab: StudentTabKey): CoachPanelKey
   if (typeof window === "undefined") {
     return entryTab === "coach" ? "chat" : "analysis";
   }
-  const fromHash = readCoachPanelParamFromHash(window.location.hash);
+  const fromHash = readCoachPanelParamFromHash(getAppPath());
   if (fromHash) return fromHash;
   try {
     const v = sessionStorage.getItem(DAECHI_COACH_INITIAL_PANEL_KEY);
@@ -243,14 +248,38 @@ function CoachRhythmSparkline(props: {
     return { x, y, v, date: row.date };
   });
 
-  const segments: { x1: number; y1: number; x2: number; y2: number }[] = [];
-  for (let i = 0; i < pts.length - 1; i++) {
-    const a = pts[i];
-    const b = pts[i + 1];
-    if (a.y != null && b.y != null) {
-      segments.push({ x1: a.x, y1: a.y, x2: b.x, y2: b.y });
+  const pathSegments: string[] = [];
+  let currentChunk: { x: number; y: number }[] = [];
+  const flushChunk = () => {
+    if (currentChunk.length === 0) return;
+    if (currentChunk.length === 1) {
+      const p = currentChunk[0];
+      pathSegments.push(`M ${p.x} ${p.y}`);
+      currentChunk = [];
+      return;
     }
+    let d = `M ${currentChunk[0].x} ${currentChunk[0].y}`;
+    for (let i = 0; i < currentChunk.length - 1; i++) {
+      const a = currentChunk[i];
+      const b = currentChunk[i + 1];
+      const midX = (a.x + b.x) / 2;
+      const midY = (a.y + b.y) / 2;
+      d += ` Q ${a.x} ${a.y} ${midX} ${midY}`;
+    }
+    const last = currentChunk[currentChunk.length - 1];
+    d += ` T ${last.x} ${last.y}`;
+    pathSegments.push(d);
+    currentChunk = [];
+  };
+
+  for (const p of pts) {
+    if (p.y == null) {
+      flushChunk();
+      continue;
+    }
+    currentChunk.push({ x: p.x, y: p.y });
   }
+  flushChunk();
 
   const labelShort = (dateKey: string) => String(dateKey).replace(/^\d{4}-/, "");
 
@@ -284,16 +313,15 @@ function CoachRhythmSparkline(props: {
       <text x={2} y={padT + innerH + 2} fontSize={10} fill="rgba(100,116,139,0.95)">
         {yMin}
       </text>
-      {segments.map((seg, i) => (
-        <line
+      {pathSegments.map((d, i) => (
+        <path
           key={`seg-${i}`}
-          x1={seg.x1}
-          y1={seg.y1}
-          x2={seg.x2}
-          y2={seg.y2}
+          d={d}
+          fill="none"
           stroke="currentColor"
-          strokeWidth={2.5}
+          strokeWidth={2.75}
           strokeLinecap="round"
+          strokeLinejoin="round"
         />
       ))}
       {pts.map((p, i) =>
@@ -302,28 +330,28 @@ function CoachRhythmSparkline(props: {
             key={`dot-${i}`}
             cx={p.x}
             cy={p.y}
-            r={5.5}
+            r={2.25}
             fill="currentColor"
-            stroke="#fff"
-            strokeWidth={1.5}
           >
             <title>{`${labelShort(p.date)} · ${valueFormatter(p.v)}`}</title>
           </circle>
         ) : null
       )}
-      {pts.map((p, i) => (
-        <text
-          key={`lbl-${i}`}
-          x={p.x}
-          y={h - 6}
-          textAnchor="middle"
-          fontSize={8}
-          fill="rgba(100,116,139,0.95)"
-          transform={`rotate(-48 ${p.x} ${h - 6})`}
-        >
-          {labelShort(p.date)}
-        </text>
-      ))}
+      {pts.map((p, i) => {
+        if (i % 2 !== 0 && i !== pts.length - 1) return null;
+        return (
+          <text
+            key={`lbl-${i}`}
+            x={p.x}
+            y={h - 10}
+            textAnchor="middle"
+            fontSize={8}
+            fill="rgba(100,116,139,0.95)"
+          >
+            {labelShort(p.date)}
+          </text>
+        );
+      })}
     </svg>
   );
 }
@@ -372,7 +400,7 @@ function CoachStudentUnified(props: {
   /** `?panel=` / sessionStorage만 반영. URL은 사용자가 세그먼트를 누를 때까지 유지(Strict Mode 재마운트·hashchange 오동작 방지). */
   const tryApplyCoachPanelDeepLink = useCallback((): boolean => {
     if (typeof window === "undefined") return false;
-    const h = window.location.hash;
+    const h = getAppPath();
     const fromHash = readCoachPanelParamFromHash(h);
     if (fromHash) {
       setPanel(fromHash);
@@ -398,14 +426,10 @@ function CoachStudentUnified(props: {
 
   const selectCoachPanel = useCallback((next: CoachPanelKey) => {
     if (typeof window !== "undefined") {
-      const h = window.location.hash;
+      const h = getAppPath();
       const stripped = stripCoachPanelParamFromHash(h);
       if (stripped !== h) {
-        window.history.replaceState(
-          null,
-          "",
-          `${window.location.pathname}${window.location.search}${stripped}`
-        );
+        replaceAppPath(stripped);
       }
     }
     setPanel(next);
@@ -430,8 +454,7 @@ function CoachStudentUnified(props: {
     const onHash = () => {
       tryApplyCoachPanelDeepLink();
     };
-    window.addEventListener("hashchange", onHash);
-    return () => window.removeEventListener("hashchange", onHash);
+    return subscribeAppPathChange(onHash);
   }, [tryApplyCoachPanelDeepLink]);
 
   useEffect(() => {
@@ -596,7 +619,7 @@ function CoachStudentUnified(props: {
       [
         {
           key: "sleep",
-          title: "최근 7일 수면 패턴",
+          title: "수면 패턴",
           dataKey: "sleepHours" as const,
           color: "var(--accent-strong)",
           yDomain: [0, 10] as [number, number],
@@ -605,16 +628,16 @@ function CoachStudentUnified(props: {
         },
         {
           key: "stress",
-          title: "최근 7일 스트레스 점수",
+          title: "스트레스 점수",
           dataKey: "stressScore" as const,
-          color: "var(--accent-soft)",
+          color: "var(--accent-strong)",
           yDomain: [1, 5] as [number, number],
           tooltipLabel: "스트레스 점수",
           valueFormatter: (v: number) => `${v.toFixed(1)}/5`
         },
         {
           key: "concentration",
-          title: "최근 7일 학습 집중도",
+          title: "학습 집중도",
           dataKey: "concentration" as const,
           color: "var(--accent-strong)",
           yDomain: [0, 100] as [number, number],
@@ -623,18 +646,18 @@ function CoachStudentUnified(props: {
         },
         {
           key: "studyMinutes",
-          title: "최근 7일 공부 시간",
+          title: "공부 시간",
           dataKey: "studyMinutes" as const,
-          color: "#4f46e5",
+          color: "var(--accent-strong)",
           yDomain: [0, studyMinutesMax] as [number, number],
           tooltipLabel: "공부 시간(분)",
           valueFormatter: (v: number) => `${Math.round(v)}분`
         },
         {
           key: "planCompletionRate",
-          title: "최근 7일 목표 달성률",
+          title: "목표 달성률",
           dataKey: "planCompletionRate" as const,
-          color: "#16a34a",
+          color: "var(--accent-strong)",
           yDomain: [0, 100] as [number, number],
           tooltipLabel: "목표 달성률",
           valueFormatter: (v: number) => `${Math.round(v)}%`
@@ -734,7 +757,7 @@ function CoachStudentUnified(props: {
             </Card>
 
             <Card className="coach-card coach-card--padded">
-              <SectionHeader title="최근 7일 리듬" right={<StatPill label="리스크" value={coachRiskLevel} />} />
+              <SectionHeader title="최근 7일 리듬" />
               <div
                 className="coach-rhythm-scroll"
                 style={{
@@ -773,9 +796,6 @@ function CoachStudentUnified(props: {
 
             <div className="coach-stack">
               <SectionHeader title="감지된 기록 패턴" />
-              <p className="coach-muted" style={{ padding: "0 4px 10px", fontSize: 12, lineHeight: 1.5 }}>
-                최근 7일 수면시간, 스트레스, 집중도, 공부시간, 목표 달성률을 기준으로 GPT가 도출한 결과예요.
-              </p>
               {patternsLoading && (
                 <p className="coach-muted" style={{ padding: "0 4px 10px", fontSize: 13 }}>
                   이번 주 기록을 바탕으로 패턴을 분석하는 중…

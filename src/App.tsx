@@ -34,6 +34,12 @@ import {
   scrubSerialFromLocation
 } from "./lib/hashRouteUtils";
 import {
+  getAppPath,
+  replaceAppPath,
+  setAppPath,
+  subscribeAppPathChange
+} from "./lib/appNavigation";
+import {
   getDateKey,
   getWeekStartKey,
   getWeekStartKeySeoul,
@@ -319,6 +325,8 @@ const App: React.FC = () => {
   const [timelineSyncError, setTimelineSyncError] = useState("");
   const [studentNotificationUnreadCount, setStudentNotificationUnreadCount] =
     useState(0);
+  const [parentNotificationUnreadCount, setParentNotificationUnreadCount] =
+    useState(0);
   const [parentLockStatus, setParentLockStatus] =
     useState<ParentLockStatus | null>(null);
 
@@ -360,6 +368,7 @@ const App: React.FC = () => {
 
   useEffect(() => {
     const syncRouteFromHash = () => {
+      const path = getAppPath();
       try {
         if (!localStorage.getItem("daechi_planner_token")) {
           setRoute("auth");
@@ -369,55 +378,41 @@ const App: React.FC = () => {
         setRoute("auth");
         return;
       }
-      setRoute(parseRouteFromHash());
-      try {
-        if (window.location.hash === "#/settings") {
-          const u = new URL(window.location.href);
-          u.hash = "#/profile";
-          window.history.replaceState({}, "", u.toString());
-        }
-      } catch {
-        // ignore
+      setRoute(parseRouteFromHash(path));
+      if (path === "#/settings") {
+        replaceAppPath("#/profile");
       }
-      const studentTab = parseStudentTabFromHash();
+      const studentTab = parseStudentTabFromHash(path);
       setTab(studentTab);
-      setParentTab(parseParentTabFromHash());
-      const coachFromHash = parseCoachStudentTabFromHash();
+      setParentTab(parseParentTabFromHash(path));
+      const coachFromHash = parseCoachStudentTabFromHash(path);
       setCoachStudentTab(coachFromHash);
       setCoachStudentCoachLayout(coachFromHash === "coach" ? "chat" : "scroll");
-      setCoachParentTab(parseCoachParentTabFromHash());
+      setCoachParentTab(parseCoachParentTabFromHash(path));
     };
     const onHash = () => syncRouteFromHash();
-    window.addEventListener("hashchange", onHash);
+    const unsubscribe = subscribeAppPathChange(onHash);
     syncRouteFromHash();
-    return () => window.removeEventListener("hashchange", onHash);
+    return unsubscribe;
   }, []);
 
   /** #/notifications 접근 시 알림 모달만 열고 해시는 오늘 탭으로 정리 */
   useEffect(() => {
     const openModalFromNotificationsHash = () => {
-      try {
-        if (window.location.hash !== "#/notifications") return;
-        setShowNotificationsModal(true);
-        const u = new URL(window.location.href);
-        u.hash = "#/today";
-        window.history.replaceState({}, "", u.toString());
-      } catch {
-        // ignore
-      }
+      if (getAppPath() !== "#/notifications") return;
+      setShowNotificationsModal(true);
+      replaceAppPath("#/today");
     };
     openModalFromNotificationsHash();
-    window.addEventListener("hashchange", openModalFromNotificationsHash);
-    return () =>
-      window.removeEventListener("hashchange", openModalFromNotificationsHash);
+    return subscribeAppPathChange(openModalFromNotificationsHash);
   }, []);
 
   // 미로그인 시 로그인 페이지로 (첫 프레임에서 authToken이 아직 null일 수 있어 localStorage 기준)
   useEffect(() => {
     try {
       if (localStorage.getItem("daechi_planner_token")) return;
-      if (window.location.hash !== "#/auth") {
-        window.location.replace("#/auth");
+      if (getAppPath() !== "#/auth") {
+        replaceAppPath("#/auth");
       }
     } catch {
       // ignore
@@ -428,8 +423,8 @@ const App: React.FC = () => {
   useEffect(() => {
     try {
       if (!localStorage.getItem("daechi_planner_token")) return;
-      if (window.location.hash === "#/auth") {
-        window.location.replace("#/");
+      if (getAppPath() === "#/auth") {
+        replaceAppPath("#/");
       }
     } catch {
       // ignore
@@ -469,7 +464,7 @@ const App: React.FC = () => {
           setAuthToken(null);
           setUserEmail(null);
           setMeRole(null);
-          window.location.hash = "#/auth";
+          setAppPath("#/auth");
           done();
           return;
         }
@@ -609,22 +604,54 @@ const App: React.FC = () => {
     };
   }, [authToken, meRole, meFetchNonce, tab]);
 
+  useEffect(() => {
+    if (!authToken || meRole !== "parent") {
+      setParentNotificationUnreadCount(0);
+      return;
+    }
+    let cancelled = false;
+    const run = async () => {
+      try {
+        const res = await fetch(`${API_BASE}/api/parent/notifications/summary`, {
+          headers: { Authorization: `Bearer ${authToken}` },
+          cache: "no-store"
+        });
+        if (!res.ok || cancelled) return;
+        const data = (await res.json()) as { unreadCount?: unknown };
+        const n = Number(data.unreadCount);
+        if (!cancelled && Number.isFinite(n) && n >= 0) {
+          setParentNotificationUnreadCount(Math.floor(n));
+        }
+      } catch {
+        if (!cancelled) setParentNotificationUnreadCount(0);
+      }
+    };
+    void run();
+    const timerId = window.setInterval(() => {
+      void run();
+    }, 25000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timerId);
+    };
+  }, [authToken, meRole, meFetchNonce]);
+
   // 학부모 계정이면 항상 학부모 페이지로 (학습 플래너 대신)
   useEffect(() => {
     if (meRole !== "parent") return;
     if (typeof window === "undefined") return;
-    const h = window.location.hash;
-    if (h === "#/parent" || h === "#/parent/report") return;
-    window.location.hash = "#/parent";
+    const h = getAppPath();
+    if (h === "#/parent" || h === "#/parent/report" || h === "#/parent/profile") return;
+    setAppPath("#/parent");
   }, [meRole]);
 
   // 학생 계정은 학부모 URL에 있으면 학생 화면으로 복귀
   useEffect(() => {
     if (meRole !== "student") return;
     if (typeof window === "undefined") return;
-    const h = window.location.hash;
-    if (h === "#/parent" || h === "#/parent/report") {
-      window.location.hash = "";
+    const h = getAppPath();
+    if (h === "#/parent" || h === "#/parent/report" || h === "#/parent/profile") {
+      setAppPath("#/");
     }
   }, [meRole]);
 
@@ -1070,7 +1097,7 @@ const App: React.FC = () => {
   const removeProgressBook = useCallback(
     async (bookId: number) => {
       if (!authToken) {
-        window.location.hash = "#/auth";
+        setAppPath("#/auth");
         return;
       }
       try {
@@ -1101,7 +1128,7 @@ const App: React.FC = () => {
 
   const saveTomorrowPlan = async (planOverride?: ProgressPlan): Promise<boolean> => {
     if (!authToken) {
-      window.location.hash = "#/auth";
+      setAppPath("#/auth");
       return false;
     }
     const plan = planOverride ?? tomorrowPlan;
@@ -1171,7 +1198,7 @@ const App: React.FC = () => {
     const ok = await saveTomorrowPlan(next);
     if (ok) {
       hapticSuccess();
-      window.location.hash = "#/records";
+      setAppPath("#/records");
     }
     return ok;
   };
@@ -1180,7 +1207,7 @@ const App: React.FC = () => {
     text: string
   ): Promise<boolean> => {
     if (!authToken) {
-      window.location.hash = "#/auth";
+      setAppPath("#/auth");
       return false;
     }
     const trimmed = text.trim();
@@ -1212,7 +1239,7 @@ const App: React.FC = () => {
       } catch {
         // ignore
       }
-      window.location.hash = "#/records";
+      setAppPath("#/records");
       return true;
     } catch {
       hapticWarning();
@@ -1231,7 +1258,7 @@ const App: React.FC = () => {
     setUserEmail(null);
     setMeRole(null);
     setRoute("auth");
-    window.location.hash = "#/auth";
+    setAppPath("#/auth");
   };
 
   const performWithdrawAccount = async () => {
@@ -1436,7 +1463,7 @@ const App: React.FC = () => {
                     setAuthToken(token);
         localStorage.setItem("daechi_planner_user_email", data.email);
                     localStorage.setItem("daechi_planner_token", token);
-                    window.location.hash = "#/";
+                    setAppPath("#/");
                     setMainEnter(true);
                   }, 420);
                 } catch {
@@ -1510,9 +1537,9 @@ const App: React.FC = () => {
                             : coachParentTab === "profile"
                               ? "학부모 프로필"
                               : "학부모 홈"
-                        : parentTab === "link"
-                          ? "자녀 연결"
-                          : "AI 리포트"
+                            : parentTab === "profile"
+                              ? "학부모 프로필"
+                              : "AI 리포트"
                       : "학부모")}
                   {showStudentShell &&
                     (coachStudentMode
@@ -1529,24 +1556,30 @@ const App: React.FC = () => {
                 </h1>
               </div>
             </div>
-            {showStudentShell && !parentView ? (
+            {(showStudentShell && !parentView) || (parentView && meRole === "parent") ? (
               <div className="header-actions">
                 <button
                   type="button"
                   className="header-icon-btn"
                   aria-label={
-                    studentNotificationUnreadCount > 0
+                    (parentView && meRole === "parent"
+                      ? parentNotificationUnreadCount
+                      : studentNotificationUnreadCount) > 0
                       ? "알림, 읽지 않은 알림 있음"
                       : "알림"
                   }
                   onClick={() => {
                     hapticSelection();
-                    setCoachStudentTab(null);
-                    setCoachStudentCoachLayout("scroll");
+                    if (!parentView) {
+                      setCoachStudentTab(null);
+                      setCoachStudentCoachLayout("scroll");
+                    }
                     setShowNotificationsModal(true);
                   }}
                 >
-                  {studentNotificationUnreadCount > 0 ? (
+                  {(parentView && meRole === "parent"
+                    ? parentNotificationUnreadCount
+                    : studentNotificationUnreadCount) > 0 ? (
                     <BellDot size={22} strokeWidth={2} aria-hidden />
                   ) : (
                     <Bell size={22} strokeWidth={2} aria-hidden />
@@ -1622,6 +1655,7 @@ const App: React.FC = () => {
                 apiBase={API_BASE}
                 authToken={authToken}
                 meRole={meRole}
+                userEmail={userEmail}
                 parentTab={parentTab}
                 parentLinkEmail={parentLinkEmail}
                 setParentLinkEmail={setParentLinkEmail}
@@ -1651,6 +1685,15 @@ const App: React.FC = () => {
                 setParentAiDaily={setParentAiDaily}
                 hapticSelection={hapticSelection}
                 hapticWarning={hapticWarning}
+                hapticSuccess={hapticSuccess}
+                onUserEmailUpdated={(email: string) => {
+                  setUserEmail(email);
+                  try {
+                    localStorage.setItem("daechi_planner_user_email", email);
+                  } catch {
+                    // ignore
+                  }
+                }}
                 onLogoutPress={() => setAuthConfirmKind("logout")}
                 onWithdrawPress={() => setAuthConfirmKind("withdraw")}
               />
@@ -1742,44 +1785,52 @@ const App: React.FC = () => {
             setCoachStudentTab(null);
             setCoachStudentCoachLayout("scroll");
             setTab(nextTab);
-            window.location.hash =
+            setAppPath(
               nextTab === "today"
                 ? "#/today"
                 : nextTab === "records"
                   ? "#/records"
                   : nextTab === "store"
                     ? "#/store"
-                    : "#/profile";
+                    : "#/profile"
+            );
           }}
           onCoachStudentNavClick={nextTab => {
               hapticSelection();
             setCoachStudentTab(nextTab);
             setCoachStudentCoachLayout(nextTab === "coach" ? "chat" : "scroll");
-            window.location.hash =
-              nextTab === "coach" ? "#/student/coach" : "#/student/home";
+            setAppPath(
+              nextTab === "coach" ? "#/student/coach" : "#/student/home"
+            );
           }}
           onParentNavClick={nextTab => {
               hapticSelection();
             setParentTab(nextTab);
-            window.location.hash =
-              nextTab === "report" ? "#/parent/report" : "#/parent";
+            setAppPath(
+              nextTab === "report"
+                ? "#/parent/report"
+                : nextTab === "profile"
+                  ? "#/parent/profile"
+                  : "#/parent"
+            );
           }}
           onCoachParentNavClick={nextTab => {
               hapticSelection();
             setCoachParentTab(nextTab);
-            window.location.hash =
+            setAppPath(
               nextTab === "home"
                 ? "#/parent/home"
                 : nextTab === "timeline"
                   ? "#/parent/timeline"
                   : nextTab === "guide"
                     ? "#/parent/guide"
-                    : "#/parent/profile";
+                    : "#/parent/profile"
+            );
           }}
           onParentCoachExit={() => {
                 hapticSelection();
             setCoachParentTab(null);
-                window.location.hash = "#/parent";
+                setAppPath("#/parent");
               }}
         />
 
@@ -2091,7 +2142,19 @@ const App: React.FC = () => {
                 </span>
               </div>
               <div className="dday-modal-body">
-                <NotificationsPage />
+                <NotificationsPage
+                  apiBase={API_BASE}
+                  authToken={authToken}
+                  meRole={meRole}
+                  onReadAll={() => {
+                    if (meRole === "parent") {
+                      setParentNotificationUnreadCount(0);
+                    }
+                    if (meRole === "student") {
+                      setStudentNotificationUnreadCount(0);
+                    }
+                  }}
+                />
               </div>
               <div className="dday-modal-footer">
                 <button
@@ -2251,7 +2314,7 @@ const App: React.FC = () => {
                       const name = newBookName.trim();
                       if (!name) return;
                       if (!authToken) {
-                        window.location.hash = "#/auth";
+                        setAppPath("#/auth");
                         return;
                       }
                       try {

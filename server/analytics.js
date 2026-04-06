@@ -9,6 +9,23 @@ function minutesDiff(start, end) {
   return Math.max(0, timeToMinutes(end) - timeToMinutes(start));
 }
 
+function normalizeDateKey(value) {
+  if (value == null) return "";
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    const match = trimmed.match(/^(\d{4}-\d{2}-\d{2})/);
+    if (match) return match[1];
+    const parsed = new Date(trimmed);
+    if (!Number.isNaN(parsed.getTime())) {
+      return parsed.toISOString().slice(0, 10);
+    }
+    return "";
+  }
+  const parsed = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(parsed.getTime())) return "";
+  return parsed.toISOString().slice(0, 10);
+}
+
 function computeWeeklyStats(input) {
   const { days, blocks, plans } = input;
   if (!days || days.length === 0) {
@@ -24,7 +41,23 @@ function computeWeeklyStats(input) {
     };
   }
 
-  const sortedDays = [...days].sort((a, b) => a.date.localeCompare(b.date));
+  const normalizedDays = days
+    .map(day => ({ ...day, date: normalizeDateKey(day.date) }))
+    .filter(day => day.date);
+  if (normalizedDays.length === 0) {
+    return {
+      weekStart: "",
+      weekEnd: "",
+      totalStudyMinutes: 0,
+      subjectTimes: [],
+      completionRates: [],
+      focusDistribution: { best: 0, good: 0, ok: 0, bad: 0 },
+      consecutiveAbsentDays: 0,
+      mostDeferredSubjects: []
+    };
+  }
+
+  const sortedDays = [...normalizedDays].sort((a, b) => a.date.localeCompare(b.date));
   const weekStart = sortedDays[0].date;
   const weekEnd = sortedDays[sortedDays.length - 1].date;
 
@@ -71,8 +104,8 @@ function computeWeeklyStats(input) {
 
   // 연속 결석일 수
   const dayHasStudy = new Map();
-  for (const d of days) dayHasStudy.set(d.date, false);
-  const dayById = new Map(days.map(d => [d.id, d]));
+  for (const d of normalizedDays) dayHasStudy.set(d.date, false);
+  const dayById = new Map(normalizedDays.map(d => [d.id, d]));
   for (const b of blocks || []) {
     const day = dayById.get(b.study_day_id);
     if (!day) continue;

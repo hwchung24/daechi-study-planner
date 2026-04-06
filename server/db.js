@@ -119,6 +119,30 @@ async function listParentStudents(parentUserId) {
   return res.rows;
 }
 
+async function listStudentParents(studentUserId) {
+  const res = await query(
+    `SELECT u.id, u.email
+     FROM parents_students ps
+     JOIN parents p ON p.id = ps.parent_id
+     JOIN users u ON u.id = p.user_id
+     WHERE ps.student_id = $1
+     ORDER BY u.email ASC`,
+    [studentUserId]
+  );
+  return res.rows;
+}
+
+async function listLinkedParentUserIdsForStudent(studentUserId) {
+  const res = await query(
+    `SELECT DISTINCT p.user_id
+     FROM parents_students ps
+     JOIN parents p ON p.id = ps.parent_id
+     WHERE ps.student_id = $1`,
+    [studentUserId]
+  );
+  return res.rows.map(row => Number(row.user_id)).filter(Number.isFinite);
+}
+
 async function insertParentsStudentsRow(parentDbId, studentUserId) {
   await query(
     `INSERT INTO parents_students (parent_id, student_id)
@@ -271,7 +295,7 @@ async function studentConfirmLinkRequest(studentUserId, requestId) {
   );
   const row = req.rows[0];
   if (!row) return { ok: false, error: "요청을 찾을 수 없습니다." };
-  if (row.student_user_id !== studentUserId) {
+  if (Number(row.student_user_id) !== Number(studentUserId)) {
     return { ok: false, error: "권한이 없습니다." };
   }
   if (row.initiated_by !== "parent" || !row.parent_confirmed_at || row.student_confirmed_at) {
@@ -296,7 +320,7 @@ async function parentConfirmLinkRequest(parentUserId, requestId) {
   );
   const row = req.rows[0];
   if (!row) return { ok: false, error: "요청을 찾을 수 없습니다." };
-  if (row.parent_user_id !== parentUserId) {
+  if (Number(row.parent_user_id) !== Number(parentUserId)) {
     return { ok: false, error: "권한이 없습니다." };
   }
   if (row.initiated_by !== "student" || !row.student_confirmed_at || row.parent_confirmed_at) {
@@ -321,7 +345,7 @@ async function rejectLinkRequest(userId, requestId) {
   );
   const row = req.rows[0];
   if (!row) return { ok: false, error: "요청을 찾을 수 없습니다." };
-  if (row.parent_user_id !== userId && row.student_user_id !== userId) {
+  if (Number(row.parent_user_id) !== Number(userId) && Number(row.student_user_id) !== Number(userId)) {
     return { ok: false, error: "권한이 없습니다." };
   }
   await query(
@@ -1707,6 +1731,75 @@ async function countUnreadStudentNotifications(userId) {
   }
 }
 
+async function listStudentNotifications(userId) {
+  const r = await query(
+    `SELECT id, title, body, read_at, created_at
+     FROM student_in_app_notifications
+     WHERE user_id = $1
+     ORDER BY created_at DESC
+     LIMIT 50`,
+    [userId]
+  );
+  return r.rows;
+}
+
+async function markStudentNotificationsReadAll(userId) {
+  await query(
+    `UPDATE student_in_app_notifications
+     SET read_at = now()
+     WHERE user_id = $1 AND read_at IS NULL`,
+    [userId]
+  );
+}
+
+async function countUnreadParentNotifications(userId) {
+  try {
+    const r = await query(
+      `SELECT COUNT(*)::int AS c
+       FROM parent_in_app_notifications
+       WHERE user_id = $1 AND read_at IS NULL`,
+      [userId]
+    );
+    return Number(r.rows[0]?.c) || 0;
+  } catch {
+    return 0;
+  }
+}
+
+async function listParentNotifications(userId) {
+  const r = await query(
+    `SELECT id, title, body, read_at, created_at
+     FROM parent_in_app_notifications
+     WHERE user_id = $1
+     ORDER BY created_at DESC
+     LIMIT 50`,
+    [userId]
+  );
+  return r.rows;
+}
+
+async function markParentNotificationsReadAll(userId) {
+  await query(
+    `UPDATE parent_in_app_notifications
+     SET read_at = now()
+     WHERE user_id = $1 AND read_at IS NULL`,
+    [userId]
+  );
+}
+
+async function createParentNotificationForLinkedParents(studentUserId, title, body) {
+  const parentUserIds = await listLinkedParentUserIdsForStudent(studentUserId);
+  if (!parentUserIds.length) return 0;
+  for (const parentUserId of parentUserIds) {
+    await query(
+      `INSERT INTO parent_in_app_notifications (user_id, title, body)
+       VALUES ($1, $2, $3)`,
+      [parentUserId, String(title || ""), body != null ? String(body) : null]
+    );
+  }
+  return parentUserIds.length;
+}
+
 module.exports = {
   pool,
   query,
@@ -1719,6 +1812,8 @@ module.exports = {
   updateUserPasswordHash,
   deleteUser,
   listParentStudents,
+  listLinkedParentUserIdsForStudent,
+  listStudentParents,
   parentRequestLink,
   studentRequestParent,
   listParentLinkRequests,
@@ -1760,6 +1855,12 @@ module.exports = {
   insertStudentCoachMessage,
   listRecentStudentCoachMessages,
   countUnreadStudentNotifications,
+  listStudentNotifications,
+  markStudentNotificationsReadAll,
+  countUnreadParentNotifications,
+  listParentNotifications,
+  markParentNotificationsReadAll,
+  createParentNotificationForLinkedParents,
   getOrCreateStudyDay,
   replaceStudyBlocks,
   upsertStudyPlans,

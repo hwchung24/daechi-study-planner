@@ -4,6 +4,7 @@ import { Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "rec
 import { demoDailyLogs, demoParents, demoStudents } from "../demoData";
 import { buildWeeklyInsight } from "../ai/insight-engine";
 import { buildParentGuide } from "../ai/parent-guide";
+import { setAppPath } from "../../lib/appNavigation";
 import { useCoachStore } from "../state/useCoachStore";
 import type { DailyLog } from "../types";
 import { Card, EmptyState, GradientHeroCard, MetricCard, RiskBadge, SectionHeader, StatPill } from "../ui/components";
@@ -44,7 +45,7 @@ function ParentHome() {
         body={`${student.name}의 이번 주 리스크는 ‘${insight.riskLevel}’입니다. 지금은 ${guide.intervention}이 가장 효과적이에요.`}
         ctaLabel="대화 가이드 보기"
         onCta={() => {
-          window.location.hash = "#/parent/guide";
+          setAppPath("#/parent/guide");
         }}
         badge={<RiskBadge level={insight.riskLevel} />}
       />
