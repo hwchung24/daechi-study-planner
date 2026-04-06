@@ -107,6 +107,9 @@ export type CoachMessage = {
         tips: string[];
         encouragement: string;
       }
+    | {
+        type: "schedule_inquiry";
+      }
     | undefined;
 };
 

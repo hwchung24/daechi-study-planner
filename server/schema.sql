@@ -323,6 +323,29 @@ CREATE TABLE IF NOT EXISTS student_coach_messages (
 CREATE INDEX IF NOT EXISTS idx_student_coach_messages_user
   ON student_coach_messages (user_id, created_at DESC);
 
+-- 17. Student profile schedule items (date-based, AI/manual unified storage)
+CREATE TABLE IF NOT EXISTS student_profile_schedules (
+  id BIGSERIAL PRIMARY KEY,
+  user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  title TEXT NOT NULL,
+  schedule_date DATE NOT NULL,
+  start_time TEXT NOT NULL,
+  end_time TEXT,
+  is_recurring BOOLEAN NOT NULL DEFAULT false,
+  recurrence_rule TEXT,
+  excluded_dates TEXT[] NOT NULL DEFAULT '{}'::text[],
+  source TEXT NOT NULL DEFAULT 'manual' CHECK (source IN ('manual', 'ai')),
+  note TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_student_profile_schedules_user_date
+  ON student_profile_schedules (user_id, schedule_date ASC, start_time ASC, created_at ASC);
+
+ALTER TABLE student_profile_schedules
+ADD COLUMN IF NOT EXISTS excluded_dates TEXT[] NOT NULL DEFAULT '{}'::text[];
+
 -- 타임라인 블록에 책·계획 구간 (기존 DB는 migrate 시 컬럼 추가)
 ALTER TABLE study_blocks ADD COLUMN IF NOT EXISTS book_id BIGINT REFERENCES study_books(id) ON DELETE SET NULL;
 ALTER TABLE study_blocks ADD COLUMN IF NOT EXISTS planned_range TEXT;

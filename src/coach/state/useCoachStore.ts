@@ -1,7 +1,7 @@
 import { create } from "zustand";
 import type { CoachMessage } from "../types";
 
-export type CoachChatGreetingMode = "learning" | "suneung";
+export type CoachChatGreetingMode = "learning" | "suneung" | "schedule";
 
 type CoachState = {
   activeStudentId: string;
@@ -12,6 +12,8 @@ type CoachState = {
   toggleActionDone: (id: string) => void;
 
   // Chat — 첫 화면은 코치 선택 말풍선(계획 탭과 동일 UX), 대화 시작 후 메시지 쌓임
+  chatMode: CoachChatGreetingMode;
+  setChatMode: (mode: CoachChatGreetingMode) => void;
   messages: CoachMessage[];
   addMessage: (m: CoachMessage) => void;
   resetChat: () => void;
@@ -27,7 +29,9 @@ export const useCoachStore = create<CoachState>(set => ({
       completedActionIds: { ...s.completedActionIds, [id]: !s.completedActionIds[id] }
     })),
 
+  chatMode: "learning",
+  setChatMode: mode => set({ chatMode: mode }),
   messages: [],
   addMessage: m => set(s => ({ messages: [...s.messages, m] })),
-  resetChat: () => set({ messages: [] })
+  resetChat: () => set({ messages: [], chatMode: "learning" })
 }));

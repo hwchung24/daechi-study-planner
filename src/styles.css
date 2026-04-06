@@ -575,8 +575,208 @@ select {
   border-bottom-color: rgba(148, 163, 184, 0.22);
 }
 
+.student-profile-schedule-card {
+  margin-top: 0;
+  margin-bottom: 0;
+}
+
+.student-profile-schedule-stack {
+  margin-top: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.student-profile-schedule-panel {
+  border-radius: 12px;
+  border: 0.5px solid rgba(148, 163, 184, 0.32);
+  background: rgba(248, 250, 252, 0.92);
+  overflow: hidden;
+}
+
+.student-profile-schedule-add-trigger {
+  border: 0.5px solid rgba(36, 59, 107, 0.24);
+  background: rgba(36, 59, 107, 0.08);
+  color: var(--accent-strong);
+  border-radius: 999px;
+  padding: 7px 12px;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  transition:
+    background var(--dur-fast) var(--ease-press),
+    border-color var(--dur-fast) var(--ease-press),
+    transform var(--dur-fast) var(--ease-press);
+}
+
+.student-profile-schedule-add-trigger:hover {
+  background: rgba(36, 59, 107, 0.12);
+  border-color: rgba(36, 59, 107, 0.32);
+}
+
+.student-profile-schedule-add-trigger:active {
+  transform: scale(0.98);
+}
+
+.student-profile-schedule-empty {
+  color: #475569;
+  font-size: 0.94rem;
+  line-height: 1.5;
+  padding: 15px 16px;
+}
+
+.student-profile-schedule-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 16px;
+  border-bottom: 0.5px solid rgba(148, 163, 184, 0.22);
+}
+
+.student-profile-schedule-item:last-child {
+  border-bottom: none;
+}
+
+.student-profile-schedule-item__body {
+  min-width: 0;
+  flex: 1;
+}
+
+.student-profile-schedule-item__title {
+  font-size: 0.96rem;
+  font-weight: 600;
+  color: #0f172a;
+}
+
+.student-profile-schedule-item__meta {
+  font-size: 0.84rem;
+  color: #475569;
+  margin-top: 4px;
+  line-height: 1.45;
+}
+
+.student-profile-schedule-remove {
+  flex-shrink: 0;
+  border: 0.5px solid rgba(148, 163, 184, 0.32);
+  background: rgba(255, 255, 255, 0.82);
+  color: #475569;
+  font-size: 0.84rem;
+  font-weight: 600;
+  cursor: pointer;
+  padding: 8px 10px;
+  border-radius: 10px;
+  transition:
+    background var(--dur-fast) var(--ease-press),
+    border-color var(--dur-fast) var(--ease-press),
+    transform var(--dur-fast) var(--ease-press);
+}
+
+.student-profile-schedule-remove:hover {
+  background: rgba(255, 255, 255, 0.98);
+  border-color: rgba(36, 59, 107, 0.24);
+}
+
+.student-profile-schedule-remove:active {
+  transform: scale(0.98);
+}
+
+.student-profile-schedule-form-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px 12px;
+}
+
+.student-profile-schedule-error {
+  margin-top: 10px;
+}
+
+.student-profile-schedule-modal .dday-modal-inner {
+  width: min(94vw, 420px);
+  max-height: min(96dvh, 760px);
+  overflow: hidden;
+  padding: 14px 14px 12px;
+}
+
+.student-profile-schedule-modal .dday-modal-header {
+  margin-bottom: 6px;
+}
+
+.student-profile-schedule-modal .dday-modal-body {
+  gap: 8px;
+}
+
+.student-profile-schedule-modal .field-label {
+  font-size: 11px;
+  font-weight: 400;
+  color: var(--text-sub);
+}
+
+.student-profile-schedule-time-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.student-profile-schedule-time-cell {
+  min-width: 0;
+}
+
+.student-profile-schedule-modal .add-plan-time-inline-label {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--accent-strong);
+  margin-bottom: 3px;
+}
+
+.student-profile-schedule-modal .time-picker-scroll {
+  gap: 8px;
+  padding-top: 0;
+}
+
+.student-profile-schedule-modal .time-picker-preview {
+  font-size: 18px;
+  line-height: 1.2;
+  padding: 2px 0;
+}
+
+.student-profile-schedule-modal .time-picker-col-scroll {
+  max-height: 92px;
+  padding: 38px 3px;
+  scroll-padding-block: 38px;
+}
+
+.student-profile-schedule-modal .time-picker-col::after {
+  height: 30px;
+  left: 6px;
+  right: 6px;
+}
+
+.student-profile-schedule-modal .time-picker-option {
+  padding: 6px 4px;
+  font-size: 14px;
+}
+
+.student-profile-schedule-modal .dday-modal-footer {
+  margin-top: 10px;
+}
+
 .student-profile-settings-list .settings-item:last-child {
   border-bottom: none;
+}
+
+@media (max-width: 640px) {
+  .student-profile-schedule-form-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .student-profile-schedule-time-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .student-profile-schedule-item {
+    align-items: flex-start;
+  }
 }
 
 .student-profile-settings-list .settings-item--stack {
@@ -1616,6 +1816,24 @@ button.practice-commitment-card:not(:disabled):active {
   display: flex;
   flex-direction: column;
   align-items: stretch;
+  position: relative;
+}
+
+.time-picker-modal .time-picker-col::after,
+.time-picker-inline .time-picker-col::after {
+  content: "";
+  position: absolute;
+  left: 8px;
+  right: 8px;
+  top: 50%;
+  height: 34px;
+  transform: translateY(-50%);
+  border-radius: 10px;
+  border: 0.5px solid rgba(148, 163, 184, 0.22);
+  background: rgba(255, 255, 255, 0.44);
+  box-shadow: 0 1px 4px rgba(15, 23, 42, 0.04);
+  pointer-events: none;
+  z-index: 3;
 }
 
 .time-picker-modal .time-picker-col-label,
@@ -1634,9 +1852,12 @@ button.practice-commitment-card:not(:disabled):active {
   border-radius: 14px;
   border: 0.5px solid var(--border-soft);
   background: #f1f5f9;
-  padding: 6px 4px;
-  max-height: 200px;
-  scroll-snap-type: y proximity;
+  padding: 56px 4px;
+  max-height: 140px;
+  scroll-snap-type: y mandatory;
+  scroll-padding-block: 56px;
+  position: relative;
+  z-index: 1;
 }
 
 .time-picker-modal .time-picker-option,
@@ -1664,9 +1885,9 @@ button.practice-commitment-card:not(:disabled):active {
 
 .time-picker-modal .time-picker-option--active,
 .time-picker-inline .time-picker-option--active {
-  background: #ffffff;
+  background: transparent;
   color: var(--accent-strong);
-  box-shadow: 0 2px 8px rgba(15, 23, 42, 0.08);
+  box-shadow: none;
 }
 
 /* 오늘 계획 수정 요청 모달: 인라인 시간 — 라벨 제거 후 미리보기 ↔ 스크롤 간격 */
@@ -1683,7 +1904,7 @@ button.practice-commitment-card:not(:disabled):active {
 }
 
 .dday-modal-body .time-picker-inline .time-picker-col-scroll {
-  max-height: 150px;
+  max-height: 108px;
 }
 
 /* 시간 전용 시트 모달: 동일 (TimePickerSheet) */
@@ -2719,6 +2940,24 @@ button.practice-commitment-card:not(:disabled):active {
 
 .modal-primary:hover {
   background: var(--accent-hover);
+}
+
+.auth-confirm-btn-secondary {
+  background: #fee2e2;
+  color: #b91c1c;
+}
+
+.auth-confirm-btn-secondary:hover {
+  background: #fecaca;
+}
+
+.auth-confirm-btn-primary {
+  background: #dc2626;
+  color: #ffffff;
+}
+
+.auth-confirm-btn-primary:hover {
+  background: #b91c1c;
 }
 
 .floating-add-button:hover {

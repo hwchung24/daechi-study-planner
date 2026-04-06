@@ -534,6 +534,119 @@ async function listStudyBooks(userId) {
   return res.rows;
 }
 
+async function listStudentProfileSchedules(userId) {
+  const res = await query(
+    `SELECT id, title, schedule_date, start_time, end_time, is_recurring,
+            recurrence_rule, excluded_dates, source, note, created_at, updated_at
+     FROM student_profile_schedules
+     WHERE user_id = $1
+     ORDER BY schedule_date ASC, start_time ASC, created_at ASC`,
+    [userId]
+  );
+  return res.rows;
+}
+
+async function createStudentProfileSchedule(userId, input) {
+  const title = String(input?.title || "").trim().slice(0, 120);
+  const scheduleDate = String(input?.date || "").trim().slice(0, 10);
+  const startTime = String(input?.startTime || "").trim().slice(0, 5);
+  const endTime = String(input?.endTime || "").trim().slice(0, 5);
+  const recurrenceRule = String(input?.recurrenceRule || "").trim().slice(0, 120);
+  const source = input?.source === "ai" ? "ai" : "manual";
+  const note = String(input?.note || "").trim().slice(0, 300);
+  if (!title) return null;
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(scheduleDate)) return null;
+  if (!/^\d{2}:\d{2}$/.test(startTime)) return null;
+  if (!/^\d{2}:\d{2}$/.test(endTime)) return null;
+  const recurring = Boolean(input?.isRecurring);
+  const res = await query(
+    `INSERT INTO student_profile_schedules
+     (user_id, title, schedule_date, start_time, end_time, is_recurring, recurrence_rule, excluded_dates, source, note)
+     VALUES ($1, $2, $3::date, $4, $5, $6, $7, '{}'::text[], $8, $9)
+     RETURNING id, title, schedule_date, start_time, end_time, is_recurring,
+               recurrence_rule, excluded_dates, source, note, created_at, updated_at`,
+    [
+      userId,
+      title,
+      scheduleDate,
+      startTime,
+      endTime,
+      recurring,
+      recurrenceRule || null,
+      source,
+      note || null
+    ]
+  );
+  return res.rows[0] || null;
+}
+
+async function updateStudentProfileSchedule(userId, scheduleId, input) {
+  const title = String(input?.title || "").trim().slice(0, 120);
+  const scheduleDate = String(input?.date || "").trim().slice(0, 10);
+  const startTime = String(input?.startTime || "").trim().slice(0, 5);
+  const endTime = String(input?.endTime || "").trim().slice(0, 5);
+  const recurrenceRule = String(input?.recurrenceRule || "").trim().slice(0, 120);
+  const note = String(input?.note || "").trim().slice(0, 300);
+  if (!title) return null;
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(scheduleDate)) return null;
+  if (!/^\d{2}:\d{2}$/.test(startTime)) return null;
+  if (!/^\d{2}:\d{2}$/.test(endTime)) return null;
+  const recurring = Boolean(input?.isRecurring);
+  const res = await query(
+    `UPDATE student_profile_schedules
+     SET title = $3,
+         schedule_date = $4::date,
+         start_time = $5,
+         end_time = $6,
+         is_recurring = $7,
+         recurrence_rule = $8,
+         note = $9,
+         updated_at = now()
+     WHERE user_id = $1 AND id = $2
+     RETURNING id, title, schedule_date, start_time, end_time, is_recurring,
+               recurrence_rule, excluded_dates, source, note, created_at, updated_at`,
+    [
+      userId,
+      scheduleId,
+      title,
+      scheduleDate,
+      startTime,
+      endTime,
+      recurring,
+      recurrenceRule || null,
+      note || null
+    ]
+  );
+  return res.rows[0] || null;
+}
+
+async function cancelStudentProfileScheduleOccurrence(userId, scheduleId, occurrenceDate) {
+  const dateText = String(occurrenceDate || "").trim().slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(dateText)) return null;
+  const res = await query(
+    `UPDATE student_profile_schedules
+     SET excluded_dates = CASE
+         WHEN NOT ($3 = ANY(COALESCE(excluded_dates, '{}'::text[])))
+           THEN array_append(COALESCE(excluded_dates, '{}'::text[]), $3)
+         ELSE COALESCE(excluded_dates, '{}'::text[])
+       END,
+       updated_at = now()
+     WHERE user_id = $1 AND id = $2 AND is_recurring = true
+     RETURNING id, title, schedule_date, start_time, end_time, is_recurring,
+               recurrence_rule, excluded_dates, source, note, created_at, updated_at`,
+    [userId, scheduleId, dateText]
+  );
+  return res.rows[0] || null;
+}
+
+async function deleteStudentProfileSchedule(userId, scheduleId) {
+  const res = await query(
+    `DELETE FROM student_profile_schedules WHERE user_id = $1 AND id = $2`,
+    [userId, scheduleId]
+  );
+  return res.rowCount > 0;
+}
+
 async function createStudyBook(userId, name) {
   const trimmed = String(name || "").trim();
   if (!trimmed) return null;
@@ -1652,6 +1765,11 @@ module.exports = {
   upsertStudyPlans,
   getWeekData,
   getStudyPlansForDate,
+  listStudentProfileSchedules,
+  createStudentProfileSchedule,
+  updateStudentProfileSchedule,
+  cancelStudentProfileScheduleOccurrence,
+  deleteStudentProfileSchedule,
   listStudyBooks,
   createStudyBook,
   softDeleteStudyBook,

@@ -61,6 +61,11 @@ const {
   listStudentCoachLogsInWeekRange,
   insertStudentCoachMessage,
   listRecentStudentCoachMessages,
+  listStudentProfileSchedules,
+  createStudentProfileSchedule,
+  updateStudentProfileSchedule,
+  cancelStudentProfileScheduleOccurrence,
+  deleteStudentProfileSchedule,
   countUnreadStudentNotifications,
   deleteUser
 } = require("./db");
@@ -217,6 +222,12 @@ function weekdayMon0FromIsoDate(isoKey) {
   if (!m) return 0;
   const utc = new Date(Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3])));
   return (utc.getUTCDay() + 6) % 7;
+}
+
+function getKoreanWeekdayNameFromIsoDate(isoKey) {
+  const names = ["월", "화", "수", "목", "금", "토", "일"];
+  const idx = weekdayMon0FromIsoDate(isoKey);
+  return names[idx] || "";
 }
 
 /** 서울 달력 이번 주 월요일 키 (offsetWeeks: 0=이번 주) — 클라이언트 getWeekStartKeySeoul과 동일 로직 */
@@ -376,6 +387,115 @@ function sanitizeAiPatterns(raw) {
     .filter(Boolean);
 }
 
+function hasAnyRhythmMetric(row) {
+  return (
+    row?.sleepHours != null ||
+    row?.stressScore != null ||
+    row?.concentrationPercent != null ||
+    row?.studyMinutes != null ||
+    row?.planCompletionRate != null
+  );
+}
+
+function looksLikeInsufficientPattern(p) {
+  const t = `${String(p?.title || "")} ${String(p?.explanation || "")}`;
+  return /(기록\s*부족|데이터\s*부족|분석\s*불가|분석이\s*어렵|판단이\s*어렵|기록이\s*더\s*필요)/.test(
+    t
+  );
+}
+
+function shortDateLabel(isoDate) {
+  const s = String(isoDate || "").trim();
+  return /^\d{4}-\d{2}-\d{2}$/.test(s) ? s.slice(5) : s;
+}
+
+function buildRhythmFallbackPattern(rhythmWeek, recordedDays) {
+  if (recordedDays < 2) {
+    return {
+      key: "ai_pat_0",
+      title: "기록이 더 필요해요",
+      severity: "낮음",
+      explanation:
+        "이번 주에 입력된 날이 적어요. 오늘 공부 탭에서 하루 기록을 쌓으면 그래프·AI 분석이 정확해져요.",
+      recommendation:
+        "수면·스트레스·집중·공부 시간·목표 달성률을 같은 날에 저장해 두면 한 주 흐름을 보기 좋아요."
+    };
+  }
+
+  const rows = Array.isArray(rhythmWeek) ? rhythmWeek.filter(hasAnyRhythmMetric) : [];
+  if (rows.length < 2) {
+    return {
+      key: "ai_pat_0",
+      title: "패턴 요약",
+      severity: "낮음",
+      explanation:
+        "이틀 이상 기록은 있지만 지표가 서로 다른 날에 흩어져 있어 직접 비교가 어려워요.",
+      recommendation:
+        "같은 날에 수면·스트레스·집중·공부 시간·목표 달성률을 함께 기록해 주세요."
+    };
+  }
+
+  const prev = rows[rows.length - 2];
+  const curr = rows[rows.length - 1];
+  const positive = [];
+  const negative = [];
+
+  if (prev.sleepHours != null && curr.sleepHours != null) {
+    const d = curr.sleepHours - prev.sleepHours;
+    if (d >= 0.8) positive.push(`수면시간이 ${d.toFixed(1)}시간 늘었어요`);
+    else if (d <= -0.8) negative.push(`수면시간이 ${Math.abs(d).toFixed(1)}시간 줄었어요`);
+  }
+  if (prev.stressScore != null && curr.stressScore != null) {
+    const d = curr.stressScore - prev.stressScore;
+    if (d <= -0.6) positive.push(`스트레스 점수가 ${Math.abs(d).toFixed(1)}점 낮아졌어요`);
+    else if (d >= 0.6) negative.push(`스트레스 점수가 ${d.toFixed(1)}점 높아졌어요`);
+  }
+  if (prev.concentrationPercent != null && curr.concentrationPercent != null) {
+    const d = curr.concentrationPercent - prev.concentrationPercent;
+    if (d >= 8) positive.push(`집중도가 ${Math.round(d)}% 올랐어요`);
+    else if (d <= -8) negative.push(`집중도가 ${Math.round(Math.abs(d))}% 떨어졌어요`);
+  }
+  if (prev.studyMinutes != null && curr.studyMinutes != null) {
+    const d = curr.studyMinutes - prev.studyMinutes;
+    if (d >= 30) positive.push(`공부시간이 ${Math.round(d)}분 늘었어요`);
+    else if (d <= -30) negative.push(`공부시간이 ${Math.round(Math.abs(d))}분 줄었어요`);
+  }
+  if (prev.planCompletionRate != null && curr.planCompletionRate != null) {
+    const d = curr.planCompletionRate - prev.planCompletionRate;
+    if (d >= 10) positive.push(`목표 달성률이 ${Math.round(d)}%p 올랐어요`);
+    else if (d <= -10) negative.push(`목표 달성률이 ${Math.round(Math.abs(d))}%p 내려갔어요`);
+  }
+
+  const compareLabel = `${shortDateLabel(prev.date)} 대비 ${shortDateLabel(curr.date)}`;
+  const summaryParts = [];
+  if (positive.length) summaryParts.push(`좋아진 신호: ${positive.slice(0, 2).join(", ")}`);
+  if (negative.length) summaryParts.push(`주의 신호: ${negative.slice(0, 2).join(", ")}`);
+  if (!summaryParts.length) {
+    summaryParts.push("확인 가능한 지표는 큰 변화 없이 비슷한 흐름을 보였어요");
+  }
+
+  let recommendation = "내일도 같은 5개 지표를 같은 시간대에 기록해 변화 방향을 더 선명하게 확인해 보세요.";
+  if (negative.some(s => s.includes("수면시간"))) {
+    recommendation = "취침 시간을 30분만 앞당겨 수면시간을 먼저 회복해 보세요. 수면이 안정되면 집중도와 공부시간이 같이 회복될 가능성이 커요.";
+  } else if (negative.some(s => s.includes("스트레스"))) {
+    recommendation = "학습 시작 전 5분 호흡 정리나 쉬운 과목 워밍업을 넣어 스트레스 상승 구간을 낮춰 보세요.";
+  } else if (negative.some(s => s.includes("집중도"))) {
+    recommendation = "첫 25분은 알림 차단 + 단일 과목으로 시작해 집중도 하락 구간을 줄여 보세요.";
+  } else if (negative.some(s => s.includes("공부시간"))) {
+    recommendation = "공부 시작 시간을 고정하고 최소 20분 타이머 2회만 먼저 완주해 총 공부시간을 다시 끌어올려 보세요.";
+  } else if (negative.some(s => s.includes("목표 달성률"))) {
+    recommendation = "내일 목표 개수를 1~2개 줄여 완료 경험을 먼저 만들고, 달성률이 회복되면 다시 늘려 보세요.";
+  }
+
+  return {
+    key: "ai_pat_0",
+    title: "이틀 기록 기반 변화 신호",
+    severity: negative.length >= 2 ? "높음" : negative.length === 1 ? "보통" : "낮음",
+    explanation: `${compareLabel} 기준으로 ${summaryParts.join(". ")}.`,
+    recommendation
+  };
+}
+
 /** 마크다운·앞뒤 잡담이 섞인 응답에서 patterns JSON 추출 */
 function parsePatternsJsonFromAssistantText(text) {
   const t = String(text || "").trim();
@@ -406,7 +526,7 @@ function parsePatternsJsonFromAssistantText(text) {
 async function openAiPatternCompletion(payload) {
   const userContent = JSON.stringify(payload);
   const systemContent =
-    "너는 한국 중·고등학생 학습 코치다. 입력 JSON의 weekRhythm 배열만 근거로 2~6개의 패턴을 진단한다. null은 해당 날 미기록. 의학·정신질환 진단, 자해 조장, 시험 부정행위는 금지. 반드시 아래 형태의 JSON만 출력하고 다른 글자는 쓰지 마라: {\"patterns\":[{\"title\":\"짧은 제목\",\"severity\":\"낮음\"|\"보통\"|\"높음\",\"explanation\":\"2~4문장\",\"recommendation\":\"실행 팁 1~2문장\"}]}. 기록이 거의 없으면 patterns는 1개로 짧게 안내한다.";
+    "너는 한국 중·고등학생 학습 코치다. 입력 JSON의 weekRhythm 배열에서 최근 7일의 다섯 지표(sleepHours, stressScore, concentrationPercent, studyMinutes, planCompletionRate)만 근거로 2~6개의 패턴을 진단한다. null은 해당 날 미기록이며 억지 추정은 금지한다. 의학·정신질환 진단, 자해 조장, 시험 부정행위는 금지. 반드시 아래 형태의 JSON만 출력하고 다른 글자는 쓰지 마라: {\"patterns\":[{\"title\":\"짧은 제목\",\"severity\":\"낮음\"|\"보통\"|\"높음\",\"explanation\":\"2~4문장\",\"recommendation\":\"실행 팁 1~2문장\"}]}. 기록이 거의 없으면 patterns는 1개로 짧게 안내한다.";
   const messages = [
     { role: "system", content: systemContent },
     { role: "user", content: userContent }
@@ -467,6 +587,671 @@ function sanitizeStringArray(value, maxItems = 12, maxLen = 30) {
     .filter(Boolean)
     .slice(0, maxItems)
     .map(v => v.slice(0, maxLen));
+}
+
+function isScheduleManagementRequest(text) {
+  const t = String(text || "").trim();
+  if (!t) return false;
+  return [
+    "일정을 관리하고 싶어요",
+    "일정 관리",
+    "일정 추가",
+    "일정 수정",
+    "일정 변경",
+    "반복 일정",
+    "이번 주 일정"
+  ].some(keyword => t.includes(keyword));
+}
+
+function buildScheduleManagementReply() {
+  return [
+    "일정 관리 도와드릴게요.",
+    "먼저 이 일정이 매주 반복되는 일정인지, 이번 주만 있는 일정인지 알려주세요.",
+    "예를 들면 `매주 월수금 7시 수학 학원`, `이번 주 토요일만 2시 모의고사`처럼 말씀해 주시면 돼요.",
+    "반복 여부와 요일 또는 날짜를 알려주시면 다음으로 시간과 내용을 정리해볼게요."
+  ].join("\n");
+}
+
+function looksLikeScheduleDetails(text) {
+  const t = String(text || "").trim();
+  if (!t) return false;
+  const dayPattern = /(월|화|수|목|금|토|일)요일|월수금|화목|주말|평일|매주|매일|마다/;
+  const timePattern = /\b\d{1,2}시(\s?반)?\b|\b\d{1,2}:\d{2}\b|오전|오후/;
+  const durationPattern = /\b\d+시간\b|\b\d+분\b/;
+  const eventPattern = /수업|학원|과외|모의고사|시험|약속|미팅|병원|레슨|보강|동아리|스터디/;
+  return (
+    dayPattern.test(t) ||
+    (timePattern.test(t) && eventPattern.test(t)) ||
+    (durationPattern.test(t) && eventPattern.test(t))
+  );
+}
+
+function isScheduleConversation(text, history = []) {
+  if (isScheduleManagementRequest(text) || looksLikeScheduleDetails(text)) return true;
+  const recent = Array.isArray(history) ? history.slice(-6) : [];
+  return recent.some(m => {
+    const content = String(m?.content || "").trim();
+    return (
+      content.includes("일정 관리") ||
+      content.includes("반복되는 일정인지") ||
+      content.includes("이번 주만 있는") ||
+      content.includes("요일 또는 날짜")
+    );
+  });
+}
+
+function parseJsonObjectFromAssistantText(text) {
+  const t = String(text || "").trim();
+  if (!t) return null;
+  const tryParse = s => {
+    try {
+      return JSON.parse(s);
+    } catch {
+      return null;
+    }
+  };
+  let obj = tryParse(t);
+  if (obj && typeof obj === "object") return obj;
+  const fenced = t.match(/```(?:json)?\s*([\s\S]*?)```/i);
+  if (fenced) {
+    obj = tryParse(fenced[1].trim());
+    if (obj && typeof obj === "object") return obj;
+  }
+  const start = t.indexOf("{");
+  const end = t.lastIndexOf("}");
+  if (start >= 0 && end > start) {
+    obj = tryParse(t.slice(start, end + 1));
+    if (obj && typeof obj === "object") return obj;
+  }
+  return null;
+}
+
+function serializeStudentProfileSchedule(row) {
+  if (!row) return null;
+  return {
+    id: String(row.id),
+    title: String(row.title || ""),
+    date: formatPgLogDate(row.schedule_date),
+    startTime: String(row.start_time || "").slice(0, 5),
+    endTime:
+      row.end_time != null && String(row.end_time).trim() !== ""
+        ? String(row.end_time).slice(0, 5)
+        : null,
+    isRecurring: Boolean(row.is_recurring),
+    recurrenceRule:
+      row.recurrence_rule != null && String(row.recurrence_rule).trim() !== ""
+        ? String(row.recurrence_rule)
+        : null,
+    excludedDates: Array.isArray(row.excluded_dates) ? row.excluded_dates : [],
+    source: String(row.source || "manual"),
+    note:
+      row.note != null && String(row.note).trim() !== ""
+        ? String(row.note)
+        : null,
+    createdAt: row.created_at || null,
+    updatedAt: row.updated_at || null
+  };
+}
+
+function normalizeScheduleDraft(raw) {
+  if (!raw || typeof raw !== "object") return null;
+  const title = String(raw.title || "").trim().slice(0, 120);
+  const date = String(raw.date || "").trim().slice(0, 10);
+  const startTime = String(raw.startTime || "").trim().slice(0, 5);
+  const endTime = String(raw.endTime || "").trim().slice(0, 5);
+  const isRecurring = Boolean(raw.isRecurring);
+  const recurrenceRule = String(raw.recurrenceRule || "").trim().slice(0, 120);
+  const note = String(raw.note || "").trim().slice(0, 300);
+  return {
+    title,
+    date,
+    startTime,
+    endTime,
+    isRecurring,
+    recurrenceRule,
+    note
+  };
+}
+
+function normalizePartialTimeToken(raw) {
+  const s = String(raw || "").trim();
+  if (!s) return null;
+  const hhmm = s.match(/^(\d{1,2}):(\d{2})$/);
+  if (hhmm) {
+    return `${String(Number(hhmm[1])).padStart(2, "0")}:${hhmm[2]}`;
+  }
+  const kor = s.match(/^(오전|오후)?\s*(\d{1,2})시(\s*반)?$/);
+  if (!kor) return null;
+  let hour = Number(kor[2]);
+  if (kor[1] === "오후" && hour < 12) hour += 12;
+  if (kor[1] === "오전" && hour === 12) hour = 0;
+  const minute = kor[3] ? 30 : 0;
+  return `${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}`;
+}
+
+function timePartsToToken(meridiem, hourText, minuteText, hasHalf) {
+  let hour = Number(hourText);
+  if (!Number.isFinite(hour)) return null;
+  if (meridiem === "오후" && hour < 12) hour += 12;
+  if (meridiem === "오전" && hour === 12) hour = 0;
+  const minute = minuteText != null && minuteText !== "" ? Number(minuteText) : hasHalf ? 30 : 0;
+  if (!Number.isFinite(minute)) return null;
+  return `${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}`;
+}
+
+function extractTimeHintsFromText(text) {
+  const t = String(text || "").trim();
+  if (!t) return { startTime: null, endTime: null };
+  const simpleRange = t.match(/(\d{1,2}:\d{2})\s*[~-]\s*(\d{1,2}:\d{2})/);
+  if (simpleRange) {
+    return {
+      startTime: normalizePartialTimeToken(simpleRange[1]),
+      endTime: normalizePartialTimeToken(simpleRange[2])
+    };
+  }
+
+  const startFrom = t.match(/(오전|오후)?\s*(\d{1,2})(?::(\d{2}))?\s*시?(\s*반)?(?:에)?\s*(시작|부터)/);
+  const endTo = t.match(/(오전|오후)?\s*(\d{1,2})(?::(\d{2}))?\s*시?(\s*반)?(?:에)?\s*(끝|끝나|끝나요|종료|까지)/);
+  const bareSingle = t.match(/^(오전|오후)?\s*(\d{1,2})(?::(\d{2}))?\s*시?(\s*반)?$/);
+
+  let startTime = null;
+  let endTime = null;
+  if (startFrom) {
+    startTime = timePartsToToken(startFrom[1], startFrom[2], startFrom[3], Boolean(startFrom[4]));
+  }
+  if (endTo) {
+    endTime = timePartsToToken(endTo[1], endTo[2], endTo[3], Boolean(endTo[4]));
+  }
+  if (!startTime && !endTime && bareSingle) {
+    startTime = timePartsToToken(bareSingle[1], bareSingle[2], bareSingle[3], Boolean(bareSingle[4]));
+  }
+
+  const duration = t.match(/(\d+)시간\s*동안|(\d+)분\s*동안/);
+  if (!endTime && startTime && duration) {
+    const startMin = hhmmToMinutes(startTime);
+    if (startMin != null) {
+      const delta = duration[1] ? Number(duration[1]) * 60 : Number(duration[2]);
+      const total = startMin + delta;
+      endTime = `${String(Math.floor(total / 60)).padStart(2, "0")}:${String(total % 60).padStart(2, "0")}`;
+    }
+  }
+
+  return { startTime, endTime };
+}
+
+function extractScheduleTitleFromText(text) {
+  const t = String(text || "").trim();
+  if (!t) return null;
+  const patterns = [
+    /([가-힣A-Za-z0-9 ]+?)(수업|학원 보강|학원|보강|과외|시험|모의고사)/,
+    /(영어|수학|국어|생명과학|지구과학|사회|과학|과외|학원)/
+  ];
+  for (const pattern of patterns) {
+    const m = t.match(pattern);
+    if (!m) continue;
+    if (m[2]) {
+      return `${String(m[1] || "").trim()}${String(m[2] || "").trim()}`.trim();
+    }
+    return String(m[1] || "").trim();
+  }
+  return null;
+}
+
+function extractRecurrenceFromText(text) {
+  const t = String(text || "").trim();
+  if (!t) return { isRecurring: false, recurrenceRule: null };
+  if (/매주|마다/.test(t)) {
+    const day = t.match(/(월|화|수|목|금|토|일)요일|월수금|화목|주말|평일/);
+    return {
+      isRecurring: true,
+      recurrenceRule: day ? String(day[0]).trim() : "매주 반복"
+    };
+  }
+  return { isRecurring: false, recurrenceRule: null };
+}
+
+function isScheduleDraftResetRequest(text) {
+  const t = String(text || "").trim();
+  if (!t) return false;
+  return [
+    /아니\s*그거\s*말고/,
+    /그거\s*말고/,
+    /안\s*하기로\s*했어/,
+    /안\s*할래/,
+    /추가\s*안\s*할래/,
+    /추가\s*하지\s*마/,
+    /등록\s*안\s*할래/,
+    /취소할래/,
+    /방금\s*말한\s*일정\s*취소/,
+    /이전\s*일정\s*취소/
+  ].some(pattern => pattern.test(t));
+}
+
+function collectActiveScheduleUserTexts(history = [], latestText = "") {
+  const texts = [
+    ...((Array.isArray(history) ? history : [])
+      .filter(m => m && m.role !== "assistant")
+      .map(m => String(m.content || ""))),
+    String(latestText || "")
+  ];
+  let startIndex = 0;
+  for (let i = texts.length - 1; i >= 0; i -= 1) {
+    if (isScheduleDraftResetRequest(texts[i])) {
+      startIndex = i + 1;
+      break;
+    }
+  }
+  return texts.slice(startIndex);
+}
+
+function accumulateScheduleDraft(history = [], latestText = "", parsedSchedule = null) {
+  const draft = {
+    title: parsedSchedule?.title || "",
+    date: parsedSchedule?.date || "",
+    startTime: parsedSchedule?.startTime || "",
+    endTime: parsedSchedule?.endTime || "",
+    isRecurring: Boolean(parsedSchedule?.isRecurring),
+    recurrenceRule: parsedSchedule?.recurrenceRule || "",
+    note: parsedSchedule?.note || ""
+  };
+
+  const userTexts = collectActiveScheduleUserTexts(history, latestText);
+
+  for (const text of userTexts) {
+    if (!draft.date) {
+      const date = extractReferencedDateFromText(text);
+      if (date) draft.date = date;
+    }
+    if (!draft.title) {
+      const title = extractScheduleTitleFromText(text);
+      if (title) draft.title = title;
+    }
+    const timeHints = extractTimeHintsFromText(text);
+    if (!draft.startTime && timeHints.startTime) draft.startTime = timeHints.startTime;
+    if (!draft.endTime && timeHints.endTime) draft.endTime = timeHints.endTime;
+    if (!draft.recurrenceRule || !draft.isRecurring) {
+      const recurrence = extractRecurrenceFromText(text);
+      if (recurrence.isRecurring) {
+        draft.isRecurring = true;
+        draft.recurrenceRule = recurrence.recurrenceRule || draft.recurrenceRule;
+      }
+    }
+  }
+
+  return draft;
+}
+
+function normalizeScheduleUpdateDraft(raw) {
+  if (!raw || typeof raw !== "object") return null;
+  const scheduleId = Number(raw.scheduleId || raw.id || 0);
+  const schedule = normalizeScheduleDraft(raw.schedule);
+  if (!Number.isFinite(scheduleId) || scheduleId <= 0 || !schedule) return null;
+  return {
+    scheduleId,
+    schedule
+  };
+}
+
+function getMissingScheduleFields(schedule) {
+  if (!schedule) {
+    return ["일정 제목", "날짜 또는 요일", "시작 시간", "종료 시간"];
+  }
+  const missing = [];
+  if (!schedule.title) missing.push("일정 제목");
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(schedule.date)) missing.push("날짜 또는 요일");
+  if (!/^\d{2}:\d{2}$/.test(schedule.startTime)) missing.push("시작 시간");
+  if (!/^\d{2}:\d{2}$/.test(schedule.endTime)) missing.push("종료 시간");
+  if (schedule.isRecurring && !schedule.recurrenceRule) missing.push("반복 정보");
+  return missing;
+}
+
+function buildMissingScheduleFieldsMessage(missing) {
+  if (!Array.isArray(missing) || missing.length === 0) {
+    return "일정을 저장하려면 날짜, 시작 시간, 종료 시간이 모두 확정되어야 해요. 일정을 한 번 더 확인해 주세요.";
+  }
+  if (missing.includes("종료 시간") && !missing.includes("시작 시간")) {
+    return "시작 시간은 확인됐어요. 몇 시에 끝나는지도 알려주세요. 시작 시간과 종료 시간이 둘 다 있어야 일정을 저장할 수 있어요.";
+  }
+  if (missing.includes("시작 시간") && !missing.includes("종료 시간")) {
+    return "종료 시간은 확인됐어요. 몇 시에 시작하는지 알려주세요. 시작 시간과 종료 시간이 둘 다 있어야 일정을 저장할 수 있어요.";
+  }
+  if (missing.includes("시작 시간") && missing.includes("종료 시간")) {
+    return "몇 시부터 몇 시까지인지 알려주세요. 시작 시간과 종료 시간이 둘 다 있어야 일정을 저장할 수 있어요.";
+  }
+  return `${missing.join(", ")} 정보가 아직 확실하지 않아요. 시작 시간과 종료 시간이 둘 다 확정되어야 저장할 수 있으니, 정확한 날짜(또는 반복 요일)와 몇 시부터 몇 시까지인지 다시 알려주세요.`;
+}
+
+function hhmmToMinutes(value) {
+  const m = String(value || "")
+    .trim()
+    .match(/^(\d{2}):(\d{2})$/);
+  if (!m) return null;
+  return Number(m[1]) * 60 + Number(m[2]);
+}
+
+function weekdayKeyFromDate(dateText) {
+  const iso = formatPgLogDate(dateText);
+  const m = String(iso || "").match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!m) return null;
+  const utc = new Date(Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3])));
+  return utc.getUTCDay();
+}
+
+function scheduleOccursOnDate(scheduleRow, targetDate) {
+  const target = formatPgLogDate(targetDate);
+  const rowDate = formatPgLogDate(scheduleRow?.schedule_date);
+  if (!target || !rowDate) return false;
+  const excludedDates = Array.isArray(scheduleRow?.excluded_dates)
+    ? scheduleRow.excluded_dates.map(v => formatPgLogDate(v)).filter(Boolean)
+    : [];
+  if (excludedDates.includes(target)) return false;
+  if (!scheduleRow?.is_recurring) return rowDate === target;
+  return weekdayKeyFromDate(rowDate) === weekdayKeyFromDate(target);
+}
+
+function findScheduleConflicts(existingRows, draft, options = {}) {
+  const draftStart = hhmmToMinutes(draft?.startTime);
+  const draftEnd = hhmmToMinutes(draft?.endTime);
+  if (draftStart == null || draftEnd == null) return [];
+  const ignoreScheduleId =
+    Number.isFinite(Number(options.ignoreScheduleId)) && Number(options.ignoreScheduleId) > 0
+      ? Number(options.ignoreScheduleId)
+      : null;
+  return (existingRows || [])
+    .filter(row => (ignoreScheduleId == null ? true : Number(row.id) !== ignoreScheduleId))
+    .filter(row => scheduleOccursOnDate(row, draft.date))
+    .filter(row => {
+      const rowStart = hhmmToMinutes(row.start_time);
+      const rowEnd = hhmmToMinutes(row.end_time);
+      if (rowStart == null || rowEnd == null) return false;
+      return draftStart < rowEnd && draftEnd > rowStart;
+    })
+    .map(serializeStudentProfileSchedule)
+    .filter(Boolean);
+}
+
+function buildScheduleConflictMessage(draft, conflicts) {
+  const lead = `추가하려는 일정 ${draft.startTime}~${draft.endTime} "${draft.title}" 이 기존 일정과 겹쳐요.`;
+  const details = conflicts
+    .slice(0, 3)
+    .map(item => `- ${item.title}: ${item.date} ${item.startTime}${item.endTime ? `~${item.endTime}` : ""}`)
+    .join("\n");
+  return [
+    lead,
+    details,
+    "시간을 바꾸거나 기존 일정을 수정할지 정해야 해서, 그대로 저장하지는 않았어요.",
+    "새 일정 시간을 조정할지, 기존 일정을 바꿀지 말씀해 주세요."
+  ]
+    .filter(Boolean)
+    .join("\n");
+}
+
+function serializeScheduleRowsForPrompt(rows) {
+  return (rows || []).map(row => ({
+    id: Number(row.id),
+    title: String(row.title || ""),
+    date: formatPgLogDate(row.schedule_date),
+    startTime: String(row.start_time || "").slice(0, 5),
+    endTime:
+      row.end_time != null && String(row.end_time).trim() !== ""
+        ? String(row.end_time).slice(0, 5)
+        : null,
+    isRecurring: Boolean(row.is_recurring),
+    recurrenceRule:
+      row.recurrence_rule != null && String(row.recurrence_rule).trim() !== ""
+        ? String(row.recurrence_rule)
+        : null,
+    excludedDates: Array.isArray(row.excluded_dates) ? row.excluded_dates : []
+  }));
+}
+
+function summarizeWeekDataForCoach(weekData) {
+  const days = Array.isArray(weekData?.days) ? weekData.days : [];
+  const blocks = Array.isArray(weekData?.blocks) ? weekData.blocks : [];
+  const plans = Array.isArray(weekData?.plans) ? weekData.plans : [];
+  const dayIdToDate = new Map(
+    days.map(day => [Number(day.id), formatPgLogDate(day.date)]).filter(([, date]) => Boolean(date))
+  );
+  const byDate = new Map();
+
+  const ensureDateSummary = date => {
+    if (!byDate.has(date)) {
+      byDate.set(date, {
+        date,
+        totalStudyMinutes: 0,
+        totalBlocks: 0,
+        doneBlocks: 0,
+        subjects: [],
+        planBooks: []
+      });
+    }
+    return byDate.get(date);
+  };
+
+  for (const block of blocks) {
+    const dayId = Number(block?.study_day_id);
+    const date = dayIdToDate.get(dayId);
+    if (!date) continue;
+    const item = ensureDateSummary(date);
+    item.totalBlocks += 1;
+    if (Boolean(block?.done)) item.doneBlocks += 1;
+
+    const start = hhmmToMinutes(block?.start_time);
+    const end = hhmmToMinutes(block?.end_time);
+    if (start != null && end != null && end > start) {
+      item.totalStudyMinutes += end - start;
+    }
+
+    const subject = String(block?.subject || "").trim();
+    if (subject && !item.subjects.includes(subject)) {
+      item.subjects.push(subject);
+    }
+  }
+
+  for (const plan of plans) {
+    const dayId = Number(plan?.study_day_id);
+    const date = dayIdToDate.get(dayId);
+    if (!date) continue;
+    const item = ensureDateSummary(date);
+    const book = String(plan?.book_name || "").trim();
+    if (book && !item.planBooks.includes(book)) {
+      item.planBooks.push(book);
+    }
+  }
+
+  return [...byDate.values()]
+    .sort((a, b) => String(a.date).localeCompare(String(b.date)))
+    .slice(-7)
+    .map(item => ({
+      date: item.date,
+      totalStudyMinutes: item.totalStudyMinutes,
+      totalBlocks: item.totalBlocks,
+      doneBlocks: item.doneBlocks,
+      subjects: item.subjects.slice(0, 6),
+      planBooks: item.planBooks.slice(0, 6)
+    }));
+}
+
+function buildPersistentCoachDbContext({ me, profile, snapshot, recentLogs, existingScheduleRows, weekData }) {
+  const today = formatYmdSeoulFromInstant(new Date());
+  const nameFromProfile = String(profile?.name || "").trim();
+  const nameFromEmail = String(me?.email || "").split("@")[0].trim();
+  const studentName = nameFromProfile || nameFromEmail || "학생";
+  const goal = String(profile?.goal || "").trim() || null;
+
+  const schedules = serializeScheduleRowsForPrompt(existingScheduleRows);
+  const upcomingSchedules = schedules
+    .filter(item => item?.date && String(item.date) >= today)
+    .slice(0, 20);
+
+  const latestLog = Array.isArray(recentLogs) && recentLogs.length > 0 ? recentLogs[0] : null;
+  const latestDailyRecord = latestLog
+    ? {
+        date: formatPgLogDate(latestLog.log_date),
+        studyMinutes:
+          latestLog.study_minutes != null && Number.isFinite(Number(latestLog.study_minutes))
+            ? Number(latestLog.study_minutes)
+            : null,
+        planCompletionRate:
+          latestLog.plan_completion_rate != null &&
+          Number.isFinite(Number(latestLog.plan_completion_rate))
+            ? Number(latestLog.plan_completion_rate)
+            : null,
+        studyEvaluation: String(latestLog.study_evaluation || "").trim() || null,
+        metacognitionReflection:
+          String(latestLog.metacognition_reflection || "").trim() || null,
+        tomorrowPractice: String(latestLog.tomorrow_practice || "").trim() || null
+      }
+    : null;
+
+  return {
+    generatedAt: new Date().toISOString(),
+    student: {
+      id: Number(me?.id),
+      name: studentName,
+      goal
+    },
+    profileSummary: snapshot?.profile || null,
+    coachSnapshot: {
+      heroNarrative: snapshot?.heroNarrative || null,
+      metrics: snapshot?.metrics || null,
+      nextActions: Array.isArray(snapshot?.nextActions)
+        ? snapshot.nextActions.slice(0, 3)
+        : []
+    },
+    latestDailyRecord,
+    recentWeekStudySummary: summarizeWeekDataForCoach(weekData),
+    upcomingSchedules,
+    scheduleCount: schedules.length
+  };
+}
+
+function textIncludesNormalized(text, target) {
+  const a = String(text || "").replace(/\s+/g, "").trim();
+  const b = String(target || "").replace(/\s+/g, "").trim();
+  return Boolean(a && b && a.includes(b));
+}
+
+function extractReferencedDateFromText(text) {
+  const t = String(text || "").trim();
+  if (!t) return null;
+  const explicit = formatPgLogDate(t);
+  if (explicit) return explicit;
+  const today = formatYmdSeoulFromInstant(new Date());
+  if (t.includes("모레")) return addDaysToSeoulDateKey(today, 2);
+  if (t.includes("내일")) return addDaysToSeoulDateKey(today, 1);
+  if (t.includes("오늘")) return today;
+  return null;
+}
+
+function findDeleteCandidatesFromText(text, existingRows) {
+  const rows = Array.isArray(existingRows) ? existingRows : [];
+  const titleMatches = rows.filter(row => textIncludesNormalized(text, row.title));
+  const refDate = extractReferencedDateFromText(text);
+  const dateMatches = refDate
+    ? rows.filter(row => scheduleOccursOnDate(row, refDate))
+    : [];
+
+  if (titleMatches.length > 0 && dateMatches.length > 0) {
+    const overlap = titleMatches.filter(row => dateMatches.some(d => Number(d.id) === Number(row.id)));
+    if (overlap.length > 0) return overlap;
+  }
+  if (titleMatches.length > 0) return titleMatches;
+  if (dateMatches.length > 0) return dateMatches;
+  return [];
+}
+
+function buildAmbiguousDeleteMessage(candidates) {
+  const items = (candidates || [])
+    .slice(0, 5)
+    .map(row => `- ${row.title}: ${formatPgLogDate(row.schedule_date)} ${String(row.start_time || "").slice(0, 5)}${row.end_time ? `~${String(row.end_time).slice(0, 5)}` : ""}`)
+    .join("\n");
+  return [
+    "지울 수 있는 일정이 여러 개라서 어떤 일정을 취소할지 아직 확실하지 않아요.",
+    items,
+    "취소할 일정 이름이나 시간을 하나만 더 정확히 알려주세요."
+  ]
+    .filter(Boolean)
+    .join("\n");
+}
+
+function conversationHasExplicitEndTimeInfo(history = [], latestText = "") {
+  const texts = collectActiveScheduleUserTexts(history, latestText);
+  return texts.some(text => {
+    const t = String(text || "").trim();
+    if (!t) return false;
+    return (
+      /\d{1,2}:\d{2}\s*[~-]\s*\d{1,2}:\d{2}/.test(t) ||
+      /\d{1,2}시\s*부터\s*\d{1,2}시/.test(t) ||
+      /\d{1,2}시\s*반\s*부터\s*\d{1,2}시/.test(t) ||
+      /\d+시간\s*동안/.test(t) ||
+      /\d+분\s*동안/.test(t) ||
+      /까지/.test(t)
+    );
+  });
+}
+
+async function generateScheduleValidationReply(params) {
+  const {
+    scenario,
+    userText,
+    missingFields = [],
+    conflicts = [],
+    candidates = [],
+    draft = null,
+    snapshot = null,
+    existingSchedules = []
+  } = params || {};
+
+  if (!openai) {
+    if (scenario === "intent_reset") {
+      return "알겠어. 방금 이야기하던 일정 추가는 진행하지 않을게. 새로 관리할 일정이 있으면 그 내용만 다시 말해줘.";
+    }
+    if (scenario === "missing_fields") {
+      return buildMissingScheduleFieldsMessage(missingFields);
+    }
+    if (scenario === "conflict") {
+      return buildScheduleConflictMessage(draft || {}, conflicts);
+    }
+    if (scenario === "ambiguous_delete") {
+      return buildAmbiguousDeleteMessage(candidates);
+    }
+    return "일정 정보를 다시 한 번 확인해 주세요.";
+  }
+
+  const response = await openai.chat.completions.create({
+    model: OPENAI_MODEL,
+    temperature: 0.25,
+    max_tokens: 220,
+    messages: [
+      {
+        role: "system",
+        content:
+          "너는 한국 학생의 일정 관리를 도와주는 AI 코치다. 서버 검증 결과를 학생에게 자연스럽고 짧은 한국어로 설명한다. 절대 JSON을 출력하지 말고, 지금 필요한 질문이나 안내만 2~4문장으로 답한다. 정보를 추정하지 말고 꼭 필요한 정보만 다시 물어본다. 사용자가 방금 논의하던 일정 자체를 접거나 말을 바꾼 상황이면 이전 일정은 더 붙잡지 말고, 그 일정은 진행하지 않겠다고 정리한 뒤 다음 일정 내용을 다시 물어본다."
+      },
+      {
+        role: "system",
+        content: `학생 프로필/요약: ${JSON.stringify(snapshot || {})}`
+      },
+      {
+        role: "system",
+        content: `현재 등록된 일정 목록: ${JSON.stringify(existingSchedules || [])}`
+      },
+      {
+        role: "user",
+        content: JSON.stringify({
+          scenario,
+          userText,
+          missingFields,
+          conflicts,
+          candidates,
+          draft
+        })
+      }
+    ]
+  });
+
+  return String(response.choices?.[0]?.message?.content || "").trim();
 }
 
 async function applySchemaIfNeeded() {
@@ -800,6 +1585,82 @@ app.get("/api/student/books", authMiddleware, async (req, res) => {
   } catch (e) {
     console.error("/api/student/books GET error", e);
     res.status(500).json({ error: "책 목록을 불러오지 못했습니다." });
+  }
+});
+
+app.get("/api/student/profile-schedules", authMiddleware, async (req, res) => {
+  try {
+    const me = await getMe(req.userId);
+    if (!me || me.role !== "student") {
+      return res.status(403).json({ error: "학생만 접근할 수 있습니다." });
+    }
+    const rows = await listStudentProfileSchedules(req.userId);
+    res.json({ schedules: rows.map(serializeStudentProfileSchedule) });
+  } catch (e) {
+    console.error("/api/student/profile-schedules GET error", e);
+    res.status(500).json({ error: "일정 목록을 불러오지 못했습니다." });
+  }
+});
+
+app.post("/api/student/profile-schedules", authMiddleware, async (req, res) => {
+  try {
+    const me = await getMe(req.userId);
+    if (!me || me.role !== "student") {
+      return res.status(403).json({ error: "학생만 접근할 수 있습니다." });
+    }
+    const body = req.body || {};
+    const existingRows = await listStudentProfileSchedules(req.userId);
+    const draft = {
+      title: String(body.title || "").trim(),
+      date: String(body.date || "").trim(),
+      startTime: String(body.startTime || "").trim(),
+      endTime: String(body.endTime || "").trim()
+    };
+    const conflicts = findScheduleConflicts(existingRows, draft);
+    if (conflicts.length > 0) {
+      return res.status(409).json({
+        error: buildScheduleConflictMessage(draft, conflicts),
+        conflicts
+      });
+    }
+    const row = await createStudentProfileSchedule(req.userId, {
+      title: body.title,
+      date: body.date,
+      startTime: body.startTime,
+      endTime: body.endTime,
+      isRecurring: body.isRecurring,
+      recurrenceRule: body.recurrenceRule,
+      source: body.source,
+      note: body.note
+    });
+    if (!row) {
+      return res.status(400).json({ error: "일정 정보가 올바르지 않습니다." });
+    }
+    res.json({ ok: true, schedule: serializeStudentProfileSchedule(row) });
+  } catch (e) {
+    console.error("/api/student/profile-schedules POST error", e);
+    res.status(500).json({ error: "일정을 저장하지 못했습니다." });
+  }
+});
+
+app.delete("/api/student/profile-schedules/:id", authMiddleware, async (req, res) => {
+  try {
+    const me = await getMe(req.userId);
+    if (!me || me.role !== "student") {
+      return res.status(403).json({ error: "학생만 접근할 수 있습니다." });
+    }
+    const scheduleId = Number(req.params.id);
+    if (!Number.isFinite(scheduleId) || scheduleId <= 0) {
+      return res.status(400).json({ error: "일정 id가 올바르지 않습니다." });
+    }
+    const ok = await deleteStudentProfileSchedule(req.userId, scheduleId);
+    if (!ok) {
+      return res.status(404).json({ error: "일정을 찾을 수 없습니다." });
+    }
+    res.json({ ok: true });
+  } catch (e) {
+    console.error("/api/student/profile-schedules DELETE error", e);
+    res.status(500).json({ error: "일정을 삭제하지 못했습니다." });
   }
 });
 
@@ -1651,7 +2512,8 @@ app.get("/api/student/coach/pattern-insights", authMiddleware, async (req, res) 
         d.sleepHours != null ||
         d.studyMinutes != null ||
         d.concentrationScore != null ||
-        d.stressScore != null
+        d.stressScore != null ||
+        d.planCompletionRate != null
     ).length;
 
     if (!openai) {
@@ -1666,15 +2528,19 @@ app.get("/api/student/coach/pattern-insights", authMiddleware, async (req, res) 
     const payload = {
       weekRhythm: rhythmWeek,
       recordedDayCount: recordedDays,
+      basisMetrics: [
+        "sleepHours",
+        "stressScore",
+        "concentrationPercent",
+        "studyMinutes",
+        "planCompletionRate"
+      ],
       fieldHelp: {
         sleepHours: "시간, 미기록은 null",
         stressScore: "1~5 (높을수록 스트레스 큼)",
-        concentrationScore: "1~5",
         concentrationPercent: "대략 0~100 환산",
         studyMinutes: "분",
-        planCompletionRate: "0~100",
-        steps: "걸음 수",
-        mealsRegularity: "1~5"
+        planCompletionRate: "0~100"
       }
     };
 
@@ -1690,20 +2556,11 @@ app.get("/api/student/coach/pattern-insights", authMiddleware, async (req, res) 
       });
     }
     let patterns = sanitizeAiPatterns(parsed.patterns);
+    if (recordedDays >= 2) {
+      patterns = patterns.filter(p => !looksLikeInsufficientPattern(p));
+    }
     if (patterns.length === 0) {
-      patterns = [
-        {
-          key: "ai_pat_0",
-          title: recordedDays < 2 ? "기록이 더 필요해요" : "패턴 요약",
-          severity: "낮음",
-          explanation:
-            recordedDays < 2
-              ? "이번 주에 입력된 날이 적어요. 오늘 공부 탭에서 하루 기록을 쌓으면 그래프·AI 분석이 정확해져요."
-              : "응답은 왔지만 항목이 비어 있었어요. 새로고침 후 다시 시도해 보세요.",
-          recommendation:
-            "수면·스트레스·집중·공부 시간·목표 달성률을 같은 날에 저장해 두면 한 주 흐름을 보기 좋아요."
-        }
-      ];
+      patterns = [buildRhythmFallbackPattern(rhythmWeek, recordedDays)];
     }
     res.json({
       patterns,
@@ -1863,7 +2720,12 @@ app.post("/api/student/coach/chat", authMiddleware, async (req, res) => {
       return res.status(400).json({ error: "message가 필요합니다." });
     }
     const rawMode = String((req.body || {}).mode || "").trim().toLowerCase();
-    const chatMode = rawMode === "suneung" ? "suneung" : "learning";
+    const chatMode =
+      rawMode === "suneung"
+        ? "suneung"
+        : rawMode === "schedule"
+          ? "schedule"
+          : "learning";
 
     await insertStudentCoachMessage(req.userId, "user", text);
 
@@ -1871,11 +2733,258 @@ app.post("/api/student/coach/chat", authMiddleware, async (req, res) => {
     const logs = await listRecentStudentCoachLogs(req.userId, 14);
     const history = await listRecentStudentCoachMessages(req.userId, 12);
     const snapshot = buildCoachSnapshot(profile, logs);
+    const existingScheduleRows = await listStudentProfileSchedules(req.userId);
+    const existingSchedules = serializeScheduleRowsForPrompt(existingScheduleRows);
+    const todayDateKey = formatYmdSeoulFromInstant(new Date());
+    const tomorrowDateKey = addDaysToSeoulDateKey(todayDateKey, 1);
+    const todayWeekdayKorean = getKoreanWeekdayNameFromIsoDate(todayDateKey);
+    const tomorrowWeekdayKorean = getKoreanWeekdayNameFromIsoDate(tomorrowDateKey);
+    const weekStartDateKey = addDaysToSeoulDateKey(todayDateKey, -6);
+    const recentWeekData = await getWeekData(req.userId, weekStartDateKey, todayDateKey);
+    const coachDbContext = buildPersistentCoachDbContext({
+      me,
+      profile,
+      snapshot,
+      recentLogs: logs,
+      existingScheduleRows,
+      weekData: recentWeekData
+    });
+
+    if (chatMode === "schedule" || isScheduleManagementRequest(text)) {
+      if (openai) {
+        const response = await openai.chat.completions.create({
+          model: OPENAI_MODEL,
+          temperature: 0.3,
+          max_tokens: 700,
+          response_format: { type: "json_object" },
+          messages: [
+            {
+              role: "system",
+              content:
+                `너는 한국 학생의 일정 관리를 도와주는 AI 코치다. 오늘 날짜는 ${formatYmdSeoulFromInstant(new Date())} 이다. 항상 한국어로 답하고 반드시 JSON 객체만 출력한다. 형식은 {"action":"inquire"|"create_schedule"|"update_schedule"|"delete_schedule"|"cancel_pending","message":"학생에게 보여줄 자연스러운 답변","schedule":null|{"title":"일정 제목","date":"YYYY-MM-DD","startTime":"HH:MM","endTime":"HH:MM","isRecurring":true|false,"recurrenceRule":"반복 설명 또는 빈 문자열","note":"보충 메모 또는 빈 문자열"},"targetScheduleId":null|number} 이다. create_schedule과 update_schedule은 일정 제목, 날짜, 시작 시간, 종료 시간이 모두 확실할 때만 사용한다. 이 중 하나라도 확실하지 않으면 반드시 inquire를 사용하고, 빠진 정보만 짧게 다시 물어본다. 종료 시간이 없으면 절대 생성하거나 수정하지 않는다. 반복 일정이면 recurrenceRule도 반드시 채운다. 기존 일정과 시간이 겹치더라도 사용자가 '같은 일정이다', '이름만 바꿔 달라', '기존 일정 수정이다'라고 분명히 말하면 create_schedule 대신 update_schedule을 사용한다. 일정이 취소됐다고 하거나 삭제해 달라고 하면 delete_schedule을 사용한다. 사용자가 방금 추가하려던 일정 자체를 접거나 말을 바꾼 경우, 예를 들면 '아니 그거 말고', '안 하기로 했어', '추가 안 할래' 같은 말이면 delete_schedule이 아니라 cancel_pending을 사용한다. cancel_pending은 아직 저장되지 않은 현재 대화상의 일정 초안을 그만두는 뜻이다. update_schedule과 delete_schedule일 때는 targetScheduleId에 수정/삭제할 기존 일정 id를 넣는다. 애매하면 추정하지 말고 다시 물어본다. 첫 질문은 반복 일정인지 단일 일정인지부터 묻고, 후속 대화에서도 정보가 부족하면 생성하거나 수정하거나 삭제하지 않는다. message는 학생에게 직접 보여질 짧고 자연스러운 문장이다.`
+            },
+            {
+              role: "system",
+              content: `학생 DB 컨텍스트(JSON): ${JSON.stringify(coachDbContext)}`
+            },
+            {
+              role: "system",
+              content: `현재 등록된 일정 목록: ${JSON.stringify(existingSchedules)}`
+            },
+            ...history.map(m => ({
+              role: m.role === "assistant" ? "assistant" : "user",
+              content: m.content
+            }))
+          ]
+        });
+        const rawReply = String(response.choices?.[0]?.message?.content || "").trim();
+        const parsedReply = parseJsonObjectFromAssistantText(rawReply);
+        const latestResetRequest = isScheduleDraftResetRequest(text);
+        const parsedAction = latestResetRequest
+          ? "cancel_pending"
+          : String(parsedReply?.action || "");
+        const normalizedSchedule = normalizeScheduleDraft(parsedReply?.schedule);
+        const accumulatedSchedule = accumulateScheduleDraft(history, text, normalizedSchedule);
+        const normalizedScheduleUpdate = normalizeScheduleUpdateDraft({
+          scheduleId: parsedReply?.targetScheduleId,
+          schedule: accumulatedSchedule
+        });
+        const missingFields = getMissingScheduleFields(accumulatedSchedule);
+        const hasExplicitEndTimeInfo = conversationHasExplicitEndTimeInfo(history, text);
+        if (!hasExplicitEndTimeInfo && !missingFields.includes("종료 시간")) {
+          missingFields.push("종료 시간");
+        }
+        const isDeleteAction = parsedAction === "delete_schedule";
+        const isCancelPendingAction = parsedAction === "cancel_pending";
+        const mustInquire =
+          !["create_schedule", "update_schedule", "delete_schedule", "cancel_pending"].includes(
+            parsedAction
+          ) ||
+          (!isDeleteAction && !isCancelPendingAction && missingFields.length > 0) ||
+          (isDeleteAction && (!Number.isFinite(Number(parsedReply?.targetScheduleId)) || Number(parsedReply?.targetScheduleId) <= 0));
+        const replyText = String(
+          isCancelPendingAction
+            ? await generateScheduleValidationReply({
+                scenario: "intent_reset",
+                userText: text,
+                draft: accumulatedSchedule,
+                snapshot,
+                existingSchedules
+              }) ||
+              parsedReply?.message ||
+              "알겠어. 방금 이야기하던 일정은 추가하지 않을게. 다른 일정이 있으면 새로 말해줘."
+            : mustInquire
+            ? await generateScheduleValidationReply({
+                scenario: "missing_fields",
+                userText: text,
+                missingFields,
+                draft: accumulatedSchedule,
+                snapshot,
+                existingSchedules
+              }) || buildMissingScheduleFieldsMessage(missingFields)
+            : parsedReply?.message || "일정을 저장할게요."
+        ).trim();
+        if (!replyText) {
+          return res.status(502).json({
+            error: "GPT 응답이 비어 있습니다. 잠시 후 다시 시도해 주세요."
+          });
+        }
+        let savedSchedule = null;
+        let scheduleChanged = false;
+        if (!mustInquire && !isCancelPendingAction && (accumulatedSchedule || isDeleteAction)) {
+          if (isDeleteAction) {
+            const deleteCandidates = findDeleteCandidatesFromText(text, existingScheduleRows);
+            if (deleteCandidates.length > 1) {
+              const ambiguousReply =
+                (await generateScheduleValidationReply({
+                  scenario: "ambiguous_delete",
+                  userText: text,
+                  candidates: serializeScheduleRowsForPrompt(deleteCandidates),
+                  snapshot,
+                  existingSchedules
+                })) || buildAmbiguousDeleteMessage(deleteCandidates);
+              await insertStudentCoachMessage(req.userId, "assistant", ambiguousReply);
+              return res.json({
+                ok: true,
+                reply: ambiguousReply,
+                responseType: "schedule_delete_ambiguous",
+                usedOpenAi: true,
+                model: OPENAI_MODEL
+              });
+            }
+            const targetScheduleId =
+              deleteCandidates.length === 1
+                ? Number(deleteCandidates[0].id)
+                : Number(parsedReply?.targetScheduleId);
+            const targetScheduleRow = existingScheduleRows.find(
+              row => Number(row.id) === targetScheduleId
+            );
+            const referencedDate = extractReferencedDateFromText(text);
+            if (targetScheduleRow?.is_recurring && referencedDate) {
+              const cancelled = await cancelStudentProfileScheduleOccurrence(
+                req.userId,
+                targetScheduleId,
+                referencedDate
+              );
+              if (cancelled) {
+                savedSchedule = serializeStudentProfileSchedule(cancelled);
+                scheduleChanged = true;
+              }
+            } else {
+              const deleted = await deleteStudentProfileSchedule(req.userId, targetScheduleId);
+              if (deleted) {
+                scheduleChanged = true;
+              }
+            }
+            if (savedSchedule || scheduleChanged) {
+              scheduleChanged = true;
+            }
+          } else if (parsedAction === "update_schedule" && normalizedScheduleUpdate) {
+            const conflicts = findScheduleConflicts(existingScheduleRows, normalizedScheduleUpdate.schedule, {
+              ignoreScheduleId: normalizedScheduleUpdate.scheduleId
+            });
+            if (conflicts.length > 0) {
+              const conflictReply =
+                (await generateScheduleValidationReply({
+                  scenario: "conflict",
+                  userText: text,
+                  conflicts,
+                  draft: normalizedScheduleUpdate.schedule,
+                  snapshot,
+                  existingSchedules
+                })) ||
+                buildScheduleConflictMessage(
+                  normalizedScheduleUpdate.schedule,
+                  conflicts
+                );
+              await insertStudentCoachMessage(req.userId, "assistant", conflictReply);
+              return res.json({
+                ok: true,
+                reply: conflictReply,
+                responseType: "schedule_conflict",
+                usedOpenAi: true,
+                model: OPENAI_MODEL,
+                conflicts
+              });
+            }
+            const updated = await updateStudentProfileSchedule(
+              req.userId,
+              normalizedScheduleUpdate.scheduleId,
+              normalizedScheduleUpdate.schedule
+            );
+            if (updated) {
+              savedSchedule = serializeStudentProfileSchedule(updated);
+              scheduleChanged = true;
+            }
+          } else {
+            const conflicts = findScheduleConflicts(existingScheduleRows, accumulatedSchedule);
+            if (conflicts.length > 0) {
+              const conflictReply =
+                (await generateScheduleValidationReply({
+                  scenario: "conflict",
+                  userText: text,
+                  conflicts,
+                  draft: accumulatedSchedule,
+                  snapshot,
+                  existingSchedules
+                })) ||
+                buildScheduleConflictMessage(
+                  accumulatedSchedule,
+                  conflicts
+                );
+              await insertStudentCoachMessage(req.userId, "assistant", conflictReply);
+              return res.json({
+                ok: true,
+                reply: conflictReply,
+                responseType: "schedule_conflict",
+                usedOpenAi: true,
+                model: OPENAI_MODEL,
+                conflicts
+              });
+            }
+            const created = await createStudentProfileSchedule(req.userId, {
+              title: accumulatedSchedule.title,
+              date: accumulatedSchedule.date,
+              startTime: accumulatedSchedule.startTime,
+              endTime: accumulatedSchedule.endTime,
+              isRecurring: accumulatedSchedule.isRecurring,
+              recurrenceRule: accumulatedSchedule.recurrenceRule,
+              source: "ai",
+              note: accumulatedSchedule.note
+            });
+            if (created) {
+              savedSchedule = serializeStudentProfileSchedule(created);
+              scheduleChanged = true;
+            }
+          }
+        }
+        await insertStudentCoachMessage(req.userId, "assistant", replyText);
+        return res.json({
+          ok: true,
+          reply: replyText,
+          responseType: "schedule_management",
+          usedOpenAi: true,
+          model: OPENAI_MODEL,
+          schedule: savedSchedule,
+          scheduleChanged
+        });
+      }
+
+      const replyText = buildScheduleManagementReply();
+      await insertStudentCoachMessage(req.userId, "assistant", replyText);
+      return res.json({
+        ok: true,
+        reply: replyText,
+        responseType: "schedule_management_template",
+        usedOpenAi: false,
+        model: null
+      });
+    }
 
     const systemLearning =
-      "너는 한국 학생 전용 학습 코치다. 항상 한국어로 답하고, 짧고 실행 가능한 조언을 준다. 의학적 진단·자해 조장·시험 부정행위는 거절한다. 형식: 1)원인 분석 2)오늘의 우선순위 3)실행 팁 4)격려 한 줄";
+      "너는 한국 학생 전용 학습 코치다. 실제 상위권 입시 코치처럼 학생과 대화하되, 항상 한국어 존댓말로 답한다. 아래로 전달되는 학생 DB 컨텍스트(학생 이름/목표/날짜별 기록/개인 일정)를 참고해 개인화하되, 질문과 직접 관련 없는 정보는 억지로 끼워 넣지 않는다. 의학적 진단·자해 조장·시험 부정행위는 거절한다. 답변은 고정 템플릿(예: 1) 원인 분석 2) 우선순위 ...)을 쓰지 말고 자연스러운 대화문으로 작성한다. 문단은 1~3개, 보통 3~7문장으로 짧고 밀도 있게 답한다. 먼저 학생의 현재 상태를 한 문장으로 짚고, 바로 실행 가능한 다음 행동 1~2개를 구체적으로 제안한 뒤, 필요한 경우에만 확인 질문을 1개 덧붙인다. 같은 문장 패턴을 반복하지 말고 상황에 맞게 말투와 흐름을 바꿔라.";
     const systemSuneung =
-      "너는 수능(대학수학능력시험) 범위에서 학생과 질의응답하는 과목 코치다. 국어·수학·영어·탐구 등 과목별로 (1) 처음 배우는 개념 (2) 비슷해서 헷갈리는 개념 (3) 풀이가 막히거나 모르는 문제·유형에 대해 학생이 질문하면, 정의·차이·풀이 접근을 짧고 명확히 설명한다. 필요하면 예시·비유·풀이 단계(힌트)를 덧붙인다. 항상 한국어 존댓말. 정당한 학습 범위 안에서만 답한다. 특정 시험의 정답·문제지 유출·답안 그대로 알려 달라는 요청·시험 부정행위 조력은 거절한다. 의학적 진단·자해 조장은 거절한다. 답 형식은 질문에 맞게 가되, 보통 ①핵심 설명 ②헷갈릴 때 구분 포인트 또는 풀이 단계 ③스스로 확인할 질문 한 가지 순으로 짧게 맞춘다.";
+      "너는 수능(대학수학능력시험) 범위에서 학생과 질의응답하는 과목 코치다. 국어·수학·영어·탐구 등 과목별로 (1) 처음 배우는 개념 (2) 비슷해서 헷갈리는 개념 (3) 풀이가 막히거나 모르는 문제·유형에 대해 학생이 질문하면, 정의·차이·풀이 접근을 짧고 명확히 설명한다. 필요하면 예시·비유·풀이 단계(힌트)를 덧붙인다. 항상 한국어 존댓말. 아래로 전달되는 학생 DB 컨텍스트(학생 이름/목표/날짜별 기록/개인 일정)를 참고해 설명 난이도와 예시를 맞추되, 질문과 직접 관련 없는 내용은 최소화한다. 정당한 학습 범위 안에서만 답한다. 특정 시험의 정답·문제지 유출·답안 그대로 알려 달라는 요청·시험 부정행위 조력은 거절한다. 의학적 진단·자해 조장은 거절한다. 답 형식은 질문에 맞게 가되, 보통 ①핵심 설명 ②헷갈릴 때 구분 포인트 또는 풀이 단계 ③스스로 확인할 질문 한 가지 순으로 짧게 맞춘다.";
 
     let replyText = "";
     let usedOpenAi = false;
@@ -1891,7 +3000,12 @@ app.post("/api/student/coach/chat", authMiddleware, async (req, res) => {
           },
           {
             role: "system",
-            content: `학생 프로필/요약: ${JSON.stringify(snapshot)}`
+            content:
+              `시간 기준은 반드시 한국/서울(KST)이다. 오늘은 ${todayDateKey}(${todayWeekdayKorean}요일), 내일은 ${tomorrowDateKey}(${tomorrowWeekdayKorean}요일)이다. 날짜/요일을 답변에 쓸 때는 이 기준만 사용하고, 확실하지 않으면 추정하지 말고 짧게 확인 질문을 해라.`
+          },
+          {
+            role: "system",
+            content: `학생 DB 컨텍스트(JSON): ${JSON.stringify(coachDbContext)}`
           },
           ...history.map(m => ({
             role: m.role === "assistant" ? "assistant" : "user",
@@ -1922,19 +3036,12 @@ app.post("/api/student/coach/chat", authMiddleware, async (req, res) => {
           "- GPT가 연결되면 더 구체적으로 답해 드릴 수 있어요. 정답만 알려 달라는 식의 요청은 도와드리기 어려워요."
         ].join("\n");
       } else {
+        const topAction = snapshot.nextActions[0] || "첫 25분만 하는 블록부터 시작해 보세요.";
         replyText = [
-          "1) 원인 분석",
-          `- ${snapshot.heroNarrative}`,
-          "",
-          "2) 오늘의 우선순위",
-          `- ${snapshot.nextActions[0]}`,
-          "",
-          "3) 실행 팁",
-          "- 첫 25분만 시작하면 집중 흐름이 살아납니다.",
-          "",
-          "4) 격려 한 줄",
-          "- 오늘은 완벽보다 시작입니다. 지금 1개만 해도 충분해요."
-        ].join("\n");
+          `${snapshot.heroNarrative} 흐름으로 보여요.`,
+          `오늘은 욕심내기보다 ${topAction}`,
+          "완벽하게 하려 하기보다 시작 난도를 낮추면 집중이 더 빨리 살아납니다. 지금 바로 시작할 수 있는 가장 짧은 과제 하나를 정해볼까요?"
+        ].join("\n\n");
       }
     }
 
@@ -1942,6 +3049,7 @@ app.post("/api/student/coach/chat", authMiddleware, async (req, res) => {
     res.json({
       ok: true,
       reply: replyText,
+      responseType: usedOpenAi ? "openai" : "template",
       usedOpenAi,
       model: usedOpenAi ? OPENAI_MODEL : null
     });

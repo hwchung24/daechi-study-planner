@@ -50,7 +50,7 @@ export function generateCoachReply(args: {
     "지금까지 버틴 것도 실력입니다. 오늘은 회복과 실행을 동시에 잡아봅시다."
   ]);
 
-  const structured = {
+  const structuredData = {
     cause,
     priorities: priorities.slice(0, 3),
     tips: tips.slice(0, 3),
@@ -65,20 +65,11 @@ export function generateCoachReply(args: {
         : "좋아요. 지금 상황 기준으로 바로 실행 가능한 답을 드릴게요.";
 
   const text = [
-    header,
-    "",
-    "1) 원인 분석",
-    `- ${structured.cause}`,
-    "",
-    "2) 오늘의 우선순위",
-    ...structured.priorities.map(p => `- ${p}`),
-    "",
-    "3) 실행 팁",
-    ...structured.tips.map(p => `- ${p}`),
-    "",
-    "4) 격려 한 줄",
-    `- ${structured.encouragement}`
-  ].join("\n");
+    `${header} ${structuredData.cause}.`,
+    `오늘은 ${structuredData.priorities.slice(0, 2).join(", ")}부터 해보면 좋아요.`,
+    `${structuredData.tips[0]} ${structuredData.tips[1]}`,
+    structuredData.encouragement
+  ].join("\n\n");
 
   // 로그 기반 약간의 개인화(텍스트에 반영)
   const last = logs7d[logs7d.length - 1];
@@ -89,12 +80,29 @@ export function generateCoachReply(args: {
         ? "\n\n추가로, 방해(폰)가 많았던 날이에요. 첫 블록만 ‘시야 밖’ 규칙을 걸어보세요."
         : "";
 
+  // 디버깅: 실제 입력 메시지 확인
+  console.log('[AI코치] userText:', t);
+  // 일정 관리 요청에 대한 특별 분기 (조건 완화)
+  if (t.includes("일정")) {
+    return {
+      id: nowId(),
+      role: "coach",
+      createdAt: Date.now(),
+      text: [
+        "일정 관리 도와드릴게요!",
+        "매주 반복되는 일정인가요, 이번 주만 있는 일정인가요?",
+        "반복 여부와 기간(예: 매주 월/수/금, 4월 한 달 등)을 알려주시면 더 정확히 등록할 수 있어요."
+      ].join("\n"),
+      structured: { type: "schedule_inquiry" }
+    };
+  }
+
   return {
     id: nowId(),
     role: "coach",
     createdAt: Date.now(),
     text: text + extra,
-    structured
+    structured: structuredData
   };
 }
 

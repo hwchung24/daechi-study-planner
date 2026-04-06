@@ -18,11 +18,13 @@ import {
   DAECHI_COACH_LOG_SAVED_EVENT,
   DAECHI_COACH_LOG_SAVED_STORAGE_KEY
 } from "../../lib/coachEvents";
+import { STUDENT_PROFILE_SCHEDULES_UPDATED_EVENT } from "../../lib/studentProfileSchedules";
 import {
   readCoachPanelParamFromHash,
   stripCoachPanelParamFromHash
 } from "../../lib/hashRouteUtils";
 import {
+  getDateKeySeoul,
   getWeekDaysSeoul,
   getWeekStartKeySeoul,
   seoulDateKeyFromApiValue
@@ -143,7 +145,7 @@ type RemoteCoachState = {
   logs?: RemoteCoachLogRow[];
 };
 
-/** DB 코치 로그 → 이번 주(월~일) 리듬 그래프용 포인트 (없는 날은 null) */
+/** DB 코치 로그 → 최근 7일(오늘-6 ~ 오늘) 리듬 그래프용 포인트 (없는 날은 null) */
 type RhythmChartRow = {
   date: string;
   concentration: number | null;
@@ -154,20 +156,21 @@ type RhythmChartRow = {
 };
 
 function buildRhythmChartRowsFromLogs(
-  apiLogs: RemoteCoachLogRow[] | undefined,
-  offsetWeeks: number
+  apiLogs: RemoteCoachLogRow[] | undefined
 ): RhythmChartRow[] {
-  const weekDays = getWeekDaysSeoul(offsetWeeks);
+  const recent7Days = Array.from({ length: 7 }).map((_, idx) =>
+    getDateKeySeoul(idx - 6)
+  );
   const byDate = new Map<string, RemoteCoachLogRow>();
   for (const row of apiLogs || []) {
     const k = formatCoachLogDateKey(row.date);
     if (k && !byDate.has(k)) byDate.set(k, row);
   }
-  return weekDays.map(({ key }) => {
-    const r = byDate.get(key);
+  return recent7Days.map(dateKey => {
+    const r = byDate.get(dateKey);
     if (!r) {
       return {
-        date: key,
+        date: dateKey,
         concentration: null,
         studyMinutes: null,
         sleepHours: null,
@@ -199,7 +202,7 @@ function buildRhythmChartRowsFromLogs(
         ? Number(r.planCompletionRate)
         : null;
     return {
-      date: key,
+      date: dateKey,
       concentration,
       studyMinutes: study,
       sleepHours: sleep,
@@ -258,7 +261,7 @@ function CoachRhythmSparkline(props: {
       viewBox={`0 0 ${w} ${h}`}
       preserveAspectRatio="xMidYMid meet"
       role="img"
-      aria-label="이번 주 리듬"
+      aria-label="최근 7일 리듬"
       style={{ display: "block", maxWidth: "100%", minWidth: 280 }}
     >
       {[0, 0.5, 1].map(t => {
@@ -454,7 +457,7 @@ function CoachStudentUnified(props: {
     coachStateFetchRef.current?.abort();
     const ac = new AbortController();
     coachStateFetchRef.current = ac;
-    const weekStart = encodeURIComponent(getWeekStartKeySeoul(0));
+    const weekStart = encodeURIComponent(getDateKeySeoul(-6));
     fetch(`${API_BASE}/api/student/coach/state?weekStart=${weekStart}`, {
       signal: ac.signal,
       cache: "no-store",
@@ -489,7 +492,7 @@ function CoachStudentUnified(props: {
     patternFetchRef.current = ac;
     setPatternsLoading(true);
     setPatternsError(null);
-    const weekStart = encodeURIComponent(getWeekStartKeySeoul(0));
+    const weekStart = encodeURIComponent(getDateKeySeoul(-6));
     fetch(`${API_BASE}/api/student/coach/pattern-insights?weekStart=${weekStart}`, {
       signal: ac.signal,
       cache: "no-store",
@@ -577,8 +580,8 @@ function CoachStudentUnified(props: {
   }, [patternsLoading, aiPatterns]);
 
   const rhythmChartData = useMemo((): RhythmChartRow[] => {
-    if (!token || !remote) return buildRhythmChartRowsFromLogs(undefined, 0);
-    return buildRhythmChartRowsFromLogs(remote.logs, 0);
+    if (!token || !remote) return buildRhythmChartRowsFromLogs(undefined);
+    return buildRhythmChartRowsFromLogs(remote.logs);
   }, [token, remote]);
 
   const studyMinutesMax = useMemo(() => {
@@ -593,7 +596,7 @@ function CoachStudentUnified(props: {
       [
         {
           key: "sleep",
-          title: "이번 주 수면 패턴",
+          title: "최근 7일 수면 패턴",
           dataKey: "sleepHours" as const,
           color: "var(--accent-strong)",
           yDomain: [0, 10] as [number, number],
@@ -602,7 +605,7 @@ function CoachStudentUnified(props: {
         },
         {
           key: "stress",
-          title: "이번 주 스트레스 점수",
+          title: "최근 7일 스트레스 점수",
           dataKey: "stressScore" as const,
           color: "var(--accent-soft)",
           yDomain: [1, 5] as [number, number],
@@ -611,7 +614,7 @@ function CoachStudentUnified(props: {
         },
         {
           key: "concentration",
-          title: "이번 주 학습 집중도",
+          title: "최근 7일 학습 집중도",
           dataKey: "concentration" as const,
           color: "var(--accent-strong)",
           yDomain: [0, 100] as [number, number],
@@ -620,7 +623,7 @@ function CoachStudentUnified(props: {
         },
         {
           key: "studyMinutes",
-          title: "이번 주 공부 시간",
+          title: "최근 7일 공부 시간",
           dataKey: "studyMinutes" as const,
           color: "#4f46e5",
           yDomain: [0, studyMinutesMax] as [number, number],
@@ -629,7 +632,7 @@ function CoachStudentUnified(props: {
         },
         {
           key: "planCompletionRate",
-          title: "이번 주 목표 달성률",
+          title: "최근 7일 목표 달성률",
           dataKey: "planCompletionRate" as const,
           color: "#16a34a",
           yDomain: [0, 100] as [number, number],
@@ -731,7 +734,7 @@ function CoachStudentUnified(props: {
             </Card>
 
             <Card className="coach-card coach-card--padded">
-              <SectionHeader title="이번 주 리듬" right={<StatPill label="리스크" value={coachRiskLevel} />} />
+              <SectionHeader title="최근 7일 리듬" right={<StatPill label="리스크" value={coachRiskLevel} />} />
               <div
                 className="coach-rhythm-scroll"
                 style={{
@@ -741,7 +744,7 @@ function CoachStudentUnified(props: {
                   paddingBottom: 6,
                   marginTop: 4
                 }}
-                aria-label="이번 주 리듬 상세 그래프"
+                aria-label="최근 7일 리듬 상세 그래프"
               >
                 {weeklyCharts.map(chart => (
                   <div
@@ -769,7 +772,10 @@ function CoachStudentUnified(props: {
             </Card>
 
             <div className="coach-stack">
-              <SectionHeader title="감지된 패턴" />
+              <SectionHeader title="감지된 기록 패턴" />
+              <p className="coach-muted" style={{ padding: "0 4px 10px", fontSize: 12, lineHeight: 1.5 }}>
+                최근 7일 수면시간, 스트레스, 집중도, 공부시간, 목표 달성률을 기준으로 GPT가 도출한 결과예요.
+              </p>
               {patternsLoading && (
                 <p className="coach-muted" style={{ padding: "0 4px 10px", fontSize: 13 }}>
                   이번 주 기록을 바탕으로 패턴을 분석하는 중…
@@ -852,10 +858,12 @@ function CoachChatTabConnected(props: { apiToken: string }) {
 
   const messages = useCoachStore(s => s.messages);
   const addMessage = useCoachStore(s => s.addMessage);
+  const coachMode = useCoachStore(s => s.chatMode);
+  const setCoachMode = useCoachStore(s => s.setChatMode);
   const [draft, setDraft] = useState("");
   const [typing, setTyping] = useState(false);
   const [coachAiMode, setCoachAiMode] = useState<"unknown" | "live" | "template">("unknown");
-  const [coachMode, setCoachMode] = useState<CoachChatGreetingMode>("learning");
+  const [lastResponseType, setLastResponseType] = useState<string>("");
 
   const hasUserTurn = messages.some(m => m.role === "user");
 
@@ -877,12 +885,21 @@ function CoachChatTabConnected(props: { apiToken: string }) {
         },
         body: JSON.stringify({
           message: trimmed,
-          mode: effectiveMode === "suneung" ? "suneung" : "learning"
+          mode:
+            effectiveMode === "suneung"
+              ? "suneung"
+              : effectiveMode === "schedule"
+                ? "schedule"
+                : "learning"
         })
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(String(data?.error || "코치 응답을 받지 못했습니다."));
+      setLastResponseType(String(data.responseType || ""));
       setCoachAiMode(data.usedOpenAi ? "live" : "template");
+      if (data.schedule || data.scheduleChanged) {
+        window.dispatchEvent(new Event(STUDENT_PROFILE_SCHEDULES_UPDATED_EVENT));
+      }
       addMessage({
         id: `c_${Date.now()}`,
         role: "coach",
@@ -921,7 +938,17 @@ function CoachChatTabConnected(props: { apiToken: string }) {
     "이차함수 그래프 문제에서 식 세우는 게 막혀요. 접근 순서 알려 주세요",
     "탐구에서 반응 속도식 세우는 유형이 안 풀려요. 개념부터 짚어 주세요"
   ];
-  const starters = coachMode === "suneung" ? startersSuneung : startersLearning;
+  const startersSchedule = [
+    "매주 일요일 15:00~18:00 지구과학 수업이 있어요",
+    "이번 주 금요일 19:00에 영어 학원 보강 있어요",
+    "매주 화목 16:30 수학 학원 일정 추가해 주세요"
+  ];
+  const starters =
+    coachMode === "suneung"
+      ? startersSuneung
+      : coachMode === "schedule"
+        ? startersSchedule
+        : startersLearning;
 
   return (
     <div className="coach-chat-embedded">
@@ -998,6 +1025,13 @@ function CoachChatTabConnected(props: { apiToken: string }) {
                   }
                 >
                   수능 질의응답
+                </button>
+                <button
+                  type="button"
+                  className="coach-tomorrow-collab__coach-pick"
+                  onClick={() => void send("일정을 관리하고 싶어요", "schedule")}
+                >
+                  일정 관리
                 </button>
               </div>
             </motion.div>

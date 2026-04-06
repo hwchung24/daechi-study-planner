@@ -3,6 +3,7 @@ import { useModalReveal } from "../lib/useModalReveal";
 
 const HOURS = Array.from({ length: 24 }, (_, i) => i);
 const MINUTES = Array.from({ length: 60 }, (_, i) => i);
+const SCROLL_SELECT_DELAY_MS = 90;
 
 function parseTimeHHmm(s: string): { h: number; m: number } {
   const m = /^(\d{1,2}):(\d{2})$/.exec(s.trim());
@@ -39,23 +40,112 @@ type ColumnsProps = {
   hapticSelection?: () => void;
 };
 
+function selectClosestScrollOption(
+  container: HTMLDivElement | null,
+  currentValue: number,
+  dataKey: "hour" | "minute",
+  onChange: (value: number) => void,
+  hapticSelection?: () => void
+) {
+  if (!container) return;
+  const options = Array.from(
+    container.querySelectorAll<HTMLButtonElement>(`.time-picker-option[data-${dataKey}]`)
+  );
+  if (options.length === 0) return;
+
+  const containerRect = container.getBoundingClientRect();
+  const containerCenter = containerRect.top + containerRect.height / 2;
+  let closestValue = currentValue;
+  let minDistance = Number.POSITIVE_INFINITY;
+
+  for (const option of options) {
+    const raw = option.dataset[dataKey];
+    const value = Number(raw);
+    if (!Number.isFinite(value)) continue;
+    const rect = option.getBoundingClientRect();
+    const center = rect.top + rect.height / 2;
+    const distance = Math.abs(center - containerCenter);
+    if (distance < minDistance) {
+      minDistance = distance;
+      closestValue = value;
+    }
+  }
+
+  if (closestValue !== currentValue) {
+    hapticSelection?.();
+    onChange(closestValue);
+  }
+}
+
+function centerOptionInScroll(
+  container: HTMLDivElement | null,
+  optionSelector: string
+) {
+  if (!container) return;
+  const option = container.querySelector<HTMLElement>(optionSelector);
+  if (!option) return;
+  const targetTop =
+    option.offsetTop - container.clientHeight / 2 + option.offsetHeight / 2;
+  container.scrollTop = Math.max(0, targetTop);
+}
+
 function TimePickerColumns(props: ColumnsProps) {
   const { hour, minute, onHourChange, onMinuteChange, hapticSelection } =
     props;
   const hourScrollRef = useRef<HTMLDivElement>(null);
   const minuteScrollRef = useRef<HTMLDivElement>(null);
+  const hourScrollTimerRef = useRef<number | null>(null);
+  const minuteScrollTimerRef = useRef<number | null>(null);
 
   useEffect(() => {
     const t = window.setTimeout(() => {
-      hourScrollRef.current
-        ?.querySelector(`[data-hour="${hour}"]`)
-        ?.scrollIntoView({ block: "center", behavior: "auto" });
-      minuteScrollRef.current
-        ?.querySelector(`[data-minute="${minute}"]`)
-        ?.scrollIntoView({ block: "center", behavior: "auto" });
+      centerOptionInScroll(hourScrollRef.current, `[data-hour="${hour}"]`);
+      centerOptionInScroll(minuteScrollRef.current, `[data-minute="${minute}"]`);
     }, 0);
     return () => window.clearTimeout(t);
   }, [hour, minute]);
+
+  useEffect(
+    () => () => {
+      if (hourScrollTimerRef.current != null) {
+        window.clearTimeout(hourScrollTimerRef.current);
+      }
+      if (minuteScrollTimerRef.current != null) {
+        window.clearTimeout(minuteScrollTimerRef.current);
+      }
+    },
+    []
+  );
+
+  const queueHourSelection = () => {
+    if (hourScrollTimerRef.current != null) {
+      window.clearTimeout(hourScrollTimerRef.current);
+    }
+    hourScrollTimerRef.current = window.setTimeout(() => {
+      selectClosestScrollOption(
+        hourScrollRef.current,
+        hour,
+        "hour",
+        onHourChange,
+        hapticSelection
+      );
+    }, SCROLL_SELECT_DELAY_MS);
+  };
+
+  const queueMinuteSelection = () => {
+    if (minuteScrollTimerRef.current != null) {
+      window.clearTimeout(minuteScrollTimerRef.current);
+    }
+    minuteScrollTimerRef.current = window.setTimeout(() => {
+      selectClosestScrollOption(
+        minuteScrollRef.current,
+        minute,
+        "minute",
+        onMinuteChange,
+        hapticSelection
+      );
+    }, SCROLL_SELECT_DELAY_MS);
+  };
 
   const preview = formatKoreanTimePreview(hour, minute);
 
@@ -66,7 +156,11 @@ function TimePickerColumns(props: ColumnsProps) {
       </div>
       <div className="time-picker-columns">
         <div className="time-picker-col">
-          <div className="time-picker-col-scroll" ref={hourScrollRef}>
+          <div
+            className="time-picker-col-scroll"
+            ref={hourScrollRef}
+            onScroll={queueHourSelection}
+          >
             {HOURS.map(h => (
               <button
                 key={h}
@@ -87,7 +181,11 @@ function TimePickerColumns(props: ColumnsProps) {
           </div>
         </div>
         <div className="time-picker-col">
-          <div className="time-picker-col-scroll" ref={minuteScrollRef}>
+          <div
+            className="time-picker-col-scroll"
+            ref={minuteScrollRef}
+            onScroll={queueMinuteSelection}
+          >
             {MINUTES.map(mn => (
               <button
                 key={mn}

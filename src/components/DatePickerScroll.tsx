@@ -1,6 +1,8 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { getDateKeySeoul } from "../lib/weekDates";
 
+const SCROLL_SELECT_DELAY_MS = 90;
+
 function parseYmd(
   s: string
 ): { y: number; m: number; d: number } | null {
@@ -46,6 +48,55 @@ type ColumnsProps = {
   hapticSelection?: () => void;
 };
 
+function selectClosestScrollOption(
+  container: HTMLDivElement | null,
+  currentValue: number,
+  dataKey: "year" | "month" | "day",
+  onChange: (value: number) => void,
+  hapticSelection?: () => void
+) {
+  if (!container) return;
+  const options = Array.from(
+    container.querySelectorAll<HTMLButtonElement>(`.time-picker-option[data-${dataKey}]`)
+  );
+  if (options.length === 0) return;
+
+  const containerRect = container.getBoundingClientRect();
+  const containerCenter = containerRect.top + containerRect.height / 2;
+  let closestValue = currentValue;
+  let minDistance = Number.POSITIVE_INFINITY;
+
+  for (const option of options) {
+    const raw = option.dataset[dataKey];
+    const value = Number(raw);
+    if (!Number.isFinite(value)) continue;
+    const rect = option.getBoundingClientRect();
+    const center = rect.top + rect.height / 2;
+    const distance = Math.abs(center - containerCenter);
+    if (distance < minDistance) {
+      minDistance = distance;
+      closestValue = value;
+    }
+  }
+
+  if (closestValue !== currentValue) {
+    hapticSelection?.();
+    onChange(closestValue);
+  }
+}
+
+function centerOptionInScroll(
+  container: HTMLDivElement | null,
+  optionSelector: string
+) {
+  if (!container) return;
+  const option = container.querySelector<HTMLElement>(optionSelector);
+  if (!option) return;
+  const targetTop =
+    option.offsetTop - container.clientHeight / 2 + option.offsetHeight / 2;
+  container.scrollTop = Math.max(0, targetTop);
+}
+
 function DatePickerColumns(props: ColumnsProps) {
   const {
     year,
@@ -60,6 +111,9 @@ function DatePickerColumns(props: ColumnsProps) {
   const yearScrollRef = useRef<HTMLDivElement>(null);
   const monthScrollRef = useRef<HTMLDivElement>(null);
   const dayScrollRef = useRef<HTMLDivElement>(null);
+  const yearScrollTimerRef = useRef<number | null>(null);
+  const monthScrollTimerRef = useRef<number | null>(null);
+  const dayScrollTimerRef = useRef<number | null>(null);
 
   const maxDay = daysInMonth(year, month);
   const days = Array.from({ length: maxDay }, (_, i) => i + 1);
@@ -67,18 +121,72 @@ function DatePickerColumns(props: ColumnsProps) {
 
   useEffect(() => {
     const t = window.setTimeout(() => {
-      yearScrollRef.current
-        ?.querySelector(`[data-year="${year}"]`)
-        ?.scrollIntoView({ block: "center", behavior: "auto" });
-      monthScrollRef.current
-        ?.querySelector(`[data-month="${month}"]`)
-        ?.scrollIntoView({ block: "center", behavior: "auto" });
-      dayScrollRef.current
-        ?.querySelector(`[data-day="${day}"]`)
-        ?.scrollIntoView({ block: "center", behavior: "auto" });
+      centerOptionInScroll(yearScrollRef.current, `[data-year="${year}"]`);
+      centerOptionInScroll(monthScrollRef.current, `[data-month="${month}"]`);
+      centerOptionInScroll(dayScrollRef.current, `[data-day="${day}"]`);
     }, 0);
     return () => window.clearTimeout(t);
   }, [year, month, day]);
+
+  useEffect(
+    () => () => {
+      if (yearScrollTimerRef.current != null) {
+        window.clearTimeout(yearScrollTimerRef.current);
+      }
+      if (monthScrollTimerRef.current != null) {
+        window.clearTimeout(monthScrollTimerRef.current);
+      }
+      if (dayScrollTimerRef.current != null) {
+        window.clearTimeout(dayScrollTimerRef.current);
+      }
+    },
+    []
+  );
+
+  const queueYearSelection = () => {
+    if (yearScrollTimerRef.current != null) {
+      window.clearTimeout(yearScrollTimerRef.current);
+    }
+    yearScrollTimerRef.current = window.setTimeout(() => {
+      selectClosestScrollOption(
+        yearScrollRef.current,
+        year,
+        "year",
+        onYearChange,
+        hapticSelection
+      );
+    }, SCROLL_SELECT_DELAY_MS);
+  };
+
+  const queueMonthSelection = () => {
+    if (monthScrollTimerRef.current != null) {
+      window.clearTimeout(monthScrollTimerRef.current);
+    }
+    monthScrollTimerRef.current = window.setTimeout(() => {
+      selectClosestScrollOption(
+        monthScrollRef.current,
+        month,
+        "month",
+        onMonthChange,
+        hapticSelection
+      );
+    }, SCROLL_SELECT_DELAY_MS);
+  };
+
+  const queueDaySelection = () => {
+    if (dayScrollTimerRef.current != null) {
+      window.clearTimeout(dayScrollTimerRef.current);
+    }
+    dayScrollTimerRef.current = window.setTimeout(() => {
+      selectClosestScrollOption(
+        dayScrollRef.current,
+        day,
+        "day",
+        onDayChange,
+        hapticSelection
+      );
+    }, SCROLL_SELECT_DELAY_MS);
+  };
 
   const preview = `${year}년 ${month}월 ${day}일`;
 
@@ -89,7 +197,11 @@ function DatePickerColumns(props: ColumnsProps) {
       </div>
       <div className="time-picker-columns date-picker-columns">
         <div className="time-picker-col">
-          <div className="time-picker-col-scroll" ref={yearScrollRef}>
+          <div
+            className="time-picker-col-scroll"
+            ref={yearScrollRef}
+            onScroll={queueYearSelection}
+          >
             {years.map(y => (
               <button
                 key={y}
@@ -110,7 +222,11 @@ function DatePickerColumns(props: ColumnsProps) {
           </div>
         </div>
         <div className="time-picker-col">
-          <div className="time-picker-col-scroll" ref={monthScrollRef}>
+          <div
+            className="time-picker-col-scroll"
+            ref={monthScrollRef}
+            onScroll={queueMonthSelection}
+          >
             {months.map(mo => (
               <button
                 key={mo}
@@ -131,7 +247,11 @@ function DatePickerColumns(props: ColumnsProps) {
           </div>
         </div>
         <div className="time-picker-col">
-          <div className="time-picker-col-scroll" ref={dayScrollRef}>
+          <div
+            className="time-picker-col-scroll"
+            ref={dayScrollRef}
+            onScroll={queueDaySelection}
+          >
             {days.map(dn => (
               <button
                 key={dn}

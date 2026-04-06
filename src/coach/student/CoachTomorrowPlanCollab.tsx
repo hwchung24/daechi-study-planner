@@ -1,3 +1,48 @@
+// 일정 관리 버튼을 AI 코치 첫 메시지 버튼 그룹에 동적으로 추가합니다.
+function initializeCoachScheduleButton() {
+  if (typeof window === "undefined" || typeof document === "undefined") return;
+  const BUTTON_CLASS = "coach-schedule-action-button";
+
+  const createScheduleButton = () => {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = `coach-secondary-btn ${BUTTON_CLASS}`;
+    button.textContent = "일정 관리";
+    button.addEventListener("click", () => {
+      window.location.hash = "#/profile";
+    });
+    return button;
+  };
+
+  const attachButton = () => {
+    const candidates = Array.from(
+      document.querySelectorAll("button.coach-secondary-btn, button.coach-primary-btn")
+    );
+    for (const candidate of candidates) {
+      const parent = candidate.parentElement;
+      if (!parent || parent.querySelector(`.${BUTTON_CLASS}`)) continue;
+      const groupButtons = parent.querySelectorAll("button.coach-secondary-btn, button.coach-primary-btn");
+      if (groupButtons.length !== 2) continue;
+      parent.appendChild(createScheduleButton());
+      return true;
+    }
+    return false;
+  };
+
+  const observer = new MutationObserver(() => {
+    if (attachButton()) {
+      observer.disconnect();
+    }
+  });
+
+  observer.observe(document.body, { childList: true, subtree: true });
+  attachButton();
+}
+
+initializeCoachScheduleButton();
+/* SCHEDULE BUTTON INJECTION START */
+// Added 일정 관리 button for AI 코치 첫 메시지
+/* SCHEDULE BUTTON INJECTION END */
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { motion } from "framer-motion";
 import { CoachAvatar } from "../CoachAvatar";
@@ -91,32 +136,7 @@ function buildCollabContext(params: {
   const done = blocks.filter(b => b.done).length;
   return {
     collabFocus,
-    todayProgressPercent,
-    todayBlocksSummary: {
-      totalSlots: total,
-      doneSlots: done,
-      blocks: blocks.map(b => ({
-        subject: b.subject,
-        start: b.start,
-        end: b.end,
-        done: b.done,
-        plannedRange: b.plannedRange || null,
-        bookId: b.bookId ?? null
-      }))
-    },
-    books: progressBooks.map(b => ({ id: b.id, name: b.name })),
-    draftTomorrowByBook: progressBooks.map(b => ({
-      bookId: b.id,
-      name: b.name,
-      plannedRange: tomorrowPlan[b.id]?.text || "",
-      startTime: tomorrowPlan[b.id]?.start || "",
-      endTime: tomorrowPlan[b.id]?.end || ""
-    })),
-    studyEvaluation: studyEvaluation.trim(),
-    metacognitionReflection: metacognitionReflection.trim(),
-    todayMemo: todayMemo.trim(),
-    draftTomorrowPractice: draftTomorrowPractice.trim(),
-    todayStudyMinutes
+    // ...existing code...
   };
 }
 

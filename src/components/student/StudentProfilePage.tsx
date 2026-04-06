@@ -3,6 +3,12 @@ import { Card, SectionHeader } from "../../coach/ui/components";
 import { demoStudents } from "../../coach/demoData";
 import { useCoachStore } from "../../coach/state/useCoachStore";
 import { API_BASE } from "../../lib/apiBase";
+import {
+  STUDENT_PROFILE_SCHEDULES_UPDATED_EVENT,
+  type StudentProfileSchedule
+} from "../../lib/studentProfileSchedules";
+import { DatePickerScroll } from "../DatePickerScroll";
+import { TimePickerInline } from "../TimePickerSheet";
 import { getWeekStartKeySeoul } from "../../lib/weekDates";
 import { useEffectiveBearer } from "../../lib/useEffectiveBearer";
 import { useModalReveal } from "../../lib/useModalReveal";
@@ -38,9 +44,6 @@ export function StudentProfilePage(props: {
   studentWaitingOnMe: StudentLinkRow[];
   setStudentWaitingOnParent: (rows: StudentLinkRow[]) => void;
   setStudentWaitingOnMe: (rows: StudentLinkRow[]) => void;
-  editUnlocked: boolean;
-  setEditUnlocked: (v: boolean) => void;
-  setShowGuideModal: (v: boolean) => void;
   hapticSelection: () => void;
   hapticWarning: () => void;
   onLogoutPress: () => void;
@@ -58,9 +61,6 @@ export function StudentProfilePage(props: {
     studentWaitingOnMe,
     setStudentWaitingOnParent,
     setStudentWaitingOnMe,
-    editUnlocked,
-    setEditUnlocked,
-    setShowGuideModal,
     hapticSelection,
     hapticWarning,
     onLogoutPress,
@@ -77,6 +77,7 @@ export function StudentProfilePage(props: {
   const [remote, setRemote] = useState<RemoteCoachState | null>(null);
   const [localProfile, setLocalProfile] = useState<LocalStudentProfile | null>(null);
   const [editOpen, setEditOpen] = useState(false);
+  const [scheduleEditOpen, setScheduleEditOpen] = useState(false);
   const [accountEditOpen, setAccountEditOpen] = useState(false);
   const [accountName, setAccountName] = useState("");
   const [accountEmail, setAccountEmail] = useState("");
@@ -87,10 +88,96 @@ export function StudentProfilePage(props: {
   const [accountError, setAccountError] = useState("");
   const [avatarInput, setAvatarInput] = useState("");
   const [goalInput, setGoalInput] = useState("");
+  const [scheduleItems, setScheduleItems] = useState<StudentProfileSchedule[]>([]);
+  const [scheduleTitle, setScheduleTitle] = useState("");
+  const [scheduleDate, setScheduleDate] = useState(
+    new Date().toISOString().slice(0, 10)
+  );
+  const [scheduleTime, setScheduleTime] = useState("18:00");
+  const [scheduleEndTime, setScheduleEndTime] = useState("19:00");
+  const [scheduleError, setScheduleError] = useState("");
   const fetchRef = useRef<AbortController | null>(null);
 
   const accountModalReveal = useModalReveal(accountEditOpen);
   const profileEditModalReveal = useModalReveal(editOpen);
+  const scheduleModalReveal = useModalReveal(scheduleEditOpen);
+
+  const refreshSchedules = useCallback(() => {
+    if (!token) {
+      setScheduleItems([]);
+      return;
+    }
+    fetch(`${apiBase}/api/student/profile-schedules`, {
+      cache: "no-store",
+      headers: { Authorization: `Bearer ${token}` }
+    })
+      .then(r => (r.ok ? r.json() : Promise.reject(new Error("schedule fetch failed"))))
+      .then(data => {
+        setScheduleItems(Array.isArray(data?.schedules) ? data.schedules : []);
+      })
+      .catch(() => {
+        setScheduleItems([]);
+      });
+  }, [apiBase, token]);
+
+  const addScheduleItem = async () => {
+    const title = scheduleTitle.trim();
+    setScheduleError("");
+    if (!title || !token) return false;
+    try {
+      const res = await fetch(`${apiBase}/api/student/profile-schedules`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          title,
+          date: scheduleDate,
+          startTime: scheduleTime,
+          endTime: scheduleEndTime,
+          source: "manual"
+        })
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(String(data?.error || "일정을 저장하지 못했습니다."));
+      refreshSchedules();
+      window.dispatchEvent(new Event(STUDENT_PROFILE_SCHEDULES_UPDATED_EVENT));
+    } catch (e) {
+      setScheduleError(
+        e instanceof Error && e.message
+          ? e.message
+          : "일정을 저장하지 못했습니다. 시간이 겹치지 않는지 확인해 주세요."
+      );
+      return false;
+    }
+    setScheduleTitle("");
+    return true;
+  };
+
+  const removeScheduleItem = async (id: string) => {
+    if (!token) return;
+    try {
+      const res = await fetch(`${apiBase}/api/student/profile-schedules/${id}`, {
+        method: "DELETE",
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      if (!res.ok) return;
+      refreshSchedules();
+      window.dispatchEvent(new Event(STUDENT_PROFILE_SCHEDULES_UPDATED_EVENT));
+    } catch {
+      // ignore
+    }
+  };
+
+  const openScheduleEditor = () => {
+    setScheduleError("");
+    setScheduleEditOpen(true);
+  };
+
+  const closeScheduleEditor = () => {
+    scheduleModalReveal.beginClose(() => setScheduleEditOpen(false));
+  };
 
   const refreshProfile = useCallback(() => {
     if (!token) {
@@ -136,6 +223,18 @@ export function StudentProfilePage(props: {
       setLocalProfile(null);
     }
   }, []);
+
+  useEffect(() => {
+    refreshSchedules();
+  }, [refreshSchedules]);
+
+  useEffect(() => {
+    const onUpdated = () => refreshSchedules();
+    window.addEventListener(STUDENT_PROFILE_SCHEDULES_UPDATED_EVENT, onUpdated);
+    return () => {
+      window.removeEventListener(STUDENT_PROFILE_SCHEDULES_UPDATED_EVENT, onUpdated);
+    };
+  }, [refreshSchedules]);
 
   const openAccountEdit = () => {
     setAccountEmail((userEmail || "").trim());
@@ -302,51 +401,58 @@ export function StudentProfilePage(props: {
           </button>
         </Card>
 
+        <Card className="coach-card coach-card--padded student-profile-schedule-card">
+          <SectionHeader
+            title="일정 관리"
+            right={
+              <button
+                type="button"
+                className="student-profile-schedule-add-trigger"
+                onClick={openScheduleEditor}
+              >
+                일정 추가
+              </button>
+            }
+          />
+          <div className="student-profile-schedule-stack">
+            <div className="student-profile-schedule-panel">
+              {scheduleItems.length === 0 ? (
+                <div className="student-profile-schedule-empty">
+                  아직 등록된 일정이 없어요.
+                </div>
+              ) : (
+                scheduleItems.map(item => (
+                  <div key={item.id} className="student-profile-schedule-item">
+                    <div className="student-profile-schedule-item__body">
+                      <div className="student-profile-schedule-item__title">
+                        {item.title}
+                      </div>
+                      <div className="student-profile-schedule-item__meta">
+                        {item.date} · {item.startTime}
+                        {item.endTime ? `-${item.endTime}` : ""}
+                        {item.isRecurring && item.recurrenceRule ? ` · ${item.recurrenceRule}` : ""}
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      className="student-profile-schedule-remove"
+                      onClick={() => removeScheduleItem(item.id)}
+                    >
+                      삭제
+                    </button>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+        </Card>
+
         <Card className="coach-card coach-card--padded student-profile-settings-card">
           <SectionHeader title="계정 및 앱" />
           <div className="student-profile-settings-list">
             <button type="button" className="settings-item" onClick={openAccountEdit}>
               <span className="settings-label">이메일 · 이름 · 비밀번호</span>
               <span className="settings-value">수정</span>
-            </button>
-            <button
-              type="button"
-              className="settings-item"
-              onClick={() => {
-                setEditUnlocked(true);
-              }}
-            >
-              <span className="settings-label">오늘 플랜 수정 승인</span>
-              <span className="settings-value">{editUnlocked ? "승인됨" : "대기"}</span>
-            </button>
-            <button
-              type="button"
-              className="settings-item"
-              onClick={() => {
-                window.location.hash = "#/parent/report";
-              }}
-            >
-              <span className="settings-label">학부모 리포트 보기</span>
-              <span className="settings-value">열기</span>
-            </button>
-            <button
-              type="button"
-              className="settings-item"
-              onClick={() => {
-                hapticSelection();
-                window.location.hash = "#/student/home";
-              }}
-            >
-              <span className="settings-label">AI 학습 코치</span>
-              <span className="settings-value">열기</span>
-            </button>
-            <button
-              type="button"
-              className="settings-item"
-              onClick={() => setShowGuideModal(true)}
-            >
-              <span className="settings-label">앱 사용 설명서</span>
-              <span className="settings-value">보기</span>
             </button>
             <button
               type="button"
@@ -502,6 +608,84 @@ export function StudentProfilePage(props: {
             )}
           </Card>
         )}
+      </div>
+
+      <div
+        className={
+          "dday-modal student-profile-schedule-modal" +
+          (scheduleModalReveal.revealed ? " dday-modal--open" : "")
+        }
+        onClick={closeScheduleEditor}
+      >
+        <div
+          className="dday-modal-inner student-profile-schedule-modal-inner"
+          onClick={e => e.stopPropagation()}
+        >
+          <div className="dday-modal-header">
+            <span className="dday-modal-title">일정 추가</span>
+          </div>
+          <div className="dday-modal-body student-profile-schedule-modal-body">
+            <div className="field">
+              <label className="field-label">일정 제목</label>
+              <input
+                className="field-input"
+                placeholder="예: 영어 학원"
+                value={scheduleTitle}
+                onChange={e => setScheduleTitle(e.target.value)}
+              />
+            </div>
+            <div className="field" style={{ marginTop: 10 }}>
+              <label className="field-label">날짜</label>
+              <DatePickerScroll
+                value={scheduleDate}
+                onChange={setScheduleDate}
+                hapticSelection={hapticSelection}
+              />
+            </div>
+            <div className="field" style={{ marginTop: 10 }}>
+              <label className="field-label">시간</label>
+              <div className="student-profile-schedule-time-grid">
+                <div className="student-profile-schedule-time-cell">
+                  <span className="add-plan-time-inline-label">시작</span>
+                  <TimePickerInline
+                    value={scheduleTime}
+                    onChange={setScheduleTime}
+                    hapticSelection={hapticSelection}
+                  />
+                </div>
+                <div className="student-profile-schedule-time-cell">
+                  <span className="add-plan-time-inline-label">종료</span>
+                  <TimePickerInline
+                    value={scheduleEndTime}
+                    onChange={setScheduleEndTime}
+                    hapticSelection={hapticSelection}
+                  />
+                </div>
+              </div>
+            </div>
+            {scheduleError ? (
+              <p className="settings-hint student-profile-schedule-error">{scheduleError}</p>
+            ) : null}
+          </div>
+          <div className="dday-modal-footer">
+            <button type="button" className="modal-secondary" onClick={closeScheduleEditor}>
+              취소
+            </button>
+            <button
+              type="button"
+              className="modal-primary"
+              onClick={async () => {
+                const saved = await addScheduleItem();
+                if (saved) {
+                  scheduleModalReveal.beginClose(() => setScheduleEditOpen(false));
+                }
+              }}
+              disabled={!scheduleTitle.trim() || !scheduleTime || !scheduleEndTime}
+            >
+              저장
+            </button>
+          </div>
+        </div>
       </div>
 
       <div

@@ -185,12 +185,10 @@ const App: React.FC = () => {
   const [endInput, setEndInput] = useState("19:00");
   const [showAddModal, setShowAddModal] = useState(false);
   const [showRequestModal, setShowRequestModal] = useState(false);
-  const [showGuideModal, setShowGuideModal] = useState(false);
   const [authConfirmKind, setAuthConfirmKind] = useState<
     "logout" | "withdraw" | null
   >(null);
   const [requestReason, setRequestReason] = useState("");
-  const [editUnlocked, setEditUnlocked] = useState(false);
 
   const [progressWeekOffset, setProgressWeekOffset] = useState(0);
   const [progressBooks, setProgressBooks] = useState<ProgressBook[]>([]);
@@ -214,7 +212,6 @@ const App: React.FC = () => {
     parentPlanAddRequests.length > 0
   );
   const requestModalReveal = useModalReveal(showRequestModal);
-  const guideModalReveal = useModalReveal(showGuideModal);
   const authConfirmReveal = useModalReveal(authConfirmKind !== null);
   const checkSettingsModalReveal = useModalReveal(checkSettingsOpen);
   const notificationsModalReveal = useModalReveal(showNotificationsModal);
@@ -1671,9 +1668,6 @@ const App: React.FC = () => {
                 studentWaitingOnMe={studentWaitingOnMe}
                 setStudentWaitingOnParent={setStudentWaitingOnParent}
                 setStudentWaitingOnMe={setStudentWaitingOnMe}
-                editUnlocked={editUnlocked}
-                setEditUnlocked={setEditUnlocked}
-                setShowGuideModal={setShowGuideModal}
                 hapticSelection={hapticSelection}
                 hapticWarning={hapticWarning}
                 hapticSuccess={hapticSuccess}
@@ -2147,7 +2141,7 @@ const App: React.FC = () => {
               <div className="dday-modal-footer">
                 <button
                   type="button"
-                  className="modal-secondary"
+                  className="modal-secondary auth-confirm-btn-secondary"
                   onClick={() =>
                     authConfirmReveal.beginClose(() => setAuthConfirmKind(null))
                   }
@@ -2156,7 +2150,7 @@ const App: React.FC = () => {
                 </button>
                 <button
                   type="button"
-                  className="modal-primary"
+                  className="modal-primary auth-confirm-btn-primary"
                   onClick={confirmAuthAction}
                 >
                   {authConfirmKind === "logout" ? "로그아웃" : "탈퇴하기"}
@@ -2223,36 +2217,6 @@ const App: React.FC = () => {
                   disabled={!requestReason.trim()}
                 >
                   요청 보내기
-                </button>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {showGuideModal && (
-          <div
-            className={
-              "modal-backdrop" +
-              (guideModalReveal.revealed ? " modal-backdrop--open" : "")
-            }
-            onClick={() =>
-              guideModalReveal.beginClose(() => setShowGuideModal(false))
-            }
-          >
-            <div className="modal-sheet" onClick={e => e.stopPropagation()}>
-              <div className="modal-header">
-                <span className="modal-title">앱 사용 설명서</span>
-              </div>
-              <div className="modal-body" />
-              <div className="modal-footer">
-                <button
-                  type="button"
-                  className="modal-secondary"
-                  onClick={() =>
-                    guideModalReveal.beginClose(() => setShowGuideModal(false))
-                  }
-                >
-                  닫기
                 </button>
               </div>
             </div>
