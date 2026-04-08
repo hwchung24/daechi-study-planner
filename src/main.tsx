@@ -194,7 +194,7 @@ function installViewportCssVars() {
   const stabilizeKeyboardViewport = () => {
     stopKeyboardStabilization();
 
-    let remainingFrames = 7;
+    let remainingFrames = 2;
     const tick = () => {
       forceDocumentScrollTop();
       syncViewportCssVars();
@@ -211,7 +211,7 @@ function installViewportCssVars() {
       forceDocumentScrollTop();
       syncViewportCssVars();
       keyboardStabilizeTimer = 0;
-    }, 260);
+    }, 120);
   };
 
   const keepScrollLocked = () => {
@@ -225,7 +225,8 @@ function installViewportCssVars() {
 
   const onVisualViewportChange = () => {
     if (isFocusedEditableElement(document.activeElement)) {
-      stabilizeKeyboardViewport();
+      forceDocumentScrollTop();
+      scheduleSync();
       return;
     }
 
