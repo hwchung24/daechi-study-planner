@@ -8,6 +8,7 @@ import { AppShell } from "./lib/nativeAppShell";
 import "./styles.css";
 
 const IS_NATIVE_PLATFORM = Capacitor.isNativePlatform();
+const NATIVE_KEYBOARD_STATE_EVENT = "daechi:native-keyboard-state";
 
 let keyboardWasOpen = false;
 let keyboardResetTimer = 0;
@@ -17,6 +18,35 @@ let keyboardStabilizeFrame = 0;
 let keyboardStabilizeTimer = 0;
 let nativeKeyboardOpen = false;
 let nativeKeyboardHeight = 0;
+let nativeKeyboardScrollDisabled = false;
+
+function notifyNativeKeyboardState() {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  window.dispatchEvent(
+    new CustomEvent(NATIVE_KEYBOARD_STATE_EVENT, {
+      detail: {
+        open: nativeKeyboardOpen,
+        height: nativeKeyboardHeight
+      }
+    })
+  );
+}
+
+async function setNativeKeyboardScrollDisabled(disabled: boolean) {
+  if (!IS_NATIVE_PLATFORM || nativeKeyboardScrollDisabled === disabled) {
+    return;
+  }
+
+  nativeKeyboardScrollDisabled = disabled;
+  try {
+    await Keyboard.setScroll({ isDisabled: disabled });
+  } catch {
+    nativeKeyboardScrollDisabled = !disabled;
+  }
+}
 
 function forceDocumentScrollTop() {
   window.scrollTo(0, 0);
@@ -162,6 +192,7 @@ function syncViewportCssVars() {
     }
 
     keyboardWasOpen = keyboardOpen;
+    notifyNativeKeyboardState();
     return;
   }
 
@@ -327,6 +358,15 @@ function installViewportCssVars() {
     const keyboardShowListener = Keyboard.addListener("keyboardWillShow", event => {
       nativeKeyboardOpen = true;
       nativeKeyboardHeight = event.keyboardHeight;
+      void setNativeKeyboardScrollDisabled(true);
+      forceDocumentScrollTop();
+      scheduleSync();
+    });
+
+    const keyboardDidShowListener = Keyboard.addListener("keyboardDidShow", event => {
+      nativeKeyboardOpen = true;
+      nativeKeyboardHeight = event.keyboardHeight;
+      void setNativeKeyboardScrollDisabled(true);
       forceDocumentScrollTop();
       scheduleSync();
     });
@@ -334,12 +374,14 @@ function installViewportCssVars() {
     const keyboardHideListener = Keyboard.addListener("keyboardWillHide", () => {
       nativeKeyboardOpen = false;
       nativeKeyboardHeight = 0;
+      void setNativeKeyboardScrollDisabled(false);
       scheduleSync();
     });
 
     const keyboardDidHideListener = Keyboard.addListener("keyboardDidHide", () => {
       nativeKeyboardOpen = false;
       nativeKeyboardHeight = 0;
+      void setNativeKeyboardScrollDisabled(false);
       forceDocumentScrollTop();
       scheduleSync();
     });
@@ -347,6 +389,10 @@ function installViewportCssVars() {
     void Keyboard.setResizeMode({ mode: "none" }).catch(() => {
       // ignore: older bridge/plugin edge cases should fall back to config-level behavior
     });
+    void Keyboard.setAccessoryBarVisible({ isVisible: true }).catch(() => {
+      // ignore: not all devices/runtime combinations expose accessory bar control consistently
+    });
+    void setNativeKeyboardScrollDisabled(false);
 
     document.addEventListener(
       "focusin",

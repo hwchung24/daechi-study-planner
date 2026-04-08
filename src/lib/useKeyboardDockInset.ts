@@ -1,6 +1,8 @@
 import { useEffect } from "react";
 import type { RefObject } from "react";
 
+const NATIVE_KEYBOARD_STATE_EVENT = "daechi:native-keyboard-state";
+
 type KeyboardDockInsetOptions = {
   rootRef: RefObject<HTMLElement>;
   scrollerRef?: RefObject<HTMLElement>;
@@ -20,6 +22,16 @@ function getViewportBottom() {
   if (typeof window === "undefined") return 0;
   const vv = window.visualViewport;
   return vv ? vv.height + vv.offsetTop : window.innerHeight;
+}
+
+function getNativeKeyboardHeight() {
+  if (typeof window === "undefined" || typeof document === "undefined") {
+    return 0;
+  }
+
+  const rawValue = document.documentElement.style.getPropertyValue("--native-keyboard-height");
+  const parsed = Number.parseFloat(rawValue);
+  return Number.isFinite(parsed) ? Math.max(0, parsed) : 0;
 }
 
 function isEditableElement(root: HTMLElement, node: EventTarget | null): node is HTMLElement {
@@ -58,20 +70,27 @@ export function useKeyboardDockInset(options: KeyboardDockInsetOptions) {
       const viewportBottom = getViewportBottom();
       const activeElement = document.activeElement;
       const activeEditable = isEditableElement(root, activeElement);
+      const nativeKeyboardHeight = getNativeKeyboardHeight();
+      const effectiveViewportBottom = nativeKeyboardHeight > 0
+        ? window.innerHeight - nativeKeyboardHeight
+        : viewportBottom;
 
-      if (!activeEditable || viewportBottom >= baselineViewportBottom - 24) {
-        baselineViewportBottom = viewportBottom;
+      if (!activeEditable || effectiveViewportBottom >= baselineViewportBottom - 24) {
+        baselineViewportBottom = effectiveViewportBottom;
       }
 
       const keyboardInset = activeEditable
-        ? Math.max(0, baselineViewportBottom - viewportBottom)
+        ? Math.max(
+            0,
+            Math.max(baselineViewportBottom - effectiveViewportBottom, nativeKeyboardHeight)
+          )
         : 0;
 
       let dockLift = 0;
       if (activeEditable) {
         const activeRect = activeElement.getBoundingClientRect();
         const dockRect = dock.getBoundingClientRect();
-        const visibleBottom = viewportBottom - gap;
+        const visibleBottom = effectiveViewportBottom - gap;
         const targetBottom = Math.max(activeRect.bottom, dockRect.bottom);
         dockLift = keyboardInset > 0 ? Math.max(0, Math.min(targetBottom - visibleBottom, keyboardInset)) : 0;
       }
@@ -102,6 +121,7 @@ export function useKeyboardDockInset(options: KeyboardDockInsetOptions) {
     const vv = window.visualViewport;
     document.addEventListener("focusin", onFocusIn, true);
     document.addEventListener("focusout", onFocusOut, true);
+    window.addEventListener(NATIVE_KEYBOARD_STATE_EVENT, scheduleSync);
     vv?.addEventListener("resize", scheduleSync);
     vv?.addEventListener("scroll", scheduleSync);
     window.addEventListener("resize", scheduleSync);
@@ -110,6 +130,7 @@ export function useKeyboardDockInset(options: KeyboardDockInsetOptions) {
     return () => {
       document.removeEventListener("focusin", onFocusIn, true);
       document.removeEventListener("focusout", onFocusOut, true);
+      window.removeEventListener(NATIVE_KEYBOARD_STATE_EVENT, scheduleSync);
       vv?.removeEventListener("resize", scheduleSync);
       vv?.removeEventListener("scroll", scheduleSync);
       window.removeEventListener("resize", scheduleSync);
