@@ -726,6 +726,69 @@ body.app-keyboard-open .app-main {
   gap: 8px;
 }
 
+.global-keyboard-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 100050;
+  pointer-events: none;
+}
+
+.global-keyboard-overlay__backdrop {
+  position: absolute;
+  inset: 0;
+  border: 0;
+  background: rgba(15, 23, 42, 0.02);
+  pointer-events: auto;
+}
+
+.global-keyboard-overlay__dock {
+  position: absolute;
+  left: max(12px, env(safe-area-inset-left, 0px) + 8px);
+  right: max(12px, env(safe-area-inset-right, 0px) + 8px);
+  bottom: calc(
+    max(10px, env(safe-area-inset-bottom, 0px) + 6px) +
+      var(--native-keyboard-height, 0px)
+  );
+  display: flex;
+  pointer-events: auto;
+}
+
+.global-keyboard-overlay__input {
+  width: 100%;
+  min-height: 48px;
+  border: var(--border-width) solid rgba(var(--accent-rgb), 0.22);
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.98);
+  box-shadow: 0 14px 38px rgba(15, 23, 42, 0.16);
+  padding: 12px 14px;
+  color: var(--text-main);
+  font-family: var(--font-family-base);
+  font-size: 16px;
+  line-height: 1.45;
+  outline: none;
+  resize: none;
+}
+
+.global-keyboard-overlay__input:focus {
+  border-color: var(--accent-strong);
+  box-shadow: 0 0 0 1px var(--accent-ring), 0 14px 38px rgba(15, 23, 42, 0.16);
+}
+
+.global-keyboard-overlay__input::placeholder {
+  color: var(--text-sub);
+}
+
+textarea.global-keyboard-overlay__input {
+  min-height: 112px;
+  max-height: min(34vh, 240px);
+}
+
+body.global-keyboard-overlay-open [data-keyboard-overlay-source="true"] {
+  opacity: 0 !important;
+  pointer-events: none !important;
+  caret-color: transparent !important;
+}
+
 .coach-chat-input--composer {
   margin-top: 0;
 }

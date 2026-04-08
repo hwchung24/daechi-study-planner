@@ -11,6 +11,7 @@ import { StudentLegacyView, type TabKey } from "./components/student/StudentLega
 import { StudentProfilePage } from "./components/student/StudentProfilePage";
 import { NotificationsPage } from "./components/student/NotificationsPage";
 import { TimePickerInline } from "./components/TimePickerSheet";
+import { GlobalKeyboardOverlay } from "./components/GlobalKeyboardOverlay";
 import { useOnlineStatus } from "./hooks/useOnlineStatus";
 import { canUseNativeAppShell, AppShell, type PendingNetworkBanner } from "./lib/nativeAppShell";
 import { StudentCoachApp, type StudentTabKey as CoachStudentTabKey } from "./coach/student/StudentCoachApp";
@@ -2773,6 +2774,7 @@ const App: React.FC = () => {
 
       </div>
     ) : null}
+      <GlobalKeyboardOverlay />
     </div>
   );
 };
