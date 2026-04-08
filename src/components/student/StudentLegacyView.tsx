@@ -1148,46 +1148,10 @@ export function StudentLegacyView(props: {
 
   return (
     <>
-      {studentLockStatus?.locked && tab !== "today" && (
-        <section className="section">
-          <div className="progress-card">
-            <div className="section-header">
-              <h2 className="section-title">잠금 상태</h2>
-            </div>
-            <p className="settings-hint" style={{ marginTop: 6 }}>
-              {studentLockStatus.rules?.[0]?.lockTime || "21:00"}
-            </p>
-            {studentLockMessage ? (
-              <p className="settings-hint" style={{ marginTop: 6 }}>
-                {studentLockMessage}
-              </p>
-            ) : null}
-          </div>
-        </section>
-      )}
-
       <TabTransitionPanel tabKey={tab} className="student-tab-transition">
       {tab === "today" && (
         <>
           <div className="today-study-layout">
-            {studentLockStatus?.locked && (
-              <section className="section">
-                <div className="progress-card" style={{ marginTop: 0 }}>
-                  <div className="section-header">
-                    <h2 className="section-title">잠금 상태</h2>
-                  </div>
-                  <p className="settings-hint" style={{ marginTop: 6 }}>
-                    {studentLockStatus.rules?.[0]?.lockTime || "21:00"}
-                  </p>
-                  {studentLockMessage ? (
-                    <p className="settings-hint" style={{ marginTop: 6 }}>
-                      {studentLockMessage}
-                    </p>
-                  ) : null}
-                </div>
-              </section>
-            )}
-
             <section className="section today-cards-outer">
               <div className="today-cards-scroll">
                 <div className="today-cards-container">
