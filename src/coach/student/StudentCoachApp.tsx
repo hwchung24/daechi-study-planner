@@ -921,10 +921,13 @@ function CoachChatTabConnected(props: { apiToken: string }) {
     dockRef: inputDockRef
   });
 
-  const scrollChatToBottom = useCallback((behavior: ScrollBehavior = "smooth") => {
+  const scrollChatToBottom = useCallback((behavior: ScrollBehavior = "auto") => {
     const element = chatScrollRef.current;
     if (!element) return;
-    element.scrollTo({ top: element.scrollHeight, behavior });
+    element.scrollTo({
+      top: element.scrollHeight,
+      behavior: behavior === "smooth" ? "auto" : behavior
+    });
   }, []);
 
   const send = async (text: string, modeOverride?: CoachChatGreetingMode) => {
@@ -981,7 +984,7 @@ function CoachChatTabConnected(props: { apiToken: string }) {
       setTyping(false);
     }
     requestAnimationFrame(() => {
-      scrollChatToBottom("smooth");
+      scrollChatToBottom("auto");
     });
   };
 

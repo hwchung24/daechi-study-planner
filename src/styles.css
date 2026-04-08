@@ -236,8 +236,30 @@ select {
   min-width: 0;
   overflow: hidden;
   transform: translateY(var(--app-viewport-offset-top));
-  transition: transform var(--dur-med) var(--ease-standard);
   will-change: transform;
+}
+
+html.app-keyboard-open body,
+html.app-keyboard-open #root,
+body.app-keyboard-open #root,
+body.app-keyboard-open .app-root {
+  overscroll-behavior: none;
+}
+
+html.app-keyboard-open body,
+body.app-keyboard-open {
+  touch-action: none;
+}
+
+html.app-keyboard-open .coach-chat,
+html.app-keyboard-open .coach-tomorrow-collab__chat,
+body.app-keyboard-open .coach-chat,
+body.app-keyboard-open .coach-tomorrow-collab__chat,
+html.app-keyboard-open .app-main,
+body.app-keyboard-open .app-main {
+  touch-action: pan-y;
+  overscroll-behavior: contain;
+  scroll-behavior: auto;
 }
 
 .app-shell {
@@ -474,7 +496,7 @@ select {
   padding: 4px 2px 72px;
   overflow-y: auto;
   -webkit-overflow-scrolling: touch;
-  scroll-behavior: smooth;
+  scroll-behavior: auto;
   min-width: 0;
   min-height: 0;
 }

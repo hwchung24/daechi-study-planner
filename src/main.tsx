@@ -107,7 +107,7 @@ function syncViewportCssVars() {
   );
   const keyboardOpen =
     isFocusedEditableElement(document.activeElement) &&
-    visualViewportHeight < layoutViewportHeight - 80;
+    visualViewportHeight < layoutViewportHeight - 120;
   const viewportHeight = keyboardOpen
     ? layoutViewportHeight
     : Math.max(layoutViewportHeight, visualViewportHeight);

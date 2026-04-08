@@ -333,10 +333,13 @@ export function CoachTomorrowPlanCollab(props: CoachTomorrowPlanCollabProps) {
     dockRef: footerRef
   });
 
-  const scrollChatToBottom = (behavior: ScrollBehavior = "smooth") => {
+  const scrollChatToBottom = (behavior: ScrollBehavior = "auto") => {
     const element = chatScrollRef.current;
     if (!element) return;
-    element.scrollTo({ top: element.scrollHeight, behavior });
+    element.scrollTo({
+      top: element.scrollHeight,
+      behavior: behavior === "smooth" ? "auto" : behavior
+    });
   };
 
   const sendMessage = async (
@@ -420,7 +423,7 @@ export function CoachTomorrowPlanCollab(props: CoachTomorrowPlanCollabProps) {
       setTyping(false);
     }
     requestAnimationFrame(() => {
-      scrollChatToBottom("smooth");
+      scrollChatToBottom("auto");
     });
   };
 
