@@ -6,6 +6,7 @@ import React, {
   useRef,
   useState
 } from "react";
+import { SendHorizontal } from "lucide-react";
 import { motion } from "framer-motion";
 import { TabTransitionPanel } from "../../components/PageTransition";
 import { demoStudents } from "../demoData";
@@ -34,6 +35,7 @@ import {
   getWeekStartKeySeoul,
   seoulDateKeyFromApiValue
 } from "../../lib/weekDates";
+import { useKeyboardDockInset } from "../../lib/useKeyboardDockInset";
 import { useEffectiveBearer } from "../../lib/useEffectiveBearer";
 import type { ProgressBook, ProgressPlan, StudyBlock } from "../../types/planner";
 import { CoachAvatar } from "../CoachAvatar";
@@ -302,15 +304,25 @@ function CoachRhythmSparkline(props: {
             y1={gy}
             x2={padL + innerW}
             y2={gy}
-            stroke="rgba(148,163,184,0.35)"
+            stroke="rgba(var(--neutral-rgb), 0.35)"
             strokeWidth={1}
           />
         );
       })}
-      <text x={2} y={padT + 11} fontSize={10} fill="rgba(100,116,139,0.95)">
+      <text
+        x={2}
+        y={padT + 11}
+        fontSize="var(--font-size-small)"
+        fill="rgba(var(--neutral-rgb), 0.95)"
+      >
         {yMax}
       </text>
-      <text x={2} y={padT + innerH + 2} fontSize={10} fill="rgba(100,116,139,0.95)">
+      <text
+        x={2}
+        y={padT + innerH + 2}
+        fontSize="var(--font-size-small)"
+        fill="rgba(var(--neutral-rgb), 0.95)"
+      >
         {yMin}
       </text>
       {pathSegments.map((d, i) => (
@@ -345,8 +357,8 @@ function CoachRhythmSparkline(props: {
             x={p.x}
             y={h - 10}
             textAnchor="middle"
-            fontSize={8}
-            fill="rgba(100,116,139,0.95)"
+            fontSize="var(--font-size-small)"
+            fill="rgba(var(--neutral-rgb), 0.95)"
           >
             {labelShort(p.date)}
           </text>
@@ -621,7 +633,7 @@ function CoachStudentUnified(props: {
           key: "sleep",
           title: "수면 패턴",
           dataKey: "sleepHours" as const,
-          color: "var(--accent-strong)",
+          color: "var(--text-strong)",
           yDomain: [0, 10] as [number, number],
           tooltipLabel: "수면 시간",
           valueFormatter: (v: number) => `${v.toFixed(1)}시간`
@@ -630,7 +642,7 @@ function CoachStudentUnified(props: {
           key: "stress",
           title: "스트레스 점수",
           dataKey: "stressScore" as const,
-          color: "var(--accent-strong)",
+          color: "var(--text-strong)",
           yDomain: [1, 5] as [number, number],
           tooltipLabel: "스트레스 점수",
           valueFormatter: (v: number) => `${v.toFixed(1)}/5`
@@ -639,7 +651,7 @@ function CoachStudentUnified(props: {
           key: "concentration",
           title: "학습 집중도",
           dataKey: "concentration" as const,
-          color: "var(--accent-strong)",
+          color: "var(--text-strong)",
           yDomain: [0, 100] as [number, number],
           tooltipLabel: "집중도",
           valueFormatter: (v: number) => `${Math.round(v)}%`
@@ -648,7 +660,7 @@ function CoachStudentUnified(props: {
           key: "studyMinutes",
           title: "공부 시간",
           dataKey: "studyMinutes" as const,
-          color: "var(--accent-strong)",
+          color: "var(--text-strong)",
           yDomain: [0, studyMinutesMax] as [number, number],
           tooltipLabel: "공부 시간(분)",
           valueFormatter: (v: number) => `${Math.round(v)}분`
@@ -657,7 +669,7 @@ function CoachStudentUnified(props: {
           key: "planCompletionRate",
           title: "목표 달성률",
           dataKey: "planCompletionRate" as const,
-          color: "var(--accent-strong)",
+          color: "var(--text-strong)",
           yDomain: [0, 100] as [number, number],
           tooltipLabel: "목표 달성률",
           valueFormatter: (v: number) => `${Math.round(v)}%`
@@ -778,7 +790,14 @@ function CoachStudentUnified(props: {
                       minWidth: 300
                     }}
                   >
-                    <div className="coach-rhythm-scroll__title" style={{ fontSize: 14, fontWeight: 600, marginBottom: 6 }}>
+                    <div
+                      className="coach-rhythm-scroll__title"
+                      style={{
+                        fontSize: "var(--font-size-medium)",
+                        fontWeight: "var(--font-weight-semibold)",
+                        marginBottom: 6
+                      }}
+                    >
                       {chart.title}
                     </div>
                     <div className="coach-chart" style={{ color: chart.color }}>
@@ -797,12 +816,18 @@ function CoachStudentUnified(props: {
             <div className="coach-stack">
               <SectionHeader title="감지된 기록 패턴" />
               {patternsLoading && (
-                <p className="coach-muted" style={{ padding: "0 4px 10px", fontSize: 13 }}>
+                <p
+                  className="coach-muted"
+                  style={{ padding: "0 4px 10px", fontSize: "var(--font-size-medium)" }}
+                >
                   이번 주 기록을 바탕으로 패턴을 분석하는 중…
                 </p>
               )}
               {!patternsLoading && patternsError && token && (
-                <p className="coach-muted" style={{ padding: "0 4px 10px", fontSize: 13 }}>
+                <p
+                  className="coach-muted"
+                  style={{ padding: "0 4px 10px", fontSize: "var(--font-size-medium)" }}
+                >
                   {patternsError}
                 </p>
               )}
@@ -875,6 +900,9 @@ function CoachStudentUnified(props: {
 
 function CoachChatTabConnected(props: { apiToken: string }) {
   const token = props.apiToken;
+  const rootRef = useRef<HTMLDivElement | null>(null);
+  const chatScrollRef = useRef<HTMLDivElement | null>(null);
+  const inputDockRef = useRef<HTMLDivElement | null>(null);
 
   const messages = useCoachStore(s => s.messages);
   const addMessage = useCoachStore(s => s.addMessage);
@@ -886,6 +914,18 @@ function CoachChatTabConnected(props: { apiToken: string }) {
   const [lastResponseType, setLastResponseType] = useState<string>("");
 
   const hasUserTurn = messages.some(m => m.role === "user");
+
+  useKeyboardDockInset({
+    rootRef,
+    scrollerRef: chatScrollRef,
+    dockRef: inputDockRef
+  });
+
+  const scrollChatToBottom = useCallback((behavior: ScrollBehavior = "smooth") => {
+    const element = chatScrollRef.current;
+    if (!element) return;
+    element.scrollTo({ top: element.scrollHeight, behavior });
+  }, []);
 
   const send = async (text: string, modeOverride?: CoachChatGreetingMode) => {
     const trimmed = text.trim();
@@ -941,8 +981,7 @@ function CoachChatTabConnected(props: { apiToken: string }) {
       setTyping(false);
     }
     requestAnimationFrame(() => {
-      const el = document.getElementById("coach-chat-bottom");
-      el?.scrollIntoView({ behavior: "smooth", block: "end" });
+      scrollChatToBottom("smooth");
     });
   };
 
@@ -971,15 +1010,22 @@ function CoachChatTabConnected(props: { apiToken: string }) {
         : startersLearning;
 
   return (
-    <div className="coach-chat-embedded">
+    <div ref={rootRef} className="coach-chat-embedded keyboard-dock-root">
       {coachAiMode === "template" && (
-        <p className="coach-muted" style={{ padding: "0 4px 10px", fontSize: 13, lineHeight: 1.45 }}>
+        <p
+          className="coach-muted"
+          style={{
+            padding: "0 4px 10px",
+            fontSize: "var(--font-size-medium)",
+            lineHeight: 1.45
+          }}
+        >
           GPT 연결 없이 규칙 기반 답변입니다. 실제 GPT를 쓰려면 서버 폴더의{" "}
-          <code style={{ fontSize: 12 }}>.env</code>에{" "}
-          <code style={{ fontSize: 12 }}>OPENAI_API_KEY</code>를 넣고 서버를 다시 실행하세요.
+          <code style={{ fontSize: "var(--font-size-small)" }}>.env</code>에{" "}
+          <code style={{ fontSize: "var(--font-size-small)" }}>OPENAI_API_KEY</code>를 넣고 서버를 다시 실행하세요.
         </p>
       )}
-      <div className="coach-chat">
+      <div ref={chatScrollRef} className="coach-chat">
         {messages.map(m => (
           <div key={m.id} className={"coach-bubble-row " + (m.role === "user" ? "is-user" : "is-coach")}>
             {m.role === "coach" && <CoachAvatar />}
@@ -1070,7 +1116,7 @@ function CoachChatTabConnected(props: { apiToken: string }) {
         </div>
       )}
 
-      <div className="coach-chat-input">
+      <div ref={inputDockRef} className="coach-chat-input keyboard-dock">
         <input
           className="coach-chat-text"
           value={draft}
@@ -1087,7 +1133,7 @@ function CoachChatTabConnected(props: { apiToken: string }) {
           aria-label="메시지 보내기"
           title="보내기"
         >
-          <span aria-hidden>➤</span>
+          <SendHorizontal size={15} strokeWidth={2.2} aria-hidden />
         </button>
       </div>
     </div>

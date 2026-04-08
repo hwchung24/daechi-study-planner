@@ -285,9 +285,13 @@ CREATE TABLE IF NOT EXISTS student_coach_profiles (
   weak_subjects TEXT[] NOT NULL DEFAULT '{}'::text[],
   sleep_time TEXT,
   wake_time TEXT,
+  initial_profile_completed BOOLEAN NOT NULL DEFAULT false,
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+ALTER TABLE student_coach_profiles
+ADD COLUMN IF NOT EXISTS initial_profile_completed BOOLEAN NOT NULL DEFAULT false;
 
 CREATE TABLE IF NOT EXISTS student_coach_logs (
   id BIGSERIAL PRIMARY KEY,

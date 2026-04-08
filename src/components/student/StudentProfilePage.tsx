@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { Card, SectionHeader } from "../../coach/ui/components";
 import { demoStudents } from "../../coach/demoData";
 import { useCoachStore } from "../../coach/state/useCoachStore";
@@ -14,13 +15,7 @@ import { useEffectiveBearer } from "../../lib/useEffectiveBearer";
 import { useModalReveal } from "../../lib/useModalReveal";
 import type { StudentLinkRow } from "./StudentLegacyView";
 
-const STUDENT_PROFILE_LS_KEY = "daechi_student_profile_custom";
 const STUDENT_PROFILE_NAME_LS_KEY = "daechi_student_profile_name";
-
-type LocalStudentProfile = {
-  avatarUrl?: string;
-  goal?: string;
-};
 
 type RemoteCoachState = {
   snapshot?: {
@@ -81,7 +76,6 @@ export function StudentProfilePage(props: {
     [activeStudentId]
   );
   const [remote, setRemote] = useState<RemoteCoachState | null>(null);
-  const [localProfile, setLocalProfile] = useState<LocalStudentProfile | null>(null);
   const [editOpen, setEditOpen] = useState(false);
   const [scheduleEditOpen, setScheduleEditOpen] = useState(false);
   const [accountEditOpen, setAccountEditOpen] = useState(false);
@@ -92,8 +86,9 @@ export function StudentProfilePage(props: {
   const [accountCurrentPw, setAccountCurrentPw] = useState("");
   const [accountSaving, setAccountSaving] = useState(false);
   const [accountError, setAccountError] = useState("");
-  const [avatarInput, setAvatarInput] = useState("");
   const [goalInput, setGoalInput] = useState("");
+  const [profileSaving, setProfileSaving] = useState(false);
+  const [profileError, setProfileError] = useState("");
   const [scheduleItems, setScheduleItems] = useState<StudentProfileSchedule[]>([]);
   const [scheduleTitle, setScheduleTitle] = useState("");
   const [scheduleDate, setScheduleDate] = useState(
@@ -271,17 +266,6 @@ export function StudentProfilePage(props: {
   }, [refreshProfile]);
 
   useEffect(() => {
-    try {
-      const raw = localStorage.getItem(STUDENT_PROFILE_LS_KEY);
-      if (!raw) return;
-      const parsed = JSON.parse(raw) as LocalStudentProfile;
-      setLocalProfile(parsed);
-    } catch {
-      setLocalProfile(null);
-    }
-  }, []);
-
-  useEffect(() => {
     refreshSchedules();
   }, [refreshSchedules]);
 
@@ -403,18 +387,47 @@ export function StudentProfilePage(props: {
     }
   };
 
-  const saveLocalProfile = () => {
-    const next: LocalStudentProfile = {
-      avatarUrl: avatarInput.trim() || undefined,
-      goal: goalInput.trim() || undefined
-    };
-    setLocalProfile(next);
-    try {
-      localStorage.setItem(STUDENT_PROFILE_LS_KEY, JSON.stringify(next));
-    } catch {
-      // ignore
+  const saveProfile = async () => {
+    if (!token) return;
+    const trimmedGoal = goalInput.trim();
+    if (!trimmedGoal) {
+      setProfileError("목표를 입력해 주세요.");
+      hapticWarning();
+      return;
     }
-    profileEditModalReveal.beginClose(() => setEditOpen(false));
+
+    setProfileSaving(true);
+    setProfileError("");
+    try {
+      const res = await fetch(`${apiBase}/api/account`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          goal: trimmedGoal
+        })
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(
+          String(data?.error || "프로필을 저장하지 못했습니다.").trim()
+        );
+      }
+      hapticSuccess();
+      profileEditModalReveal.beginClose(() => setEditOpen(false));
+      refreshProfile();
+    } catch (e: unknown) {
+      const msg =
+        e instanceof Error && e.message
+          ? e.message
+          : "프로필을 저장하지 못했습니다.";
+      setProfileError(msg);
+      hapticWarning();
+    } finally {
+      setProfileSaving(false);
+    }
   };
 
   const profile = remote?.snapshot?.profile;
@@ -424,56 +437,46 @@ export function StudentProfilePage(props: {
       ? resolvedProfileName || "학생"
       : resolvedProfileName
     : resolvedProfileName || student.name;
-  const rawSchoolLevel = profile?.schoolLevel || student.schoolLevel;
+  const rawSchoolLevel = token ? profile?.schoolLevel || null : student.schoolLevel;
   const displaySchoolLevel =
     rawSchoolLevel === "고" ? "고등학교" : rawSchoolLevel === "중" ? "중학교" : rawSchoolLevel;
-  const displayGrade = profile?.grade ?? student.grade;
-  const displayGoal = localProfile?.goal || profile?.goal || student.goal;
-  const avatarUrl = localProfile?.avatarUrl;
+  const displayGrade = token ? profile?.grade ?? null : student.grade;
+  const displayGoal = token ? String(profile?.goal ?? "").trim() : student.goal;
+  const modalRoot = typeof document === "undefined" ? null : document.body;
 
   return (
     <>
       <div className="student-profile-page section">
         <Card className="coach-card coach-card--padded coach-profile-card">
           <div className="coach-profile-card__main">
-            <div className="coach-profile-card__avatar-wrap">
-              {avatarUrl ? (
-                <div
-                  className="coach-profile-card__avatar coach-profile-card__avatar--image"
-                  style={{ backgroundImage: `url(${avatarUrl})` }}
-                />
-              ) : (
-                <div className="coach-profile-card__avatar">
-                  <span>{(displayName || "S").charAt(0).toUpperCase()}</span>
-                </div>
-              )}
-            </div>
             <div className="coach-profile-card__info">
-              <div className="coach-profile-card__name-row">
-                <span className="coach-profile-card__name">{displayName}</span>
-                {displaySchoolLevel != null && displayGrade != null && (
-                  <span className="coach-profile-card__grade-pill">
-                    {displaySchoolLevel} {displayGrade}학년
-                  </span>
-                )}
+              <div className="coach-profile-card__content">
+                <div className="coach-profile-card__name-row">
+                  <span className="coach-profile-card__name">{displayName}</span>
+                  {displayGrade != null && (
+                    <span className="coach-profile-card__grade-pill">
+                      {displaySchoolLevel ? `${displaySchoolLevel} ` : ""}
+                      {displayGrade}학년
+                    </span>
+                  )}
+                </div>
+                <div className="coach-profile-card__goal">
+                  {displayGoal ? `목표 · ${displayGoal}` : "아직 목표를 설정하지 않았어요."}
+                </div>
               </div>
-              <div className="coach-profile-card__goal">
-                {displayGoal ? `목표 · ${displayGoal}` : "아직 목표를 설정하지 않았어요."}
-              </div>
+              <button
+                type="button"
+                className="coach-primary-btn coach-profile-card__action"
+                onClick={() => {
+                  setProfileError("");
+                  setGoalInput(displayGoal || "");
+                  setEditOpen(true);
+                }}
+              >
+                프로필 편집
+              </button>
             </div>
           </div>
-          <button
-            type="button"
-            className="coach-primary-btn"
-            style={{ marginTop: 10, width: "100%" }}
-            onClick={() => {
-              setAvatarInput(avatarUrl || "");
-              setGoalInput(displayGoal || "");
-              setEditOpen(true);
-            }}
-          >
-            프로필 편집
-          </button>
         </Card>
 
         <Card className="coach-card coach-card--padded student-profile-schedule-card">
@@ -558,7 +561,7 @@ export function StudentProfilePage(props: {
           <Card className="coach-card coach-card--padded student-profile-parent-link-card">
             <SectionHeader title="학부모와 계정 연결" />
             {linkedParents.length > 0 && (
-              <div className="student-profile-link-status" style={{ marginTop: 12 }}>
+              <div className="student-profile-link-status student-profile-link-status--first">
                 <span className="student-profile-link-status__title">연결된 학부모</span>
                 {linkedParents.map(parent => (
                   <span key={parent.id} className="student-profile-link-status__hint">
@@ -567,66 +570,67 @@ export function StudentProfilePage(props: {
                 ))}
               </div>
             )}
-            <div className="field" style={{ marginTop: 12 }}>
-              <label className="field-label" htmlFor="student-parent-email">
-                학부모 이메일
-              </label>
-              <input
-                id="student-parent-email"
-                className="field-input"
-                value={studentParentEmail}
-                onChange={e => setStudentParentEmail(e.target.value)}
-              />
-            </div>
-            <button
-              type="button"
-              className="coach-primary-btn"
-              style={{ marginTop: 10 }}
-              onClick={async () => {
-                if (!token) return;
-                const parentEmail = studentParentEmail.trim();
-                if (!parentEmail) {
-                  setParentLinkFeedback("학부모 이메일을 입력해 주세요.");
-                  hapticWarning();
-                  return;
-                }
-                try {
-                  const res = await fetch(`${apiBase}/api/student/request-parent`, {
-                    method: "POST",
-                    headers: {
-                      "Content-Type": "application/json",
-                      Authorization: `Bearer ${token}`
-                    },
-                    body: JSON.stringify({ parentEmail })
-                  });
-                  const data = await res.json().catch(() => ({}));
-                  if (!res.ok) {
-                    const msg = String(data?.error || "연결 요청에 실패했습니다.").trim();
-                    setParentLinkFeedback(msg);
-                    if (msg.includes("이미 진행 중") || msg.includes("이미 연결")) {
-                      await refreshStudentLinkRequests();
-                    }
+            <div className="student-profile-link-form">
+              <div className="field student-profile-link-field">
+                <label className="field-label" htmlFor="student-parent-email">
+                  학부모 이메일
+                </label>
+                <input
+                  id="student-parent-email"
+                  className="field-input student-profile-link-input"
+                  value={studentParentEmail}
+                  onChange={e => setStudentParentEmail(e.target.value)}
+                />
+              </div>
+              <button
+                type="button"
+                className="student-profile-link-submit"
+                onClick={async () => {
+                  if (!token) return;
+                  const parentEmail = studentParentEmail.trim();
+                  if (!parentEmail) {
+                    setParentLinkFeedback("학부모 이메일을 입력해 주세요.");
                     hapticWarning();
                     return;
                   }
-                  setStudentParentEmail("");
-                  await refreshStudentLinkRequests();
-                  await refreshLinkedParents();
-                  setParentLinkFeedback("학부모에게 연결 요청을 보냈어요.");
-                  hapticSuccess();
-                } catch {
-                  setParentLinkFeedback("네트워크 오류로 연결 요청을 보내지 못했습니다.");
-                  hapticWarning();
-                }
-              }}
-            >
-              연결 요청 보내기
-            </button>
-            {parentLinkFeedback ? (
-              <p className="settings-hint" style={{ marginTop: 10 }}>
-                {parentLinkFeedback}
-              </p>
-            ) : null}
+                  try {
+                    const res = await fetch(`${apiBase}/api/student/request-parent`, {
+                      method: "POST",
+                      headers: {
+                        "Content-Type": "application/json",
+                        Authorization: `Bearer ${token}`
+                      },
+                      body: JSON.stringify({ parentEmail })
+                    });
+                    const data = await res.json().catch(() => ({}));
+                    if (!res.ok) {
+                      const msg = String(data?.error || "연결 요청에 실패했습니다.").trim();
+                      setParentLinkFeedback(msg);
+                      if (msg.includes("이미 진행 중") || msg.includes("이미 연결")) {
+                        await refreshStudentLinkRequests();
+                      }
+                      hapticWarning();
+                      return;
+                    }
+                    setStudentParentEmail("");
+                    await refreshStudentLinkRequests();
+                    await refreshLinkedParents();
+                    setParentLinkFeedback("학부모에게 연결 요청을 보냈어요.");
+                    hapticSuccess();
+                  } catch {
+                    setParentLinkFeedback("네트워크 오류로 연결 요청을 보내지 못했습니다.");
+                    hapticWarning();
+                  }
+                }}
+              >
+                연결 요청 보내기
+              </button>
+              {parentLinkFeedback ? (
+                <p className="settings-hint student-profile-link-feedback">
+                  {parentLinkFeedback}
+                </p>
+              ) : null}
+            </div>
             {studentWaitingOnParent.length > 0 && (
               <div className="student-profile-link-status">
                 <span className="student-profile-link-status__title">학부모 승인 대기</span>
@@ -646,7 +650,7 @@ export function StudentProfilePage(props: {
                     <div className="student-profile-link-request-row__actions">
                       <button
                         type="button"
-                        className="progress-footer-btn"
+                        className="student-profile-link-action-btn"
                         onClick={async () => {
                             if (!token) return;
                           const res = await fetch(`${apiBase}/api/student/link-confirm`, {
@@ -675,7 +679,7 @@ export function StudentProfilePage(props: {
                       </button>
                       <button
                         type="button"
-                        className="progress-footer-btn"
+                        className="student-profile-link-action-btn student-profile-link-action-btn--danger"
                         onClick={async () => {
                             if (!token) return;
                           await fetch(`${apiBase}/api/link/reject`, {
@@ -702,262 +706,263 @@ export function StudentProfilePage(props: {
         )}
       </div>
 
-      <div
-        className={
-          "dday-modal student-profile-schedule-modal" +
-          (scheduleModalReveal.revealed ? " dday-modal--open" : "")
-        }
-        onClick={closeScheduleEditor}
-      >
-        <div
-          className="dday-modal-inner student-profile-schedule-modal-inner"
-          onClick={e => e.stopPropagation()}
-        >
-          <div className="dday-modal-header">
-            <span className="dday-modal-title">일정 추가</span>
-          </div>
-          <div className="dday-modal-body student-profile-schedule-modal-body">
-            <div className="field">
-              <label className="field-label">일정 제목</label>
-              <input
-                className="field-input"
-                placeholder="예: 영어 학원"
-                value={scheduleTitle}
-                onChange={e => setScheduleTitle(e.target.value)}
-              />
-            </div>
-            <div className="field" style={{ marginTop: 10 }}>
-              <label className="field-label">날짜</label>
-              <DatePickerScroll
-                value={scheduleDate}
-                onChange={setScheduleDate}
-                hapticSelection={hapticSelection}
-              />
-            </div>
-            <div className="field" style={{ marginTop: 10 }}>
-              <label className="field-label">시간</label>
-              <div className="student-profile-schedule-time-grid">
-                <div className="student-profile-schedule-time-cell">
-                  <span className="add-plan-time-inline-label">시작</span>
-                  <TimePickerInline
-                    value={scheduleTime}
-                    onChange={setScheduleTime}
-                    hapticSelection={hapticSelection}
-                  />
-                </div>
-                <div className="student-profile-schedule-time-cell">
-                  <span className="add-plan-time-inline-label">종료</span>
-                  <TimePickerInline
-                    value={scheduleEndTime}
-                    onChange={setScheduleEndTime}
-                    hapticSelection={hapticSelection}
-                  />
-                </div>
-              </div>
-            </div>
-            {scheduleError ? (
-              <p className="settings-hint student-profile-schedule-error">{scheduleError}</p>
-            ) : null}
-          </div>
-          <div className="dday-modal-footer">
-            <button type="button" className="modal-secondary" onClick={closeScheduleEditor}>
-              취소
-            </button>
-            <button
-              type="button"
-              className="modal-primary"
-              onClick={async () => {
-                const saved = await addScheduleItem();
-                if (saved) {
-                  scheduleModalReveal.beginClose(() => setScheduleEditOpen(false));
-                }
-              }}
-              disabled={!scheduleTitle.trim() || !scheduleTime || !scheduleEndTime}
+      {scheduleEditOpen && modalRoot
+        ? createPortal(
+            <div
+              className={
+                "dday-modal student-profile-schedule-modal" +
+                (scheduleModalReveal.revealed ? " dday-modal--open" : "")
+              }
+              onClick={closeScheduleEditor}
             >
-              저장
-            </button>
-          </div>
-        </div>
-      </div>
-
-      <div
-        className={
-          "dday-modal" +
-          (accountModalReveal.revealed ? " dday-modal--open" : "")
-        }
-        onClick={() =>
-          accountModalReveal.beginClose(() => setAccountEditOpen(false))
-        }
-      >
-        <div className="dday-modal-inner" onClick={e => e.stopPropagation()}>
-          <div className="dday-modal-header">
-            <span className="dday-modal-title">계정 정보</span>
-          </div>
-          <div className="dday-modal-body">
-            {meRole === "student" && (
-              <div className="field">
-                <label className="field-label" htmlFor="account-name">
-                  이름
-                </label>
-                <input
-                  id="account-name"
-                  className="field-input"
-                  value={accountName}
-                  onChange={e => setAccountName(e.target.value)}
-                  autoComplete="name"
-                />
+              <div
+                className="dday-modal-inner student-profile-schedule-modal-inner"
+                onClick={e => e.stopPropagation()}
+              >
+                <div className="dday-modal-header">
+                  <span className="dday-modal-title">일정 추가</span>
+                </div>
+                <div className="dday-modal-body student-profile-schedule-modal-body">
+                  <div className="field">
+                    <label className="field-label">일정 제목</label>
+                    <input
+                      className="field-input"
+                      placeholder="예: 영어 학원"
+                      value={scheduleTitle}
+                      onChange={e => setScheduleTitle(e.target.value)}
+                    />
+                  </div>
+                  <div className="field" style={{ marginTop: 10 }}>
+                    <label className="field-label">날짜</label>
+                    <DatePickerScroll
+                      value={scheduleDate}
+                      onChange={setScheduleDate}
+                      hapticSelection={hapticSelection}
+                    />
+                  </div>
+                  <div className="field" style={{ marginTop: 10 }}>
+                    <label className="field-label">시간</label>
+                    <div className="student-profile-schedule-time-grid">
+                      <div className="student-profile-schedule-time-cell">
+                        <span className="add-plan-time-inline-label">시작</span>
+                        <TimePickerInline
+                          value={scheduleTime}
+                          onChange={setScheduleTime}
+                          hapticSelection={hapticSelection}
+                        />
+                      </div>
+                      <div className="student-profile-schedule-time-cell">
+                        <span className="add-plan-time-inline-label">종료</span>
+                        <TimePickerInline
+                          value={scheduleEndTime}
+                          onChange={setScheduleEndTime}
+                          hapticSelection={hapticSelection}
+                        />
+                      </div>
+                    </div>
+                  </div>
+                  {scheduleError ? (
+                    <p className="settings-hint student-profile-schedule-error">{scheduleError}</p>
+                  ) : null}
+                </div>
+                <div className="dday-modal-footer">
+                  <button type="button" className="modal-secondary" onClick={closeScheduleEditor}>
+                    취소
+                  </button>
+                  <button
+                    type="button"
+                    className="modal-primary"
+                    onClick={async () => {
+                      const saved = await addScheduleItem();
+                      if (saved) {
+                        scheduleModalReveal.beginClose(() => setScheduleEditOpen(false));
+                      }
+                    }}
+                    disabled={!scheduleTitle.trim() || !scheduleTime || !scheduleEndTime}
+                  >
+                    저장
+                  </button>
+                </div>
               </div>
-            )}
-            <div className="field" style={{ marginTop: meRole === "student" ? 10 : 0 }}>
-              <label className="field-label" htmlFor="account-email">
-                이메일
-              </label>
-              <input
-                id="account-email"
-                className="field-input"
-                type="email"
-                inputMode="email"
-                autoCapitalize="none"
-                value={accountEmail}
-                onChange={e => setAccountEmail(e.target.value)}
-                autoComplete="email"
-              />
-            </div>
-            <div className="field" style={{ marginTop: 10 }}>
-              <label className="field-label" htmlFor="account-new-pw">
-                새 비밀번호
-              </label>
-              <input
-                id="account-new-pw"
-                className="field-input"
-                type="password"
-                value={accountNewPw}
-                onChange={e => setAccountNewPw(e.target.value)}
-                autoComplete="new-password"
-                placeholder="변경하지 않으면 비워 두세요"
-              />
-            </div>
-            <div className="field" style={{ marginTop: 10 }}>
-              <label className="field-label" htmlFor="account-new-pw2">
-                새 비밀번호 확인
-              </label>
-              <input
-                id="account-new-pw2"
-                className="field-input"
-                type="password"
-                value={accountNewPw2}
-                onChange={e => setAccountNewPw2(e.target.value)}
-                autoComplete="new-password"
-              />
-            </div>
-            <div className="field" style={{ marginTop: 10 }}>
-              <label className="field-label" htmlFor="account-current-pw">
-                현재 비밀번호
-              </label>
-              <input
-                id="account-current-pw"
-                className="field-input"
-                type="password"
-                value={accountCurrentPw}
-                onChange={e => setAccountCurrentPw(e.target.value)}
-                autoComplete="current-password"
-                placeholder="이메일/비밀번호 변경 시 필요"
-              />
-            </div>
-            {accountError ? (
-              <p className="settings-hint" style={{ marginTop: 10, color: "#b91c1c" }}>
-                {accountError}
-              </p>
-            ) : null}
-          </div>
-          <div className="dday-modal-footer">
-            <button
-              type="button"
-              className="modal-secondary"
+            </div>,
+            modalRoot
+          )
+        : null}
+
+      {accountEditOpen && modalRoot
+        ? createPortal(
+            <div
+              className={
+                "dday-modal" +
+                (accountModalReveal.revealed ? " dday-modal--open" : "")
+              }
               onClick={() =>
                 accountModalReveal.beginClose(() => setAccountEditOpen(false))
               }
-              disabled={accountSaving}
             >
-              취소
-            </button>
-            <button
-              type="button"
-              className="modal-primary"
-              onClick={() => void saveAccount()}
-              disabled={accountSaving}
-            >
-              {accountSaving ? "저장 중…" : "저장"}
-            </button>
-          </div>
-        </div>
-      </div>
+              <div className="dday-modal-inner" onClick={e => e.stopPropagation()}>
+                <div className="dday-modal-header">
+                  <span className="dday-modal-title">계정 정보</span>
+                </div>
+                <div className="dday-modal-body">
+                  {meRole === "student" && (
+                    <div className="field">
+                      <label className="field-label" htmlFor="account-name">
+                        이름
+                      </label>
+                      <input
+                        id="account-name"
+                        className="field-input"
+                        value={accountName}
+                        onChange={e => setAccountName(e.target.value)}
+                        autoComplete="name"
+                      />
+                    </div>
+                  )}
+                  <div className="field" style={{ marginTop: meRole === "student" ? 10 : 0 }}>
+                    <label className="field-label" htmlFor="account-email">
+                      이메일
+                    </label>
+                    <input
+                      id="account-email"
+                      className="field-input"
+                      type="email"
+                      inputMode="email"
+                      autoCapitalize="none"
+                      value={accountEmail}
+                      onChange={e => setAccountEmail(e.target.value)}
+                      autoComplete="email"
+                    />
+                  </div>
+                  <div className="field" style={{ marginTop: 10 }}>
+                    <label className="field-label" htmlFor="account-new-pw">
+                      새 비밀번호
+                    </label>
+                    <input
+                      id="account-new-pw"
+                      className="field-input"
+                      type="password"
+                      value={accountNewPw}
+                      onChange={e => setAccountNewPw(e.target.value)}
+                      autoComplete="new-password"
+                      placeholder="변경하지 않으면 비워 두세요"
+                    />
+                  </div>
+                  <div className="field" style={{ marginTop: 10 }}>
+                    <label className="field-label" htmlFor="account-new-pw2">
+                      새 비밀번호 확인
+                    </label>
+                    <input
+                      id="account-new-pw2"
+                      className="field-input"
+                      type="password"
+                      value={accountNewPw2}
+                      onChange={e => setAccountNewPw2(e.target.value)}
+                      autoComplete="new-password"
+                    />
+                  </div>
+                  <div className="field" style={{ marginTop: 10 }}>
+                    <label className="field-label" htmlFor="account-current-pw">
+                      현재 비밀번호
+                    </label>
+                    <input
+                      id="account-current-pw"
+                      className="field-input"
+                      type="password"
+                      value={accountCurrentPw}
+                      onChange={e => setAccountCurrentPw(e.target.value)}
+                      autoComplete="current-password"
+                      placeholder="이메일/비밀번호 변경 시 필요"
+                    />
+                  </div>
+                  {accountError ? (
+                    <p className="settings-hint" style={{ marginTop: 10, color: "#000000" }}>
+                      {accountError}
+                    </p>
+                  ) : null}
+                </div>
+                <div className="dday-modal-footer">
+                  <button
+                    type="button"
+                    className="modal-secondary"
+                    onClick={() =>
+                      accountModalReveal.beginClose(() => setAccountEditOpen(false))
+                    }
+                    disabled={accountSaving}
+                  >
+                    취소
+                  </button>
+                  <button
+                    type="button"
+                    className="modal-primary"
+                    onClick={() => void saveAccount()}
+                    disabled={accountSaving}
+                  >
+                    {accountSaving ? "저장 중…" : "저장"}
+                  </button>
+                </div>
+              </div>
+            </div>,
+            modalRoot
+          )
+        : null}
 
-      <div
-        className={
-          "dday-modal" +
-          (profileEditModalReveal.revealed ? " dday-modal--open" : "")
-        }
-        onClick={() =>
-          profileEditModalReveal.beginClose(() => setEditOpen(false))
-        }
-      >
-        <div className="dday-modal-inner" onClick={e => e.stopPropagation()}>
-          <div className="dday-modal-header">
-            <span className="dday-modal-title">프로필 편집</span>
-          </div>
-          <div className="dday-modal-body">
-            <div className="field">
-              <label className="field-label">프로필 사진</label>
-              <input
-                className="field-input"
-                value={avatarInput.startsWith("data:") ? "" : avatarInput}
-                onChange={e => setAvatarInput(e.target.value)}
-              />
-              <label className="coach-profile-file-label">
-                <input
-                  type="file"
-                  accept="image/*"
-                  className="coach-profile-file-input"
-                  onChange={e => {
-                    const f = e.target.files?.[0];
-                    if (!f) return;
-                    const reader = new FileReader();
-                    reader.onload = () => {
-                      setAvatarInput(String(reader.result || ""));
-                    };
-                    reader.readAsDataURL(f);
-                    e.target.value = "";
-                  }}
-                />
-                갤러리에서 사진 선택
-              </label>
-            </div>
-            <div className="field" style={{ marginTop: 10 }}>
-              <label className="field-label">나의 목표</label>
-              <input
-                className="field-input"
-                value={goalInput}
-                onChange={e => setGoalInput(e.target.value)}
-              />
-            </div>
-          </div>
-          <div className="dday-modal-footer">
-            <button
-              type="button"
-              className="modal-secondary"
+      {editOpen && modalRoot
+        ? createPortal(
+            <div
+              className={
+                "dday-modal" +
+                (profileEditModalReveal.revealed ? " dday-modal--open" : "")
+              }
               onClick={() =>
                 profileEditModalReveal.beginClose(() => setEditOpen(false))
               }
             >
-              취소
-            </button>
-            <button type="button" className="modal-primary" onClick={saveLocalProfile}>
-              저장
-            </button>
-          </div>
-        </div>
-      </div>
+              <div className="dday-modal-inner" onClick={e => e.stopPropagation()}>
+                <div className="dday-modal-header">
+                  <span className="dday-modal-title">프로필 편집</span>
+                </div>
+                <div className="dday-modal-body">
+                  <div className="field">
+                    <label className="field-label">나의 목표</label>
+                    <textarea
+                      className="field-input"
+                      rows={4}
+                      value={goalInput}
+                      onChange={e => setGoalInput(e.target.value)}
+                    />
+                  </div>
+                  {profileError ? (
+                    <p className="settings-hint" style={{ margin: 0, color: "#000000" }}>
+                      {profileError}
+                    </p>
+                  ) : null}
+                </div>
+                <div className="dday-modal-footer">
+                  <button
+                    type="button"
+                    className="modal-secondary"
+                    onClick={() =>
+                      profileEditModalReveal.beginClose(() => setEditOpen(false))
+                    }
+                    disabled={profileSaving}
+                  >
+                    취소
+                  </button>
+                  <button
+                    type="button"
+                    className="modal-primary"
+                    onClick={() => void saveProfile()}
+                    disabled={profileSaving}
+                  >
+                    {profileSaving ? "저장 중…" : "저장"}
+                  </button>
+                </div>
+              </div>
+            </div>,
+            modalRoot
+          )
+        : null}
     </>
   );
 }

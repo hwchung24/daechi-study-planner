@@ -1,23 +1,54 @@
 :root {
   color-scheme: light;
-  --bg: #f5f5f7;
-  --bg-elevated: #ffffff;
+  --app-viewport-height: 100vh;
+  --app-shell-inline-padding: 12px;
+  --font-family-base: "SF Pro Text", "Apple SD Gothic Neo", "Noto Sans KR",
+    "Malgun Gothic", "Segoe UI", sans-serif;
+  --font-size-xlarge: 26px;
+  --font-size-large: 18px;
+  --font-size-medium: 14px;
+  --font-size-small: 12px;
+  --font-weight-regular: 400;
+  --font-weight-medium: 500;
+  --font-weight-semibold: 600;
+  --font-weight-bold: 700;
+  --font-weight-strong: 800;
+  --neutral-rgb: 100, 116, 139;
+  --neutral: #64748b;
+  --neutral-surface-rgb: 255, 255, 255;
+  --neutral-surface: #ffffff;
+  --surface-base: var(--neutral-surface);
+  --bg: #f3f4f6;
+  --bg-elevated: rgba(255, 255, 255, 0.72);
   /* 포인트: 남색 (navy) */
+  --accent-rgb: 36, 59, 107;
   --accent: #243b6b;
-  --accent-hover: #1c3058;
-  --accent-soft: #e8ecf4;
-  --accent-strong: #1a2f52;
-  --accent-muted: rgba(36, 59, 107, 0.08);
-  --accent-border: rgba(36, 59, 107, 0.28);
-  --accent-border-strong: rgba(36, 59, 107, 0.4);
-  --accent-ring: rgba(36, 59, 107, 0.35);
-  --accent-tint-bg: rgba(36, 59, 107, 0.04);
+  --accent-hover: var(--accent);
+  --accent-soft: rgba(var(--accent-rgb), 0.12);
+  --accent-strong: var(--accent);
+  --accent-muted: rgba(var(--accent-rgb), 0.06);
+  --accent-border: rgba(var(--accent-rgb), 0.28);
+  --accent-border-strong: rgba(var(--accent-rgb), 0.4);
+  --accent-ring: rgba(var(--accent-rgb), 0.35);
+  --accent-tint-bg: rgba(var(--accent-rgb), 0.04);
   --accent-done-bg: #f0f3f9;
-  --text-main: #111827;
-  --text-sub: #6b7280;
-  --border-soft: rgba(148, 163, 184, 0.2);
-  --stroke: rgba(148, 163, 184, 0.35);
-  --shadow-soft: 0 2px 8px rgba(15, 23, 42, 0.08);
+  --surface-glass-strong: rgba(255, 255, 255, 0.78);
+  --surface-glass: rgba(255, 255, 255, 0.66);
+  --surface-glass-soft: rgba(var(--neutral-surface-rgb), 0.58);
+  --surface-glass-accent: rgba(232, 236, 244, 0.5);
+  --glass-border: rgba(255, 255, 255, 0.34);
+  --glass-blur: 16px;
+  --text-strong-rgb: 0, 0, 0;
+  --text-strong: #000000;
+  --text-main: var(--text-strong);
+  --text-accent: var(--text-strong);
+  --text-sub: var(--text-strong);
+  --text-soft: var(--text-strong);
+  --border-neutral: rgba(var(--neutral-rgb), 0.28);
+  --border-width: 1px;
+  --border-soft: rgba(var(--neutral-rgb), 0.2);
+  --stroke: rgba(var(--neutral-rgb), 0.35);
+  --shadow-soft: none;
   --radius-xl: 22px;
   --radius-lg: 16px;
   --ease-standard: cubic-bezier(0.22, 1, 0.36, 1);
@@ -32,8 +63,7 @@
   --modal-overlay-opacity: 0.38;
   --modal-backdrop-blur: 12px;
   --modal-surface-bg: #ffffff;
-  --modal-surface-shadow: 0 16px 44px rgba(15, 23, 42, 0.14),
-    0 2px 10px rgba(15, 23, 42, 0.06);
+  --modal-surface-shadow: none;
   --modal-radius: 18px;
   --modal-inner-transform-from: scale(0.96) translateY(10px);
   /* 하단 플로팅 네비 바로 위까지 — 여백 최소(네비 높이·safe-area만) */
@@ -41,6 +71,12 @@
     68px,
     calc(env(safe-area-inset-bottom, 0px) + 58px)
   );
+}
+
+@supports (height: 100dvh) {
+  :root {
+    --app-viewport-height: 100dvh;
+  }
 }
 
 *,
@@ -58,10 +94,12 @@ html {
 body {
   margin: 0;
   min-height: 100%;
-  min-height: 100dvh;
-  font-family: system-ui, -apple-system, BlinkMacSystemFont, "SF Pro Text",
-    "SF Pro Display", "Segoe UI", sans-serif;
-  background: #f5f5f7;
+  min-height: var(--app-viewport-height);
+  font-family: var(--font-family-base);
+  font-size: var(--font-size-medium);
+  font-weight: var(--font-weight-regular);
+  line-height: 1.5;
+  background: var(--bg);
   color: var(--text-main);
   -webkit-font-smoothing: antialiased;
   -webkit-user-select: none;
@@ -86,18 +124,68 @@ body {
 }
 
 input,
+button,
 textarea,
 select {
+  font: inherit;
   -webkit-user-select: text;
   user-select: text;
 }
 
 #root {
   min-height: 100%;
-  min-height: 100dvh;
+  min-height: var(--app-viewport-height);
   display: flex;
   flex-direction: column;
   width: 100%;
+  min-width: 0;
+}
+
+.network-transition-banner {
+  position: fixed;
+  top: 10px;
+  left: 50%;
+  z-index: 100000;
+  width: min(calc(100% - 24px), 460px);
+  padding: 12px 16px;
+  border-radius: 16px;
+  box-shadow: 0 18px 40px rgba(15, 23, 42, 0.18);
+  font-size: var(--font-size-small);
+  line-height: 1.45;
+  text-align: center;
+  transform: translateX(-50%);
+  box-sizing: border-box;
+  animation: network-banner-in 220ms ease-out;
+}
+
+.network-transition-banner--offline {
+  color: #713f12;
+  background: #fef3c7;
+  border: 1px solid #f59e0b;
+}
+
+.network-transition-banner--online {
+  color: #065f46;
+  background: #d1fae5;
+  border: 1px solid #34d399;
+}
+
+.network-transition-banner--info {
+  color: #1e3a8a;
+  background: #dbeafe;
+  border: 1px solid #60a5fa;
+}
+
+@keyframes network-banner-in {
+  from {
+    opacity: 0;
+    transform: translate(-50%, -8px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translate(-50%, 0);
+  }
 }
 
 .offline-banner {
@@ -108,16 +196,20 @@ select {
   width: 100%;
   margin-bottom: 12px;
   padding: 10px 14px;
-  font-size: 12px;
+  font-size: var(--font-size-small);
   line-height: 1.4;
   text-align: center;
-  color: #78350f;
+  color: var(--text-main);
   background: #fef3c7;
   border-bottom: 1px solid #fcd34d;
   box-sizing: border-box;
 }
 
 @supports (padding: max(env(safe-area-inset-top), 0px)) {
+  .network-transition-banner {
+    top: max(10px, env(safe-area-inset-top));
+  }
+
   .offline-banner {
     padding-top: max(10px, env(safe-area-inset-top));
   }
@@ -127,30 +219,34 @@ select {
   flex: 1 1 auto;
   width: 100%;
   max-width: 100%;
-  min-height: 100vh;
-  min-height: 100dvh;
+  height: var(--app-viewport-height);
+  min-height: var(--app-viewport-height);
   display: flex;
   flex-direction: column;
   justify-content: flex-start;
   align-items: stretch;
   padding: 0;
   box-sizing: border-box;
+  min-width: 0;
+  overflow: hidden;
 }
 
 .app-shell {
   position: relative;
+  flex: 1 1 auto;
   width: 100%;
   max-width: 100%;
   align-self: stretch;
-  height: 100vh;
-  background: #f9fafb;
+  background: linear-gradient(180deg, #f5f5f7 0%, #eef1f4 100%);
   border-radius: 0;
-  padding: 18px 18px 10px;
+  padding: 0 var(--app-shell-inline-padding) 10px;
   box-shadow: none;
   border: none;
   display: flex;
   flex-direction: column;
   overflow: hidden;
+  min-width: 0;
+  min-height: 0;
 }
 
 .app-shell--enter {
@@ -181,7 +277,6 @@ select {
 
 @supports (padding: max(env(safe-area-inset-top), 0px)) {
   .app-shell {
-    padding-top: max(env(safe-area-inset-top), 18px);
     padding-bottom: max(env(safe-area-inset-bottom), 10px);
   }
 }
@@ -191,7 +286,7 @@ select {
 }
 
 .app-header {
-  padding: 4px 4px 10px;
+  padding: 0 0 10px;
 }
 
 .header-top {
@@ -199,6 +294,12 @@ select {
   align-items: center;
   justify-content: space-between;
   gap: 16px;
+  width: 100%;
+  margin: 0;
+  padding: calc(env(safe-area-inset-top, 0px) + 8px) 6px 8px 12px;
+  border-radius: 0;
+   background: transparent;
+   box-shadow: none;
 }
 
 .header-title-group {
@@ -233,20 +334,21 @@ select {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 44px;
-  height: 44px;
+  width: 36px;
+  height: 36px;
   padding: 0;
   border: none;
   border-radius: 12px;
-  background: rgba(248, 250, 252, 0.9);
-  color: var(--accent-strong);
+  background: transparent;
+   color: var(--text-main);
   cursor: pointer;
-  transition: background 0.15s ease, box-shadow 0.15s ease;
+  transition: background 0.15s ease, box-shadow 0.15s ease,
+    transform 0.15s ease;
 }
 
 .header-icon-btn:hover {
-  background: #ffffff;
-  box-shadow: 0 0 0 1px var(--accent-border);
+   background: rgba(var(--text-strong-rgb), 0.06);
+  box-shadow: none;
 }
 
 .header-icon-btn:active {
@@ -254,9 +356,11 @@ select {
 }
 
 .header-title {
-  font-size: 28px;
+  font-size: var(--font-size-xlarge);
   margin: 0;
   letter-spacing: -0.03em;
+  line-height: 1.05;
+   color: var(--text-strong);
 }
 
 .header-date-row {
@@ -268,26 +372,26 @@ select {
 }
 
 .today-label {
-  font-size: 15px;
-  font-weight: 600;
+  font-size: var(--font-size-medium);
+  font-weight: var(--font-weight-semibold);
 }
 
 .today-badge {
-  font-size: 11px;
+  font-size: var(--font-size-small);
   padding: 4px 9px;
   border-radius: 999px;
   background: var(--accent-muted);
   border: 0.5px solid var(--accent-border);
-  color: #4b5563;
+  color: var(--text-main);
 }
 
 .progress-card {
   margin-top: 16px;
   padding: 14px 14px 12px;
   border-radius: var(--radius-xl);
-  background: #ffffff;
+  background: var(--surface-base);
   box-shadow: var(--shadow-soft);
-  border: 0.5px solid var(--border-soft);
+  border: var(--border-width) solid var(--border-neutral);
 }
 
 .progress-row {
@@ -297,14 +401,14 @@ select {
 }
 
 .progress-label {
-  font-size: 13px;
+  font-size: var(--font-size-medium);
   color: var(--text-sub);
 }
 
 .progress-value {
-  font-size: 20px;
-  font-weight: 700;
-  color: var(--accent-strong);
+  font-size: var(--font-size-large);
+  font-weight: var(--font-weight-bold);
+  color: var(--text-accent);
 }
 
 .progress-bar-track {
@@ -326,7 +430,7 @@ select {
   margin-top: 8px;
   display: flex;
   justify-content: flex-start;
-  font-size: 11px;
+  font-size: var(--font-size-small);
   color: var(--text-sub);
 }
 
@@ -335,16 +439,16 @@ select {
   display: flex;
   align-items: center;
   gap: 8px;
-  font-size: 11px;
+  font-size: var(--font-size-small);
 }
 
 .lock-badge {
   padding: 3px 8px;
   border-radius: 999px;
   border: 0.5px solid var(--accent-border);
-  color: var(--accent-strong);
+  color: var(--text-accent);
   background: var(--accent-tint-bg);
-  font-weight: 600;
+  font-size: var(--font-size-small);
 }
 
 .lock-text {
@@ -352,8 +456,8 @@ select {
 }
 
 .progress-meta-strong {
-  color: var(--accent-strong);
-  font-weight: 600;
+  color: var(--text-accent);
+  font-weight: var(--font-weight-semibold);
 }
 
 .app-main {
@@ -362,6 +466,8 @@ select {
   overflow-y: auto;
   -webkit-overflow-scrolling: touch;
   scroll-behavior: smooth;
+  min-width: 0;
+  min-height: 0;
 }
 
 .app-main__transition-root {
@@ -398,6 +504,7 @@ select {
   flex: 1 1 auto;
   min-height: 0;
   overflow: hidden;
+  overscroll-behavior-y: contain;
   padding-bottom: max(10px, calc(env(safe-area-inset-bottom, 0px) + 66px));
 }
 
@@ -449,6 +556,47 @@ select {
   overflow: hidden;
 }
 
+.keyboard-dock-root {
+  --keyboard-inset: 0px;
+  --keyboard-lift: 0px;
+}
+
+.keyboard-dock {
+  transform: translateY(calc(-1 * var(--keyboard-lift)));
+  transition:
+    transform var(--dur-med) var(--ease-standard),
+    padding-bottom var(--dur-med) var(--ease-standard);
+  will-change: transform;
+}
+
+.keyboard-dock-root .coach-chat,
+.keyboard-dock-root .coach-tomorrow-collab__chat {
+  transition:
+    padding-bottom var(--dur-med) var(--ease-standard),
+    scroll-padding-bottom var(--dur-med) var(--ease-standard);
+  scroll-padding-bottom: calc(16px + var(--keyboard-lift));
+}
+
+.keyboard-dock-root.keyboard-dock--active .coach-chat,
+.keyboard-dock-root.keyboard-dock--active .coach-tomorrow-collab__chat {
+  padding-bottom: calc(12px + var(--keyboard-lift));
+}
+
+@media (max-width: 767px) {
+  .app-shell:has(.keyboard-dock-root.keyboard-dock--active) .bottom-nav {
+    opacity: 0;
+    pointer-events: none;
+    transform: translateY(calc(100% + env(safe-area-inset-bottom, 0px) + 18px));
+    transition:
+      opacity var(--dur-med) var(--ease-standard),
+      transform var(--dur-med) var(--ease-standard);
+  }
+
+  .app-shell:has(.keyboard-dock-root.keyboard-dock--active) .app-main.app-main--coach-chat {
+    padding-bottom: 10px;
+  }
+}
+
 .coach-subtab-row {
   margin-bottom: 14px;
 }
@@ -482,11 +630,11 @@ select {
 .notifications-page__title {
   margin: 0;
   padding: 0;
-  font-size: 28px;
-  font-weight: 950;
+  font-size: var(--font-size-xlarge);
+  font-weight: var(--font-weight-strong);
   letter-spacing: -0.03em;
   line-height: 1.15;
-  color: rgba(255, 255, 255, 0.96);
+  color: #ffffff;
 }
 
 .notifications-page__empty {
@@ -494,10 +642,10 @@ select {
   padding: 0 max(10px, env(safe-area-inset-left, 0px)) 0
     max(10px, env(safe-area-inset-right, 0px));
   text-align: left;
-  font-size: 15px;
+  font-size: var(--font-size-medium);
   line-height: 1.5;
   color: var(--text-sub);
-  font-weight: 500;
+  font-weight: var(--font-weight-medium);
 }
 
 .notifications-page__empty--modal {
@@ -512,23 +660,23 @@ select {
 }
 
 .notifications-page__item {
-  border: 1px solid var(--stroke);
+  border: var(--border-width) solid var(--border-neutral);
   border-radius: 18px;
   padding: 14px 16px;
-  background: rgba(255, 255, 255, 0.96);
+  background: var(--surface-base);
   box-shadow: var(--shadow-soft);
 }
 
 .notifications-page__item-title {
-  font-size: 15px;
-  font-weight: 800;
+  font-size: var(--font-size-medium);
+  font-weight: var(--font-weight-strong);
   color: var(--text-main);
   line-height: 1.4;
 }
 
 .notifications-page__item-body {
   margin-top: 6px;
-  font-size: 14px;
+  font-size: var(--font-size-medium);
   line-height: 1.5;
   color: var(--text-sub);
   white-space: pre-wrap;
@@ -536,14 +684,14 @@ select {
 
 .notifications-page__item-time {
   margin-top: 8px;
-  font-size: 12px;
-  font-weight: 600;
+  font-size: var(--font-size-small);
+  font-weight: var(--font-weight-semibold);
   color: var(--text-soft);
 }
 
 .notifications-page__bar .notifications-back-btn {
   margin: 0;
-  color: rgba(255, 255, 255, 0.92);
+  color: #ffffff;
 }
 
 .notifications-page__bar .notifications-back-btn:hover {
@@ -565,9 +713,9 @@ select {
   border: none;
   border-radius: 12px;
   background: transparent;
-  font-size: 15px;
-  font-weight: 700;
-  color: var(--accent-strong);
+  font-size: var(--font-size-medium);
+  font-weight: var(--font-weight-bold);
+  color: var(--text-accent);
   cursor: pointer;
   transition: background 0.15s ease;
 }
@@ -600,15 +748,14 @@ select {
 
 .student-profile-settings-list {
   margin-top: 12px;
-  border-radius: 12px;
-  border: 0.5px solid rgba(148, 163, 184, 0.32);
-  background: rgba(248, 250, 252, 0.92);
-  overflow: hidden;
+  border-top: var(--border-width) solid var(--border-neutral);
 }
 
 .student-profile-settings-list .settings-item {
+  padding-left: 0;
+  padding-right: 0;
   background: transparent;
-  border-bottom-color: rgba(148, 163, 184, 0.22);
+  border-bottom-color: var(--border-neutral);
 }
 
 .student-profile-schedule-card {
@@ -620,34 +767,31 @@ select {
   margin-top: 12px;
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 0;
+  border-top: var(--border-width) solid var(--border-neutral);
 }
 
 .student-profile-schedule-panel {
-  border-radius: 12px;
-  border: 0.5px solid rgba(148, 163, 184, 0.32);
-  background: rgba(248, 250, 252, 0.92);
-  overflow: hidden;
+  background: transparent;
+  overflow: visible;
 }
 
 .student-profile-schedule-add-trigger {
-  border: 0.5px solid rgba(36, 59, 107, 0.24);
-  background: rgba(36, 59, 107, 0.08);
-  color: var(--accent-strong);
-  border-radius: 999px;
-  padding: 7px 12px;
-  font-size: 12px;
-  font-weight: 700;
+  border: none;
+  background: transparent;
+  color: var(--text-sub);
+  border-radius: 0;
+  padding: 0;
+  font-size: var(--font-size-medium);
+  font-weight: var(--font-weight-semibold);
   cursor: pointer;
   transition:
-    background var(--dur-fast) var(--ease-press),
-    border-color var(--dur-fast) var(--ease-press),
+    color var(--dur-fast) var(--ease-press),
     transform var(--dur-fast) var(--ease-press);
 }
 
 .student-profile-schedule-add-trigger:hover {
-  background: rgba(36, 59, 107, 0.12);
-  border-color: rgba(36, 59, 107, 0.32);
+  color: var(--text-main);
 }
 
 .student-profile-schedule-add-trigger:active {
@@ -655,19 +799,19 @@ select {
 }
 
 .student-profile-schedule-empty {
-  color: #475569;
-  font-size: 0.94rem;
+  color: var(--text-main);
+  font-size: var(--font-size-medium);
   line-height: 1.5;
-  padding: 15px 16px;
+  padding: 15px 0;
 }
 
 .student-profile-schedule-item {
   display: flex;
   justify-content: space-between;
-  align-items: center;
+  align-items: flex-start;
   gap: 12px;
-  padding: 14px 16px;
-  border-bottom: 0.5px solid rgba(148, 163, 184, 0.22);
+  padding: 16px 0;
+  border-bottom: var(--border-width) solid var(--border-neutral);
 }
 
 .student-profile-schedule-item:last-child {
@@ -680,37 +824,35 @@ select {
 }
 
 .student-profile-schedule-item__title {
-  font-size: 0.96rem;
-  font-weight: 600;
-  color: #0f172a;
+  font-size: var(--font-size-medium);
+  font-weight: var(--font-weight-semibold);
+  color: var(--text-strong);
 }
 
 .student-profile-schedule-item__meta {
-  font-size: 0.84rem;
-  color: #475569;
+  font-size: var(--font-size-small);
+  color: var(--text-sub);
   margin-top: 4px;
   line-height: 1.45;
 }
 
 .student-profile-schedule-remove {
   flex-shrink: 0;
-  border: 0.5px solid rgba(148, 163, 184, 0.32);
-  background: rgba(255, 255, 255, 0.82);
-  color: #475569;
-  font-size: 0.84rem;
-  font-weight: 600;
+  border: none;
+  background: transparent;
+  color: var(--text-sub);
+  font-size: var(--font-size-medium);
+  font-weight: var(--font-weight-semibold);
   cursor: pointer;
-  padding: 8px 10px;
-  border-radius: 10px;
+  padding: 0;
+  border-radius: 0;
   transition:
-    background var(--dur-fast) var(--ease-press),
-    border-color var(--dur-fast) var(--ease-press),
+    color var(--dur-fast) var(--ease-press),
     transform var(--dur-fast) var(--ease-press);
 }
 
 .student-profile-schedule-remove:hover {
-  background: rgba(255, 255, 255, 0.98);
-  border-color: rgba(36, 59, 107, 0.24);
+  color: var(--text-main);
 }
 
 .student-profile-schedule-remove:active {
@@ -729,7 +871,7 @@ select {
 
 .student-profile-schedule-modal .dday-modal-inner {
   width: min(94vw, 420px);
-  max-height: min(96dvh, 760px);
+  max-height: min(760px, calc(var(--app-viewport-height) - 32px));
   overflow: hidden;
   padding: 14px 14px 12px;
 }
@@ -743,8 +885,8 @@ select {
 }
 
 .student-profile-schedule-modal .field-label {
-  font-size: 11px;
-  font-weight: 400;
+  font-size: var(--font-size-small);
+  font-weight: var(--font-weight-regular);
   color: var(--text-sub);
 }
 
@@ -759,9 +901,9 @@ select {
 }
 
 .student-profile-schedule-modal .add-plan-time-inline-label {
-  font-size: 12px;
-  font-weight: 700;
-  color: var(--accent-strong);
+  font-size: var(--font-size-small);
+  font-weight: var(--font-weight-bold);
+  color: var(--text-accent);
   margin-bottom: 3px;
 }
 
@@ -771,7 +913,7 @@ select {
 }
 
 .student-profile-schedule-modal .time-picker-preview {
-  font-size: 18px;
+  font-size: var(--font-size-large);
   line-height: 1.2;
   padding: 2px 0;
 }
@@ -790,7 +932,7 @@ select {
 
 .student-profile-schedule-modal .time-picker-option {
   padding: 6px 4px;
-  font-size: 14px;
+  font-size: var(--font-size-medium);
 }
 
 .student-profile-schedule-modal .dday-modal-footer {
@@ -829,10 +971,52 @@ select {
   margin-bottom: 0;
 }
 
+.student-profile-link-form {
+  margin-top: 16px;
+  padding-top: 14px;
+  border-top: var(--border-width) solid var(--border-neutral);
+}
+
+.student-profile-link-field {
+  margin-top: 0;
+}
+
+.student-profile-link-input {
+  margin-top: 8px;
+  border-radius: 12px;
+  background: transparent;
+}
+
+.student-profile-link-submit {
+  margin-top: 12px;
+  border: none;
+  background: transparent;
+  color: var(--text-sub);
+  font-size: var(--font-size-medium);
+  font-weight: var(--font-weight-semibold);
+  padding: 0;
+  cursor: pointer;
+  transition:
+    color var(--dur-fast) var(--ease-press),
+    transform var(--dur-fast) var(--ease-press);
+}
+
+.student-profile-link-submit:hover {
+  color: var(--text-main);
+}
+
+.student-profile-link-submit:active {
+  transform: scale(0.98);
+}
+
+.student-profile-link-feedback {
+  margin: 8px 0 0;
+}
+
 .student-profile-link-status {
   margin-top: 16px;
   padding-top: 14px;
-  border-top: 0.5px solid rgba(148, 163, 184, 0.28);
+  border-top: var(--border-width) solid var(--border-neutral);
   display: flex;
   flex-direction: column;
   gap: 6px;
@@ -842,14 +1026,18 @@ select {
   gap: 12px;
 }
 
+.student-profile-link-status--first {
+  margin-top: 12px;
+}
+
 .student-profile-link-status__title {
-  font-size: 13px;
-  font-weight: 700;
+  font-size: var(--font-size-medium);
+  font-weight: var(--font-weight-bold);
   color: var(--text-main);
 }
 
 .student-profile-link-status__hint {
-  font-size: 12px;
+  font-size: var(--font-size-small);
   color: var(--text-sub);
   line-height: 1.45;
 }
@@ -866,6 +1054,31 @@ select {
   gap: 8px;
 }
 
+.student-profile-link-action-btn {
+  border: none;
+  background: transparent;
+  color: var(--text-sub);
+  font-size: var(--font-size-medium);
+  font-weight: var(--font-weight-semibold);
+  padding: 0;
+  cursor: pointer;
+  transition:
+    color var(--dur-fast) var(--ease-press),
+    transform var(--dur-fast) var(--ease-press);
+}
+
+.student-profile-link-action-btn:hover {
+  color: var(--text-main);
+}
+
+.student-profile-link-action-btn:active {
+  transform: scale(0.98);
+}
+
+.student-profile-link-action-btn--danger:hover {
+  color: #b91c1c;
+}
+
 .coach-unified-tab-panel--fill {
   flex: 1 1 auto;
   min-height: 0;
@@ -879,6 +1092,7 @@ select {
   min-height: 0;
   overflow-y: auto;
   -webkit-overflow-scrolling: touch;
+  overscroll-behavior-y: contain;
 }
 
 /* 내일 계획 협업: 상단 카드·하단 입력 고정, 대화만 스크롤 */
@@ -896,6 +1110,7 @@ select {
   min-height: 0;
   overflow-y: auto;
   -webkit-overflow-scrolling: touch;
+  overscroll-behavior-y: contain;
 }
 
 .coach-tomorrow-collab__metrics {
@@ -906,14 +1121,14 @@ select {
 }
 
 .coach-tomorrow-collab__metric {
-  font-size: 12.5px;
+  font-size: var(--font-size-medium);
   line-height: 1.45;
-  color: rgba(71, 85, 105, 0.92);
+  color: var(--text-main);
 }
 
 .coach-tomorrow-collab__metric strong {
-  font-weight: 950;
-  color: rgba(15, 23, 42, 0.92);
+  font-weight: var(--font-weight-strong);
+  color: var(--text-strong);
   margin-left: 4px;
 }
 
@@ -921,9 +1136,9 @@ select {
   margin: 0;
   padding: 10px 12px;
   border-radius: 14px;
-  font-size: 12.5px;
+  font-size: var(--font-size-medium);
   line-height: 1.45;
-  color: #b91c1c;
+  color: var(--text-main);
   background: rgba(254, 226, 226, 0.65);
   border: 1px solid rgba(248, 113, 113, 0.35);
 }
@@ -943,14 +1158,14 @@ select {
 .coach-tomorrow-collab__apply-in-bubble {
   margin-top: 10px;
   padding-top: 10px;
-  border-top: 1px solid rgba(148, 163, 184, 0.22);
+  border-top: var(--border-width) solid var(--border-neutral);
 }
 
 .coach-tomorrow-collab__apply-bubble-btn {
   width: 100%;
   justify-content: center;
-  font-size: 12.8px;
-  font-weight: 700;
+  font-size: var(--font-size-medium);
+  font-weight: var(--font-weight-bold);
   padding: 9px 12px;
 }
 
@@ -993,11 +1208,11 @@ select {
   border-radius: 12px;
   padding: 7px 12px;
   font-family: inherit;
-  font-size: 12.8px;
-  font-weight: 600;
+  font-size: var(--font-size-medium);
+  font-weight: var(--font-weight-semibold);
   letter-spacing: -0.01em;
   line-height: 1.52;
-  color: rgba(255, 255, 255, 0.96);
+  color: #ffffff;
   cursor: pointer;
   text-align: center;
   -webkit-tap-highlight-color: transparent;
@@ -1117,9 +1332,9 @@ select {
 .timeline-sync-banner__text {
   flex: 1;
   margin: 0;
-  font-size: 13px;
+  font-size: var(--font-size-medium);
   line-height: 1.45;
-  color: #991b1b;
+  color: var(--text-main);
 }
 
 .timeline-sync-banner--success {
@@ -1128,7 +1343,7 @@ select {
 }
 
 .timeline-sync-banner__text--success {
-  color: #166534;
+  color: var(--text-main);
 }
 
 .timeline-sync-banner__dismiss {
@@ -1137,9 +1352,9 @@ select {
   padding: 4px 10px;
   border: none;
   border-radius: 8px;
-  background: rgba(255, 255, 255, 0.7);
-  font-size: 12px;
-  font-weight: 600;
+  background: var(--surface-base);
+  font-size: var(--font-size-small);
+  font-weight: var(--font-weight-semibold);
   color: var(--text-sub);
   cursor: pointer;
 }
@@ -1148,9 +1363,9 @@ select {
   margin-top: 4px;
   padding: 12px 12px;
   border-radius: 12px;
-  border: 0.5px solid var(--border-soft);
+  border: var(--border-width) solid var(--border-neutral);
   background: rgba(248, 250, 252, 0.96);
-  font-size: 14px;
+  font-size: var(--font-size-medium);
   line-height: 1.45;
 }
 
@@ -1163,8 +1378,8 @@ select {
 }
 
 .parent-plan-add-request-k {
-  font-size: 11px;
-  font-weight: 700;
+  font-size: var(--font-size-small);
+  font-weight: var(--font-weight-bold);
   color: var(--text-sub);
   margin-right: 4px;
 }
@@ -1181,6 +1396,18 @@ select {
   padding-bottom: 20px;
 }
 
+.timeline-card-with-action--today {
+  gap: 12px;
+  padding-bottom: 14px;
+}
+
+.timeline-card-with-action--today .timeline-add-button {
+  position: static;
+  align-self: flex-end;
+  margin-top: 0;
+  box-shadow: none;
+}
+
 .timeline-add-button {
   position: absolute;
   right: 12px;
@@ -1190,16 +1417,16 @@ select {
   border-radius: 999px;
   border: none;
   background: var(--accent-strong);
-  color: #f9fafb;
+  color: #ffffff;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  box-shadow: 0 10px 20px rgba(15, 23, 42, 0.28);
+  box-shadow: 0 10px 20px rgba(var(--text-strong-rgb), 0.28);
   cursor: pointer;
 }
 
 .timeline-add-button__icon {
-  font-size: 20px;
+  font-size: var(--font-size-large);
   line-height: 1;
 }
 
@@ -1228,16 +1455,16 @@ select {
   padding: 0;
   margin: 0;
   cursor: pointer;
-  font-size: 20px;
-  font-weight: 700;
-  color: var(--accent-strong);
+  font-size: var(--font-size-large);
+  font-weight: var(--font-weight-bold);
+  color: var(--text-accent);
   text-align: left;
 }
 
 .today-date-label {
-  font-size: 20px;
-  font-weight: 700;
-  color: var(--accent-strong);
+  font-size: var(--font-size-large);
+  font-weight: var(--font-weight-bold);
+  color: var(--text-accent);
   margin-left: auto;
   text-align: right;
 }
@@ -1260,13 +1487,13 @@ select {
 
 /* 오늘 기록: 다른 progress-card와 동일 표면(흰 배경·그림자) */
 .today-log-card {
-  background: #ffffff;
-  border: 0.5px solid var(--border-soft);
+  background: var(--surface-base);
+  border: var(--border-width) solid var(--border-neutral);
   box-shadow: var(--shadow-soft);
   color: var(--text-main);
   display: flex;
   flex-direction: column;
-  min-height: min(520px, calc(100dvh - 220px));
+  min-height: min(520px, calc(var(--app-viewport-height) - 220px));
 }
 
 .today-log-card__header {
@@ -1274,7 +1501,7 @@ select {
 }
 
 .today-log-card .progress-value {
-  color: var(--accent-strong);
+  color: var(--text-accent);
 }
 
 .today-log-card .field-label {
@@ -1283,8 +1510,8 @@ select {
 
 .today-log-card .field-input,
 .today-log-card textarea.field-input {
-  background: rgba(255, 255, 255, 0.96);
-  border: 0.5px solid rgba(148, 163, 184, 0.7);
+  background: var(--surface-base);
+  border: var(--border-width) solid var(--border-neutral);
   color: var(--text-main);
 }
 
@@ -1324,10 +1551,10 @@ select {
 .record-life-group-title {
   margin: 0;
   padding: 0 2px;
-  font-size: 13px;
-  font-weight: 700;
+  font-size: var(--font-size-medium);
+  font-weight: var(--font-weight-bold);
   letter-spacing: -0.02em;
-  color: var(--accent-strong);
+  color: var(--text-accent);
 }
 
 .record-life-group-head-row {
@@ -1350,12 +1577,12 @@ select {
   margin: 0;
   padding: 6px 10px;
   border-radius: 999px;
-  border: 0.5px solid var(--accent-strong);
-  background: var(--accent-strong);
-  font-size: 11px;
-  font-weight: 600;
+  border: 0.5px solid rgba(36, 59, 107, 0.18);
+  background: rgba(255, 255, 255, 0.92);
+  font-size: var(--font-size-small);
+  font-weight: var(--font-weight-semibold);
   line-height: 1.25;
-  color: #f9fafb;
+  color: var(--text-accent);
   cursor: pointer;
   text-align: center;
   white-space: nowrap;
@@ -1363,18 +1590,18 @@ select {
     background var(--dur-fast) var(--ease-press),
     border-color var(--dur-fast) var(--ease-press),
     box-shadow var(--dur-fast) var(--ease-press);
-  box-shadow: 0 2px 6px rgba(26, 47, 82, 0.22);
+  box-shadow: 0 1px 3px rgba(26, 47, 82, 0.08);
 }
 
 .records-tomorrow-coach-btn:hover {
-  background: var(--accent-hover);
-  border-color: var(--accent-hover);
+  background: rgba(255, 255, 255, 0.98);
+  border-color: rgba(36, 59, 107, 0.26);
 }
 
 .records-tomorrow-coach-btn:active {
   transform: scale(0.98);
-  background: var(--accent);
-  border-color: var(--accent);
+  background: rgba(248, 250, 252, 0.98);
+  border-color: rgba(36, 59, 107, 0.3);
 }
 
 /* 기록 탭 요일 카드 — 생활 기록 블록 · 학습 내일 편집 행 톤 통일 */
@@ -1384,8 +1611,8 @@ select {
   gap: 10px;
   padding: 10px 12px;
   border-radius: 12px;
-  border: 0.5px solid var(--border-soft);
-  background: #f8fafc;
+  border: var(--border-width) solid var(--border-neutral);
+  background: var(--neutral-surface);
 }
 
 .record-day-field {
@@ -1393,8 +1620,8 @@ select {
 }
 
 .record-day-field .field-label {
-  font-size: 12px;
-  font-weight: 600;
+  font-size: var(--font-size-small);
+  font-weight: var(--font-weight-semibold);
   color: var(--text-sub);
   letter-spacing: -0.01em;
 }
@@ -1403,9 +1630,9 @@ select {
 .progress-day-book--editable .books-plan-range.field-input {
   border-radius: 12px;
   padding: 8px 10px;
-  font-size: 14px;
-  border: 0.5px solid rgba(148, 163, 184, 0.55);
-  background: #ffffff;
+  font-size: var(--font-size-medium);
+  border: var(--border-width) solid var(--border-neutral);
+  background: var(--surface-base);
   color: var(--text-main);
   transition: border-color 0.15s ease-out, box-shadow 0.15s ease-out;
 }
@@ -1419,7 +1646,7 @@ select {
 
 .record-day-memo textarea.record-day-input {
   min-height: 72px;
-  resize: vertical;
+  resize: none;
   line-height: 1.45;
 }
 
@@ -1436,8 +1663,8 @@ select {
   min-width: 0;
   height: 28px;
   border-radius: 999px;
-  background: rgba(15, 23, 42, 0.07);
-  box-shadow: inset 0 1px 2px rgba(15, 23, 42, 0.06);
+  background: rgba(var(--text-strong-rgb), 0.07);
+  box-shadow: inset 0 1px 2px rgba(var(--text-strong-rgb), 0.06);
   overflow: hidden;
 }
 
@@ -1523,10 +1750,10 @@ select {
 .record-slider-value {
   min-width: 28px;
   text-align: right;
-  font-size: 14px;
-  font-weight: 600;
+  font-size: var(--font-size-medium);
+  font-weight: var(--font-weight-semibold);
   font-variant-numeric: tabular-nums;
-  color: var(--accent-strong);
+  color: var(--text-accent);
 }
 
 /* 생활 기록: 오른쪽 숫자 칸 너비 고정 → 슬라이더 바(캡슐) 가로 길이 유지 */
@@ -1547,7 +1774,7 @@ select {
 .record-primary-save-wrap {
   margin-top: 2px;
   padding-top: 10px;
-  border-top: 0.5px solid var(--border-soft);
+  border-top: var(--border-width) solid var(--border-neutral);
 }
 
 .record-primary-save-wrap .timeline-save-button {
@@ -1557,7 +1784,7 @@ select {
 .record-save-feedback {
   margin: 8px 0 0;
   text-align: center;
-  font-size: 11px;
+  font-size: var(--font-size-small);
 }
 
 .record-day-empty-hint {
@@ -1571,7 +1798,7 @@ select {
 
 .records-section-hint {
   margin: 4px 0 0;
-  font-size: 12px;
+  font-size: var(--font-size-small);
   line-height: 1.45;
 }
 
@@ -1591,8 +1818,66 @@ select {
   gap: 10px;
   padding: 10px 12px;
   border-radius: 12px;
-  border: 0.5px solid rgba(148, 163, 184, 0.35);
-  background: #f8fafc;
+  border: var(--border-width) solid var(--border-neutral);
+  background: var(--neutral-surface);
+}
+
+/* 기록 탭: 바깥 요일 카드만 표면으로 두고, 안쪽 묶음은 섹션처럼 정리 */
+.records-life-section .progress-day-card-body,
+.records-study-section .progress-day-card-body {
+  gap: 16px;
+}
+
+.records-life-section .record-life-group,
+.records-study-section .record-life-group {
+  gap: 10px;
+}
+
+.records-life-section .record-life-group + .record-life-group,
+.records-study-section .record-life-group + .record-life-group {
+  padding-top: 14px;
+  border-top: var(--border-width) solid rgba(var(--neutral-rgb), 0.18);
+}
+
+.records-life-section .record-day-block,
+.records-life-section .record-study-reflection-card,
+.records-study-section .record-day-block,
+.records-study-section .record-study-reflection-card {
+  gap: 12px;
+  padding: 0;
+  border: none;
+  border-radius: 0;
+  background: transparent;
+}
+
+.records-life-section .progress-day-book,
+.records-study-section .progress-day-book {
+  padding: 10px 0;
+  border: none;
+  border-radius: 0;
+  background: transparent;
+}
+
+.records-life-section .progress-day-book + .progress-day-book,
+.records-study-section .progress-day-book + .progress-day-book {
+  border-top: var(--border-width) solid rgba(var(--neutral-rgb), 0.16);
+}
+
+.records-life-section .progress-day-book-name,
+.records-study-section .progress-day-book-name {
+  margin-bottom: 6px;
+}
+
+.records-life-section .progress-day-book--editable .books-plan-inputs,
+.records-study-section .progress-day-book--editable .books-plan-inputs {
+  gap: 10px;
+  margin-top: 6px;
+}
+
+.records-life-section .record-primary-save-wrap,
+.records-study-section .record-primary-save-wrap {
+  margin-top: auto;
+  padding-top: 14px;
 }
 
 .timeline-save-button {
@@ -1600,10 +1885,10 @@ select {
   border: none;
   border-radius: 999px;
   padding: 12px 14px;
-  font-size: 14px;
-  font-weight: 600;
+  font-size: var(--font-size-medium);
+  font-weight: var(--font-weight-semibold);
   background: var(--accent-strong);
-  color: #f9fafb;
+  color: var(--neutral-surface);
   cursor: pointer;
   box-shadow: var(--shadow-soft);
 }
@@ -1620,18 +1905,31 @@ select {
   -webkit-overflow-scrolling: touch;
 }
 
+.timeline-card-with-action--today .timeline-list {
+  overflow: visible;
+}
+
+.timeline-item--commitment .time-main {
+  color: var(--text-accent);
+}
+
+.timeline-item--commitment:disabled {
+  opacity: 0.72;
+  cursor: not-allowed;
+}
+
 /* 타임라인 페이지 안 오늘의 핵심: 카드 열과 동일 표면·간격만 열 gap으로 */
 .timeline-page .coach-hero,
 .today-commitment-below-scroll .coach-hero {
   margin-bottom: 0;
-  border: 0.5px solid var(--border-soft);
+  border: var(--border-width) solid var(--border-neutral);
   box-shadow: var(--shadow-soft);
-  background: #ffffff;
+  background: var(--surface-base);
 }
 
 .timeline-page .coach-hero__bg,
 .today-commitment-below-scroll .coach-hero__bg {
-  background: #ffffff;
+  background: var(--surface-base);
 }
 
 .practice-commitment-card .coach-hero__bg {
@@ -1684,13 +1982,13 @@ button.practice-commitment-card:not(:disabled):active {
 }
 
 .practice-commitment-card__status {
-  font-size: 13px;
-  font-weight: 700;
-  color: var(--accent-strong);
+  font-size: var(--font-size-medium);
+  font-weight: var(--font-weight-bold);
+  color: var(--text-accent);
 }
 
 .practice-commitment-card--done .practice-commitment-card__status {
-  color: var(--accent-strong);
+  color: var(--text-accent);
 }
 
 .practice-commitment-card .coach-hero__content {
@@ -1743,12 +2041,12 @@ button.practice-commitment-card:not(:disabled):active {
 
 .dday-modal-inner {
   width: min(92vw, 380px);
-  max-height: min(88dvh, 640px);
+  max-height: min(640px, calc(var(--app-viewport-height) - 24px));
   overflow: auto;
   -webkit-overflow-scrolling: touch;
   border-radius: var(--modal-radius);
   background: var(--modal-surface-bg);
-  border: 0.5px solid var(--border-soft);
+  border: var(--border-width) solid var(--border-neutral);
   box-shadow: var(--modal-surface-shadow);
   padding: 16px 16px 14px;
   transform: var(--modal-inner-transform-from);
@@ -1783,8 +2081,8 @@ button.practice-commitment-card:not(:disabled):active {
 }
 
 .dday-modal-title {
-  font-size: 16px;
-  font-weight: 700;
+  font-size: var(--font-size-large);
+  font-weight: var(--font-weight-bold);
 }
 
 .dday-modal-body {
@@ -1802,18 +2100,18 @@ button.practice-commitment-card:not(:disabled):active {
 
 /* 오늘 계획 수정 요청: 책·시간 피커까지 한 화면에 담기 위해 모달 높이 상한 확대 (내부 스크롤 완화) */
 .dday-modal-inner--add-task {
-  max-height: min(96dvh, 900px);
+  max-height: min(900px, calc(var(--app-viewport-height) - 24px));
 }
 
 /* 같은 모달: 섹션 라벨(책·범위·시간)은 강조, 시작/종료는 보조 캡션으로 (기본 field-label ↔ 인라인 라벨 역할 정렬) */
 .dday-modal-inner--add-task .field-label {
-  font-size: 12px;
-  font-weight: 700;
+  font-size: var(--font-size-small);
+  font-weight: var(--font-weight-bold);
 }
 
 .dday-modal-inner--add-task .add-plan-time-inline-label {
-  font-size: 11px;
-  font-weight: 400;
+  font-size: var(--font-size-small);
+  font-weight: var(--font-weight-regular);
 }
 
 /* 시간 설정 — 디데이와 동일한 중앙 모달 (dday-modal 재사용) */
@@ -1828,11 +2126,11 @@ button.practice-commitment-card:not(:disabled):active {
 .time-picker-modal .time-picker-preview,
 .time-picker-inline .time-picker-preview {
   text-align: center;
-  font-size: 28px;
-  font-weight: 700;
+  font-size: var(--font-size-xlarge);
+  font-weight: var(--font-weight-bold);
   font-variant-numeric: tabular-nums;
   letter-spacing: 0.06em;
-  color: var(--accent-strong);
+  color: var(--text-accent);
   line-height: 1.15;
   padding: 4px 0 2px;
 }
@@ -1865,9 +2163,11 @@ button.practice-commitment-card:not(:disabled):active {
   height: 34px;
   transform: translateY(-50%);
   border-radius: 10px;
-  border: 0.5px solid rgba(148, 163, 184, 0.22);
-  background: rgba(255, 255, 255, 0.44);
-  box-shadow: 0 1px 4px rgba(15, 23, 42, 0.04);
+  border: var(--border-width) solid var(--border-neutral);
+  background: rgba(var(--neutral-surface-rgb), 0.14);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  box-shadow: 0 1px 4px rgba(var(--text-strong-rgb), 0.04);
   pointer-events: none;
   z-index: 3;
 }
@@ -1875,8 +2175,8 @@ button.practice-commitment-card:not(:disabled):active {
 .time-picker-modal .time-picker-col-label,
 .time-picker-inline .time-picker-col-label {
   text-align: center;
-  font-size: 11px;
-  font-weight: 700;
+  font-size: var(--font-size-small);
+  font-weight: var(--font-weight-bold);
   color: var(--text-sub);
   padding: 0 0 6px;
 }
@@ -1886,8 +2186,8 @@ button.practice-commitment-card:not(:disabled):active {
   overflow-y: auto;
   -webkit-overflow-scrolling: touch;
   border-radius: 14px;
-  border: 0.5px solid var(--border-soft);
-  background: #f1f5f9;
+  border: var(--border-width) solid var(--border-neutral);
+  background: var(--surface-base);
   padding: 56px 4px;
   max-height: 140px;
   scroll-snap-type: y mandatory;
@@ -1904,10 +2204,10 @@ button.practice-commitment-card:not(:disabled):active {
   border-radius: 10px;
   background: transparent;
   padding: 8px 6px;
-  font-size: 15px;
-  font-weight: 600;
+  font-size: var(--font-size-medium);
+  font-weight: var(--font-weight-semibold);
   font-variant-numeric: tabular-nums;
-  color: rgba(71, 85, 105, 0.88);
+  color: var(--text-main);
   cursor: pointer;
   transition: background 0.12s ease, color 0.12s ease, box-shadow 0.12s ease;
   scroll-snap-align: center;
@@ -1915,14 +2215,14 @@ button.practice-commitment-card:not(:disabled):active {
 
 .time-picker-modal .time-picker-option:hover,
 .time-picker-inline .time-picker-option:hover {
-  background: rgba(255, 255, 255, 0.75);
-  color: var(--accent-strong);
+  background: var(--surface-base);
+  color: var(--text-accent);
 }
 
 .time-picker-modal .time-picker-option--active,
 .time-picker-inline .time-picker-option--active {
   background: transparent;
-  color: var(--accent-strong);
+  color: var(--text-accent);
   box-shadow: none;
 }
 
@@ -1935,7 +2235,7 @@ button.practice-commitment-card:not(:disabled):active {
 }
 
 .dday-modal-body .time-picker-inline:not(.date-picker-inline) .time-picker-preview {
-  font-size: 22px;
+  font-size: var(--font-size-large);
   padding: 8px 0 4px;
 }
 
@@ -1969,7 +2269,7 @@ button.practice-commitment-card:not(:disabled):active {
 }
 
 .dday-modal-body .date-picker-inline .time-picker-preview {
-  font-size: 20px;
+  font-size: var(--font-size-large);
   letter-spacing: -0.02em;
   padding: 8px 0 4px;
 }
@@ -1983,8 +2283,8 @@ button.practice-commitment-card:not(:disabled):active {
 
 .add-plan-time-inline-label {
   display: block;
-  font-size: 12px;
-  font-weight: 700;
+  font-size: var(--font-size-small);
+  font-weight: var(--font-weight-bold);
   color: var(--text-sub);
   margin-bottom: 4px;
 }
@@ -1998,21 +2298,40 @@ button.practice-commitment-card:not(:disabled):active {
 }
 
 .week-switch-card .week-switch-btn {
-  width: 32px;
-  height: 32px;
-  min-width: 32px;
+  width: 36px;
+  height: 36px;
+  min-width: 36px;
   border-radius: 999px;
-  font-size: 16px;
   padding: 0;
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  border: 0;
+  background: transparent;
+  color: var(--text-accent);
+  box-shadow: none;
+  transition:
+    background-color 160ms ease,
+    color 160ms ease,
+    transform 160ms ease;
+}
+
+.week-switch-card .week-switch-btn:hover {
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+}
+
+.week-switch-card .week-switch-btn:active {
+  transform: scale(0.96);
+}
+
+.week-switch-card .week-switch-btn svg {
+  display: block;
 }
 
 .week-switch-card .week-switch-label {
-  font-size: 20px;
-  font-weight: 700;
-  color: var(--accent-strong);
+  font-size: var(--font-size-large);
+  font-weight: var(--font-weight-bold);
+  color: var(--text-accent);
 }
 
 .week-books-section {
@@ -2041,6 +2360,10 @@ button.practice-commitment-card:not(:disabled):active {
 .week-books-card .books-delete {
   flex-shrink: 0;
   margin-left: auto;
+}
+
+.week-books-card .timeline-add-button {
+  box-shadow: none;
 }
 
 .today-timeline {
@@ -2073,12 +2396,12 @@ button.practice-commitment-card:not(:disabled):active {
 
 .section-title {
   margin: 0;
-  font-size: 16px;
+  font-size: var(--font-size-large);
   letter-spacing: -0.02em;
 }
 
 .section-caption {
-  font-size: 11px;
+  font-size: var(--font-size-small);
   color: var(--text-sub);
 }
 
@@ -2100,10 +2423,10 @@ button.practice-commitment-card:not(:disabled):active {
   flex: 0 0 auto;
   padding: 8px 14px;
   border-radius: 999px;
-  border: 0.5px solid var(--border-soft);
-  background: #ffffff;
-  font-size: 13px;
-  font-weight: 600;
+  border: var(--border-width) solid var(--border-neutral);
+  background: var(--surface-base);
+  font-size: var(--font-size-medium);
+  font-weight: var(--font-weight-semibold);
   color: var(--text-sub);
   cursor: pointer;
   white-space: nowrap;
@@ -2122,7 +2445,7 @@ button.practice-commitment-card:not(:disabled):active {
 .store-filter-btn--active {
   background: var(--accent-strong);
   border-color: var(--accent-strong);
-  color: #f9fafb;
+  color: var(--neutral-surface);
 }
 
 /* 오늘 계획 수정 요청 모달: 책 선택 — 코치/앱스토어와 동일 가로 스크롤 필 */
@@ -2141,8 +2464,8 @@ button.practice-commitment-card:not(:disabled):active {
 
 .store-card {
   border-radius: var(--radius-xl);
-  border: 0.5px solid var(--border-soft);
-  background: #ffffff;
+  border: var(--border-width) solid var(--border-neutral);
+  background: var(--surface-base);
   box-shadow: var(--shadow-soft);
   padding: 14px;
   display: flex;
@@ -2193,21 +2516,21 @@ button.practice-commitment-card:not(:disabled):active {
 }
 
 .store-card-summary__hint {
-  font-size: 11px;
+  font-size: var(--font-size-small);
   color: var(--text-sub);
-  font-weight: 500;
+  font-weight: var(--font-weight-medium);
 }
 
 .store-detail-category {
   margin: 0 0 8px;
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--accent-strong);
+  font-size: var(--font-size-small);
+  font-weight: var(--font-weight-semibold);
+  color: var(--text-accent);
 }
 
 .store-detail-description {
   margin: 0;
-  font-size: 14px;
+  font-size: var(--font-size-medium);
   line-height: 1.55;
   color: var(--text-main);
   white-space: pre-wrap;
@@ -2246,12 +2569,12 @@ button.practice-commitment-card:not(:disabled):active {
 
 .store-detail-sheet {
   width: min(100%, 380px);
-  max-height: min(88dvh, 640px);
+  max-height: min(640px, calc(var(--app-viewport-height) - 32px));
   overflow: auto;
   -webkit-overflow-scrolling: touch;
   border-radius: var(--modal-radius);
   background: var(--modal-surface-bg);
-  border: 0.5px solid var(--border-soft);
+  border: var(--border-width) solid var(--border-neutral);
   box-shadow: var(--modal-surface-shadow);
   padding: 16px 16px 14px;
   transform: var(--modal-inner-transform-from);
@@ -2268,12 +2591,12 @@ button.practice-commitment-card:not(:disabled):active {
 
 .store-detail-category--muted {
   color: var(--text-sub);
-  font-weight: 500;
+  font-weight: var(--font-weight-medium);
 }
 
 .app-allow-plan-modal-inner {
   width: min(94vw, 480px);
-  max-height: min(90dvh, 760px);
+  max-height: min(760px, calc(var(--app-viewport-height) - 32px));
 }
 
 .app-allow-plan-header {
@@ -2285,7 +2608,7 @@ button.practice-commitment-card:not(:disabled):active {
 
 .app-allow-plan-date {
   margin: 4px 0 0;
-  font-size: 12px;
+  font-size: var(--font-size-small);
   color: var(--text-sub);
 }
 
@@ -2298,16 +2621,26 @@ button.practice-commitment-card:not(:disabled):active {
   border-radius: 999px;
   background: var(--accent-tint-bg);
   border: 0.5px solid var(--accent-border);
-  color: var(--accent-strong);
-  font-size: 11px;
-  font-weight: 700;
+  color: var(--text-accent);
+  font-size: var(--font-size-small);
+  font-weight: var(--font-weight-bold);
 }
 
 .app-allow-plan-summary {
   margin: 0;
-  font-size: 13px;
+  font-size: var(--font-size-medium);
   line-height: 1.55;
   color: var(--text-sub);
+}
+
+.app-allow-plan-toolbar {
+  margin-top: 12px;
+  display: flex;
+  justify-content: flex-end;
+}
+
+.app-allow-plan-toolbar__button {
+  min-height: 36px;
 }
 
 .app-allow-plan-slot-list {
@@ -2318,7 +2651,7 @@ button.practice-commitment-card:not(:disabled):active {
 
 .app-allow-plan-slot {
   border-radius: 14px;
-  border: 0.5px solid rgba(148, 163, 184, 0.28);
+  border: var(--border-width) solid var(--border-neutral);
   background: rgba(248, 250, 252, 0.92);
   padding: 12px;
 }
@@ -2331,15 +2664,15 @@ button.practice-commitment-card:not(:disabled):active {
 }
 
 .app-allow-plan-slot__time {
-  font-size: 13px;
-  font-weight: 800;
-  color: var(--accent-strong);
+  font-size: var(--font-size-medium);
+  font-weight: var(--font-weight-strong);
+  color: var(--text-accent);
 }
 
 .app-allow-plan-slot__title {
   margin-top: 4px;
-  font-size: 14px;
-  font-weight: 700;
+  font-size: var(--font-size-medium);
+  font-weight: var(--font-weight-bold);
   color: var(--text-main);
 }
 
@@ -2351,18 +2684,63 @@ button.practice-commitment-card:not(:disabled):active {
   min-width: 42px;
   padding: 4px 8px;
   border-radius: 999px;
-  background: #ffffff;
-  border: 0.5px solid rgba(148, 163, 184, 0.3);
-  font-size: 11px;
-  font-weight: 700;
-  color: #475569;
+  background: var(--surface-base);
+  border: var(--border-width) solid var(--border-neutral);
+  font-size: var(--font-size-small);
+  font-weight: var(--font-weight-bold);
+  color: var(--text-main);
 }
 
 .app-allow-plan-slot__reason {
   margin: 8px 0 0;
-  font-size: 12px;
+  font-size: var(--font-size-small);
   line-height: 1.5;
-  color: #475569;
+  color: var(--text-main);
+}
+
+.app-allow-plan-slot__edit-row {
+  margin-top: 10px;
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.app-allow-plan-slot__time-field {
+  flex: 1;
+  min-width: 110px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.app-allow-plan-slot__time-label {
+  font-size: var(--font-size-small);
+  color: var(--text-sub);
+}
+
+.app-allow-plan-slot__time-input {
+  width: 100%;
+  min-height: 40px;
+  border-radius: 12px;
+  border: var(--border-width) solid var(--border-neutral);
+  background: var(--surface-base);
+  padding: 8px 10px;
+  font-size: var(--font-size-medium);
+  font-weight: var(--font-weight-semibold);
+  color: var(--text-accent);
+}
+
+.app-allow-plan-slot__delete {
+  min-height: 40px;
+  border-radius: 12px;
+  border: var(--border-width) solid rgba(184, 67, 54, 0.24);
+  background: rgba(184, 67, 54, 0.08);
+  padding: 8px 12px;
+  font-size: var(--font-size-small);
+  font-weight: var(--font-weight-bold);
+  color: #8d2c22;
+  cursor: pointer;
 }
 
 .app-allow-plan-slot__apps {
@@ -2378,16 +2756,68 @@ button.practice-commitment-card:not(:disabled):active {
   justify-content: center;
   padding: 6px 10px;
   border-radius: 999px;
-  background: #ffffff;
+  background: var(--surface-base);
   border: 0.5px solid rgba(36, 59, 107, 0.2);
-  color: var(--accent-strong);
+  color: var(--text-accent);
+  font-size: var(--font-size-small);
+  font-weight: var(--font-weight-bold);
+}
+
+.app-allow-plan-chip--selected {
+  cursor: pointer;
+  gap: 6px;
+}
+
+.app-allow-plan-chip__remove {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  border-radius: 999px;
+  background: rgba(36, 59, 107, 0.08);
   font-size: 11px;
-  font-weight: 700;
 }
 
 .app-allow-plan-chip--empty {
   border-style: dashed;
-  color: #64748b;
+  color: var(--text-main);
+}
+
+.app-allow-plan-slot__actions {
+  margin-top: 10px;
+  display: flex;
+  justify-content: flex-end;
+}
+
+.app-allow-plan-slot__picker-toggle {
+  min-height: 34px;
+}
+
+.app-allow-plan-slot__picker {
+  margin-top: 10px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding-top: 10px;
+  border-top: var(--border-width) solid rgba(36, 59, 107, 0.08);
+}
+
+.app-allow-plan-chip--picker {
+  cursor: pointer;
+}
+
+.app-allow-plan-chip--picker-selected {
+  background: var(--accent);
+  border-color: var(--accent-strong);
+  color: var(--neutral-surface);
+}
+
+.app-allow-plan-slot__picker-empty {
+  margin: 0;
+  font-size: var(--font-size-small);
+  color: var(--text-sub);
+  line-height: 1.5;
 }
 
 .app-allow-plan-empty {
@@ -2395,15 +2825,15 @@ button.practice-commitment-card:not(:disabled):active {
   padding: 12px;
   border-radius: 14px;
   background: rgba(248, 250, 252, 0.9);
-  border: 0.5px solid rgba(148, 163, 184, 0.22);
+  border: var(--border-width) solid var(--border-neutral);
   color: var(--text-sub);
-  font-size: 13px;
+  font-size: var(--font-size-medium);
   line-height: 1.55;
 }
 
 .app-allow-plan-model {
   margin: 2px 0 0;
-  font-size: 11px;
+  font-size: var(--font-size-small);
   color: var(--text-sub);
 }
 
@@ -2437,21 +2867,21 @@ button.practice-commitment-card:not(:disabled):active {
   min-width: 56px;
   padding: 4px 8px;
   border-radius: 999px;
-  font-size: 11px;
-  color: var(--accent-strong);
+  font-size: var(--font-size-small);
+  color: var(--text-accent);
   border: 0.5px solid var(--accent-border);
   background: var(--accent-tint-bg);
 }
 
 .store-title {
   margin: 0;
-  font-size: 16px;
+  font-size: var(--font-size-large);
   letter-spacing: -0.01em;
 }
 
 .store-desc {
   margin: 0;
-  font-size: 13px;
+  font-size: var(--font-size-medium);
   color: var(--text-sub);
   line-height: 1.45;
 }
@@ -2459,7 +2889,7 @@ button.practice-commitment-card:not(:disabled):active {
 .store-notice,
 .store-meta {
   margin: 0;
-  font-size: 12px;
+  font-size: var(--font-size-small);
   line-height: 1.45;
   color: var(--text-sub);
 }
@@ -2474,8 +2904,8 @@ button.practice-commitment-card:not(:disabled):active {
   border-radius: 10px;
   padding: 8px 12px;
   background: rgba(36, 59, 107, 0.08);
-  color: var(--accent-strong);
-  font-weight: 700;
+  color: var(--text-accent);
+  font-weight: var(--font-weight-bold);
   cursor: pointer;
 }
 
@@ -2492,8 +2922,8 @@ button.practice-commitment-card:not(:disabled):active {
   border-radius: 10px;
   padding: 8px 12px;
   background: var(--accent-strong);
-  color: #f9fafb;
-  font-weight: 700;
+  color: var(--neutral-surface);
+  font-weight: var(--font-weight-bold);
   cursor: pointer;
 }
 
@@ -2505,7 +2935,7 @@ button.practice-commitment-card:not(:disabled):active {
 
 .store-install-btn-installed {
   background: rgba(36, 59, 107, 0.12);
-  color: var(--accent-strong);
+  color: var(--text-accent);
 }
 
 .timeline-list {
@@ -2516,13 +2946,13 @@ button.practice-commitment-card:not(:disabled):active {
 
 .timeline-item {
   display: grid;
-  grid-template-columns: 1.2fr 1.1fr auto;
+  grid-template-columns: minmax(0, 1fr) auto;
   gap: 10px;
   align-items: center;
   border-radius: var(--radius-lg);
   padding: 11px 12px;
-  border: 0.5px solid var(--border-soft);
-  background: #ffffff;
+  border: var(--border-width) solid var(--border-neutral);
+  background: var(--surface-base);
   box-shadow: var(--shadow-soft);
   cursor: pointer;
   transition: transform var(--dur-fast) var(--ease-press),
@@ -2546,44 +2976,26 @@ button.practice-commitment-card:not(:disabled):active {
 .time-col {
   display: flex;
   flex-direction: column;
-  gap: 3px;
+  gap: 4px;
+  min-width: 0;
 }
 
 .time-main {
-  font-weight: 600;
-  font-size: 14px;
+  font-weight: var(--font-weight-semibold);
+  font-size: var(--font-size-medium);
 }
 
-.time-sub {
-  font-size: 11px;
-  color: var(--text-sub);
+.timeline-book-name {
+  font-size: var(--font-size-medium);
+  font-weight: var(--font-weight-semibold);
+  color: var(--text-accent);
+  line-height: 1.3;
 }
 
-.time-plan-range {
-  font-size: 11px;
-  color: rgba(100, 116, 139, 0.95);
+.timeline-plan-range {
+  font-size: var(--font-size-small);
+  color: var(--text-main);
   line-height: 1.35;
-}
-
-.subject-col {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  align-items: flex-start;
-}
-
-.subject-pill {
-  padding: 4px 8px;
-  border-radius: 999px;
-  font-size: 12px;
-  background: var(--accent-soft);
-  color: var(--accent-strong);
-  font-weight: 500;
-}
-
-.subject-tag {
-  font-size: 11px;
-  color: var(--text-sub);
 }
 
 .check-col {
@@ -2595,7 +3007,7 @@ button.practice-commitment-card:not(:disabled):active {
   width: 22px;
   height: 22px;
   border-radius: 999px;
-  border: 2px solid rgba(148, 163, 184, 0.45);
+  border: 2px solid rgba(var(--neutral-rgb), 0.45);
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -2615,7 +3027,7 @@ button.practice-commitment-card:not(:disabled):active {
 
 .empty-state {
   margin: 12px 4px 0;
-  font-size: 13px;
+  font-size: var(--font-size-medium);
   color: var(--text-sub);
 }
 
@@ -2623,15 +3035,15 @@ button.practice-commitment-card:not(:disabled):active {
   position: sticky;
   bottom: 66px;
   padding-bottom: 0;
-  background: #f9fafb;
+  background: var(--neutral-surface);
   backdrop-filter: none;
 }
 
 .add-card {
   padding: 12px 12px 12px;
   border-radius: 22px;
-  background: #ffffff;
-  border: 0.5px solid var(--border-soft);
+  background: var(--surface-base);
+  border: var(--border-width) solid var(--border-neutral);
   box-shadow: var(--shadow-soft);
   display: flex;
   flex-direction: column;
@@ -2651,16 +3063,17 @@ button.practice-commitment-card:not(:disabled):active {
 }
 
 .field-label {
-  font-size: 11px;
+  font-size: var(--font-size-small);
+  font-family: var(--font-family-base);
   color: var(--text-sub);
 }
 
 .field-input {
   border-radius: 14px;
   padding: 7px 11px;
-  border: 0.5px solid rgba(148, 163, 184, 0.7);
-  background: rgba(255, 255, 255, 0.96);
-  font-size: 13px;
+  border: var(--border-width) solid var(--border-neutral);
+  background: var(--surface-base);
+  font-size: var(--font-size-medium);
   outline: none;
   transition: border-color 0.15s ease-out, box-shadow 0.15s ease-out,
     background 0.15s ease-out;
@@ -2669,11 +3082,11 @@ button.practice-commitment-card:not(:disabled):active {
 .field-input:focus {
   border-color: var(--accent-strong);
   box-shadow: 0 0 0 1px var(--accent-ring);
-  background: #ffffff;
+  background: var(--surface-base);
 }
 
 .field-input::placeholder {
-  color: rgba(148, 163, 184, 0.9);
+  color: var(--text-main);
 }
 
 .quick-chips {
@@ -2685,10 +3098,10 @@ button.practice-commitment-card:not(:disabled):active {
 .chip {
   padding: 4px 10px;
   border-radius: 999px;
-  border: 0.5px solid rgba(148, 163, 184, 0.6);
+  border: var(--border-width) solid var(--border-neutral);
   background: rgba(248, 250, 252, 0.96);
-  font-size: 11px;
-  color: #4b5563;
+  font-size: var(--font-size-small);
+  color: var(--text-main);
   cursor: pointer;
   transition: background 0.12s ease-out, transform 0.08s ease-out,
     border-color 0.12s ease-out;
@@ -2697,7 +3110,7 @@ button.practice-commitment-card:not(:disabled):active {
 .chip-active {
   background: var(--accent-soft);
   border-color: var(--accent-strong);
-  color: var(--accent-strong);
+  color: var(--text-accent);
   transform: translateY(0.5px);
 }
 
@@ -2712,7 +3125,7 @@ button.practice-commitment-card:not(:disabled):active {
 .time-divider {
   align-self: flex-end;
   padding-bottom: 9px;
-  font-size: 14px;
+  font-size: var(--font-size-medium);
   color: var(--text-sub);
 }
 
@@ -2723,10 +3136,9 @@ button.practice-commitment-card:not(:disabled):active {
   padding: 9px 14px;
   border: none;
   background: var(--accent);
-  color: white;
-  font-size: 14px;
-  font-weight: 600;
-  letter-spacing: 0.02em;
+  color: #ffffff;
+  font-size: var(--font-size-medium);
+  font-weight: var(--font-weight-semibold);
   cursor: pointer;
   box-shadow: var(--shadow-soft);
   transition: transform var(--dur-fast) var(--ease-press),
@@ -2760,7 +3172,7 @@ button.practice-commitment-card:not(:disabled):active {
   border: none;
   background: var(--accent);
   color: #ffffff;
-  font-size: 26px;
+  font-size: var(--font-size-xlarge);
   line-height: 1;
   display: flex;
   align-items: center;
@@ -2814,7 +3226,7 @@ button.practice-commitment-card:not(:disabled):active {
   margin: 0 auto;
   border-radius: var(--modal-radius) var(--modal-radius) 0 0;
   background: var(--modal-surface-bg);
-  border: 0.5px solid var(--border-soft);
+  border: var(--border-width) solid var(--border-neutral);
   border-bottom: none;
   padding: 16px 16px max(18px, env(safe-area-inset-bottom));
   box-shadow: var(--modal-surface-shadow);
@@ -2837,8 +3249,8 @@ button.practice-commitment-card:not(:disabled):active {
 }
 
 .modal-title {
-  font-size: 16px;
-  font-weight: 700;
+  font-size: var(--font-size-large);
+  font-weight: var(--font-weight-bold);
   letter-spacing: -0.02em;
   color: var(--text-main);
 }
@@ -2860,14 +3272,14 @@ button.practice-commitment-card:not(:disabled):active {
 .modal-primary {
   border-radius: 999px;
   padding: 7px 14px;
-  font-size: 13px;
+  font-size: var(--font-size-medium);
   border: none;
   cursor: pointer;
 }
 
 .modal-secondary {
-  background: #e5e7eb;
-  color: #374151;
+  background: var(--neutral-surface);
+  color: var(--text-main);
 }
 
 .modal-primary {
@@ -2886,17 +3298,17 @@ button.practice-commitment-card:not(:disabled):active {
   flex: 1 1 auto;
   width: 100%;
   max-width: 100%;
-  min-height: 100vh;
-  min-height: 100dvh;
+  min-height: var(--app-viewport-height);
   display: flex;
   flex-direction: column;
   background:
     radial-gradient(900px 420px at 50% -220px, rgba(255, 255, 255, 0.1), transparent 72%),
-    linear-gradient(180deg, #081b3d 0%, #071634 56%, #06122a 100%);
+    linear-gradient(180deg, var(--accent) 0%, var(--accent) 100%);
   box-sizing: border-box;
   overflow: hidden;
   transition: opacity var(--dur-slow) var(--ease-standard),
     transform var(--dur-slow) var(--ease-standard);
+  min-width: 0;
 }
 
 .auth-page::before {
@@ -2916,7 +3328,11 @@ button.practice-commitment-card:not(:disabled):active {
   content: "";
   position: absolute;
   inset: 0;
-  background: linear-gradient(180deg, rgba(3, 10, 24, 0.15), rgba(3, 10, 24, 0.38));
+  background: linear-gradient(
+    180deg,
+    rgba(var(--accent-rgb), 0.12),
+    rgba(var(--accent-rgb), 0.28)
+  );
   pointer-events: none;
 }
 
@@ -2931,13 +3347,20 @@ button.practice-commitment-card:not(:disabled):active {
   z-index: 2;
   flex: 1 1 auto;
   width: 100%;
-  max-width: 460px;
+  max-width: 520px;
   min-width: 0;
+  min-height: 0;
   margin: 0 auto;
-  padding: 12px 20px 28px;
+  padding: 8px 14px 28px;
   display: flex;
   flex-direction: column;
   justify-content: center;
+}
+
+@supports (padding: max(env(safe-area-inset-top), 0px)) {
+  .auth-page-inner {
+    padding-top: max(env(safe-area-inset-top), 8px);
+  }
 }
 
 .auth-panel {
@@ -2947,23 +3370,23 @@ button.practice-commitment-card:not(:disabled):active {
 }
 
 .auth-panel.coach-card {
-  background: #ffffff;
-  border: 0.5px solid rgba(148, 163, 184, 0.28);
+  background: var(--surface-base);
+  border: var(--border-width) solid var(--border-neutral);
   box-shadow: 0 14px 28px rgba(2, 8, 23, 0.22);
 }
 
 .auth-title {
   margin: 0;
-  font-size: 22px;
-  font-weight: 800;
+  font-size: var(--font-size-large);
+  font-weight: var(--font-weight-strong);
   letter-spacing: -0.02em;
-  color: #0f172a;
+  color: var(--text-strong);
 }
 
 .auth-desc {
   margin: 0;
-  font-size: 13px;
-  color: #4b5563;
+  font-size: var(--font-size-medium);
+  color: var(--text-main);
   line-height: 1.45;
 }
 
@@ -2972,8 +3395,8 @@ button.practice-commitment-card:not(:disabled):active {
   display: flex;
   padding: 3px;
   border-radius: 999px;
-  border: 0.5px solid rgba(148, 163, 184, 0.38);
-  background: #ffffff;
+  border: var(--border-width) solid var(--border-neutral);
+  background: var(--surface-base);
 }
 
 .auth-tabs--segmented {
@@ -2989,7 +3412,7 @@ button.practice-commitment-card:not(:disabled):active {
   width: calc(50% - 3px);
   height: calc(100% - 6px);
   border-radius: 999px;
-  background: rgba(236, 242, 252, 0.95);
+  background: rgba(var(--accent-rgb), 0.12);
   box-shadow: 0 2px 8px rgba(2, 8, 23, 0.12);
   pointer-events: none;
   transition: transform 0.32s cubic-bezier(0.4, 0, 0.2, 1);
@@ -3006,16 +3429,16 @@ button.practice-commitment-card:not(:disabled):active {
   border-radius: 999px;
   border: none;
   background: transparent;
-  font-size: 13px;
+  font-size: var(--font-size-medium);
   padding: 7px 0;
   cursor: pointer;
-  color: #5b6b86;
+  color: var(--text-sub);
   transition: color 0.28s ease, font-weight 0.2s ease;
 }
 
 .auth-tab.active {
-  color: #143365;
-  font-weight: 600;
+  color: var(--text-main);
+  font-weight: var(--font-weight-semibold);
   background: transparent;
   box-shadow: none;
 }
@@ -3099,8 +3522,8 @@ button.practice-commitment-card:not(:disabled):active {
 
 .auth-field label {
   display: block;
-  font-size: 11px;
-  color: #64748b;
+  font-size: var(--font-size-small);
+  color: var(--text-main);
   margin-bottom: 5px;
   padding-left: 2px;
 }
@@ -3108,11 +3531,11 @@ button.practice-commitment-card:not(:disabled):active {
 .auth-input {
   width: 100%;
   border-radius: 12px;
-  border: 0.5px solid rgba(148, 163, 184, 0.44);
-  background: #ffffff;
+  border: var(--border-width) solid var(--border-neutral);
+  background: var(--surface-base);
   padding: 10px 12px;
-  font-size: 14px;
-  color: #0f172a;
+  font-size: var(--font-size-medium);
+  color: var(--text-strong);
   outline: none;
   transition: border-color var(--dur-fast) var(--ease-press),
     box-shadow var(--dur-fast) var(--ease-press),
@@ -3120,19 +3543,19 @@ button.practice-commitment-card:not(:disabled):active {
 }
 
 .auth-input::placeholder {
-  color: rgba(100, 116, 139, 0.7);
+  color: var(--text-main);
 }
 
 .auth-input:focus {
   border-color: var(--accent-strong);
-  background: #ffffff;
+  background: var(--surface-base);
   box-shadow: 0 0 0 2px rgba(36, 59, 107, 0.16);
   transform: translateY(-0.5px);
 }
 
 .auth-error {
-  font-size: 12px;
-  color: #fecaca;
+  font-size: var(--font-size-small);
+  color: var(--text-main);
   min-height: 16px;
 }
 
@@ -3144,8 +3567,8 @@ button.practice-commitment-card:not(:disabled):active {
   background: var(--accent);
   color: #ffffff;
   padding: 11px 12px;
-  font-size: 14px;
-  font-weight: 600;
+  font-size: var(--font-size-medium);
+  font-weight: var(--font-weight-semibold);
   cursor: pointer;
   box-shadow: 0 8px 16px rgba(36, 59, 107, 0.24);
   transition: transform var(--dur-fast) var(--ease-press),
@@ -3165,8 +3588,8 @@ button.practice-commitment-card:not(:disabled):active {
 
 @media (min-width: 768px) {
   .auth-page-inner {
-    max-width: 520px;
-    padding-top: 22px;
+    max-width: 580px;
+    padding-top: 14px;
     padding-bottom: 32px;
   }
 
@@ -3181,7 +3604,7 @@ button.practice-commitment-card:not(:disabled):active {
 
 .auth-confirm-btn-secondary {
   background: #fee2e2;
-  color: #b91c1c;
+  color: var(--text-main);
 }
 
 .auth-confirm-btn-secondary:hover {
@@ -3231,8 +3654,8 @@ button.practice-commitment-card:not(:disabled):active {
   margin: 8px 4px 0;
   padding: 14px 14px 12px;
   border-radius: var(--radius-xl);
-  background: #ffffff;
-  border: 0.5px solid var(--border-soft);
+  background: var(--surface-base);
+  border: var(--border-width) solid var(--border-neutral);
   box-shadow: var(--shadow-soft);
 }
 
@@ -3244,8 +3667,8 @@ button.practice-commitment-card:not(:disabled):active {
 }
 
 .week-day-header {
-  font-size: 13px;
-  font-weight: 600;
+  font-size: var(--font-size-medium);
+  font-weight: var(--font-weight-semibold);
   margin-bottom: 8px;
 }
 
@@ -3253,7 +3676,7 @@ button.practice-commitment-card:not(:disabled):active {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  font-size: 13px;
+  font-size: var(--font-size-medium);
   padding-bottom: 4px;
 }
 
@@ -3262,12 +3685,12 @@ button.practice-commitment-card:not(:disabled):active {
 }
 
 .week-value {
-  font-weight: 600;
+  font-weight: var(--font-weight-semibold);
 }
 
 .week-hint {
   margin-top: 8px;
-  font-size: 11px;
+  font-size: var(--font-size-small);
   color: var(--text-sub);
 }
 
@@ -3282,9 +3705,9 @@ button.practice-commitment-card:not(:disabled):active {
 .week-switch-btn {
   min-width: 70px;
   border-radius: 999px;
-  border: 0.5px solid var(--border-soft);
-  background: #ffffff;
-  font-size: 12px;
+  border: var(--border-width) solid var(--border-neutral);
+  background: var(--surface-base);
+  font-size: var(--font-size-small);
   padding: 6px 10px;
   cursor: pointer;
 }
@@ -3298,8 +3721,8 @@ button.practice-commitment-card:not(:disabled):active {
 }
 
 .week-switch-label {
-  font-size: 13px;
-  font-weight: 600;
+  font-size: var(--font-size-medium);
+  font-weight: var(--font-weight-semibold);
 }
 
 .week-switch-underline {
@@ -3328,27 +3751,22 @@ button.practice-commitment-card:not(:disabled):active {
   scroll-snap-align: center;
   flex: 0 0 100%;
   max-width: 100%;
-  min-height: min(420px, calc(100dvh - 220px));
-  background: #ffffff;
+  min-height: min(420px, calc(var(--app-viewport-height) - 220px));
+  background: var(--surface-base);
   border-radius: var(--radius-xl);
-  border: 0.5px solid var(--border-soft);
+  border: var(--border-width) solid var(--border-neutral);
   box-shadow: var(--shadow-soft);
   display: flex;
   flex-direction: column;
 }
 
-.progress-day-card--today {
-  border-color: var(--accent-border-strong);
-  box-shadow: var(--shadow-soft);
-}
-
 .progress-day-card-header {
   padding: 10px 12px;
-  font-size: 15px;
-  font-weight: 700;
+  font-size: var(--font-size-medium);
+  font-weight: var(--font-weight-bold);
   letter-spacing: -0.02em;
-  color: var(--accent-strong);
-  border-bottom: 0.5px solid var(--border-soft);
+  color: var(--text-accent);
+  border-bottom: var(--border-width) solid var(--border-neutral);
 }
 
 .progress-day-card-body {
@@ -3361,30 +3779,30 @@ button.practice-commitment-card:not(:disabled):active {
 }
 
 .progress-day-book {
-  background: #ffffff;
+  background: var(--surface-base);
   border-radius: 12px;
   padding: 10px 12px;
-  border: 0.5px solid var(--border-soft);
+  border: var(--border-width) solid var(--border-neutral);
 }
 
 .progress-day-book-name {
-  font-size: 12px;
-  font-weight: 600;
+  font-size: var(--font-size-small);
+  font-weight: var(--font-weight-semibold);
   letter-spacing: -0.01em;
   color: var(--text-sub);
   margin-bottom: 4px;
 }
 
 .progress-day-book-plan {
-  font-size: 12px;
-  font-weight: 500;
+  font-size: var(--font-size-small);
+  font-weight: var(--font-weight-medium);
   line-height: 1.45;
   color: var(--text-sub);
 }
 
 .progress-day-book--editable {
-  background: #f8fafc;
-  border-color: rgba(148, 163, 184, 0.35);
+  background: var(--neutral-surface);
+  border-color: var(--border-neutral);
 }
 
 .progress-day-book--editable .books-plan-inputs {
@@ -3414,12 +3832,12 @@ button.practice-commitment-card:not(:disabled):active {
   min-width: 0;
   border-radius: 12px;
   border: 0.5px solid var(--accent-border);
-  background: #ffffff;
+  background: var(--surface-base);
   padding: 8px 10px;
-  font-size: 14px;
-  font-weight: 600;
+  font-size: var(--font-size-medium);
+  font-weight: var(--font-weight-semibold);
   font-variant-numeric: tabular-nums;
-  color: var(--accent-strong);
+  color: var(--text-accent);
   cursor: pointer;
   text-align: center;
   transition: border-color 0.15s ease, box-shadow 0.15s ease;
@@ -3432,7 +3850,7 @@ button.practice-commitment-card:not(:disabled):active {
 
 .progress-day-book--editable .books-plan-time-btn--placeholder {
   color: var(--text-sub);
-  font-weight: 500;
+  font-weight: var(--font-weight-medium);
 }
 
 .progress-day-book-pct-row {
@@ -3449,15 +3867,15 @@ button.practice-commitment-card:not(:disabled):active {
 }
 
 .progress-day-book-pct-label {
-  font-size: 11px;
+  font-size: var(--font-size-small);
   color: var(--text-sub);
 }
 
 .progress-pct-input {
   border-radius: 8px;
   padding: 6px 8px;
-  background: #f3f4f6;
-  font-size: 12px;
+  background: var(--neutral-surface);
+  font-size: var(--font-size-small);
   text-align: center;
 }
 
@@ -3471,9 +3889,9 @@ button.practice-commitment-card:not(:disabled):active {
 .progress-footer-btn {
   padding: 8px 12px;
   border-radius: 999px;
-  border: 0.5px solid var(--border-soft);
-  background: #ffffff;
-  font-size: 12px;
+  border: var(--border-width) solid var(--border-neutral);
+  background: var(--surface-base);
+  font-size: var(--font-size-small);
   cursor: pointer;
 }
 
@@ -3491,7 +3909,7 @@ button.practice-commitment-card:not(:disabled):active {
   justify-content: space-between;
   gap: 8px;
   padding: 8px 0;
-  border-bottom: 0.5px solid var(--border-soft);
+  border-bottom: var(--border-width) solid var(--border-neutral);
 }
 
 .books-item:last-child {
@@ -3499,8 +3917,8 @@ button.practice-commitment-card:not(:disabled):active {
 }
 
 .books-name {
-  font-size: 12px;
-  font-weight: 600;
+  font-size: var(--font-size-small);
+  font-weight: var(--font-weight-semibold);
   letter-spacing: -0.01em;
   color: var(--text-main);
 }
@@ -3509,10 +3927,10 @@ button.practice-commitment-card:not(:disabled):active {
   border: 0.5px solid var(--accent-border-strong);
   border-radius: 999px;
   padding: 5px 12px;
-  font-size: 12px;
-  font-weight: 600;
+  font-size: var(--font-size-small);
+  font-weight: var(--font-weight-semibold);
   background: var(--accent);
-  color: #f8fafc;
+  color: var(--neutral-surface);
   cursor: pointer;
   transition: background 0.15s ease-out, border-color 0.15s ease-out;
 }
@@ -3527,7 +3945,7 @@ button.practice-commitment-card:not(:disabled):active {
 }
 
 .books-empty {
-  font-size: 12px;
+  font-size: var(--font-size-small);
   color: var(--text-sub);
   padding: 4px 0;
 }
@@ -3580,8 +3998,8 @@ button.practice-commitment-card:not(:disabled):active {
 .settings-list {
   margin: 8px 4px 0;
   border-radius: var(--radius-xl);
-  background: #ffffff;
-  border: 0.5px solid var(--border-soft);
+  background: var(--surface-base);
+  border: var(--border-width) solid var(--border-neutral);
   overflow: hidden;
 }
 
@@ -3590,11 +4008,11 @@ button.practice-commitment-card:not(:disabled):active {
   padding: 10px 14px;
   border: none;
   border-bottom: 0.5px solid rgba(229, 231, 235, 0.9);
-  background: #ffffff;
+  background: var(--surface-base);
   display: flex;
   align-items: center;
   justify-content: space-between;
-  font-size: 13px;
+  font-size: var(--font-size-medium);
   cursor: pointer;
 }
 
@@ -3612,7 +4030,7 @@ button.practice-commitment-card:not(:disabled):active {
 
 .settings-hint {
   margin: 8px 4px 0;
-  font-size: 11px;
+  font-size: var(--font-size-small);
   color: var(--text-sub);
 }
 
@@ -3624,13 +4042,17 @@ button.practice-commitment-card:not(:disabled):active {
   z-index: 9000;
   border-radius: 999px;
   padding: 4px;
-  background: rgba(249, 249, 251, 0.92);
-  border: 0.5px solid rgba(148, 163, 184, 0.45);
+  background: rgba(249, 249, 251, 0.5);
+  border: none;
   display: flex;
   justify-content: space-between;
   gap: 4px;
-  backdrop-filter: blur(24px);
-  box-shadow: 0 8px 20px rgba(15, 23, 42, 0.1);
+  backdrop-filter: blur(28px) saturate(1.15);
+  -webkit-backdrop-filter: blur(28px) saturate(1.15);
+  box-shadow: 0 10px 26px rgba(var(--text-strong-rgb), 0.08);
+  transition:
+    opacity var(--dur-med) var(--ease-standard),
+    transform var(--dur-med) var(--ease-standard);
 }
 
 /* 가로·세로 네비 공통: 남색 필이 활성 탭 영역으로 슬라이드 (위치·크기는 JS 측정) */
@@ -3638,8 +4060,14 @@ button.practice-commitment-card:not(:disabled):active {
   position: absolute;
   z-index: 0;
   border-radius: 999px;
-  background: var(--accent-strong);
-  box-shadow: 0 1px 3px rgba(26, 47, 82, 0.25);
+  background:
+    linear-gradient(
+      180deg,
+      rgba(34, 56, 109, 0.96) 0%,
+      rgba(22, 42, 86, 0.98) 100%
+    );
+  border: none;
+  box-shadow: 0 8px 18px rgba(9, 20, 44, 0.18);
   pointer-events: none;
 }
 
@@ -3650,7 +4078,7 @@ button.practice-commitment-card:not(:disabled):active {
 
 .bottom-nav--sliding-pill .nav-item-active {
   background: transparent;
-  color: #f9fafb;
+  color: rgba(255, 255, 255, 0.98);
 }
 
 @supports (padding-bottom: env(safe-area-inset-bottom)) {
@@ -3665,12 +4093,12 @@ button.practice-commitment-card:not(:disabled):active {
   padding: 6px 2px;
   border: none;
   background: transparent;
-  color: rgba(15, 23, 42, 0.7);
+  color: var(--text-strong);
   display: flex;
   flex-direction: column;
   align-items: center;
   gap: 2px;
-  font-size: 10px;
+  font-size: var(--font-size-small);
   cursor: pointer;
   transition: transform var(--dur-fast) var(--ease-press),
     background var(--dur-fast) var(--ease-press),
@@ -3678,8 +4106,8 @@ button.practice-commitment-card:not(:disabled):active {
 }
 
 .nav-item-active {
-  background: var(--accent-strong);
-  color: #f9fafb;
+  color: rgba(255, 255, 255, 0.98);
+  text-shadow: 0 1px 1px rgba(17, 24, 39, 0.18);
   transform: translateY(-0.5px);
 }
 
@@ -3718,7 +4146,7 @@ button:active:not(:disabled),
 }
 
 .nav-label {
-  font-size: 10px;
+  font-size: var(--font-size-small);
 }
 
 @media (max-width: 480px) {
@@ -3726,20 +4154,27 @@ button:active:not(:disabled),
 
 /* Tablet layout: left navigation rail + content area */
 @media (min-width: 768px) {
+  :root {
+    --app-shell-inline-padding: 16px;
+  }
+
+  .header-top {
+    border-radius: var(--radius-xl);
+  }
+
   .app-shell {
     display: grid;
-    grid-template-columns: 220px minmax(0, 1fr);
+    grid-template-columns: 208px minmax(0, 1fr);
     grid-template-rows: auto 1fr;
-    column-gap: 20px;
-    padding: 20px;
-    height: 100dvh;
+    column-gap: 16px;
+    padding: 16px;
   }
 
   .app-header {
     grid-column: 2;
     grid-row: 1;
     width: 100%;
-    max-width: 980px;
+    max-width: 1120px;
     justify-self: center;
     padding: 6px 4px 14px;
   }
@@ -3748,7 +4183,7 @@ button:active:not(:disabled),
     grid-column: 2;
     grid-row: 2;
     width: 100%;
-    max-width: 980px;
+    max-width: 1120px;
     justify-self: center;
     padding: 8px 4px 28px;
   }
@@ -3781,9 +4216,11 @@ button:active:not(:disabled),
     flex-direction: column;
     justify-content: flex-start;
     gap: 8px;
-    background: rgba(249, 249, 251, 0.96);
-    border: 1px solid var(--border-soft);
-    box-shadow: var(--shadow-soft);
+    background: rgba(249, 249, 251, 0.56);
+    border: none;
+    backdrop-filter: blur(28px) saturate(1.15);
+    -webkit-backdrop-filter: blur(28px) saturate(1.15);
+    box-shadow: 0 10px 26px rgba(var(--text-strong-rgb), 0.08);
   }
 
   .bottom-nav__pill {
@@ -3799,7 +4236,7 @@ button:active:not(:disabled),
     min-height: 56px;
     padding: 12px 14px;
     gap: 10px;
-    font-size: 14px;
+    font-size: var(--font-size-medium);
     flex-direction: row;
     justify-content: flex-start;
     align-items: center;
@@ -3819,8 +4256,8 @@ button:active:not(:disabled),
   }
 
   .nav-label {
-    font-size: 14px;
-    font-weight: 700;
+    font-size: var(--font-size-medium);
+    font-weight: var(--font-weight-bold);
     letter-spacing: -0.01em;
   }
 
@@ -3832,8 +4269,8 @@ button:active:not(:disabled),
 
   .nav-item-active {
     transform: none;
-    background: rgba(36, 59, 107, 0.1);
-    color: var(--accent-strong);
+    color: rgba(255, 255, 255, 0.98);
+    text-shadow: 0 1px 1px rgba(17, 24, 39, 0.16);
   }
 
   .nav-item-active::before {
@@ -3855,8 +4292,7 @@ button:active:not(:disabled),
 .splash-spacer {
   flex: 0 0 auto;
   width: 100%;
-  min-height: 100vh;
-  min-height: 100dvh;
+  min-height: var(--app-viewport-height);
   pointer-events: none;
   visibility: hidden;
 }
@@ -3997,8 +4433,8 @@ button:active:not(:disabled),
 }
 
 .coach-card {
-  background: #ffffff;
-  border: 0.5px solid var(--border-soft);
+  background: var(--surface-base);
+  border: var(--border-width) solid var(--border-neutral);
   border-radius: var(--radius-xl);
   box-shadow: var(--shadow-soft);
 }
@@ -4038,9 +4474,9 @@ button:active:not(:disabled),
   display: flex;
   align-items: center;
   justify-content: center;
-  color: #f9fafb;
-  font-weight: 700;
-  font-size: 20px;
+  color: #ffffff;
+  font-weight: var(--font-weight-bold);
+  font-size: var(--font-size-large);
   box-shadow: var(--shadow-soft);
   overflow: hidden;
 }
@@ -4059,6 +4495,10 @@ button:active:not(:disabled),
   gap: 6px;
 }
 
+.coach-profile-card__content {
+  padding: 0 10px;
+}
+
 .coach-profile-card__name-row {
   display: flex;
   align-items: center;
@@ -4068,41 +4508,45 @@ button:active:not(:disabled),
 }
 
 .coach-profile-card__name {
-  font-size: 16px;
-  font-weight: 950;
+  font-size: var(--font-size-large);
+  font-weight: var(--font-weight-strong);
   letter-spacing: -0.02em;
 }
 
 .coach-profile-card__grade-pill {
   padding: 4px 8px;
   border-radius: 999px;
-  border: 0.5px solid var(--border-soft);
+  border: var(--border-width) solid var(--border-neutral);
   background: rgba(248, 250, 252, 0.96);
-  font-size: 11px;
-  font-weight: 600;
-  color: var(--accent-strong);
+  font-size: var(--font-size-small);
+  font-weight: var(--font-weight-semibold);
+  color: var(--text-accent);
 }
 
 .coach-profile-card__edit-btn {
   border-radius: 999px;
-  border: 0.5px solid var(--border-soft);
-  background: rgba(255, 255, 255, 0.9);
-  color: var(--accent-strong);
+  border: var(--border-width) solid var(--border-neutral);
+  background: var(--surface-base);
+  color: var(--text-accent);
   padding: 6px 10px;
-  font-size: 11px;
-  font-weight: 600;
+  font-size: var(--font-size-small);
+  font-weight: var(--font-weight-semibold);
   cursor: pointer;
 }
 
 .coach-profile-card__meta {
-  font-size: 12px;
-  color: rgba(100, 116, 139, 0.95);
+  font-size: var(--font-size-small);
+  color: var(--text-main);
 }
 
 .coach-profile-card__goal {
   margin-top: 2px;
-  font-size: 12.5px;
-  color: rgba(55, 65, 81, 0.96);
+  font-size: var(--font-size-medium);
+  color: var(--text-main);
+}
+
+.coach-profile-card__action {
+  margin-top: 12px;
 }
 
 .coach-profile-card__chips {
@@ -4120,11 +4564,11 @@ button:active:not(:disabled),
   margin-top: 10px;
   padding: 10px 12px;
   border-radius: 12px;
-  border: 0.5px solid var(--border-soft);
-  background: #ffffff;
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--accent-strong);
+  border: var(--border-width) solid var(--border-neutral);
+  background: var(--surface-base);
+  font-size: var(--font-size-medium);
+  font-weight: var(--font-weight-semibold);
+  color: var(--text-accent);
   text-align: center;
   cursor: pointer;
   position: relative;
@@ -4152,16 +4596,16 @@ button:active:not(:disabled),
 }
 
 .coach-home-insight-card__eyebrow {
-  font-size: 11px;
-  font-weight: 600;
+  font-size: var(--font-size-small);
+  font-weight: var(--font-weight-semibold);
   letter-spacing: 0.06em;
   text-transform: uppercase;
   color: var(--text-sub);
 }
 
 .coach-home-insight-card__title {
-  font-size: 16px;
-  font-weight: 700;
+  font-size: var(--font-size-large);
+  font-weight: var(--font-weight-bold);
   letter-spacing: -0.02em;
   color: var(--text-main);
   margin-bottom: 8px;
@@ -4169,9 +4613,9 @@ button:active:not(:disabled),
 
 .coach-home-insight-card__body {
   margin: 0;
-  font-size: 14px;
+  font-size: var(--font-size-medium);
   line-height: 1.55;
-  color: rgba(55, 65, 81, 0.96);
+  color: var(--text-main);
 }
 
 .coach-home-insight-card__cta {
@@ -4183,7 +4627,7 @@ button:active:not(:disabled),
   position: relative;
   border-radius: var(--radius-xl);
   overflow: hidden;
-  border: 0.5px solid var(--border-soft);
+  border: var(--border-width) solid var(--border-neutral);
   box-shadow: var(--shadow-soft);
   margin-bottom: 16px;
 }
@@ -4191,7 +4635,7 @@ button:active:not(:disabled),
 .coach-hero__bg {
   position: absolute;
   inset: 0;
-  background: #ffffff;
+  background: var(--surface-base);
 }
 
 .coach-hero__content {
@@ -4211,10 +4655,10 @@ button:active:not(:disabled),
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  font-size: 12px;
-  font-weight: 800;
+  font-size: var(--font-size-small);
+  font-weight: var(--font-weight-strong);
   letter-spacing: -0.01em;
-  color: var(--accent-strong);
+  color: var(--text-accent);
   padding: 4px 9px;
   border-radius: 999px;
   background: var(--accent-muted);
@@ -4222,18 +4666,18 @@ button:active:not(:disabled),
 }
 
 .coach-hero__title {
-  font-size: 20px;
-  font-weight: 900;
+  font-size: var(--font-size-large);
+  font-weight: var(--font-weight-strong);
   letter-spacing: -0.03em;
-  color: #0f172a;
+  color: var(--text-strong);
   margin-bottom: 8px;
 }
 
 .coach-hero__body {
-  font-size: 13.5px;
+  font-size: var(--font-size-medium);
   line-height: 1.55;
   letter-spacing: -0.01em;
-  color: rgba(30, 41, 59, 0.86);
+  color: var(--text-main);
   margin-bottom: 12px;
 }
 
@@ -4242,9 +4686,9 @@ button:active:not(:disabled),
   border: none;
   border-radius: 12px;
   padding: 11px 12px;
-  font-weight: 800;
+  font-weight: var(--font-weight-strong);
   letter-spacing: -0.02em;
-  color: white;
+  color: #ffffff;
   background: var(--accent-strong);
   box-shadow: var(--shadow-soft);
   transform: translateZ(0);
@@ -4260,17 +4704,17 @@ button:active:not(:disabled),
   width: auto;
   padding: 10px 12px;
   border-radius: 12px;
-  font-size: 13px;
+  font-size: var(--font-size-medium);
 }
 
 .coach-ghost-btn {
-  border: 1px solid var(--border-soft);
-  background: rgba(255, 255, 255, 0.72);
+  border: var(--border-width) solid var(--border-neutral);
+  background: var(--surface-base);
   border-radius: 12px;
   padding: 10px 12px;
-  font-weight: 800;
+  font-weight: var(--font-weight-strong);
   letter-spacing: -0.01em;
-  color: rgba(15, 23, 42, 0.86);
+  color: var(--text-strong);
 }
 
 .coach-grid {
@@ -4296,38 +4740,38 @@ button:active:not(:disabled),
 }
 
 .coach-metric {
-  background: #ffffff;
-  border: 0.5px solid var(--border-soft);
+  background: var(--surface-base);
+  border: var(--border-width) solid var(--border-neutral);
   border-radius: var(--radius-xl);
   padding: 12px 12px;
   box-shadow: var(--shadow-soft);
 }
 
 .coach-metric__title {
-  font-size: 12px;
-  font-weight: 800;
-  color: rgba(71, 85, 105, 0.88);
+  font-size: var(--font-size-small);
+  font-weight: var(--font-weight-strong);
+  color: var(--text-main);
 }
 
 .coach-metric__value {
   margin-top: 6px;
-  font-size: 18px;
-  font-weight: 950;
+  font-size: var(--font-size-large);
+  font-weight: var(--font-weight-strong);
   letter-spacing: -0.03em;
-  color: rgba(15, 23, 42, 0.92);
+  color: var(--text-strong);
 }
 
 .coach-metric__hint {
   margin-top: 4px;
-  font-size: 11px;
-  color: rgba(100, 116, 139, 0.82);
+  font-size: var(--font-size-small);
+  color: var(--text-main);
 }
 
 /* 포인트 컬러는 남색 1개: 상태색 강조는 최소화 */
 .coach-metric--good,
 .coach-metric--warn {
   border-color: var(--border-soft);
-  background: #ffffff;
+  background: var(--surface-base);
 }
 
 .coach-section-header {
@@ -4339,17 +4783,17 @@ button:active:not(:disabled),
 
 .coach-section-title {
   margin: 0;
-  font-size: 15px;
-  font-weight: 950;
+  font-size: var(--font-size-medium);
+  font-weight: var(--font-weight-strong);
   letter-spacing: -0.02em;
-  color: rgba(15, 23, 42, 0.92);
+  color: var(--text-strong);
 }
 
 .coach-section-subtitle {
   margin: 6px 0 0;
-  font-size: 12px;
+  font-size: var(--font-size-small);
   line-height: 1.45;
-  color: rgba(100, 116, 139, 0.88);
+  color: var(--text-main);
 }
 
 .coach-pill {
@@ -4358,28 +4802,28 @@ button:active:not(:disabled),
   gap: 8px;
   padding: 8px 10px;
   border-radius: 999px;
-  border: 1px solid var(--border-soft);
-  background: rgba(255, 255, 255, 0.78);
+  border: var(--border-width) solid var(--border-neutral);
+  background: var(--surface-base);
 }
 
 .coach-pill__label {
-  font-size: 11px;
-  font-weight: 900;
-  color: rgba(71, 85, 105, 0.86);
+  font-size: var(--font-size-small);
+  font-weight: var(--font-weight-strong);
+  color: var(--text-main);
 }
 
 .coach-pill__value {
-  font-size: 11px;
-  font-weight: 950;
-  color: rgba(15, 23, 42, 0.9);
+  font-size: var(--font-size-small);
+  font-weight: var(--font-weight-strong);
+  color: var(--text-strong);
 }
 
 .coach-chart {
   margin-top: 10px;
   border-radius: var(--radius-xl);
   overflow: hidden;
-  background: #ffffff;
-  border: 0.5px solid var(--border-soft);
+  background: var(--surface-base);
+  border: var(--border-width) solid var(--border-neutral);
   padding: 10px 10px 6px;
 }
 
@@ -4406,17 +4850,17 @@ button:active:not(:disabled),
 }
 
 .coach-pattern__title {
-  font-size: 14px;
-  font-weight: 950;
+  font-size: var(--font-size-medium);
+  font-weight: var(--font-weight-strong);
   letter-spacing: -0.02em;
-  color: rgba(15, 23, 42, 0.92);
+  color: var(--text-strong);
 }
 
 .coach-pattern__body {
   margin-top: 8px;
-  font-size: 12.5px;
+  font-size: var(--font-size-medium);
   line-height: 1.55;
-  color: rgba(51, 65, 85, 0.86);
+  color: var(--text-main);
 }
 
 .coach-pattern__rec {
@@ -4427,9 +4871,9 @@ button:active:not(:disabled),
 }
 
 .coach-pattern__rec-label {
-  font-size: 11px;
-  font-weight: 950;
-  color: var(--accent-strong);
+  font-size: var(--font-size-small);
+  font-weight: var(--font-weight-strong);
+  color: var(--text-accent);
   padding: 4px 8px;
   border-radius: 999px;
   background: var(--accent-muted);
@@ -4438,9 +4882,9 @@ button:active:not(:disabled),
 }
 
 .coach-pattern__rec-text {
-  font-size: 12px;
+  font-size: var(--font-size-small);
   line-height: 1.5;
-  color: rgba(30, 41, 59, 0.88);
+  color: var(--text-main);
 }
 
 .coach-action-list {
@@ -4452,14 +4896,14 @@ button:active:not(:disabled),
 .coach-action {
   width: 100%;
   text-align: left;
-  border: 1px solid rgba(148, 163, 184, 0.26);
-  background: rgba(255, 255, 255, 0.92);
+  border: var(--border-width) solid var(--border-neutral);
+  background: var(--surface-base);
   border-radius: 16px;
   padding: 12px 12px;
   display: flex;
   align-items: flex-start;
   gap: 10px;
-  box-shadow: 0 12px 28px rgba(15, 23, 42, 0.06);
+  box-shadow: 0 12px 28px rgba(var(--text-strong-rgb), 0.06);
 }
 
 .coach-action:active {
@@ -4499,28 +4943,28 @@ button:active:not(:disabled),
 }
 
 .coach-action__title {
-  font-size: 13.5px;
-  font-weight: 950;
+  font-size: var(--font-size-medium);
+  font-weight: var(--font-weight-strong);
   letter-spacing: -0.02em;
-  color: rgba(15, 23, 42, 0.92);
+  color: var(--text-strong);
 }
 
 .coach-action__detail {
   margin-top: 6px;
-  font-size: 12px;
+  font-size: var(--font-size-small);
   line-height: 1.45;
-  color: rgba(100, 116, 139, 0.88);
+  color: var(--text-main);
 }
 
 .coach-tag {
   margin-left: auto;
-  font-size: 11px;
-  font-weight: 950;
+  font-size: var(--font-size-small);
+  font-weight: var(--font-weight-strong);
   padding: 6px 9px;
   border-radius: 999px;
   background: var(--accent-tint-bg);
   border: 0.5px solid var(--accent-border);
-  color: var(--accent-strong);
+  color: var(--text-accent);
   flex-shrink: 0;
 }
 
@@ -4530,12 +4974,12 @@ button:active:not(:disabled),
   justify-content: center;
   padding: 6px 10px;
   border-radius: 999px;
-  font-size: 11px;
-  font-weight: 950;
+  font-size: var(--font-size-small);
+  font-weight: var(--font-weight-strong);
   letter-spacing: -0.01em;
   border: 0.5px solid var(--accent-border);
   background: var(--accent-tint-bg);
-  color: rgba(51, 65, 85, 0.92);
+  color: var(--text-main);
 }
 
 .coach-badge--ok,
@@ -4543,7 +4987,7 @@ button:active:not(:disabled),
 .coach-badge--danger {
   border-color: var(--accent-border);
   background: var(--accent-tint-bg);
-  color: var(--accent-strong);
+  color: var(--text-accent);
 }
 
 /* coach-bottom-tabs/coach-tab: 기존 bottom-nav로 통일됨 */
@@ -4555,17 +4999,17 @@ button:active:not(:disabled),
 }
 
 .coach-empty__title {
-  font-size: 14px;
-  font-weight: 950;
+  font-size: var(--font-size-medium);
+  font-weight: var(--font-weight-strong);
   letter-spacing: -0.02em;
-  color: rgba(15, 23, 42, 0.92);
+  color: var(--text-strong);
 }
 
 .coach-empty__body {
   margin-top: 8px;
-  font-size: 12.5px;
+  font-size: var(--font-size-medium);
   line-height: 1.55;
-  color: rgba(100, 116, 139, 0.9);
+  color: var(--text-main);
 }
 
 .coach-form {
@@ -4575,21 +5019,25 @@ button:active:not(:disabled),
 }
 
 .coach-label {
-  font-size: 12px;
-  font-weight: 900;
-  color: rgba(71, 85, 105, 0.92);
+  font-size: var(--font-size-small);
+  font-weight: var(--font-weight-strong);
+  color: var(--text-main);
 }
 
 .coach-input,
 .coach-textarea,
 .coach-chat-text {
   width: 100%;
-  border-radius: 14px;
-  border: 1px solid rgba(148, 163, 184, 0.28);
-  background: rgba(255, 255, 255, 0.92);
-  padding: 12px 12px;
-  font-size: 14px;
+  border-radius: 999px;
+  border: var(--border-width) solid var(--border-neutral);
+  background: var(--surface-base);
+  padding: 13px 16px;
+  font-size: var(--font-size-medium);
   outline: none;
+}
+
+.coach-chat-text {
+  padding-right: 60px;
 }
 
 .coach-textarea {
@@ -4607,15 +5055,15 @@ button:active:not(:disabled),
 }
 
 .coach-chat-header__title {
-  font-size: 15px;
-  font-weight: 950;
+  font-size: var(--font-size-medium);
+  font-weight: var(--font-weight-strong);
   letter-spacing: -0.02em;
-  color: rgba(15, 23, 42, 0.92);
+  color: var(--text-strong);
 }
 
 .coach-chat {
   border-radius: 18px;
-  border: 1px solid rgba(148, 163, 184, 0.22);
+  border: var(--border-width) solid var(--border-neutral);
   background: rgba(248, 250, 252, 0.7);
   padding: 12px 10px;
   flex: 1;
@@ -4641,9 +5089,9 @@ button:active:not(:disabled),
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  font-size: 11px;
-  font-weight: 950;
-  color: rgba(255, 255, 255, 0.95);
+  font-size: var(--font-size-small);
+  font-weight: var(--font-weight-strong);
+  color: #ffffff;
   background: var(--accent-strong);
   box-shadow: 0 10px 24px rgba(36, 59, 107, 0.18);
   flex-shrink: 0;
@@ -4652,8 +5100,8 @@ button:active:not(:disabled),
 
 .coach-avatar--logo {
   padding: 3px;
-  background: #ffffff;
-  border: 1px solid rgba(148, 163, 184, 0.22);
+  background: var(--surface-base);
+  border: var(--border-width) solid var(--border-neutral);
 }
 
 .coach-avatar--logo img {
@@ -4667,23 +5115,23 @@ button:active:not(:disabled),
   max-width: 82%;
   border-radius: 16px;
   padding: 10px 12px;
-  border: 1px solid rgba(148, 163, 184, 0.25);
-  box-shadow: 0 12px 28px rgba(15, 23, 42, 0.06);
+  border: var(--border-width) solid var(--border-neutral);
+  box-shadow: 0 12px 28px rgba(var(--text-strong-rgb), 0.06);
 }
 
 .coach-bubble--coach {
-  background: rgba(255, 255, 255, 0.92);
-  color: rgba(15, 23, 42, 0.92);
+  background: var(--surface-base);
+  color: var(--text-strong);
 }
 
 .coach-bubble--user {
   background: var(--accent-strong);
-  color: rgba(255, 255, 255, 0.96);
+  color: #ffffff;
   border: 1px solid rgba(36, 59, 107, 0.18);
 }
 
 .coach-bubble__line {
-  font-size: 12.8px;
+  font-size: var(--font-size-medium);
   line-height: 1.52;
   letter-spacing: -0.01em;
   white-space: pre-wrap;
@@ -4700,7 +5148,7 @@ button:active:not(:disabled),
   width: 6px;
   height: 6px;
   border-radius: 999px;
-  background: rgba(100, 116, 139, 0.75);
+  background: rgba(var(--neutral-rgb), 0.75);
   animation: coach-dot 1.0s infinite ease-in-out;
 }
 
@@ -4720,22 +5168,36 @@ button:active:not(:disabled),
 }
 
 .coach-starter {
-  border: 1px solid rgba(148, 163, 184, 0.26);
-  background: rgba(255, 255, 255, 0.86);
+  border: var(--border-width) solid var(--border-neutral);
+  background: var(--surface-base);
   border-radius: 999px;
   padding: 10px 12px;
-  font-size: 12px;
-  font-weight: 900;
-  color: rgba(51, 65, 85, 0.92);
+  font-size: var(--font-size-small);
+  font-weight: var(--font-weight-strong);
+  color: var(--text-main);
   white-space: nowrap;
 }
 
 .coach-chat-input {
-  display: flex;
-  gap: 10px;
-  align-items: center;
+  position: relative;
   margin-top: 8px;
   margin-bottom: 0;
+  width: 100%;
+}
+
+.coach-chat-input .coach-primary-btn--sm {
+  position: absolute;
+  top: 50%;
+  right: 8px;
+  transform: translateY(-50%);
+  width: 34px;
+  min-width: 34px;
+  height: 34px;
+  padding: 0;
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .coach-row {
@@ -4749,39 +5211,39 @@ button:active:not(:disabled),
 }
 
 .coach-strong {
-  font-weight: 950;
+  font-weight: var(--font-weight-strong);
   letter-spacing: -0.02em;
-  color: rgba(15, 23, 42, 0.92);
+  color: var(--text-strong);
 }
 
 .coach-muted {
-  font-size: 12.5px;
+  font-size: var(--font-size-medium);
   line-height: 1.55;
-  color: rgba(100, 116, 139, 0.9);
+  color: var(--text-main);
 }
 
 .coach-divider {
   height: 1px;
-  background: rgba(148, 163, 184, 0.22);
+  background: rgba(var(--neutral-rgb), 0.22);
   margin: 12px 0;
 }
 
 .coach-inline-label {
-  font-weight: 950;
-  color: var(--accent-strong);
+  font-weight: var(--font-weight-strong);
+  color: var(--text-accent);
 }
 
 .coach-profile__name {
-  font-size: 16px;
-  font-weight: 950;
+  font-size: var(--font-size-large);
+  font-weight: var(--font-weight-strong);
   letter-spacing: -0.02em;
 }
 
 .coach-profile__meta {
   margin-top: 6px;
-  font-size: 12.5px;
+  font-size: var(--font-size-medium);
   line-height: 1.45;
-  color: rgba(100, 116, 139, 0.9);
+  color: var(--text-main);
 }
 
 .coach-profile__chips {
@@ -4792,13 +5254,13 @@ button:active:not(:disabled),
 }
 
 .coach-chip {
-  font-size: 11px;
-  font-weight: 950;
+  font-size: var(--font-size-small);
+  font-weight: var(--font-weight-strong);
   padding: 6px 10px;
   border-radius: 999px;
   background: rgba(36, 59, 107, 0.08);
   border: 1px solid rgba(36, 59, 107, 0.16);
-  color: rgba(36, 59, 107, 0.92);
+  color: var(--text-accent);
 }
 
 .coach-persona-grid {
@@ -4808,12 +5270,12 @@ button:active:not(:disabled),
 }
 
 .coach-persona {
-  border: 1px solid rgba(148, 163, 184, 0.26);
-  background: rgba(255, 255, 255, 0.92);
+  border: var(--border-width) solid var(--border-neutral);
+  background: var(--surface-base);
   border-radius: 16px;
   padding: 12px 12px;
   text-align: left;
-  box-shadow: 0 12px 28px rgba(15, 23, 42, 0.06);
+  box-shadow: 0 12px 28px rgba(var(--text-strong-rgb), 0.06);
 }
 
 .coach-persona.is-active {
@@ -4822,17 +5284,17 @@ button:active:not(:disabled),
 }
 
 .coach-persona__name {
-  font-size: 13.5px;
-  font-weight: 950;
+  font-size: var(--font-size-medium);
+  font-weight: var(--font-weight-strong);
   letter-spacing: -0.02em;
-  color: rgba(15, 23, 42, 0.92);
+  color: var(--text-strong);
 }
 
 .coach-persona__meta {
   margin-top: 6px;
-  font-size: 12px;
+  font-size: var(--font-size-small);
   line-height: 1.45;
-  color: rgba(100, 116, 139, 0.9);
+  color: var(--text-main);
 }
 
 .coach-guide-lines {
@@ -4867,29 +5329,64 @@ button:active:not(:disabled),
 .coach-phrase {
   width: 100%;
   text-align: left;
-  border: 1px solid rgba(148, 163, 184, 0.26);
-  background: rgba(255, 255, 255, 0.92);
+  border: var(--border-width) solid var(--border-neutral);
+  background: var(--surface-base);
   border-radius: 16px;
   padding: 12px 12px;
-  font-weight: 900;
+  font-weight: var(--font-weight-strong);
   letter-spacing: -0.01em;
-  color: rgba(15, 23, 42, 0.92);
-  box-shadow: 0 12px 28px rgba(15, 23, 42, 0.06);
+  color: var(--text-strong);
+  box-shadow: 0 12px 28px rgba(var(--text-strong-rgb), 0.06);
   display: flex;
   flex-direction: column;
   gap: 8px;
 }
 
 .coach-phrase__hint {
-  font-size: 11px;
-  font-weight: 800;
-  color: rgba(100, 116, 139, 0.9);
+  font-size: var(--font-size-small);
+  font-weight: var(--font-weight-strong);
+  color: var(--text-main);
 }
 
 .coach-rule {
   margin-top: 12px;
   display: flex;
   align-items: flex-start;
+
+/* 전역 표면 그림자는 제거하고 하단 네비만 남긴다. */
+.notifications-page__bar,
+.notifications-page__item,
+.timeline-add-button,
+.timeline-save-button,
+.today-log-card,
+.time-picker-modal .time-picker-col::after,
+.time-picker-inline .time-picker-col::after,
+.auth-panel.coach-card,
+.auth-tabs--segmented .auth-tabs__indicator,
+.auth-submit,
+.modal-sheet,
+.dday-modal-inner,
+.store-detail-sheet,
+.timeline-item,
+.add-card,
+.primary-button,
+.floating-add-button,
+.week-card,
+.progress-day-card,
+.progress-day-card--today,
+.store-card,
+.coach-card,
+.coach-profile-card__avatar,
+.coach-hero,
+.coach-primary-btn,
+.coach-metric,
+.coach-action,
+.coach-avatar,
+.coach-bubble,
+.coach-persona,
+.coach-phrase {
+  box-shadow: none;
+}
   gap: 12px;
 }
 
@@ -4907,5 +5404,140 @@ button:active:not(:disabled),
   display: flex;
   flex-direction: column;
   gap: 10px;
+}
+
+/* Glass refresh: keep palette, reduce opacity on repeated surfaces for a lighter feel */
+.progress-card,
+.notifications-page__item,
+.timeline-page,
+.timeline-page .today-summary-card,
+.timeline-page .timeline-sync-banner,
+.timeline-card-with-action,
+.today-log-card,
+.timeline-item,
+.coach-hero,
+.coach-metric,
+.coach-chart,
+.coach-action,
+.coach-pattern,
+.coach-persona,
+.coach-profile-file-label,
+.coach-pill,
+.coach-chat,
+.coach-bubble--coach,
+.coach-starter,
+.coach-chat-text,
+.coach-ghost-btn,
+.auth-panel.coach-card,
+.auth-tabs,
+.auth-input,
+.modal-sheet,
+.dday-modal-inner {
+  background: var(--surface-glass);
+  border-color: var(--border-neutral);
+  backdrop-filter: blur(var(--glass-blur));
+  -webkit-backdrop-filter: blur(var(--glass-blur));
+}
+
+.coach-chat,
+.coach-chart,
+.timeline-page,
+.timeline-card-with-action,
+.today-log-card,
+.modal-sheet,
+.dday-modal-inner {
+  background: var(--surface-glass-soft);
+}
+
+.modal-sheet,
+.dday-modal-inner,
+.store-detail-sheet,
+.app-allow-plan-modal-inner {
+  background: var(--surface-base);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+
+.auth-panel.coach-card,
+.auth-tabs,
+.auth-input {
+  background: var(--surface-base);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+
+.coach-hero__bg,
+.coach-metric--good,
+.coach-metric--warn,
+.coach-bubble--coach,
+.coach-persona.is-active,
+.coach-profile-card__grade-pill,
+.coach-profile-card__edit-btn,
+.student-profile-schedule-remove,
+.today-log-card .field-input,
+.today-log-card textarea.field-input {
+  background: var(--surface-glass-strong);
+  backdrop-filter: blur(calc(var(--glass-blur) * 0.8));
+  -webkit-backdrop-filter: blur(calc(var(--glass-blur) * 0.8));
+}
+
+/* AI 코치 채팅 탭: 대화 래퍼 카드 느낌 제거, 메시지 버블은 유지 */
+.app-main.app-main--coach-chat .coach-chat {
+  background: transparent;
+  border: none;
+  border-radius: 0;
+  padding: 0;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+
+.coach-hero__bg {
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.78), rgba(248, 250, 252, 0.62)),
+    linear-gradient(135deg, rgba(232, 236, 244, 0.34), transparent 55%);
+}
+
+.coach-starter,
+.coach-pill,
+.coach-ghost-btn,
+.coach-profile-file-label,
+.auth-tabs,
+.auth-input,
+.coach-chat-text {
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.38);
+}
+
+/* 오늘공부: 바깥 래퍼 배경은 제거하고 실제 카드만 보이게 유지 */
+.today-cards-container > .timeline-page {
+  background: transparent;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+
+/* Remove outer card borders across the app while keeping internal controls and separators. */
+.progress-card,
+.notifications-page__item,
+.today-log-card,
+.parent-plan-add-request-detail,
+.record-day-block,
+.record-study-reflection-card,
+.store-card,
+.settings-list,
+.week-card,
+.progress-day-card,
+.progress-day-book,
+.timeline-item,
+.add-card,
+.auth-panel.coach-card,
+.coach-card,
+.coach-hero,
+.coach-metric,
+.coach-chart,
+.coach-action,
+.coach-persona,
+.coach-phrase,
+.coach-starter,
+.coach-chat {
+  border: none;
 }
 

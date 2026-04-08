@@ -12,6 +12,7 @@ import { StudentProfilePage } from "./components/student/StudentProfilePage";
 import { NotificationsPage } from "./components/student/NotificationsPage";
 import { TimePickerInline } from "./components/TimePickerSheet";
 import { useOnlineStatus } from "./hooks/useOnlineStatus";
+import { canUseNativeAppShell, AppShell, type PendingNetworkBanner } from "./lib/nativeAppShell";
 import { StudentCoachApp, type StudentTabKey as CoachStudentTabKey } from "./coach/student/StudentCoachApp";
 import { ParentCoachApp, type ParentTabKey as CoachParentTabKey } from "./coach/parent/ParentCoachApp";
 import {
@@ -80,6 +81,38 @@ type ParentPlanAddRequestRow = {
   created_at: string;
   student_email: string;
 };
+
+const STUDENT_SETUP_PROMPT_PENDING_KEY_PREFIX =
+  "daechi_student_setup_prompt_pending:";
+
+function getStudentSetupPromptPendingKey(email: string) {
+  return `${STUDENT_SETUP_PROMPT_PENDING_KEY_PREFIX}${String(email).trim().toLowerCase()}`;
+}
+
+function armStudentSetupPrompt(email: string) {
+  try {
+    const normalized = String(email).trim().toLowerCase();
+    if (!normalized) return;
+    localStorage.setItem(getStudentSetupPromptPendingKey(normalized), "1");
+  } catch {
+    // ignore
+  }
+}
+
+function consumeStudentSetupPrompt(email: string) {
+  try {
+    const normalized = String(email).trim().toLowerCase();
+    if (!normalized) return false;
+    const key = getStudentSetupPromptPendingKey(normalized);
+    const armed = localStorage.getItem(key) === "1";
+    if (armed) {
+      localStorage.removeItem(key);
+    }
+    return armed;
+  } catch {
+    return false;
+  }
+}
 
 function normalizeDayKey(raw: string | undefined | null): string {
   return String(raw ?? "")
@@ -154,6 +187,8 @@ let splashCompletedModule = false;
 
 const App: React.FC = () => {
   const online = useOnlineStatus();
+  const [networkBanner, setNetworkBanner] = useState<PendingNetworkBanner | null>(null);
+  const onlineRef = useRef(online);
 
   const [userEmail, setUserEmail] = useState<string | null>(null);
   const [authToken, setAuthToken] = useState<string | null>(null);
@@ -194,6 +229,15 @@ const App: React.FC = () => {
   const [authConfirmKind, setAuthConfirmKind] = useState<
     "logout" | "withdraw" | null
   >(null);
+  const [studentSetupOpen, setStudentSetupOpen] = useState(false);
+  const [studentSetupGrade, setStudentSetupGrade] = useState("");
+  const [studentSetupGoal, setStudentSetupGoal] = useState("");
+  const [studentSetupSaving, setStudentSetupSaving] = useState(false);
+  const [studentSetupError, setStudentSetupError] = useState("");
+  const [studentInitialProfileCompleted, setStudentInitialProfileCompleted] =
+    useState(true);
+  const [studentSetupPromptArmed, setStudentSetupPromptArmed] =
+    useState(false);
   const [requestReason, setRequestReason] = useState("");
 
   const [progressWeekOffset, setProgressWeekOffset] = useState(0);
@@ -212,6 +256,59 @@ const App: React.FC = () => {
   const [parentPlanAddBusy, setParentPlanAddBusy] = useState(false);
   const [showNotificationsModal, setShowNotificationsModal] = useState(false);
 
+  useEffect(() => {
+    if (!networkBanner?.message) return;
+    const timeout = window.setTimeout(() => {
+      setNetworkBanner(null);
+    }, 3200);
+    return () => {
+      window.clearTimeout(timeout);
+    };
+  }, [networkBanner]);
+
+  useEffect(() => {
+    if (!canUseNativeAppShell()) return;
+    let cancelled = false;
+    const run = async () => {
+      try {
+        const pending = await AppShell.consumePendingNetworkBanner();
+        if (cancelled) return;
+        if (pending?.message) {
+          setNetworkBanner(pending);
+        }
+      } catch {
+        // ignore
+      }
+    };
+    void run();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    const prev = onlineRef.current;
+    onlineRef.current = online;
+    if (prev === online) return;
+
+    if (!canUseNativeAppShell()) {
+      setNetworkBanner({
+        kind: online ? "online" : "offline",
+        message: online
+          ? "인터넷 연결이 복구되어 온라인 모드로 전환되었습니다."
+          : "인터넷 연결이 끊겨 오프라인 모드로 전환되었습니다."
+      });
+      return;
+    }
+
+    if (!online) {
+      setNetworkBanner({
+        kind: "offline",
+        message: "인터넷 연결이 끊겨 오프라인 모드로 전환되었습니다."
+      });
+    }
+  }, [online]);
+
   const addModalReveal = useModalReveal(showAddModal);
   const noParentPlanModalReveal = useModalReveal(showPlanAddNoParentModal);
   const parentPlanAddModalReveal = useModalReveal(
@@ -219,6 +316,7 @@ const App: React.FC = () => {
   );
   const requestModalReveal = useModalReveal(showRequestModal);
   const authConfirmReveal = useModalReveal(authConfirmKind !== null);
+  const studentSetupReveal = useModalReveal(studentSetupOpen);
   const checkSettingsModalReveal = useModalReveal(checkSettingsOpen);
   const notificationsModalReveal = useModalReveal(showNotificationsModal);
 
@@ -349,8 +447,12 @@ const App: React.FC = () => {
       try {
         const currentSerial = resolvePreferredSerial();
         if (currentSerial) return;
-        const result = await AppConfig.getValue({ key: "serial" });
-        const managedSerial = String(result?.value || "").trim();
+        let managedSerial = "";
+        for (const key of ["serial_number", "serial"]) {
+          const result = await AppConfig.getValue({ key });
+          managedSerial = String(result?.value || "").trim();
+          if (managedSerial) break;
+        }
         if (!managedSerial) return;
         injectSerialIntoLocation(managedSerial);
         persistSerial(managedSerial);
@@ -436,6 +538,12 @@ const App: React.FC = () => {
       setMeRole(null);
       setMeRoleResolved(true);
       setProfileLoadError(null);
+      setStudentInitialProfileCompleted(true);
+      setStudentSetupPromptArmed(false);
+      setStudentSetupOpen(false);
+      setStudentSetupGrade("");
+      setStudentSetupGoal("");
+      setStudentSetupError("");
       return;
     }
 
@@ -481,11 +589,11 @@ const App: React.FC = () => {
         }
 
         const data = await res.json();
-        setMeRole(
+        const nextRole =
           data.role != null && data.role !== ""
             ? String(data.role).toLowerCase()
-            : null
-        );
+            : null;
+        setMeRole(nextRole);
         if (data.email != null && String(data.email).trim() !== "") {
           const em = String(data.email).trim();
           setUserEmail(em);
@@ -494,6 +602,22 @@ const App: React.FC = () => {
           } catch {
             // ignore
           }
+        }
+        if (nextRole === "student") {
+          const initialCompleted = Boolean(data.initial_profile_completed);
+          setStudentInitialProfileCompleted(initialCompleted);
+          setStudentSetupGrade(
+            data.grade != null && String(data.grade).trim() !== ""
+              ? String(data.grade).trim()
+              : ""
+          );
+          setStudentSetupGoal(String(data.goal ?? "").trim());
+        } else {
+          setStudentInitialProfileCompleted(true);
+          setStudentSetupOpen(false);
+          setStudentSetupGrade("");
+          setStudentSetupGoal("");
+          setStudentSetupError("");
         }
         setProfileLoadError(null);
       } catch {
@@ -512,6 +636,41 @@ const App: React.FC = () => {
       cancelled = true;
     };
   }, [authToken, meFetchNonce]);
+
+  useEffect(() => {
+    if (!authToken || !userEmail) {
+      setStudentSetupPromptArmed(false);
+      return;
+    }
+    setStudentSetupPromptArmed(consumeStudentSetupPrompt(userEmail));
+  }, [authToken, userEmail]);
+
+  useEffect(() => {
+    if (
+      !authToken ||
+      route === "auth" ||
+      !meRoleResolved ||
+      profileLoadError ||
+      meRole !== "student" ||
+      studentInitialProfileCompleted ||
+      !studentSetupPromptArmed
+    ) {
+      if (!authToken || route === "auth" || meRole !== "student") {
+        setStudentSetupOpen(false);
+      }
+      return;
+    }
+    setStudentSetupError("");
+    setStudentSetupOpen(true);
+  }, [
+    authToken,
+    route,
+    meRoleResolved,
+    profileLoadError,
+    meRole,
+    studentInitialProfileCompleted,
+    studentSetupPromptArmed
+  ]);
 
   useEffect(() => {
     if (!authToken || meRole !== "student") return;
@@ -1084,7 +1243,7 @@ const App: React.FC = () => {
   }, [authToken, meRole, parentStudentId]);
 
   const toggleDone = (id: number) => {
-    hapticImpactMedium();
+    hapticImpactLight();
     setBlocks(prev => {
       const next = prev.map(b =>
         b.id === id ? { ...b, done: !b.done } : b
@@ -1183,10 +1342,8 @@ const App: React.FC = () => {
         }
         return true;
       }
-      hapticWarning();
       return false;
     } catch {
-      hapticWarning();
       return false;
     }
   };
@@ -1199,6 +1356,8 @@ const App: React.FC = () => {
     if (ok) {
       hapticSuccess();
       setAppPath("#/records");
+    } else {
+      hapticWarning();
     }
     return ok;
   };
@@ -1257,8 +1416,78 @@ const App: React.FC = () => {
     setAuthToken(null);
     setUserEmail(null);
     setMeRole(null);
+    setStudentInitialProfileCompleted(true);
+    setStudentSetupOpen(false);
+    setStudentSetupGrade("");
+    setStudentSetupGoal("");
+    setStudentSetupError("");
     setRoute("auth");
     setAppPath("#/auth");
+  };
+
+  const saveInitialStudentProfile = async () => {
+    if (!authToken) return;
+    const trimmedGoal = studentSetupGoal.trim();
+    const parsedGrade = Number(studentSetupGrade);
+
+    if (!Number.isInteger(parsedGrade) || parsedGrade < 1 || parsedGrade > 12) {
+      setStudentSetupError("학년은 1부터 12 사이 숫자로 입력해 주세요.");
+      hapticWarning();
+      return;
+    }
+    if (!trimmedGoal) {
+      setStudentSetupError("목표를 입력해 주세요.");
+      hapticWarning();
+      return;
+    }
+
+    setStudentSetupSaving(true);
+    setStudentSetupError("");
+    try {
+      const res = await fetch(`${API_BASE}/api/account`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${authToken}`
+        },
+        body: JSON.stringify({
+          grade: parsedGrade,
+          goal: trimmedGoal
+        })
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(
+          String(data?.error || "초기 프로필을 저장하지 못했습니다.").trim()
+        );
+      }
+      const savedUser =
+        data && typeof data === "object" && data.user && typeof data.user === "object"
+          ? data.user
+          : null;
+      const savedGrade =
+        savedUser?.grade != null && String(savedUser.grade).trim() !== ""
+          ? String(savedUser.grade).trim()
+          : String(parsedGrade);
+      const savedGoal =
+        savedUser?.goal != null ? String(savedUser.goal).trim() : trimmedGoal;
+      setStudentSetupGrade(savedGrade);
+      setStudentSetupGoal(savedGoal);
+      setStudentInitialProfileCompleted(true);
+      setStudentSetupPromptArmed(false);
+      setStudentSetupOpen(false);
+      setStudentSetupError("");
+      hapticSuccess();
+    } catch (error) {
+      setStudentSetupError(
+        error instanceof Error && error.message
+          ? error.message
+          : "초기 프로필을 저장하지 못했습니다."
+      );
+      hapticWarning();
+    } finally {
+      setStudentSetupSaving(false);
+    }
   };
 
   const performWithdrawAccount = async () => {
@@ -1305,7 +1534,6 @@ const App: React.FC = () => {
     const start = normalizeBlockTime(startInput);
     const end = normalizeBlockTime(endInput);
     if (!start || !end) return;
-    hapticImpactLight();
     const planTrim = addBlockPlan.trim();
     try {
       const res = await fetch(`${API_BASE}/api/student/plan-add-request`, {
@@ -1415,22 +1643,21 @@ const App: React.FC = () => {
                 const password = authPassword;
     const studentName = authStudentName.trim();
                 if (!email) {
-                  hapticWarning();
                   setAuthError("이메일을 입력해 주세요.");
                   return;
                 }
     if (authMode === "signup" && authRole === "student" && !studentName) {
-      hapticWarning();
       setAuthError("학생 이름을 입력해 주세요.");
                   return;
                 }
                 if (password.length < 4) {
-                  hapticWarning();
                   setAuthError("비밀번호는 4자 이상이어야 합니다.");
                   return;
                 }
                 try {
                   setAuthError("");
+                  const isStudentSignup =
+                    authMode === "signup" && authRole === "student";
                   const res = await fetch(
         `${API_BASE}/auth/${authMode === "login" ? "login" : "register"}`,
                     {
@@ -1449,31 +1676,60 @@ const App: React.FC = () => {
                       })
                     }
                   );
-                  const data = await res.json();
+                  const raw = await res.text();
+                  let data: any = {};
+                  try {
+                    data = raw ? JSON.parse(raw) : {};
+                  } catch {
+                    data = { raw };
+                  }
                   if (!res.ok) {
                     hapticWarning();
-                    setAuthError(data.error || "로그인에 실패했습니다.");
+                    const serverMessage = String(data?.error || "").trim();
+                    const fallbackMessage =
+                      res.status >= 500
+                        ? `서버 오류가 발생했습니다. 잠시 후 다시 시도해 주세요. (${res.status})`
+                        : `로그인에 실패했습니다. (${res.status})`;
+                    setAuthError(serverMessage || fallbackMessage);
                     return;
                   }
                   const token = data.token as string;
+                  const nextEmail = String(data.email || email).trim().toLowerCase();
                   hapticSuccess();
                   setAuthLeaving(true);
                   window.setTimeout(() => {
-                    setUserEmail(data.email);
+                    setUserEmail(nextEmail);
                     setAuthToken(token);
-        localStorage.setItem("daechi_planner_user_email", data.email);
+                    if (isStudentSignup) {
+                      armStudentSetupPrompt(nextEmail);
+                    }
+        localStorage.setItem("daechi_planner_user_email", nextEmail);
                     localStorage.setItem("daechi_planner_token", token);
                     setAppPath("#/");
                     setMainEnter(true);
                   }, 420);
-                } catch {
+                } catch (error) {
                   hapticWarning();
-                  setAuthError("서버와 통신 중 오류가 발생했습니다.");
+                  const detail =
+                    error instanceof Error && error.message
+                      ? ` ${error.message}`
+                      : "";
+                  setAuthError(
+                    `서버에 연결할 수 없습니다. API 주소(${API_BASE})와 같은 Wi-Fi 연결 상태를 확인해 주세요.${detail}`
+                  );
                 }
   };
 
   return (
     <div className="app-root">
+      {splashDone && networkBanner?.message && (
+        <div
+          className={`network-transition-banner network-transition-banner--${networkBanner.kind || "info"}`}
+          role="status"
+        >
+          {networkBanner.message}
+        </div>
+      )}
       {splashDone && !online && (
         <div className="offline-banner" role="status">
           인터넷에 연결되어 있지 않습니다. 로그인·서버 동기화는 Wi‑Fi 또는 데이터 연결 후
@@ -1520,7 +1776,6 @@ const App: React.FC = () => {
         className={"app-shell" + (mainEnter ? " app-shell--enter" : "")}
       >
         <header className="app-header">
-          <div className="status-bar-safe" />
           <div className="header-top">
             <div className="header-title-group">
               <div className="header-title-row">
@@ -2167,6 +2422,75 @@ const App: React.FC = () => {
                   }
                 >
                   닫기
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {studentSetupOpen && (
+          <div
+            className={
+              "dday-modal" +
+              (studentSetupReveal.revealed ? " dday-modal--open" : "")
+            }
+          >
+            <div
+              className="dday-modal-inner"
+              onClick={e => {
+                e.stopPropagation();
+              }}
+            >
+              <div className="dday-modal-header">
+                <span className="dday-modal-title">처음 프로필 설정</span>
+              </div>
+              <div className="dday-modal-body">
+                <p className="settings-hint" style={{ margin: 0, lineHeight: 1.5 }}>
+                  처음 한 번만 학생 학년과 목표를 설정해 주세요. 저장하면 프로필 페이지에도 그대로 표시됩니다.
+                </p>
+                <div className="field">
+                  <label className="field-label" htmlFor="student-setup-grade">
+                    학년
+                  </label>
+                  <input
+                    id="student-setup-grade"
+                    className="field-input"
+                    type="number"
+                    inputMode="numeric"
+                    min={1}
+                    max={12}
+                    value={studentSetupGrade}
+                    onChange={e => setStudentSetupGrade(e.target.value)}
+                    placeholder="예: 3"
+                  />
+                </div>
+                <div className="field">
+                  <label className="field-label" htmlFor="student-setup-goal">
+                    목표
+                  </label>
+                  <textarea
+                    id="student-setup-goal"
+                    className="field-input"
+                    rows={4}
+                    value={studentSetupGoal}
+                    onChange={e => setStudentSetupGoal(e.target.value)}
+                    placeholder="예: 이번 학기 수학 평균 90점 이상"
+                  />
+                </div>
+                {studentSetupError ? (
+                  <p className="settings-hint" style={{ margin: 0, color: "#000000" }}>
+                    {studentSetupError}
+                  </p>
+                ) : null}
+              </div>
+              <div className="dday-modal-footer">
+                <button
+                  type="button"
+                  className="modal-primary"
+                  onClick={() => void saveInitialStudentProfile()}
+                  disabled={studentSetupSaving}
+                >
+                  {studentSetupSaving ? "저장 중…" : "저장하고 시작하기"}
                 </button>
               </div>
             </div>

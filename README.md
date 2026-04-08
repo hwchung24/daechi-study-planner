@@ -29,9 +29,11 @@ npm run dev
 ### 백엔드 + AI 리포트
 
 1. `server/` 에서 `npm install`
-2. `server/.env` 에 `DATABASE_URL`, `JWT_SECRET`, **`OPENAI_API_KEY`** 설정 (`server/.env.example` 참고)
+2. `server/.env` 에 `DATABASE_URL`, `JWT_SECRET`, **`OPENAI_API_KEY`**, **`SIMPLEMDM_API_KEY`** 설정 (`server/.env.example` 참고)
 3. `cd server && npm run migrate && npm start`
 4. 학부모 페이지: 연결된 자녀 선택 시 **AI 일일 리포트** 카드에서 확인 (자정 배치 이후 또는 데이터가 쌓인 뒤)
+
+학생용 학습 앱스토어에서 앱 설치/삭제까지 쓰려면 `SIMPLEMDM_API_KEY`가 운영 중인 백엔드 서버 환경에도 설정되어 있어야 합니다. iOS 앱(IPA) 안에 넣는 값이 아니라 서버가 SimpleMDM API를 호출할 때 사용하는 키입니다.
 
 ### iOS 앱 (Capacitor — `dist` 번들 내장)
 

@@ -63,7 +63,16 @@ async function createUser(email, passwordHash, role = "student") {
 
 async function getMe(userId) {
   const res = await query(
-    "SELECT id, email, role FROM users WHERE id = $1",
+    `SELECT u.id,
+            u.email,
+            u.role,
+            scp.name,
+            scp.grade,
+            scp.goal,
+            COALESCE(scp.initial_profile_completed, false) AS initial_profile_completed
+     FROM users u
+     LEFT JOIN student_coach_profiles scp ON scp.user_id = u.id
+     WHERE u.id = $1`,
     [userId]
   );
   return res.rows[0] || null;
@@ -1263,8 +1272,8 @@ async function upsertStudentMdmGroup(userId, assignmentGroupId, assignmentGroupN
 async function upsertStudentCoachProfile(userId, input = {}) {
   const res = await query(
     `INSERT INTO student_coach_profiles
-      (user_id, name, school_level, grade, goal, target_subjects, weak_subjects, sleep_time, wake_time, updated_at)
-     VALUES ($1, $2, $3, $4, $5, $6::text[], $7::text[], $8, $9, now())
+      (user_id, name, school_level, grade, goal, target_subjects, weak_subjects, sleep_time, wake_time, initial_profile_completed, updated_at)
+     VALUES ($1, $2, $3, $4, $5, $6::text[], $7::text[], $8, $9, $10, now())
      ON CONFLICT (user_id)
      DO UPDATE SET
        name = COALESCE(EXCLUDED.name, student_coach_profiles.name),
@@ -1275,6 +1284,10 @@ async function upsertStudentCoachProfile(userId, input = {}) {
        weak_subjects = COALESCE(EXCLUDED.weak_subjects, student_coach_profiles.weak_subjects),
        sleep_time = COALESCE(EXCLUDED.sleep_time, student_coach_profiles.sleep_time),
        wake_time = COALESCE(EXCLUDED.wake_time, student_coach_profiles.wake_time),
+       initial_profile_completed = COALESCE(
+         EXCLUDED.initial_profile_completed,
+         student_coach_profiles.initial_profile_completed
+       ),
        updated_at = now()
      RETURNING *`,
     [
@@ -1286,7 +1299,10 @@ async function upsertStudentCoachProfile(userId, input = {}) {
       Array.isArray(input.targetSubjects) ? input.targetSubjects : [],
       Array.isArray(input.weakSubjects) ? input.weakSubjects : [],
       input.sleepTime || null,
-      input.wakeTime || null
+      input.wakeTime || null,
+      Object.prototype.hasOwnProperty.call(input, "initialProfileCompleted")
+        ? Boolean(input.initialProfileCompleted)
+        : null
     ]
   );
   return res.rows[0] || null;

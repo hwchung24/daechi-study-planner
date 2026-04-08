@@ -3,8 +3,12 @@ const SIMPLEMDM_API_BASE = String(
 ).replace(/\/+$/, "");
 const SIMPLEMDM_API_KEY = String(process.env.SIMPLEMDM_API_KEY || "").trim();
 
+function isSimpleMdmConfigured() {
+  return SIMPLEMDM_API_KEY.length > 0;
+}
+
 function getBasicAuthHeader() {
-  if (!SIMPLEMDM_API_KEY) {
+  if (!isSimpleMdmConfigured()) {
     throw new Error("SIMPLEMDM_API_KEY가 설정되어 있지 않습니다.");
   }
   return `Basic ${Buffer.from(`${SIMPLEMDM_API_KEY}:`).toString("base64")}`;
@@ -311,7 +315,20 @@ async function pushApps(groupId) {
   });
 }
 
+async function pushAssignedAppsToDevice(deviceId) {
+  await simpleMdmRequest(`/devices/${deviceId}/push_apps`, {
+    method: "POST"
+  });
+}
+
+async function refreshDevice(deviceId) {
+  await simpleMdmRequest(`/devices/${deviceId}/refresh`, {
+    method: "POST"
+  });
+}
+
 module.exports = {
+  isSimpleMdmConfigured,
   findDeviceBySerial,
   findAppByBundleId,
   findAppByName,
@@ -324,5 +341,7 @@ module.exports = {
   unassignAppFromGroup,
   uninstallInstalledApp,
   assignDeviceToGroup,
-  pushApps
+  pushApps,
+  pushAssignedAppsToDevice,
+  refreshDevice
 };

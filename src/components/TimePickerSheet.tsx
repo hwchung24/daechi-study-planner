@@ -171,6 +171,7 @@ function TimePickerColumns(props: ColumnsProps) {
                   (hour === h ? " time-picker-option--active" : "")
                 }
                 onClick={() => {
+                  if (hour === h) return;
                   hapticSelection?.();
                   onHourChange(h);
                 }}
@@ -196,6 +197,7 @@ function TimePickerColumns(props: ColumnsProps) {
                   (minute === mn ? " time-picker-option--active" : "")
                 }
                 onClick={() => {
+                  if (minute === mn) return;
                   hapticSelection?.();
                   onMinuteChange(mn);
                 }}

@@ -36,7 +36,6 @@ export function AuthScreen(props: {
 
   return (
     <div className={"auth-page" + (authLeaving ? " auth-page--leaving" : "")}>
-      <div className="status-bar-safe" />
       <div className="auth-page-inner">
         <section className="auth-panel coach-card coach-card--padded">
           <h2 key={authMode} className="auth-title auth-title--enter">

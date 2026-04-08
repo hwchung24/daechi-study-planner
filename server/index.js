@@ -93,6 +93,7 @@ const {
   reconcileAllPlannerLocks
 } = require("./lockService");
 const {
+  isSimpleMdmConfigured,
   findDeviceBySerial,
   findAppByBundleIdOrName,
   listInstalledAppsForDevice,
@@ -103,7 +104,9 @@ const {
   unassignAppFromGroup,
   uninstallInstalledApp,
   assignDeviceToGroup,
-  pushApps
+  pushApps,
+  pushAssignedAppsToDevice,
+  refreshDevice
 } = require("./simpleMdmClient");
 
 const JWT_SECRET = String(process.env.JWT_SECRET || "");
@@ -135,6 +138,11 @@ if (process.env.NODE_ENV !== "test") {
       ? `[openai] ready (coach chat + reports), model=${OPENAI_MODEL}`
       : "[openai] OPENAI_API_KEY 없음 — 코치 채팅은 규칙 기반 템플릿, 일일 AI 리포트는 생략"
   );
+  if (!isSimpleMdmConfigured()) {
+    console.warn(
+      "[simplemdm] SIMPLEMDM_API_KEY 없음 — 학생 학습 앱스토어 설치/삭제 기능은 동작하지 않습니다."
+    );
+  }
 }
 
 function avg(arr) {
@@ -1082,8 +1090,7 @@ function pickFallbackAllowedApps(installedApps, slot) {
     .filter(app => {
       const name = String(app.name || "").trim().toLowerCase();
       return Boolean(name) && text.includes(name);
-    })
-    .slice(0, 3);
+    });
 }
 
 function fillDailyCoverageSlots(slots) {
@@ -1299,7 +1306,7 @@ function normalizeAppAllowanceResponse(raw, installedApps) {
             startTime,
             endTime,
             reason: String(slot?.reason || "").trim().slice(0, 180),
-            allowedApps: picked.slice(0, 3)
+            allowedApps: picked
           };
         })
         .filter(Boolean)
@@ -1642,7 +1649,13 @@ function isAllowedCorsOrigin(origin) {
     .split(",")
     .map(s => s.trim())
     .filter(Boolean);
-  const allowlist = new Set([WEB_APP_URL, ...extra]);
+  const allowlist = new Set([
+    WEB_APP_URL,
+    "capacitor://localhost",
+    "ionic://localhost",
+    "http://localhost",
+    ...extra
+  ]);
   if (allowlist.has(origin)) return true;
   try {
     const u = new URL(origin);
@@ -2155,6 +2168,8 @@ async function handleAccountUpdate(req, res) {
     const newPasswordIn =
       body.newPassword != null ? String(body.newPassword) : "";
     const hasNameKey = Object.prototype.hasOwnProperty.call(body, "name");
+    const hasGradeKey = Object.prototype.hasOwnProperty.call(body, "grade");
+    const hasGoalKey = Object.prototype.hasOwnProperty.call(body, "goal");
 
     const user = await getUserByIdForAuth(req.userId);
     if (!user) {
@@ -2212,13 +2227,55 @@ async function handleAccountUpdate(req, res) {
       await updateUserPasswordHash(req.userId, hash);
     }
 
-    if (hasNameKey && user.role === "student") {
+    if ((hasNameKey || hasGradeKey || hasGoalKey) && user.role === "student") {
+      const profile = await getStudentCoachProfile(req.userId);
+      const profilePatch = {};
+
       const nameIn = String(body.name ?? "").trim();
-      if (nameIn.length > 40) {
-        return res.status(400).json({ error: "이름은 40자 이내로 입력해 주세요." });
+      if (hasNameKey) {
+        if (nameIn.length > 40) {
+          return res.status(400).json({ error: "이름은 40자 이내로 입력해 주세요." });
+        }
+        if (nameIn.length > 0) {
+          profilePatch.name = nameIn;
+        }
       }
-      if (nameIn.length > 0) {
-        await upsertStudentCoachProfile(req.userId, { name: nameIn });
+
+      let nextGrade = profile?.grade ?? null;
+      if (hasGradeKey) {
+        const rawGrade = String(body.grade ?? "").trim();
+        if (!rawGrade) {
+          nextGrade = null;
+          profilePatch.grade = null;
+        } else {
+          const parsedGrade = Number(rawGrade);
+          if (
+            !Number.isInteger(parsedGrade) ||
+            parsedGrade < 1 ||
+            parsedGrade > 12
+          ) {
+            return res.status(400).json({ error: "학년은 1부터 12 사이로 입력해 주세요." });
+          }
+          nextGrade = parsedGrade;
+          profilePatch.grade = parsedGrade;
+        }
+      }
+
+      let nextGoal = String(profile?.goal || "").trim();
+      if (hasGoalKey) {
+        const goalIn = String(body.goal ?? "").trim();
+        if (goalIn.length > 120) {
+          return res.status(400).json({ error: "목표는 120자 이내로 입력해 주세요." });
+        }
+        nextGoal = goalIn;
+        profilePatch.goal = goalIn || null;
+      }
+
+      profilePatch.initialProfileCompleted =
+        Number.isInteger(Number(nextGrade)) && String(nextGoal).trim().length > 0;
+
+      if (Object.keys(profilePatch).length > 0) {
+        await upsertStudentCoachProfile(req.userId, profilePatch);
       }
     }
 
@@ -3175,6 +3232,7 @@ app.post("/api/student/coach/app-timetable", authMiddleware, async (req, res) =>
       targetDate: tomorrowKey,
       schedulesCount: tomorrowSchedules.length,
       installedAppsCount: installedApps.length,
+      availableApps: installedApps,
       summary: plan.summary,
       slots: plan.slots,
       usedOpenAi: plan.usedOpenAi,
@@ -3183,6 +3241,68 @@ app.post("/api/student/coach/app-timetable", authMiddleware, async (req, res) =>
   } catch (e) {
     console.error("/api/student/coach/app-timetable error", e);
     res.status(500).json({ error: "앱 허용 시간표 생성에 실패했습니다." });
+  }
+});
+
+app.post("/api/student/coach/app-timetable-request", authMiddleware, async (req, res) => {
+  try {
+    const me = await getMe(req.userId);
+    if (!me || me.role !== "student") {
+      return res.status(403).json({ error: "학생만 요청할 수 있습니다." });
+    }
+
+    const linkedParentCount = await countLinkedParentsForStudent(req.userId);
+    if (linkedParentCount === 0) {
+      return res.status(400).json({
+        error:
+          "연결된 학부모 계정이 없습니다. 프로필에서 학부모와 먼저 연결해 주세요.",
+        code: "NO_LINKED_PARENT"
+      });
+    }
+
+    const requestedDate = String((req.body || {}).targetDate || "")
+      .trim()
+      .slice(0, 10);
+    const targetDate = /^\d{4}-\d{2}-\d{2}$/.test(requestedDate)
+      ? requestedDate
+      : addDaysToSeoulDateKey(formatYmdSeoulFromInstant(new Date()), 1);
+    const summary = String((req.body || {}).summary || "")
+      .trim()
+      .replace(/\s+/g, " ")
+      .slice(0, 180);
+    const slotSummary = Array.isArray((req.body || {}).slots)
+      ? req.body.slots
+          .slice(0, 3)
+          .map(slot => {
+            const start = String(slot?.startTime || "").trim().slice(0, 5);
+            const end = String(slot?.endTime || "").trim().slice(0, 5);
+            const title = String(slot?.title || "")
+              .trim()
+              .replace(/\s+/g, " ")
+              .slice(0, 40);
+            if (!start || !end) return title || null;
+            return title ? `${start}-${end} ${title}` : `${start}-${end}`;
+          })
+          .filter(Boolean)
+          .join(", ")
+      : "";
+
+    const bodyParts = [
+      `${String(me.email || "학생")}(이)가 ${targetDate} 앱 허용 시간표 확인을 요청했어요.`
+    ];
+    if (summary) bodyParts.push(summary);
+    if (slotSummary) bodyParts.push(`추천 시간대: ${slotSummary}`);
+
+    await createParentNotificationForLinkedParents(
+      req.userId,
+      "내일 앱 허용 시간표 요청",
+      bodyParts.join(" ").slice(0, 400)
+    );
+
+    res.json({ ok: true });
+  } catch (e) {
+    console.error("/api/student/coach/app-timetable-request error", e);
+    res.status(500).json({ error: "요청을 보내지 못했습니다." });
   }
 });
 
@@ -3876,6 +3996,12 @@ app.put("/api/student/store-apps/:appId", authMiddleware, async (req, res) => {
     if (!appRow) {
       return res.status(404).json({ error: "앱을 찾을 수 없습니다." });
     }
+    if (!isSimpleMdmConfigured()) {
+      return res.status(503).json({
+        error:
+          "서버에 SIMPLEMDM_API_KEY가 설정되어 있지 않아 학습 앱 설치를 처리할 수 없습니다. 운영 서버 환경변수를 확인하세요."
+      });
+    }
     const linkedSerial = await getActiveDeviceSerialForUser(req.userId);
     const serial = linkedSerial || (isLikelySerial(serialFromBody) ? serialFromBody : "");
     if (!serial) {
@@ -3889,6 +4015,7 @@ app.put("/api/student/store-apps/:appId", authMiddleware, async (req, res) => {
         error: "SimpleMDM에서 해당 기기를 찾지 못했습니다."
       });
     }
+    const deviceId = Number(device.id);
     let simpleMdmAppId = Number(appRow.simplemdm_app_id || 0);
     if (!simpleMdmAppId) {
       let matchedApp = await findAppByBundleIdOrName(
@@ -3923,24 +4050,38 @@ app.put("/api/student/store-apps/:appId", authMiddleware, async (req, res) => {
         created.attributes?.name || `student-${req.userId}`
       );
     }
-    await assignDeviceToGroup(group.assignment_group_id, Number(device.id));
+    await assignDeviceToGroup(group.assignment_group_id, deviceId);
+    let syncWarning = null;
     if (installed) {
       await assignAppToGroup(group.assignment_group_id, simpleMdmAppId);
       await pushApps(group.assignment_group_id);
+      await pushAssignedAppsToDevice(deviceId).catch(err => {
+        syncWarning = err.message || "device push failed";
+      });
     } else {
       await unassignAppFromGroup(group.assignment_group_id, simpleMdmAppId);
       const installedApp = await findInstalledAppForDevice(
         simpleMdmAppId,
-        Number(device.id)
+        deviceId
       );
       if (!installedApp?.id) {
         throw new Error("기기에서 삭제할 앱 설치 기록을 찾지 못했습니다.");
       }
       await uninstallInstalledApp(Number(installedApp.id));
     }
+    await refreshDevice(deviceId).catch(err => {
+      if (!syncWarning) {
+        syncWarning = err.message || "device refresh failed";
+      }
+    });
     const saved = await setStoreAppInstalled(req.userId, appId, installed);
     res.json({
       ok: true,
+      sync: {
+        deviceId,
+        refreshRequested: true,
+        warning: syncWarning
+      },
       app: {
         id: saved.app_key,
         name: saved.name,

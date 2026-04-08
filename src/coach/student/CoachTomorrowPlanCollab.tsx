@@ -47,9 +47,11 @@ initializeCoachScheduleButton();
 /* SCHEDULE BUTTON INJECTION END */
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { motion } from "framer-motion";
+import { SendHorizontal } from "lucide-react";
 import { CoachAvatar } from "../CoachAvatar";
 import { API_BASE } from "../../lib/apiBase";
 import { DAECHI_COACH_TOMORROW_STARTER_KEY } from "../../lib/coachEvents";
+import { useKeyboardDockInset } from "../../lib/useKeyboardDockInset";
 import type { ProgressBook, ProgressPlan, StudyBlock } from "../../types/planner";
 
 export type CoachTomorrowPlanCollabProps = {
@@ -321,6 +323,21 @@ export function CoachTomorrowPlanCollab(props: CoachTomorrowPlanCollabProps) {
   const [typing, setTyping] = useState(false);
   const [applyBusy, setApplyBusy] = useState(false);
   const [banner, setBanner] = useState<string | null>(null);
+  const rootRef = useRef<HTMLDivElement | null>(null);
+  const chatScrollRef = useRef<HTMLDivElement | null>(null);
+  const footerRef = useRef<HTMLDivElement | null>(null);
+
+  useKeyboardDockInset({
+    rootRef,
+    scrollerRef: chatScrollRef,
+    dockRef: footerRef
+  });
+
+  const scrollChatToBottom = (behavior: ScrollBehavior = "smooth") => {
+    const element = chatScrollRef.current;
+    if (!element) return;
+    element.scrollTo({ top: element.scrollHeight, behavior });
+  };
 
   const sendMessage = async (
     raw: string,
@@ -403,10 +420,7 @@ export function CoachTomorrowPlanCollab(props: CoachTomorrowPlanCollabProps) {
       setTyping(false);
     }
     requestAnimationFrame(() => {
-      document.getElementById("coach-tomorrow-collab-bottom")?.scrollIntoView({
-        behavior: "smooth",
-        block: "end"
-      });
+      scrollChatToBottom("smooth");
     });
   };
 
@@ -505,14 +519,14 @@ export function CoachTomorrowPlanCollab(props: CoachTomorrowPlanCollabProps) {
   };
 
   return (
-    <div className="coach-tomorrow-collab">
+    <div ref={rootRef} className="coach-tomorrow-collab keyboard-dock-root">
       {banner && (
         <p className="coach-tomorrow-collab__banner" role="alert">
           {banner}
         </p>
       )}
 
-      <div className="coach-tomorrow-collab__chat coach-chat">
+      <div ref={chatScrollRef} className="coach-tomorrow-collab__chat coach-chat">
         {messages.map((m, idx) => (
           <div
             key={idx}
@@ -598,7 +612,7 @@ export function CoachTomorrowPlanCollab(props: CoachTomorrowPlanCollabProps) {
         <div id="coach-tomorrow-collab-bottom" />
       </div>
 
-      <div className="coach-tomorrow-collab__footer">
+      <div ref={footerRef} className="coach-tomorrow-collab__footer keyboard-dock">
         <div className="coach-chat-input coach-tomorrow-collab__input">
           <input
             className="coach-chat-text"
@@ -617,7 +631,7 @@ export function CoachTomorrowPlanCollab(props: CoachTomorrowPlanCollabProps) {
             disabled={!apiToken || typing}
             aria-label="보내기"
           >
-            <span aria-hidden>➤</span>
+            <SendHorizontal size={15} strokeWidth={2.2} aria-hidden />
           </button>
         </div>
       </div>

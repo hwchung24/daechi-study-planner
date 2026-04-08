@@ -16,7 +16,6 @@ type ParentStudentRow = {
 };
 
 type LocalParentProfile = {
-  avatarUrl?: string;
   intro?: string;
 };
 
@@ -69,7 +68,6 @@ export function ParentProfilePage(props: {
     }
   });
   const [editOpen, setEditOpen] = useState(false);
-  const [avatarInput, setAvatarInput] = useState("");
   const [introInput, setIntroInput] = useState("");
   const [accountEditOpen, setAccountEditOpen] = useState(false);
   const [accountEmail, setAccountEmail] = useState("");
@@ -88,7 +86,6 @@ export function ParentProfilePage(props: {
     const localPart = email.split("@")[0]?.trim();
     return localPart || "학부모";
   }, [userEmail]);
-  const avatarUrl = localProfile?.avatarUrl;
   const introText =
     localProfile?.intro ||
     (parentStudents.length > 0
@@ -209,7 +206,6 @@ export function ParentProfilePage(props: {
 
   const saveLocalProfile = () => {
     const next: LocalParentProfile = {
-      avatarUrl: avatarInput.trim() || undefined,
       intro: introInput.trim() || undefined
     };
     setLocalProfile(next);
@@ -226,42 +222,30 @@ export function ParentProfilePage(props: {
       <div className="student-profile-page section">
         <Card className="coach-card coach-card--padded coach-profile-card">
           <div className="coach-profile-card__main">
-            <div className="coach-profile-card__avatar-wrap">
-              {avatarUrl ? (
-                <div
-                  className="coach-profile-card__avatar coach-profile-card__avatar--image"
-                  style={{ backgroundImage: `url(${avatarUrl})` }}
-                />
-              ) : (
-                <div className="coach-profile-card__avatar">
-                  <span>{(displayName || "P").charAt(0).toUpperCase()}</span>
-                </div>
-              )}
-            </div>
             <div className="coach-profile-card__info">
-              <div className="coach-profile-card__name-row">
-                <span className="coach-profile-card__name">{displayName}</span>
-                <span className="coach-profile-card__grade-pill">
-                  연결 학생 {parentStudents.length}명
-                </span>
+              <div className="coach-profile-card__content">
+                <div className="coach-profile-card__name-row">
+                  <span className="coach-profile-card__name">{displayName}</span>
+                  <span className="coach-profile-card__grade-pill">
+                    연결 학생 {parentStudents.length}명
+                  </span>
+                </div>
+                <div className="coach-profile-card__goal">
+                  {introText ? `소개 · ${introText}` : "아직 소개를 설정하지 않았어요."}
+                </div>
               </div>
-              <div className="coach-profile-card__goal">
-                {introText ? `소개 · ${introText}` : "아직 소개를 설정하지 않았어요."}
-              </div>
+              <button
+                type="button"
+                className="coach-primary-btn coach-profile-card__action"
+                onClick={() => {
+                  setIntroInput(localProfile?.intro || "");
+                  setEditOpen(true);
+                }}
+              >
+                프로필 편집
+              </button>
             </div>
           </div>
-          <button
-            type="button"
-            className="coach-primary-btn"
-            style={{ marginTop: 10, width: "100%" }}
-            onClick={() => {
-              setAvatarInput(avatarUrl || "");
-              setIntroInput(localProfile?.intro || "");
-              setEditOpen(true);
-            }}
-          >
-            프로필 편집
-          </button>
         </Card>
 
         <Card className="coach-card coach-card--padded student-profile-settings-card">
@@ -475,7 +459,7 @@ export function ParentProfilePage(props: {
               />
             </div>
             {accountError ? (
-              <p className="settings-hint" style={{ marginTop: 10, color: "#b91c1c" }}>
+              <p className="settings-hint" style={{ marginTop: 10, color: "#000000" }}>
                 {accountError}
               </p>
             ) : null}
@@ -511,32 +495,6 @@ export function ParentProfilePage(props: {
           </div>
           <div className="dday-modal-body">
             <div className="field">
-              <label className="field-label">프로필 사진</label>
-              <input
-                className="field-input"
-                value={avatarInput.startsWith("data:") ? "" : avatarInput}
-                onChange={e => setAvatarInput(e.target.value)}
-              />
-              <label className="coach-profile-file-label">
-                <input
-                  type="file"
-                  accept="image/*"
-                  className="coach-profile-file-input"
-                  onChange={e => {
-                    const file = e.target.files?.[0];
-                    if (!file) return;
-                    const reader = new FileReader();
-                    reader.onload = () => {
-                      setAvatarInput(String(reader.result || ""));
-                    };
-                    reader.readAsDataURL(file);
-                    e.target.value = "";
-                  }}
-                />
-                갤러리에서 사진 선택
-              </label>
-            </div>
-            <div className="field" style={{ marginTop: 10 }}>
               <label className="field-label">한 줄 소개</label>
               <input
                 className="field-input"

@@ -204,7 +204,7 @@ export function ParentLegacyView(props: {
                     value={parentStudentId ?? ""}
                     onChange={e => setParentStudentId(Number(e.target.value))}
                     style={{
-                      fontSize: 14,
+                      fontSize: "var(--font-size-medium)",
                       padding: "6px 8px",
                       borderRadius: 10,
                       border: "1px solid var(--stroke)",
@@ -225,7 +225,7 @@ export function ParentLegacyView(props: {
           {parentStudents.length > 0 && parentStudentId && (
             <div style={{ marginTop: 14 }}>
               <div className="section-header">
-                <h3 className="section-title" style={{ fontSize: 16 }}>
+                <h3 className="section-title" style={{ fontSize: "var(--font-size-large)" }}>
                   계획표 작성 시간 설정
                 </h3>
               </div>
@@ -383,7 +383,7 @@ export function ParentLegacyView(props: {
               </div>
 
               <div className="section-header">
-                <h3 className="section-title" style={{ fontSize: 16 }}>
+                <h3 className="section-title" style={{ fontSize: "var(--font-size-large)" }}>
                   AI 일일 리포트
                 </h3>
               </div>

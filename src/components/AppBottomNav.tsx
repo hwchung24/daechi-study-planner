@@ -148,7 +148,7 @@ export function AppBottomNav(props: {
 
   const pillTransition = reduceMotion
     ? { duration: 0.08, ease: "easeOut" as const }
-    : { type: "spring" as const, stiffness: 420, damping: 34, mass: 0.82 };
+    : { type: "spring" as const, stiffness: 560, damping: 38, mass: 0.76 };
 
   return (
     <>

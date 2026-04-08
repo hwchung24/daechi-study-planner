@@ -1,11 +1,11 @@
 import type { CapacitorConfig } from "@capacitor/cli";
 
 const config: CapacitorConfig = {
-  appId: "com.daechiroot.app",
+  appId: "com.daechiroot.ios",
   appName: "대치루트",
   webDir: "dist",
   ios: {
-    contentInset: "automatic"
+    contentInset: "never"
   },
   server: {
     // 로컬 번들만 사용 (앱에 포함된 dist). 원격 URL을 넣으면 오프라인에서 화면이 안 뜰 수 있음.

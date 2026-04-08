@@ -212,6 +212,7 @@ function DatePickerColumns(props: ColumnsProps) {
                   (year === y ? " time-picker-option--active" : "")
                 }
                 onClick={() => {
+                  if (year === y) return;
                   hapticSelection?.();
                   onYearChange(y);
                 }}
@@ -237,6 +238,7 @@ function DatePickerColumns(props: ColumnsProps) {
                   (month === mo ? " time-picker-option--active" : "")
                 }
                 onClick={() => {
+                  if (month === mo) return;
                   hapticSelection?.();
                   onMonthChange(mo);
                 }}
@@ -262,6 +264,7 @@ function DatePickerColumns(props: ColumnsProps) {
                   (day === dn ? " time-picker-option--active" : "")
                 }
                 onClick={() => {
+                  if (day === dn) return;
                   hapticSelection?.();
                   onDayChange(dn);
                 }}

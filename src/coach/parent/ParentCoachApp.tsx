@@ -65,13 +65,13 @@ function ParentHome() {
         <div className="coach-chart">
           <ResponsiveContainer width="100%" height={160}>
             <LineChart data={insight.metrics7d}>
-              <XAxis dataKey="date" tick={{ fontSize: 11 }} tickFormatter={d => String(d).slice(5)} />
-              <YAxis tick={{ fontSize: 11 }} width={34} domain={[0, 100]} />
+              <XAxis dataKey="date" tick={{ fontSize: 12 }} tickFormatter={d => String(d).slice(5)} />
+              <YAxis tick={{ fontSize: 12 }} width={34} domain={[0, 100]} />
               <Tooltip
                 contentStyle={{
                   borderRadius: 12,
-                  border: "1px solid rgba(148,163,184,0.35)",
-                  boxShadow: "0 10px 30px rgba(15,23,42,0.10)"
+                  border: "1px solid rgba(var(--neutral-rgb), 0.35)",
+                  boxShadow: "none"
                 }}
                 labelFormatter={l => `날짜 ${String(l).slice(5)}`}
                 formatter={(v: any, k: any) => [v, k === "concentration" ? "집중도" : k]}

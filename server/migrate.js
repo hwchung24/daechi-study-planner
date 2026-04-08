@@ -73,6 +73,14 @@ async function main() {
   }
   try {
     await pool.query(`
+      ALTER TABLE student_coach_profiles
+      ADD COLUMN IF NOT EXISTS initial_profile_completed BOOLEAN NOT NULL DEFAULT false;
+    `);
+  } catch {
+    // ignore
+  }
+  try {
+    await pool.query(`
       CREATE TABLE IF NOT EXISTS parent_plan_add_requests (
         id BIGSERIAL PRIMARY KEY,
         student_user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,

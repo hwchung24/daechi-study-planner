@@ -147,7 +147,7 @@ export function getWeekTitle(offsetWeeks: number): string {
   const msPerWeek = 7 * 24 * 60 * 60 * 1000;
   const weekIndex =
     Math.floor((monday.getTime() - firstMondayWeek.getTime()) / msPerWeek) + 1;
-  const ordinals = ["첫", "두", "세", "네", "다섯"];
+  const ordinals = ["첫", "둘", "셋", "넷", "다섯"];
   const ordinal =
     weekIndex >= 1 && weekIndex <= 5 ? ordinals[weekIndex - 1] : String(weekIndex);
   return `${m + 1}월 ${ordinal}째 주`;
@@ -172,7 +172,7 @@ export function getWeekTitleSeoul(offsetWeeks: number): string {
   const monMs = new Date(`${mondayKey}T12:00:00+09:00`).getTime();
   const firstMonMs = new Date(`${firstMondayKey}T12:00:00+09:00`).getTime();
   const weekIndex = Math.floor((monMs - firstMonMs) / (7 * 86400000)) + 1;
-  const ordinals = ["첫", "두", "세", "네", "다섯"];
+  const ordinals = ["첫", "둘", "셋", "넷", "다섯"];
   const ordinal =
     weekIndex >= 1 && weekIndex <= 5 ? ordinals[weekIndex - 1] : String(weekIndex);
   return `${monthNum}월 ${ordinal}째 주`;

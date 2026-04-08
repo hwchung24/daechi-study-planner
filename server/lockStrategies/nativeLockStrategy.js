@@ -10,6 +10,7 @@ function buildNativeManagedConfig({
     channel: "native_app",
     locked: Boolean(locked),
     managedConfig: {
+      serial_number: serial || null,
       serial: serial || null,
       planner_locked: Boolean(locked),
       planner_lock_reason: reason || null,
