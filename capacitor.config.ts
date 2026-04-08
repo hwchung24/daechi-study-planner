@@ -4,6 +4,12 @@ const config: CapacitorConfig = {
   appId: "com.daechiroot.ios",
   appName: "대치루트",
   webDir: "dist",
+  plugins: {
+    Keyboard: {
+      resize: "none",
+      resizeOnFullScreen: false
+    }
+  },
   ios: {
     contentInset: "never"
   },

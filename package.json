@@ -16,6 +16,7 @@
     "@capacitor/core": "^6.2.0",
     "@capacitor/haptics": "^6.0.3",
     "@capacitor/ios": "^6.2.0",
+    "@capacitor/keyboard": "^6.0.4",
     "framer-motion": "^12.38.0",
     "lucide-react": "^1.7.0",
     "node-cron": "^4.2.1",

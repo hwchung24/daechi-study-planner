@@ -1,10 +1,13 @@
 import React from "react";
 import ReactDOM from "react-dom/client";
 import { Capacitor } from "@capacitor/core";
+import { Keyboard } from "@capacitor/keyboard";
 import { AppConfig } from "@capacitor-community/mdm-appconfig";
 import { persistApiBaseOverride } from "./lib/apiBase";
 import { AppShell } from "./lib/nativeAppShell";
 import "./styles.css";
+
+const IS_NATIVE_PLATFORM = Capacitor.isNativePlatform();
 
 let keyboardWasOpen = false;
 let keyboardResetTimer = 0;
@@ -12,6 +15,8 @@ let keyboardScrollLockY = 0;
 let lastTouchY = 0;
 let keyboardStabilizeFrame = 0;
 let keyboardStabilizeTimer = 0;
+let nativeKeyboardOpen = false;
+let nativeKeyboardHeight = 0;
 
 function forceDocumentScrollTop() {
   window.scrollTo(0, 0);
@@ -106,6 +111,57 @@ function setKeyboardScrollLock(active: boolean) {
 
 function syncViewportCssVars() {
   if (typeof window === "undefined" || typeof document === "undefined") {
+    return;
+  }
+
+  if (IS_NATIVE_PLATFORM) {
+    const viewportHeight = Math.round(window.innerHeight);
+    const keyboardOpen = nativeKeyboardOpen;
+
+    document.documentElement.style.setProperty(
+      "--app-viewport-height",
+      `${viewportHeight}px`
+    );
+    document.documentElement.style.setProperty("--app-viewport-offset-top", "0px");
+    document.documentElement.style.setProperty(
+      "--native-keyboard-height",
+      `${Math.max(0, Math.round(nativeKeyboardHeight))}px`
+    );
+    document.documentElement.classList.toggle("app-keyboard-open", keyboardOpen);
+    document.body.classList.toggle("app-keyboard-open", keyboardOpen);
+
+    if (keyboardOpen && !keyboardWasOpen) {
+      window.clearTimeout(keyboardResetTimer);
+      keyboardResetTimer = 0;
+      setKeyboardScrollLock(true);
+    }
+
+    if (keyboardOpen) {
+      forceDocumentScrollTop();
+    }
+
+    if (!keyboardOpen && keyboardWasOpen) {
+      setKeyboardScrollLock(false);
+
+      const resetScroll = () => {
+        restoreKeyboardScrollPosition();
+      };
+
+      resetScroll();
+      window.requestAnimationFrame(() => {
+        resetScroll();
+        window.requestAnimationFrame(resetScroll);
+      });
+
+      window.clearTimeout(keyboardResetTimer);
+      keyboardResetTimer = window.setTimeout(() => {
+        resetScroll();
+        keyboardResetTimer = 0;
+        keyboardScrollLockY = 0;
+      }, 180);
+    }
+
+    keyboardWasOpen = keyboardOpen;
     return;
   }
 
@@ -266,6 +322,52 @@ function installViewportCssVars() {
   };
 
   syncViewportCssVars();
+
+  if (IS_NATIVE_PLATFORM) {
+    const keyboardShowListener = Keyboard.addListener("keyboardWillShow", event => {
+      nativeKeyboardOpen = true;
+      nativeKeyboardHeight = event.keyboardHeight;
+      forceDocumentScrollTop();
+      scheduleSync();
+    });
+
+    const keyboardHideListener = Keyboard.addListener("keyboardWillHide", () => {
+      nativeKeyboardOpen = false;
+      nativeKeyboardHeight = 0;
+      scheduleSync();
+    });
+
+    const keyboardDidHideListener = Keyboard.addListener("keyboardDidHide", () => {
+      nativeKeyboardOpen = false;
+      nativeKeyboardHeight = 0;
+      forceDocumentScrollTop();
+      scheduleSync();
+    });
+
+    void Keyboard.setResizeMode({ mode: "none" }).catch(() => {
+      // ignore: older bridge/plugin edge cases should fall back to config-level behavior
+    });
+
+    document.addEventListener(
+      "focusin",
+      () => {
+        forceDocumentScrollTop();
+        scheduleSync();
+      },
+      true
+    );
+    document.addEventListener("focusout", scheduleSync, true);
+    window.addEventListener("resize", scheduleSync);
+    window.addEventListener("orientationchange", scheduleSync);
+    window.addEventListener("scroll", keepScrollLocked, { passive: true });
+    document.addEventListener("touchstart", onTouchStart, { passive: true, capture: true });
+    document.addEventListener("touchmove", onTouchMove, {
+      passive: false,
+      capture: true
+    });
+    document.addEventListener("wheel", onWheel, { passive: false, capture: true });
+    return;
+  }
 
   const visualViewport = window.visualViewport;
   visualViewport?.addEventListener("resize", onVisualViewportChange);

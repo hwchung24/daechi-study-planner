@@ -114,6 +114,16 @@ App Store 배포처럼 한 번 빌드된 IPA를 계속 써야 하는 경우에�
 `@capacitor/haptics` 가 포함되어 있습니다. **Capacitor로 빌드한 앱**에서만 동작하고, **일반 Safari 웹**에서는 동작하지 않습니다.  
 코드는 `src/lib/haptics.ts` 를 참고하세요. 화면별 사용 기준은 `docs/HAPTICS.md` 를 따릅니다.
 
+## 키보드 (iOS)
+
+`@capacitor/keyboard` 를 사용해 iOS 네이티브 셸에서 키보드 리사이즈 모드를 `none` 으로 고정합니다.
+
+- 목적: 웹뷰 전체가 키보드에 맞춰 재배치되는 현상을 줄이고, 앱 셸 고정을 더 강하게 유지
+- 설정 위치: `capacitor.config.ts` 의 `plugins.Keyboard.resize`
+- 런타임 처리: `src/main.tsx` 에서 native 환경일 때 Capacitor Keyboard 이벤트를 기준으로 키보드 열림/닫힘 상태를 처리
+
+웹(Safari/PWA)에서는 브라우저 기본 동작 한계가 남지만, Capacitor 앱에서는 이 설정이 더 직접적으로 동작합니다.
+
 ## Managed App Config 로 시리얼 받기
 
 MDM에서 앱 구성값으로 기기 시리얼을 주입할 때는 키를 `serial_number` 로 넣으면 됩니다.
