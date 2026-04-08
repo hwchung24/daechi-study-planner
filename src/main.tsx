@@ -9,6 +9,7 @@ import "./styles.css";
 let keyboardWasOpen = false;
 let keyboardResetTimer = 0;
 let keyboardScrollLockY = 0;
+let lastTouchY = 0;
 
 function restoreKeyboardScrollPosition() {
   window.scrollTo(0, keyboardScrollLockY);
@@ -27,6 +28,38 @@ const EDITABLE_SELECTOR = [
 
 function isFocusedEditableElement(node: Element | null): node is HTMLElement {
   return node instanceof HTMLElement && node.matches(EDITABLE_SELECTOR);
+}
+
+function findScrollableAncestor(node: EventTarget | null): HTMLElement | null {
+  let current = node instanceof HTMLElement ? node : null;
+
+  while (current && current !== document.body && current !== document.documentElement) {
+    const style = window.getComputedStyle(current);
+    const overflowY = style.overflowY;
+    const canScrollY =
+      (overflowY === "auto" || overflowY === "scroll" || overflowY === "overlay") &&
+      current.scrollHeight > current.clientHeight + 1;
+
+    if (canScrollY) {
+      return current;
+    }
+
+    current = current.parentElement;
+  }
+
+  return null;
+}
+
+function canScrollWithin(element: HTMLElement, deltaY: number) {
+  if (Math.abs(deltaY) < 0.5) {
+    return true;
+  }
+
+  if (deltaY > 0) {
+    return element.scrollTop > 0;
+  }
+
+  return element.scrollTop + element.clientHeight < element.scrollHeight - 1;
 }
 
 function setKeyboardScrollLock(active: boolean) {
@@ -143,6 +176,38 @@ function installViewportCssVars() {
     scheduleSync();
   };
 
+  const onTouchStart = (event: TouchEvent) => {
+    lastTouchY = event.touches[0]?.clientY ?? 0;
+  };
+
+  const onTouchMove = (event: TouchEvent) => {
+    if (!keyboardWasOpen) {
+      return;
+    }
+
+    const touchY = event.touches[0]?.clientY ?? lastTouchY;
+    const deltaY = touchY - lastTouchY;
+    lastTouchY = touchY;
+
+    const scrollableAncestor = findScrollableAncestor(event.target);
+    if (!scrollableAncestor || !canScrollWithin(scrollableAncestor, deltaY)) {
+      event.preventDefault();
+      restoreKeyboardScrollPosition();
+    }
+  };
+
+  const onWheel = (event: WheelEvent) => {
+    if (!keyboardWasOpen) {
+      return;
+    }
+
+    const scrollableAncestor = findScrollableAncestor(event.target);
+    if (!scrollableAncestor || !canScrollWithin(scrollableAncestor, -event.deltaY)) {
+      event.preventDefault();
+      restoreKeyboardScrollPosition();
+    }
+  };
+
   syncViewportCssVars();
 
   const visualViewport = window.visualViewport;
@@ -150,6 +215,12 @@ function installViewportCssVars() {
   visualViewport?.addEventListener("scroll", scheduleSync);
   document.addEventListener("focusin", scheduleSync, true);
   document.addEventListener("focusout", scheduleSync, true);
+  document.addEventListener("touchstart", onTouchStart, { passive: true, capture: true });
+  document.addEventListener("touchmove", onTouchMove, {
+    passive: false,
+    capture: true
+  });
+  document.addEventListener("wheel", onWheel, { passive: false, capture: true });
   window.addEventListener("resize", scheduleSync);
   window.addEventListener("orientationchange", scheduleSync);
   window.addEventListener("scroll", keepScrollLocked, { passive: true });
