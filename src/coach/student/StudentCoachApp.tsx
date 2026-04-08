@@ -903,6 +903,7 @@ function CoachChatTabConnected(props: { apiToken: string }) {
   const rootRef = useRef<HTMLDivElement | null>(null);
   const chatScrollRef = useRef<HTMLDivElement | null>(null);
   const inputDockRef = useRef<HTMLDivElement | null>(null);
+  const composerInputRef = useRef<HTMLInputElement | null>(null);
 
   const messages = useCoachStore(s => s.messages);
   const addMessage = useCoachStore(s => s.addMessage);
@@ -910,6 +911,7 @@ function CoachChatTabConnected(props: { apiToken: string }) {
   const setCoachMode = useCoachStore(s => s.setChatMode);
   const [draft, setDraft] = useState("");
   const [typing, setTyping] = useState(false);
+  const [composerOpen, setComposerOpen] = useState(false);
   const [coachAiMode, setCoachAiMode] = useState<"unknown" | "live" | "template">("unknown");
   const [lastResponseType, setLastResponseType] = useState<string>("");
 
@@ -918,7 +920,8 @@ function CoachChatTabConnected(props: { apiToken: string }) {
   useKeyboardDockInset({
     rootRef,
     scrollerRef: chatScrollRef,
-    dockRef: inputDockRef
+    dockRef: inputDockRef,
+    gap: 4
   });
 
   const scrollChatToBottom = useCallback((behavior: ScrollBehavior = "auto") => {
@@ -1012,8 +1015,49 @@ function CoachChatTabConnected(props: { apiToken: string }) {
         ? startersSchedule
         : startersLearning;
 
+  useEffect(() => {
+    if (!composerOpen) {
+      return;
+    }
+
+    const frame = window.requestAnimationFrame(() => {
+      composerInputRef.current?.focus();
+    });
+
+    return () => {
+      window.cancelAnimationFrame(frame);
+    };
+  }, [composerOpen]);
+
+  const handleComposerBlur = () => {
+    window.requestAnimationFrame(() => {
+      if (document.activeElement !== composerInputRef.current) {
+        setComposerOpen(false);
+      }
+    });
+  };
+
+  const closeComposer = () => {
+    composerInputRef.current?.blur();
+    setComposerOpen(false);
+  };
+
   return (
-    <div ref={rootRef} className="coach-chat-embedded keyboard-dock-root">
+    <div
+      ref={rootRef}
+      className={
+        "coach-chat-embedded keyboard-dock-root" +
+        (composerOpen ? " coach-chat-composer-open" : "")
+      }
+    >
+      {composerOpen && (
+        <button
+          type="button"
+          className="coach-chat-composer-backdrop"
+          aria-label="입력 닫기"
+          onClick={closeComposer}
+        />
+      )}
       {coachAiMode === "template" && (
         <p
           className="coach-muted"
@@ -1109,35 +1153,65 @@ function CoachChatTabConnected(props: { apiToken: string }) {
         <div id="coach-chat-bottom" />
       </div>
 
-      {hasUserTurn && (
-        <div className="coach-chat-starters" aria-label="추천 질문">
-          {starters.map(s => (
-            <button key={s} type="button" className="coach-starter" onClick={() => send(s)}>
-              {s}
-            </button>
-          ))}
-        </div>
-      )}
+      <div ref={inputDockRef} className="coach-chat-bottom-rail keyboard-dock">
+        {hasUserTurn && !composerOpen && (
+          <div className="coach-chat-starters" aria-label="추천 질문">
+            {starters.map(s => (
+              <button key={s} type="button" className="coach-starter" onClick={() => send(s)}>
+                {s}
+              </button>
+            ))}
+          </div>
+        )}
 
-      <div ref={inputDockRef} className="coach-chat-input keyboard-dock">
-        <input
-          className="coach-chat-text"
-          value={draft}
-          onChange={e => setDraft(e.target.value)}
-          onKeyDown={e => {
-            if (e.key === "Enter") send(draft);
-          }}
-        />
-        <button
-          type="button"
-          className="coach-primary-btn coach-primary-btn--sm"
-          onClick={() => send(draft)}
-          disabled={typing}
-          aria-label="메시지 보내기"
-          title="보내기"
-        >
-          <SendHorizontal size={15} strokeWidth={2.2} aria-hidden />
-        </button>
+        {!composerOpen ? (
+          <button
+            type="button"
+            className="coach-chat-trigger"
+            onClick={() => setComposerOpen(true)}
+            aria-label="코치에게 메시지 입력"
+          >
+            <span className={draft.trim() ? "coach-chat-trigger__text" : "coach-chat-trigger__placeholder"}>
+              {draft.trim() || "코치에게 메시지를 입력해 보세요"}
+            </span>
+            <span className="coach-chat-trigger__icon" aria-hidden>
+              <SendHorizontal size={15} strokeWidth={2.2} />
+            </span>
+          </button>
+        ) : (
+          <div className="coach-chat-composer" onMouseDown={e => e.stopPropagation()}>
+            <div className="coach-chat-input coach-chat-input--composer">
+              <input
+                ref={composerInputRef}
+                className="coach-chat-text"
+                value={draft}
+                onBlur={handleComposerBlur}
+                onChange={e => setDraft(e.target.value)}
+                onFocus={() => setComposerOpen(true)}
+                onKeyDown={e => {
+                  if (e.key === "Enter") {
+                    send(draft);
+                    setComposerOpen(false);
+                  }
+                }}
+              />
+              <button
+                type="button"
+                className="coach-primary-btn coach-primary-btn--sm"
+                onMouseDown={e => e.preventDefault()}
+                onClick={() => {
+                  send(draft);
+                  setComposerOpen(false);
+                }}
+                disabled={typing}
+                aria-label="메시지 보내기"
+                title="보내기"
+              >
+                <SendHorizontal size={15} strokeWidth={2.2} aria-hidden />
+              </button>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );

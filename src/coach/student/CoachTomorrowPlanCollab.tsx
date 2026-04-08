@@ -323,14 +323,17 @@ export function CoachTomorrowPlanCollab(props: CoachTomorrowPlanCollabProps) {
   const [typing, setTyping] = useState(false);
   const [applyBusy, setApplyBusy] = useState(false);
   const [banner, setBanner] = useState<string | null>(null);
+  const [composerOpen, setComposerOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement | null>(null);
   const chatScrollRef = useRef<HTMLDivElement | null>(null);
   const footerRef = useRef<HTMLDivElement | null>(null);
+  const composerInputRef = useRef<HTMLInputElement | null>(null);
 
   useKeyboardDockInset({
     rootRef,
     scrollerRef: chatScrollRef,
-    dockRef: footerRef
+    dockRef: footerRef,
+    gap: 4
   });
 
   const scrollChatToBottom = (behavior: ScrollBehavior = "auto") => {
@@ -432,6 +435,33 @@ export function CoachTomorrowPlanCollab(props: CoachTomorrowPlanCollabProps) {
   const autoTomorrowStarterDoneRef = useRef(false);
 
   useEffect(() => {
+    if (!composerOpen) {
+      return;
+    }
+
+    const frame = window.requestAnimationFrame(() => {
+      composerInputRef.current?.focus();
+    });
+
+    return () => {
+      window.cancelAnimationFrame(frame);
+    };
+  }, [composerOpen]);
+
+  const handleComposerBlur = () => {
+    window.requestAnimationFrame(() => {
+      if (document.activeElement !== composerInputRef.current) {
+        setComposerOpen(false);
+      }
+    });
+  };
+
+  const closeComposer = () => {
+    composerInputRef.current?.blur();
+    setComposerOpen(false);
+  };
+
+  useEffect(() => {
     if (autoTomorrowStarterDoneRef.current) return;
     if (!String(apiToken || "").trim()) return;
     if (messages.length > 0) return;
@@ -522,7 +552,21 @@ export function CoachTomorrowPlanCollab(props: CoachTomorrowPlanCollabProps) {
   };
 
   return (
-    <div ref={rootRef} className="coach-tomorrow-collab keyboard-dock-root">
+    <div
+      ref={rootRef}
+      className={
+        "coach-tomorrow-collab keyboard-dock-root" +
+        (composerOpen ? " coach-chat-composer-open" : "")
+      }
+    >
+      {composerOpen && (
+        <button
+          type="button"
+          className="coach-chat-composer-backdrop"
+          aria-label="입력 닫기"
+          onClick={closeComposer}
+        />
+      )}
       {banner && (
         <p className="coach-tomorrow-collab__banner" role="alert">
           {banner}
@@ -615,28 +659,57 @@ export function CoachTomorrowPlanCollab(props: CoachTomorrowPlanCollabProps) {
         <div id="coach-tomorrow-collab-bottom" />
       </div>
 
-      <div ref={footerRef} className="coach-tomorrow-collab__footer keyboard-dock">
-        <div className="coach-chat-input coach-tomorrow-collab__input">
-          <input
-            className="coach-chat-text"
-            placeholder="내일 하고 싶은 것, 고민을 적어 주세요…"
-            value={draft}
-            onChange={e => setDraft(e.target.value)}
-            onKeyDown={e => {
-              if (e.key === "Enter") void sendMessage(draft);
-            }}
-            disabled={!apiToken || typing}
-          />
+      <div ref={footerRef} className="coach-tomorrow-collab__footer coach-chat-bottom-rail keyboard-dock">
+        {!composerOpen ? (
           <button
             type="button"
-            className="coach-primary-btn coach-primary-btn--sm"
-            onClick={() => void sendMessage(draft)}
+            className="coach-chat-trigger"
+            onClick={() => setComposerOpen(true)}
+            aria-label="내일 계획 메시지 입력"
             disabled={!apiToken || typing}
-            aria-label="보내기"
           >
-            <SendHorizontal size={15} strokeWidth={2.2} aria-hidden />
+            <span className={draft.trim() ? "coach-chat-trigger__text" : "coach-chat-trigger__placeholder"}>
+              {draft.trim() || "내일 하고 싶은 것, 고민을 적어 주세요…"}
+            </span>
+            <span className="coach-chat-trigger__icon" aria-hidden>
+              <SendHorizontal size={15} strokeWidth={2.2} />
+            </span>
           </button>
-        </div>
+        ) : (
+          <div className="coach-chat-composer" onMouseDown={e => e.stopPropagation()}>
+            <div className="coach-chat-input coach-chat-input--composer coach-tomorrow-collab__input">
+              <input
+                ref={composerInputRef}
+                className="coach-chat-text"
+                placeholder="내일 하고 싶은 것, 고민을 적어 주세요…"
+                value={draft}
+                onBlur={handleComposerBlur}
+                onChange={e => setDraft(e.target.value)}
+                onFocus={() => setComposerOpen(true)}
+                onKeyDown={e => {
+                  if (e.key === "Enter") {
+                    void sendMessage(draft);
+                    setComposerOpen(false);
+                  }
+                }}
+                disabled={!apiToken || typing}
+              />
+              <button
+                type="button"
+                className="coach-primary-btn coach-primary-btn--sm"
+                onMouseDown={e => e.preventDefault()}
+                onClick={() => {
+                  void sendMessage(draft);
+                  setComposerOpen(false);
+                }}
+                disabled={!apiToken || typing}
+                aria-label="보내기"
+              >
+                <SendHorizontal size={15} strokeWidth={2.2} aria-hidden />
+              </button>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );

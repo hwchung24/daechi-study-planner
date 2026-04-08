@@ -389,7 +389,7 @@ function installViewportCssVars() {
     void Keyboard.setResizeMode({ mode: "none" }).catch(() => {
       // ignore: older bridge/plugin edge cases should fall back to config-level behavior
     });
-    void Keyboard.setAccessoryBarVisible({ isVisible: true }).catch(() => {
+    void Keyboard.setAccessoryBarVisible({ isVisible: false }).catch(() => {
       // ignore: not all devices/runtime combinations expose accessory bar control consistently
     });
     void setNativeKeyboardScrollDisabled(false);

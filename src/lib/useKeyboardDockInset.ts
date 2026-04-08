@@ -52,6 +52,7 @@ export function useKeyboardDockInset(options: KeyboardDockInsetOptions) {
     let frame = 0;
     let timeoutId = 0;
     let baselineViewportBottom = getViewportBottom();
+    let lastFocusedEditable: HTMLElement | null = null;
 
     const applyValues = (keyboardInset: number, dockLift: number) => {
       const active = keyboardInset > 0 || dockLift > 0;
@@ -69,8 +70,20 @@ export function useKeyboardDockInset(options: KeyboardDockInsetOptions) {
       frame = 0;
       const viewportBottom = getViewportBottom();
       const activeElement = document.activeElement;
-      const activeEditable = isEditableElement(root, activeElement);
       const nativeKeyboardHeight = getNativeKeyboardHeight();
+      const directlyFocusedEditable = isEditableElement(root, activeElement)
+        ? activeElement
+        : null;
+
+      if (directlyFocusedEditable) {
+        lastFocusedEditable = directlyFocusedEditable;
+      } else if (nativeKeyboardHeight === 0) {
+        lastFocusedEditable = null;
+      }
+
+      const effectiveEditable = directlyFocusedEditable ??
+        (nativeKeyboardHeight > 0 ? lastFocusedEditable : null);
+      const activeEditable = effectiveEditable instanceof HTMLElement;
       const effectiveViewportBottom = nativeKeyboardHeight > 0
         ? window.innerHeight - nativeKeyboardHeight
         : viewportBottom;
@@ -88,7 +101,7 @@ export function useKeyboardDockInset(options: KeyboardDockInsetOptions) {
 
       let dockLift = 0;
       if (activeEditable) {
-        const activeRect = activeElement.getBoundingClientRect();
+        const activeRect = effectiveEditable.getBoundingClientRect();
         const dockRect = dock.getBoundingClientRect();
         const visibleBottom = effectiveViewportBottom - gap;
         const targetBottom = Math.max(activeRect.bottom, dockRect.bottom);
@@ -110,11 +123,15 @@ export function useKeyboardDockInset(options: KeyboardDockInsetOptions) {
 
     const onFocusIn = (event: FocusEvent) => {
       if (isEditableElement(root, event.target)) {
+        lastFocusedEditable = event.target;
         scheduleSync();
       }
     };
 
     const onFocusOut = () => {
+      if (getNativeKeyboardHeight() === 0) {
+        lastFocusedEditable = null;
+      }
       scheduleSync();
     };
 
