@@ -36,7 +36,48 @@ import {
 } from "../../lib/coachEvents";
 import { useModalReveal } from "../../lib/useModalReveal";
 
+const COMMITMENT_DONE_STORAGE_PREFIX = "daechi_commitment_done_";
+
+function commitmentDoneStorageKey(dayKey: string) {
+  return `${COMMITMENT_DONE_STORAGE_PREFIX}${dayKey}`;
+}
+
+function readStoredCommitmentDone(dayKey: string): boolean | null {
+  try {
+    const value = localStorage.getItem(commitmentDoneStorageKey(dayKey));
+    if (value === "1") return true;
+    if (value === "0") return false;
+  } catch {
+    // ignore
+  }
+  return null;
+}
+
+function writeStoredCommitmentDone(dayKey: string, done: boolean) {
+  try {
+    localStorage.setItem(commitmentDoneStorageKey(dayKey), done ? "1" : "0");
+  } catch {
+    // ignore
+  }
+}
+
+function mergeCommitmentDoneFromServer(
+  serverValue: boolean | null | undefined,
+  dayKey: string
+): boolean | null {
+  if (serverValue === true || serverValue === false) return serverValue;
+  return readStoredCommitmentDone(dayKey);
+}
+
 const SLEEP_HOURS_MAX = 14;
+
+function recordLifeSliderFillPct(value: string | number): string {
+  const numericValue = Number(value);
+  if (!Number.isFinite(numericValue)) return "0%";
+  const clamped = Math.max(1, Math.min(5, numericValue));
+  const pct = ((clamped - 1) / 4) * 100;
+  return `${pct}%`;
+}
 
 /** 생활 기록 수면 0–14h 슬라이더 → 필 너비 % */
 function recordSleepSliderFillPct(v: string | number): string {
