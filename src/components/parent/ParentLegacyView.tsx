@@ -3,6 +3,7 @@ import { TabTransitionPanel } from "../PageTransition";
 import { setAppPath } from "../../lib/appNavigation";
 import { getWeekRangeLabel } from "../../lib/weekDates";
 import type { ParentLockStatus } from "../../types/lockStatus";
+import type { ParentStudentRow } from "../../types/parent";
 import { ParentProfilePage } from "./ParentProfilePage";
 
 export type ParentTabKey = "report" | "profile";
@@ -31,7 +32,7 @@ export function ParentLegacyView(props: {
   setParentLinkEmail: (v: string) => void;
   parentWaitingOnStudent: ParentLinkRow[];
   parentWaitingOnMe: ParentLinkRow[];
-  parentStudents: Array<{ id: number; email: string }>;
+  parentStudents: ParentStudentRow[];
   parentStudentId: number | null;
   setParentStudentId: (id: number | null) => void;
   parentWeekOffset: number;
@@ -54,7 +55,7 @@ export function ParentLegacyView(props: {
   setParentWaitingOnStudent: (rows: ParentLinkRow[]) => void;
   setParentWaitingOnMe: (rows: ParentLinkRow[]) => void;
   setParentStudents: React.Dispatch<
-    React.SetStateAction<Array<{ id: number; email: string }>>
+    React.SetStateAction<ParentStudentRow[]>
   >;
   setParentAiDaily: (v: ParentAiDaily | null) => void;
   hapticSelection: () => void;

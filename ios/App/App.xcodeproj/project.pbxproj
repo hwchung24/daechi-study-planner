@@ -10,6 +10,8 @@
 		2FAD9763203C412B000D30F8 /* config.xml in Resources */ = {isa = PBXBuildFile; fileRef = 2FAD9762203C412B000D30F8 /* config.xml */; };
 		503F225F2BC8D100BCA7D801 /* AppBridgeViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 503F225E2BC8D100BCA7D801 /* AppBridgeViewController.swift */; };
 		503F22612BC8D101BCA7D801 /* AppShellPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = 503F22602BC8D101BCA7D801 /* AppShellPlugin.swift */; };
+		503F22632BC8D102BCA7D801 /* NativeStudyRoomTrackingPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = 503F22622BC8D102BCA7D801 /* NativeStudyRoomTrackingPlugin.swift */; };
+		5A4CFD802C1136C60011AA10 /* NativeKeyboardInputPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5A4CFD7F2C1136C60011AA10 /* NativeKeyboardInputPlugin.swift */; };
 		50379B232058CBB4000EE86E /* capacitor.config.json in Resources */ = {isa = PBXBuildFile; fileRef = 50379B222058CBB4000EE86E /* capacitor.config.json */; };
 		504EC3081FED79650016851F /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 504EC3071FED79650016851F /* AppDelegate.swift */; };
 		504EC30D1FED79650016851F /* Main.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = 504EC30B1FED79650016851F /* Main.storyboard */; };
@@ -23,6 +25,8 @@
 		2FAD9762203C412B000D30F8 /* config.xml */ = {isa = PBXFileReference; lastKnownFileType = text.xml; path = config.xml; sourceTree = "<group>"; };
 		503F225E2BC8D100BCA7D801 /* AppBridgeViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppBridgeViewController.swift; sourceTree = "<group>"; };
 		503F22602BC8D101BCA7D801 /* AppShellPlugin.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppShellPlugin.swift; sourceTree = "<group>"; };
+		503F22622BC8D102BCA7D801 /* NativeStudyRoomTrackingPlugin.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeStudyRoomTrackingPlugin.swift; sourceTree = "<group>"; };
+		5A4CFD7F2C1136C60011AA10 /* NativeKeyboardInputPlugin.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeKeyboardInputPlugin.swift; sourceTree = "<group>"; };
 		50379B222058CBB4000EE86E /* capacitor.config.json */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.json; path = capacitor.config.json; sourceTree = "<group>"; };
 		504EC3041FED79650016851F /* daechiroot.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = daechiroot.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		504EC3071FED79650016851F /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
@@ -80,6 +84,8 @@
 				50379B222058CBB4000EE86E /* capacitor.config.json */,
 				503F225E2BC8D100BCA7D801 /* AppBridgeViewController.swift */,
 				503F22602BC8D101BCA7D801 /* AppShellPlugin.swift */,
+				503F22622BC8D102BCA7D801 /* NativeStudyRoomTrackingPlugin.swift */,
+				5A4CFD7F2C1136C60011AA10 /* NativeKeyboardInputPlugin.swift */,
 				504EC3071FED79650016851F /* AppDelegate.swift */,
 				504EC30B1FED79650016851F /* Main.storyboard */,
 				504EC30E1FED79650016851F /* Assets.xcassets */,
@@ -215,6 +221,8 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				503F22632BC8D102BCA7D801 /* NativeStudyRoomTrackingPlugin.swift in Sources */,
+				5A4CFD802C1136C60011AA10 /* NativeKeyboardInputPlugin.swift in Sources */,
 				503F22612BC8D101BCA7D801 /* AppShellPlugin.swift in Sources */,
 				503F225F2BC8D100BCA7D801 /* AppBridgeViewController.swift in Sources */,
 				504EC3081FED79650016851F /* AppDelegate.swift in Sources */,

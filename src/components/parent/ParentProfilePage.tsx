@@ -1,7 +1,10 @@
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { Card, SectionHeader } from "../../coach/ui/components";
 import { useEffectiveBearer } from "../../lib/useEffectiveBearer";
 import { useModalReveal } from "../../lib/useModalReveal";
+import { StudyRoomPickerModal, type StudyRoomSetting } from "./StudyRoomPickerModal";
+import type { ParentStudentRow } from "../../types/parent";
+import type { StudyRoomVisitSession } from "../../types/studyRoomTracking";
 
 type ParentLinkRow = {
   id: number;
@@ -10,16 +13,31 @@ type ParentLinkRow = {
   created_at: string;
 };
 
-type ParentStudentRow = {
-  id: number;
-  email: string;
-};
-
 type LocalParentProfile = {
   intro?: string;
 };
 
 const PARENT_PROFILE_LS_KEY = "daechi_parent_profile_custom";
+
+function formatStudyRoomVisitDateTime(value: string | null) {
+  if (!value) return "-";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "-";
+  return date.toLocaleString("ko-KR", {
+    month: "numeric",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit"
+  });
+}
+
+function formatStudyRoomVisitPeriod(visit: StudyRoomVisitSession) {
+  const enteredAt = formatStudyRoomVisitDateTime(visit.enteredAt);
+  const exitedAt = visit.exitedAt
+    ? formatStudyRoomVisitDateTime(visit.exitedAt)
+    : "현재 근방 체류 중";
+  return `${enteredAt} - ${exitedAt}`;
+}
 
 export function ParentProfilePage(props: {
   authToken: string | null;
@@ -76,9 +94,17 @@ export function ParentProfilePage(props: {
   const [accountCurrentPw, setAccountCurrentPw] = useState("");
   const [accountSaving, setAccountSaving] = useState(false);
   const [accountError, setAccountError] = useState("");
+  const [studyRoomStudentId, setStudyRoomStudentId] = useState<number | null>(null);
+  const [studyRoomSaving, setStudyRoomSaving] = useState(false);
+  const [studyRoomMessage, setStudyRoomMessage] = useState("");
+  const [studyRoomVisits, setStudyRoomVisits] = useState<
+    Record<number, StudyRoomVisitSession[]>
+  >({});
+  const [studyRoomVisitsLoading, setStudyRoomVisitsLoading] = useState(false);
 
   const accountModalReveal = useModalReveal(accountEditOpen);
   const profileEditModalReveal = useModalReveal(editOpen);
+  const studyRoomModalReveal = useModalReveal(studyRoomStudentId !== null);
 
   const displayName = useMemo(() => {
     const email = String(userEmail || "").trim();
@@ -91,6 +117,17 @@ export function ParentProfilePage(props: {
     (parentStudents.length > 0
       ? `${parentStudents.length}명의 학생과 학습 루틴을 함께 보고 있어요.`
       : "아직 연결된 학생이 없어요.");
+  const activeStudyRoomStudent =
+    parentStudents.find(student => student.id === studyRoomStudentId) || null;
+
+  const persistLocalProfile = (next: LocalParentProfile) => {
+    setLocalProfile(next);
+    try {
+      localStorage.setItem(PARENT_PROFILE_LS_KEY, JSON.stringify(next));
+    } catch {
+      // ignore
+    }
+  };
 
   const refreshLinkRequests = async () => {
     if (!props.authToken) return;
@@ -118,6 +155,55 @@ export function ParentProfilePage(props: {
     setParentStudents(next);
     setParentStudentId(next.length > 0 ? next[0].id : null);
   };
+
+  useEffect(() => {
+    if (!token) {
+      setStudyRoomVisits({});
+      return;
+    }
+
+    const studentsWithRooms = parentStudents.filter(student => student.studyRoom);
+    if (studentsWithRooms.length === 0) {
+      setStudyRoomVisits({});
+      return;
+    }
+
+    let cancelled = false;
+    setStudyRoomVisitsLoading(true);
+    void (async () => {
+      try {
+        const entries = await Promise.all(
+          studentsWithRooms.map(async student => {
+            const res = await fetch(
+              `${apiBase}/api/parent/students/${encodeURIComponent(String(student.id))}/study-room-visits?limit=4`,
+              {
+                cache: "no-store",
+                headers: {
+                  Authorization: `Bearer ${token}`
+                }
+              }
+            );
+            const data = (await res.json().catch(() => ({}))) as {
+              visits?: StudyRoomVisitSession[];
+            };
+            return [student.id, Array.isArray(data.visits) ? data.visits : []] as const;
+          })
+        );
+        if (cancelled) return;
+        setStudyRoomVisits(Object.fromEntries(entries));
+      } catch {
+        if (cancelled) return;
+      } finally {
+        if (!cancelled) {
+          setStudyRoomVisitsLoading(false);
+        }
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [apiBase, parentStudents, token]);
 
   const openAccountEdit = () => {
     setAccountEmail((userEmail || "").trim());
@@ -206,15 +292,89 @@ export function ParentProfilePage(props: {
 
   const saveLocalProfile = () => {
     const next: LocalParentProfile = {
+      ...(localProfile || {}),
       intro: introInput.trim() || undefined
     };
-    setLocalProfile(next);
-    try {
-      localStorage.setItem(PARENT_PROFILE_LS_KEY, JSON.stringify(next));
-    } catch {
-      // ignore
-    }
+    persistLocalProfile(next);
     profileEditModalReveal.beginClose(() => setEditOpen(false));
+  };
+
+  const saveStudyRoomSetting = (value: StudyRoomSetting) => {
+    if (!token) return;
+    setStudyRoomSaving(true);
+    setStudyRoomMessage("");
+    void (async () => {
+      try {
+        const res = await fetch(
+          `${apiBase}/api/parent/students/${encodeURIComponent(String(value.studentId))}/study-room`,
+          {
+            method: "PUT",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${token}`
+            },
+            body: JSON.stringify({
+              name: value.name,
+              address: value.address || null,
+              latitude: value.latitude,
+              longitude: value.longitude
+            })
+          }
+        );
+        if (!res.ok) {
+          const data = (await res.json().catch(() => ({}))) as { error?: string };
+          throw new Error(String(data.error || "독서실 위치 저장에 실패했습니다."));
+        }
+        await refreshStudents();
+        hapticSuccess();
+        setStudyRoomMessage("학생별 독서실 위치를 저장했습니다.");
+        studyRoomModalReveal.beginClose(() => setStudyRoomStudentId(null));
+      } catch (error) {
+        setStudyRoomMessage(
+          error instanceof Error && error.message
+            ? error.message
+            : "독서실 위치 저장 중 오류가 발생했습니다."
+        );
+        hapticWarning();
+      } finally {
+        setStudyRoomSaving(false);
+      }
+    })();
+  };
+
+  const removeStudyRoomSetting = (studentId: number) => {
+    if (!token) return;
+    setStudyRoomSaving(true);
+    setStudyRoomMessage("");
+    void (async () => {
+      try {
+        const res = await fetch(
+          `${apiBase}/api/parent/students/${encodeURIComponent(String(studentId))}/study-room`,
+          {
+            method: "DELETE",
+            headers: {
+              Authorization: `Bearer ${token}`
+            }
+          }
+        );
+        if (!res.ok) {
+          const data = (await res.json().catch(() => ({}))) as { error?: string };
+          throw new Error(String(data.error || "독서실 위치 삭제에 실패했습니다."));
+        }
+        await refreshStudents();
+        hapticSuccess();
+        setStudyRoomMessage("학생 독서실 위치를 삭제했습니다.");
+      } catch (error) {
+        setStudyRoomMessage(
+          error instanceof Error && error.message
+            ? error.message
+            : "독서실 위치 삭제 중 오류가 발생했습니다."
+        );
+        hapticWarning();
+      } finally {
+        setStudyRoomSaving(false);
+      }
+    })();
   };
 
   return (
@@ -278,6 +438,111 @@ export function ParentProfilePage(props: {
               <span className="settings-value">계정 전환</span>
             </button>
           </div>
+        </Card>
+
+        <Card className="coach-card coach-card--padded student-profile-parent-link-card">
+          <SectionHeader title="학생별 독서실 설정" />
+          {parentStudents.length === 0 ? (
+            <div className="parent-study-room-empty">
+              연결된 학생이 생기면 학생별 독서실 위치를 지도에서 설정할 수 있어요.
+            </div>
+          ) : (
+            <div className="parent-study-room-list">
+              {parentStudents.map(student => {
+                const setting = student.studyRoom || null;
+                const visits = studyRoomVisits[student.id] || [];
+                return (
+                  <div key={student.id} className="parent-study-room-item">
+                    <div className="parent-study-room-item__body">
+                      <div className="parent-study-room-item__title-row">
+                        <span className="parent-study-room-item__student">{student.email}</span>
+                        <span className="parent-study-room-item__pill">
+                          {setting ? "설정됨" : "미설정"}
+                        </span>
+                      </div>
+                      <div className="parent-study-room-item__name">
+                        {setting?.name || "아직 독서실 위치를 지정하지 않았어요."}
+                      </div>
+                      <div className="parent-study-room-item__meta">
+                        {setting?.address
+                          ? setting.address
+                          : setting
+                            ? `${setting.latitude.toFixed(5)}, ${setting.longitude.toFixed(5)}`
+                            : "지도에서 위치를 눌러 학생별 독서실 위치를 저장하세요."}
+                      </div>
+                      {setting ? (
+                        <div className="parent-study-room-item__visits">
+                          <div className="parent-study-room-item__visits-title">
+                            최근 독서실 근방 체류
+                          </div>
+                          {studyRoomVisitsLoading && visits.length === 0 ? (
+                            <div className="parent-study-room-item__visit-empty">
+                              체류 기록을 불러오는 중입니다.
+                            </div>
+                          ) : visits.length === 0 ? (
+                            <div className="parent-study-room-item__visit-empty">
+                              아직 저장된 체류 기록이 없습니다.
+                            </div>
+                          ) : (
+                            <div className="parent-study-room-item__visit-list">
+                              {visits.map(visit => (
+                                <div
+                                  key={visit.id}
+                                  className="parent-study-room-item__visit-item"
+                                >
+                                  <div className="parent-study-room-item__visit-row">
+                                    <span className="parent-study-room-item__visit-name">
+                                      {visit.studyRoomName}
+                                    </span>
+                                    <span className="parent-study-room-item__visit-pill">
+                                      {visit.exitedAt ? "체류 완료" : "체류 중"}
+                                    </span>
+                                  </div>
+                                  <div className="parent-study-room-item__visit-meta">
+                                    {formatStudyRoomVisitPeriod(visit)}
+                                  </div>
+                                  <div className="parent-study-room-item__visit-meta">
+                                    {visit.lastDistanceMeters != null
+                                      ? `마지막 거리 ${Math.round(visit.lastDistanceMeters)}m`
+                                      : "거리 기록 없음"}
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      ) : null}
+                    </div>
+                    <div className="parent-study-room-item__actions">
+                      <button
+                        type="button"
+                        className="progress-footer-btn"
+                        disabled={studyRoomSaving}
+                        onClick={() => setStudyRoomStudentId(student.id)}
+                      >
+                        {setting ? "수정" : "위치 설정"}
+                      </button>
+                      {setting ? (
+                        <button
+                          type="button"
+                          className="progress-footer-btn"
+                          disabled={studyRoomSaving}
+                          onClick={() => removeStudyRoomSetting(student.id)}
+                        >
+                          삭제
+                        </button>
+                      ) : null}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+          {studyRoomMessage ? (
+            <p className="settings-hint" style={{ marginTop: 12 }}>
+              {studyRoomMessage}
+            </p>
+          ) : null}
         </Card>
 
         <Card className="coach-card coach-card--padded student-profile-parent-link-card">
@@ -517,6 +782,16 @@ export function ParentProfilePage(props: {
           </div>
         </div>
       </div>
+
+      <StudyRoomPickerModal
+        open={studyRoomStudentId !== null}
+        revealed={studyRoomModalReveal.revealed}
+        student={activeStudyRoomStudent}
+        initialValue={activeStudyRoomStudent?.studyRoom || undefined}
+        saving={studyRoomSaving}
+        onClose={() => studyRoomModalReveal.beginClose(() => setStudyRoomStudentId(null))}
+        onSave={saveStudyRoomSetting}
+      />
     </>
   );
 }

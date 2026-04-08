@@ -33,10 +33,18 @@
 	</dict>
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>같은 Wi-Fi의 대치루트 서버와 연결해 로그인 및 학습 데이터를 동기화합니다.</string>
+	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
+	<string>학생이 설정된 독서실 근방에 언제부터 언제까지 있었는지 기록하기 위해 위치를 사용합니다.</string>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>학생이 설정된 독서실 근방에 있는지 확인하기 위해 위치를 사용합니다.</string>
 	<key>UILaunchStoryboardName</key>
 	<string>LaunchScreen</string>
 	<key>UIMainStoryboardFile</key>
 	<string>Main</string>
+	<key>UIBackgroundModes</key>
+	<array>
+		<string>location</string>
+	</array>
 	<key>UIRequiredDeviceCapabilities</key>
 	<array>
 		<string>armv7</string>

@@ -7,6 +7,106 @@ import { persistApiBaseOverride } from "./lib/apiBase";
 import { AppShell } from "./lib/nativeAppShell";
 import "./styles.css";
 
+type RuntimeErrorState = {
+  error: Error | null;
+};
+
+class RuntimeErrorBoundary extends React.Component<
+  React.PropsWithChildren,
+  RuntimeErrorState
+> {
+  state: RuntimeErrorState = { error: null };
+
+  static getDerivedStateFromError(error: Error): RuntimeErrorState {
+    return { error };
+  }
+
+  componentDidCatch(error: Error, info: React.ErrorInfo) {
+    console.error("[app] render failed", error, info.componentStack);
+  }
+
+  render() {
+    if (!this.state.error) {
+      return this.props.children;
+    }
+
+    return (
+      <div
+        style={{
+          minHeight: "100vh",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          padding: "24px",
+          background: "#f8fafc",
+          color: "#0f172a",
+          fontFamily:
+            '"SF Pro Text", "Apple SD Gothic Neo", "Noto Sans KR", sans-serif'
+        }}
+      >
+        <div
+          style={{
+            width: "min(720px, 100%)",
+            borderRadius: "20px",
+            padding: "20px",
+            background: "#ffffff",
+            boxShadow: "0 18px 48px rgba(15, 23, 42, 0.12)"
+          }}
+        >
+          <h1 style={{ margin: "0 0 12px", fontSize: "20px" }}>
+            앱 실행 중 오류가 발생했습니다.
+          </h1>
+          <p style={{ margin: "0 0 12px", lineHeight: 1.6 }}>
+            아래 메시지를 확인하면 흰 화면 원인을 바로 알 수 있습니다.
+          </p>
+          <pre
+            style={{
+              margin: 0,
+              overflowX: "auto",
+              whiteSpace: "pre-wrap",
+              wordBreak: "break-word",
+              borderRadius: "14px",
+              padding: "14px",
+              background: "#0f172a",
+              color: "#e2e8f0",
+              fontSize: "13px",
+              lineHeight: 1.5
+            }}
+          >
+            {this.state.error.stack || this.state.error.message}
+          </pre>
+        </div>
+      </div>
+    );
+  }
+}
+
+function renderBootstrapError(error: unknown) {
+  console.error("[app] bootstrap failed", error);
+
+  const root = document.getElementById("root");
+  if (!root) {
+    return;
+  }
+
+  const message =
+    error instanceof Error
+      ? error.stack || error.message
+      : typeof error === "string"
+        ? error
+        : JSON.stringify(error, null, 2);
+
+  root.innerHTML = `
+    <div style="min-height:100vh;display:flex;align-items:center;justify-content:center;padding:24px;background:#f8fafc;color:#0f172a;font-family:'SF Pro Text','Apple SD Gothic Neo','Noto Sans KR',sans-serif;">
+      <div style="width:min(720px,100%);border-radius:20px;padding:20px;background:#ffffff;box-shadow:0 18px 48px rgba(15,23,42,0.12);">
+        <h1 style="margin:0 0 12px;font-size:20px;">앱 시작 중 오류가 발생했습니다.</h1>
+        <p style="margin:0 0 12px;line-height:1.6;">아래 메시지를 확인하면 흰 화면 원인을 바로 알 수 있습니다.</p>
+        <pre style="margin:0;overflow-x:auto;white-space:pre-wrap;word-break:break-word;border-radius:14px;padding:14px;background:#0f172a;color:#e2e8f0;font-size:13px;line-height:1.5;">${String(message).replace(/[&<>]/g, char => ({"&":"&amp;","<":"&lt;",">":"&gt;"}[char] || char))}</pre>
+      </div>
+    </div>
+  `;
+}
+
 const IS_NATIVE_PLATFORM = Capacitor.isNativePlatform();
 const NATIVE_KEYBOARD_STATE_EVENT = "daechi:native-keyboard-state";
 
@@ -511,10 +611,12 @@ async function bootstrap() {
   const { default: App } = await import("./App");
   ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
     <React.StrictMode>
-      <App />
+      <RuntimeErrorBoundary>
+        <App />
+      </RuntimeErrorBoundary>
     </React.StrictMode>
   );
 }
 
-void bootstrap();
+void bootstrap().catch(renderBootstrapError);
 

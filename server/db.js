@@ -118,14 +118,254 @@ async function listParentStudents(parentUserId) {
   const parent = await getParentIdByUserId(parentUserId);
   if (!parent) return [];
   const res = await query(
-    `SELECT u.id, u.email
+    `SELECT u.id,
+            u.email,
+            pssr.name AS study_room_name,
+            pssr.address AS study_room_address,
+            pssr.latitude AS study_room_latitude,
+            pssr.longitude AS study_room_longitude,
+            pssr.updated_at AS study_room_updated_at
      FROM parents_students ps
      JOIN users u ON u.id = ps.student_id
+     LEFT JOIN parent_student_study_rooms pssr
+       ON pssr.parent_user_id = $2 AND pssr.student_user_id = u.id
      WHERE ps.parent_id = $1
      ORDER BY u.email ASC`,
-    [parent.id]
+    [parent.id, parentUserId]
+  );
+  return res.rows.map(row => ({
+    id: Number(row.id),
+    email: String(row.email || ""),
+    studyRoom:
+      row.study_room_name &&
+      Number.isFinite(Number(row.study_room_latitude)) &&
+      Number.isFinite(Number(row.study_room_longitude))
+        ? {
+            studentId: Number(row.id),
+            studentEmail: String(row.email || ""),
+            name: String(row.study_room_name || ""),
+            address: row.study_room_address != null ? String(row.study_room_address) : null,
+            latitude: Number(row.study_room_latitude),
+            longitude: Number(row.study_room_longitude),
+            updatedAt: row.study_room_updated_at
+              ? new Date(row.study_room_updated_at).toISOString()
+              : new Date().toISOString()
+          }
+        : null
+  }));
+}
+
+async function upsertParentStudentStudyRoom(parentUserId, studentUserId, input = {}) {
+  const res = await query(
+    `INSERT INTO parent_student_study_rooms
+      (parent_user_id, student_user_id, name, address, latitude, longitude, updated_at)
+     VALUES ($1, $2, $3, $4, $5, $6, now())
+     ON CONFLICT (parent_user_id, student_user_id)
+     DO UPDATE SET
+       name = EXCLUDED.name,
+       address = EXCLUDED.address,
+       latitude = EXCLUDED.latitude,
+       longitude = EXCLUDED.longitude,
+       updated_at = now()
+     RETURNING *`,
+    [
+      parentUserId,
+      studentUserId,
+      String(input.name || "").trim(),
+      input.address != null && String(input.address).trim()
+        ? String(input.address).trim()
+        : null,
+      Number(input.latitude),
+      Number(input.longitude)
+    ]
+  );
+  return res.rows[0] || null;
+}
+
+async function deleteParentStudentStudyRoom(parentUserId, studentUserId) {
+  const res = await query(
+    `DELETE FROM parent_student_study_rooms
+     WHERE parent_user_id = $1 AND student_user_id = $2`,
+    [parentUserId, studentUserId]
+  );
+  return res.rowCount > 0;
+}
+
+function haversineMeters(lat1, lng1, lat2, lng2) {
+  const toRad = value => (Number(value) * Math.PI) / 180;
+  const earthRadiusMeters = 6371000;
+  const dLat = toRad(lat2 - lat1);
+  const dLng = toRad(lng2 - lng1);
+  const a =
+    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLng / 2) * Math.sin(dLng / 2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  return earthRadiusMeters * c;
+}
+
+async function listStudyRoomConfigurationsForStudent(studentUserId) {
+  const res = await query(
+    `SELECT pssr.id,
+            pssr.parent_user_id,
+            pssr.student_user_id,
+            pssr.name,
+            pssr.address,
+            pssr.latitude,
+            pssr.longitude,
+            pssr.updated_at,
+            pu.email AS parent_email
+     FROM parent_student_study_rooms pssr
+     JOIN users pu ON pu.id = pssr.parent_user_id
+     WHERE pssr.student_user_id = $1
+     ORDER BY pssr.updated_at DESC`,
+    [studentUserId]
   );
   return res.rows;
+}
+
+function serializeStudyRoomVisitSession(row) {
+  if (!row) return null;
+  return {
+    id: Number(row.id),
+    parentUserId: Number(row.parent_user_id),
+    studentUserId: Number(row.student_user_id),
+    studyRoomId:
+      row.study_room_id != null && Number.isFinite(Number(row.study_room_id))
+        ? Number(row.study_room_id)
+        : null,
+    studyRoomName: String(row.study_room_name || row.study_room_snapshot_name || "독서실").trim() || "독서실",
+    parentEmail: String(row.parent_email || "").trim(),
+    enteredAt: row.entered_at ? new Date(row.entered_at).toISOString() : new Date().toISOString(),
+    lastSeenAt: row.last_seen_at ? new Date(row.last_seen_at).toISOString() : new Date().toISOString(),
+    exitedAt: row.exited_at ? new Date(row.exited_at).toISOString() : null,
+    exitReason: row.exit_reason != null ? String(row.exit_reason) : null,
+    lastDistanceMeters:
+      row.last_distance_meters != null && Number.isFinite(Number(row.last_distance_meters))
+        ? Number(row.last_distance_meters)
+        : null
+  };
+}
+
+async function recordStudentStudyRoomHeartbeat(studentUserId, input = {}) {
+  const latitude = Number(input.latitude);
+  const longitude = Number(input.longitude);
+  if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) {
+    throw new Error("invalid_location");
+  }
+  const occurredAtRaw = input.occurredAt || input.timestamp || null;
+  const occurredAt = occurredAtRaw ? new Date(String(occurredAtRaw)) : new Date();
+  if (Number.isNaN(occurredAt.getTime())) {
+    throw new Error("invalid_timestamp");
+  }
+  const studyRooms = await listStudyRoomConfigurationsForStudent(studentUserId);
+  const activeRes = await query(
+    `SELECT *
+     FROM parent_student_study_room_visit_sessions
+     WHERE student_user_id = $1 AND exited_at IS NULL`,
+    [studentUserId]
+  );
+  const activeByKey = new Map(
+    activeRes.rows.map(row => [
+      `${Number(row.parent_user_id)}:${Number(row.study_room_id)}`,
+      row
+    ])
+  );
+  const nearbyRooms = [];
+  for (const room of studyRooms) {
+    const distanceMeters = haversineMeters(
+      latitude,
+      longitude,
+      Number(room.latitude),
+      Number(room.longitude)
+    );
+    const isNearby = distanceMeters <= 120;
+    const key = `${Number(room.parent_user_id)}:${Number(room.id)}`;
+    const active = activeByKey.get(key) || null;
+    if (isNearby) {
+      nearbyRooms.push({ room, distanceMeters });
+      if (active) {
+        await query(
+          `UPDATE parent_student_study_room_visit_sessions
+           SET last_seen_at = GREATEST(last_seen_at, $4::timestamptz),
+               last_distance_meters = $5,
+               updated_at = now()
+           WHERE id = $1`,
+          [active.id, room.parent_user_id, studentUserId, occurredAt.toISOString(), distanceMeters]
+        );
+      } else {
+        await query(
+          `INSERT INTO parent_student_study_room_visit_sessions
+            (parent_user_id, student_user_id, study_room_id, entered_at, last_seen_at, last_distance_meters, updated_at)
+           VALUES ($1, $2, $3, $4, $4, $5, now())`,
+          [room.parent_user_id, studentUserId, room.id, occurredAt.toISOString(), distanceMeters]
+        );
+      }
+      continue;
+    }
+    if (active) {
+      await query(
+        `UPDATE parent_student_study_room_visit_sessions
+         SET exited_at = COALESCE(exited_at, $2::timestamptz),
+             exit_reason = COALESCE(exit_reason, 'outside_radius'),
+             updated_at = now(),
+             last_distance_meters = $3
+         WHERE id = $1`,
+        [active.id, occurredAt.toISOString(), distanceMeters]
+      );
+    }
+  }
+  return {
+    studyRoomCount: studyRooms.length,
+    nearbyStudyRoomCount: nearbyRooms.length
+  };
+}
+
+async function listRecentStudyRoomVisitSessionsForStudent(studentUserId, limit = 20) {
+  const res = await query(
+    `SELECT s.id,
+            s.parent_user_id,
+            s.student_user_id,
+            s.study_room_id,
+            s.entered_at,
+            s.last_seen_at,
+            s.exited_at,
+            s.exit_reason,
+            s.last_distance_meters,
+            pu.email AS parent_email,
+            COALESCE(pssr.name, '독서실') AS study_room_name
+     FROM parent_student_study_room_visit_sessions s
+     JOIN users pu ON pu.id = s.parent_user_id
+     LEFT JOIN parent_student_study_rooms pssr ON pssr.id = s.study_room_id
+     WHERE s.student_user_id = $1
+     ORDER BY s.entered_at DESC
+     LIMIT $2`,
+    [studentUserId, limit]
+  );
+  return res.rows.map(serializeStudyRoomVisitSession);
+}
+
+async function listRecentStudyRoomVisitSessionsForParent(parentUserId, studentUserId, limit = 20) {
+  const res = await query(
+    `SELECT s.id,
+            s.parent_user_id,
+            s.student_user_id,
+            s.study_room_id,
+            s.entered_at,
+            s.last_seen_at,
+            s.exited_at,
+            s.exit_reason,
+            s.last_distance_meters,
+            pu.email AS parent_email,
+            COALESCE(pssr.name, '독서실') AS study_room_name
+     FROM parent_student_study_room_visit_sessions s
+     JOIN users pu ON pu.id = s.parent_user_id
+     LEFT JOIN parent_student_study_rooms pssr ON pssr.id = s.study_room_id
+     WHERE s.parent_user_id = $1 AND s.student_user_id = $2
+     ORDER BY s.entered_at DESC
+     LIMIT $3`,
+    [parentUserId, studentUserId, limit]
+  );
+  return res.rows.map(serializeStudyRoomVisitSession);
 }
 
 async function listStudentParents(studentUserId) {
@@ -1877,6 +2117,12 @@ module.exports = {
   listParentNotifications,
   markParentNotificationsReadAll,
   createParentNotificationForLinkedParents,
+  upsertParentStudentStudyRoom,
+  deleteParentStudentStudyRoom,
+  listStudyRoomConfigurationsForStudent,
+  recordStudentStudyRoomHeartbeat,
+  listRecentStudyRoomVisitSessionsForStudent,
+  listRecentStudyRoomVisitSessionsForParent,
   getOrCreateStudyDay,
   replaceStudyBlocks,
   upsertStudyPlans,

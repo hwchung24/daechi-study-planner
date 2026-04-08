@@ -11,6 +11,7 @@ import { ChevronLeft, ChevronRight, Pencil } from "lucide-react";
 import { DatePickerScroll } from "../DatePickerScroll";
 import { TimePickerSheet } from "../TimePickerSheet";
 import { TabTransitionPanel } from "../PageTransition";
+import { AppAllowanceCoachCollab } from "./AppAllowanceCoachCollab";
 import {
   getDateKeySeoul,
   getWeekDaysIncludingTomorrowSeoul,
@@ -173,6 +174,23 @@ type AppAllowancePlan = {
   availableApps: AppAllowanceCandidate[];
 };
 
+const DAECHI_ROOT_APP_ID = "com.daechiroot.ios";
+const DAECHI_ROOT_APP_NAME = "대치루트";
+const DAECHI_ROOT_APP: AppAllowanceCandidate = {
+  id: DAECHI_ROOT_APP_ID,
+  name: DAECHI_ROOT_APP_NAME,
+  category: "필수 앱",
+  description: "대치루트 앱은 항상 허용됩니다.",
+  bundleId: DAECHI_ROOT_APP_ID
+};
+
+function isDaechiRootApp(app: AppAllowanceCandidate | null | undefined) {
+  const id = String(app?.id || "").trim().toLowerCase();
+  const bundleId = String(app?.bundleId || "").trim().toLowerCase();
+  const name = String(app?.name || "").trim();
+  return id === DAECHI_ROOT_APP_ID || bundleId === DAECHI_ROOT_APP_ID || name === DAECHI_ROOT_APP_NAME;
+}
+
 let appAllowanceSlotSequence = 0;
 
 function createAppAllowanceSlotId() {
@@ -221,7 +239,7 @@ function sortAppAllowanceSlots(slots: AppAllowanceSlot[]): AppAllowanceSlot[] {
 
 function normalizeAppAllowanceCandidates(rows: AppAllowanceCandidate[]): AppAllowanceCandidate[] {
   const seen = new Set<string>();
-  return (rows || []).filter(app => {
+  const next = (rows || []).filter(app => {
     const id = String(app?.id || "").trim();
     const name = String(app?.name || "").trim();
     if (!id || !name) return false;
@@ -230,6 +248,26 @@ function normalizeAppAllowanceCandidates(rows: AppAllowanceCandidate[]): AppAllo
     seen.add(key);
     return true;
   });
+  if (!next.some(isDaechiRootApp)) {
+    next.unshift({ ...DAECHI_ROOT_APP });
+  }
+  return next;
+}
+
+function ensureDaechiRootAllowedApps(rows: AppAllowanceCandidate[]): AppAllowanceCandidate[] {
+  const normalized = normalizeAppAllowanceCandidates(rows);
+  const root = normalized.find(isDaechiRootApp) || { ...DAECHI_ROOT_APP };
+  const others = normalized.filter(app => !isDaechiRootApp(app));
+  return [root, ...others];
+}
+
+function ensureDaechiRootAllowedSlots(slots: Array<Omit<AppAllowanceSlot, "localId"> | AppAllowanceSlot>) {
+  return (slots || []).map(slot => ({
+    ...slot,
+    allowedApps: ensureDaechiRootAllowedApps(
+      Array.isArray(slot.allowedApps) ? slot.allowedApps : []
+    )
+  }));
 }
 
 function hydrateAppAllowancePlan(raw: {
@@ -244,7 +282,7 @@ function hydrateAppAllowancePlan(raw: {
     Array.isArray(raw.availableApps) ? raw.availableApps : []
   );
   const slots = sortAppAllowanceSlots(
-    (Array.isArray(raw.slots) ? raw.slots : []).map(slot => ({
+    ensureDaechiRootAllowedSlots(Array.isArray(raw.slots) ? raw.slots : []).map(slot => ({
       localId: createAppAllowanceSlotId(),
       title: String(slot.title || "").trim() || "시간표",
       source:
@@ -256,7 +294,7 @@ function hydrateAppAllowancePlan(raw: {
       startTime: String(slot.startTime || "").trim(),
       endTime: String(slot.endTime || "").trim(),
       reason: String(slot.reason || "").trim(),
-      allowedApps: normalizeAppAllowanceCandidates(
+      allowedApps: ensureDaechiRootAllowedApps(
         Array.isArray(slot.allowedApps) ? slot.allowedApps : []
       )
     }))
@@ -288,7 +326,7 @@ function createDraftAppAllowanceSlot(existingSlots: AppAllowanceSlot[]): AppAllo
     startTime: minutesToHhmmAllow24(start),
     endTime: minutesToHhmmAllow24(end),
     reason: "학생이 직접 조정한 시간대입니다.",
-    allowedApps: []
+    allowedApps: ensureDaechiRootAllowedApps([])
   };
 }
 
@@ -725,6 +763,9 @@ export function StudentLegacyView(props: {
 
   const toggleAppAllowanceAllowedApp = useCallback(
     (slotId: string, app: AppAllowanceCandidate) => {
+      if (isDaechiRootApp(app)) {
+        return;
+      }
       hapticSelection();
       updateAppAllowanceSlots(slots =>
         slots.map(slot => {
@@ -732,9 +773,11 @@ export function StudentLegacyView(props: {
           const exists = slot.allowedApps.some(item => item.id === app.id);
           return {
             ...slot,
-            allowedApps: exists
-              ? slot.allowedApps.filter(item => item.id !== app.id)
-              : [...slot.allowedApps, app]
+            allowedApps: ensureDaechiRootAllowedApps(
+              exists
+                ? slot.allowedApps.filter(item => item.id !== app.id)
+                : [...slot.allowedApps, app]
+            )
           };
         })
       );
@@ -1895,8 +1938,7 @@ export function StudentLegacyView(props: {
       {tab === "store" && (
         <section className="section store-section">
           {storeError && <p className="empty-state">{storeError}</p>}
-          {storeLoading && <p className="empty-state">앱 목록을 불러오는 중…</p>}
-          {!storeLoading && storeApps.length > 0 && (
+          {storeApps.length > 0 && (
             <div
               className="store-filter-row"
               role="tablist"
@@ -1941,7 +1983,7 @@ export function StudentLegacyView(props: {
               ))}
             </div>
           )}
-          {!storeLoading && (
+          {storeApps.length > 0 && (
             <div className="store-grid">
               {displayedStoreApps.map(app => (
                 <article key={app.id} className="store-card">
@@ -2133,6 +2175,26 @@ export function StudentLegacyView(props: {
                     {appAllowancePlan.summary ||
                       "내일 일정과 계획을 기준으로 앱 허용 후보를 정리했어요."}
                   </p>
+                  <AppAllowanceCoachCollab
+                    apiBase={apiBase}
+                    authToken={authToken}
+                    plan={appAllowancePlan}
+                    onReplacePlan={next => {
+                      setAppAllowancePickerSlotId(null);
+                      setAppAllowancePlan(prev =>
+                        prev
+                          ? hydrateAppAllowancePlan({
+                              targetDate: prev.targetDate,
+                              summary: next.summary,
+                              slots: next.slots,
+                              usedOpenAi: next.usedOpenAi,
+                              model: next.model,
+                              availableApps: next.availableApps
+                            })
+                          : prev
+                      );
+                    }}
+                  />
                   <div className="app-allow-plan-toolbar">
                     <button
                       type="button"
@@ -2214,13 +2276,21 @@ export function StudentLegacyView(props: {
                                 <button
                                   key={app.id}
                                   type="button"
-                                  className="app-allow-plan-chip app-allow-plan-chip--selected"
+                                  className={
+                                    "app-allow-plan-chip app-allow-plan-chip--selected" +
+                                    (isDaechiRootApp(app)
+                                      ? " app-allow-plan-chip--locked"
+                                      : "")
+                                  }
                                   onClick={() =>
                                     toggleAppAllowanceAllowedApp(slot.localId, app)
                                   }
+                                  disabled={isDaechiRootApp(app)}
                                 >
                                   {app.name}
-                                  <span className="app-allow-plan-chip__remove">x</span>
+                                  <span className="app-allow-plan-chip__remove">
+                                    {isDaechiRootApp(app) ? "고정" : "x"}
+                                  </span>
                                 </button>
                               ))
                             ) : (
@@ -2264,6 +2334,7 @@ export function StudentLegacyView(props: {
                                       onClick={() =>
                                         toggleAppAllowanceAllowedApp(slot.localId, app)
                                       }
+                                      disabled={isDaechiRootApp(app)}
                                     >
                                       {app.name}
                                     </button>

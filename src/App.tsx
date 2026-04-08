@@ -9,9 +9,13 @@ import { PageTransition } from "./components/PageTransition";
 import { ParentLegacyView, type ParentTabKey } from "./components/parent/ParentLegacyView";
 import { StudentLegacyView, type TabKey } from "./components/student/StudentLegacyView";
 import { StudentProfilePage } from "./components/student/StudentProfilePage";
-import { NotificationsPage } from "./components/student/NotificationsPage";
+import type { ParentStudentRow } from "./types/parent";
+import {
+  NotificationsPage,
+  type ParentNotificationAction
+} from "./components/student/NotificationsPage";
 import { TimePickerInline } from "./components/TimePickerSheet";
-import { GlobalKeyboardOverlay } from "./components/GlobalKeyboardOverlay";
+import { NativeKeyboardInputManager } from "./components/NativeKeyboardInputManager";
 import { useOnlineStatus } from "./hooks/useOnlineStatus";
 import { canUseNativeAppShell, AppShell, type PendingNetworkBanner } from "./lib/nativeAppShell";
 import { StudentCoachApp, type StudentTabKey as CoachStudentTabKey } from "./coach/student/StudentCoachApp";
@@ -54,6 +58,7 @@ import {
   DAECHI_COACH_LOG_SAVED_EVENT,
   DAECHI_COACH_LOG_SAVED_STORAGE_KEY
 } from "./lib/coachEvents";
+import { stopNativeStudyRoomTracking } from "./lib/nativeStudyRoomTracking";
 import type { ParentLockStatus, StudentLockStatus } from "./types/lockStatus";
 import type { ProgressBook, ProgressPlan, StudyBlock } from "./types/planner";
 
@@ -83,8 +88,24 @@ type ParentPlanAddRequestRow = {
   student_email: string;
 };
 
+type ParentAppTimetableRequestDetail = {
+  studentEmail: string;
+  targetDate: string;
+  summary: string;
+  slotSummary: string;
+};
+
 const STUDENT_SETUP_PROMPT_PENDING_KEY_PREFIX =
   "daechi_student_setup_prompt_pending:";
+const ME_CACHE_KEY = "daechi_me_cache";
+
+type CachedMeState = {
+  role: string | null;
+  email: string | null;
+  initialProfileCompleted: boolean;
+  grade: string;
+  goal: string;
+};
 
 function getStudentSetupPromptPendingKey(email: string) {
   return `${STUDENT_SETUP_PROMPT_PENDING_KEY_PREFIX}${String(email).trim().toLowerCase()}`;
@@ -112,6 +133,48 @@ function consumeStudentSetupPrompt(email: string) {
     return armed;
   } catch {
     return false;
+  }
+}
+
+function readCachedMeState(): CachedMeState | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = localStorage.getItem(ME_CACHE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as Partial<CachedMeState>;
+    return {
+      role:
+        parsed.role != null && String(parsed.role).trim() !== ""
+          ? String(parsed.role).trim().toLowerCase()
+          : null,
+      email:
+        parsed.email != null && String(parsed.email).trim() !== ""
+          ? String(parsed.email).trim().toLowerCase()
+          : null,
+      initialProfileCompleted: Boolean(parsed.initialProfileCompleted),
+      grade: String(parsed.grade ?? "").trim(),
+      goal: String(parsed.goal ?? "").trim()
+    };
+  } catch {
+    return null;
+  }
+}
+
+function writeCachedMeState(next: CachedMeState) {
+  if (typeof window === "undefined") return;
+  try {
+    localStorage.setItem(ME_CACHE_KEY, JSON.stringify(next));
+  } catch {
+    // ignore
+  }
+}
+
+function clearCachedMeState() {
+  if (typeof window === "undefined") return;
+  try {
+    localStorage.removeItem(ME_CACHE_KEY);
+  } catch {
+    // ignore
   }
 }
 
@@ -191,8 +254,22 @@ const App: React.FC = () => {
   const [networkBanner, setNetworkBanner] = useState<PendingNetworkBanner | null>(null);
   const onlineRef = useRef(online);
 
-  const [userEmail, setUserEmail] = useState<string | null>(null);
-  const [authToken, setAuthToken] = useState<string | null>(null);
+  const [userEmail, setUserEmail] = useState<string | null>(() => {
+    if (typeof window === "undefined") return null;
+    try {
+      return localStorage.getItem("daechi_planner_user_email");
+    } catch {
+      return null;
+    }
+  });
+  const [authToken, setAuthToken] = useState<string | null>(() => {
+    if (typeof window === "undefined") return null;
+    try {
+      return localStorage.getItem("daechi_planner_token");
+    } catch {
+      return null;
+    }
+  });
   const [authMode, setAuthMode] = useState<"login" | "signup">("login");
   const [authRole, setAuthRole] = useState<"student" | "parent">("student");
   const [authStudentName, setAuthStudentName] = useState("");
@@ -211,7 +288,9 @@ const App: React.FC = () => {
   /** 로그인 직후 인증 화면 페이드아웃 → 메인 페이드인 */
   const [authLeaving, setAuthLeaving] = useState(false);
   const [mainEnter, setMainEnter] = useState(false);
-  const [meRole, setMeRole] = useState<string | null>(null);
+  const [meRole, setMeRole] = useState<string | null>(
+    () => readCachedMeState()?.role ?? null
+  );
   /** /api/me 1회 이상 끝났는지(실패 포함). false면 헤더에 무한 «불러오는 중» */
   const [meRoleResolved, setMeRoleResolved] = useState(true);
   const [profileLoadError, setProfileLoadError] = useState<string | null>(
@@ -236,7 +315,7 @@ const App: React.FC = () => {
   const [studentSetupSaving, setStudentSetupSaving] = useState(false);
   const [studentSetupError, setStudentSetupError] = useState("");
   const [studentInitialProfileCompleted, setStudentInitialProfileCompleted] =
-    useState(true);
+    useState(() => readCachedMeState()?.initialProfileCompleted ?? true);
   const [studentSetupPromptArmed, setStudentSetupPromptArmed] =
     useState(false);
   const [requestReason, setRequestReason] = useState("");
@@ -256,6 +335,8 @@ const App: React.FC = () => {
   >([]);
   const [parentPlanAddBusy, setParentPlanAddBusy] = useState(false);
   const [showNotificationsModal, setShowNotificationsModal] = useState(false);
+  const [parentAppTimetableRequestDetail, setParentAppTimetableRequestDetail] =
+    useState<ParentAppTimetableRequestDetail | null>(null);
 
   useEffect(() => {
     if (!networkBanner?.message) return;
@@ -320,6 +401,9 @@ const App: React.FC = () => {
   const studentSetupReveal = useModalReveal(studentSetupOpen);
   const checkSettingsModalReveal = useModalReveal(checkSettingsOpen);
   const notificationsModalReveal = useModalReveal(showNotificationsModal);
+  const parentAppTimetableRequestReveal = useModalReveal(
+    parentAppTimetableRequestDetail !== null
+  );
 
   const [newBookName, setNewBookName] = useState("");
   const [booksModalMounted, setBooksModalMounted] = useState(false);
@@ -351,9 +435,7 @@ const App: React.FC = () => {
     number | null
   >(null);
 
-  const [parentStudents, setParentStudents] = useState<
-    Array<{ id: number; email: string }>
-  >([]);
+  const [parentStudents, setParentStudents] = useState<ParentStudentRow[]>([]);
   const [parentLinkEmail, setParentLinkEmail] = useState("");
   const [parentStudentId, setParentStudentId] = useState<number | null>(
     null
@@ -373,6 +455,38 @@ const App: React.FC = () => {
   const [parentPlannerMessage, setParentPlannerMessage] = useState("");
   const [parentTab, setParentTab] = useState<ParentTabKey>(() =>
     parseParentTabFromHash()
+  );
+
+  const openParentAppTimetableRequestFromNotification = useCallback(
+    (action: ParentNotificationAction) => {
+      if (action.type !== "parent_app_timetable_request") return;
+      const studentEmail = String(action.studentEmail || "").trim().toLowerCase();
+      const targetDate = String(action.targetDate || "").trim();
+      const summary = String(action.summary || "").trim();
+      const slotSummary = String(action.slotSummary || "").trim();
+
+      if (studentEmail) {
+        const matchedStudent = parentStudents.find(
+          student => String(student.email || "").trim().toLowerCase() === studentEmail
+        );
+        if (matchedStudent) {
+          setParentStudentId(matchedStudent.id);
+        }
+      }
+
+      setParentTab("report");
+      setAppPath("#/parent/report");
+      notificationsModalReveal.beginClose(() => {
+        setShowNotificationsModal(false);
+        setParentAppTimetableRequestDetail({
+          studentEmail,
+          targetDate,
+          summary,
+          slotSummary
+        });
+      });
+    },
+    [notificationsModalReveal, parentStudents]
   );
   const [coachStudentTab, setCoachStudentTab] = useState<CoachStudentTabKey | null>(
     () => parseCoachStudentTabFromHash()
@@ -433,9 +547,18 @@ const App: React.FC = () => {
     try {
       const savedEmail = localStorage.getItem("daechi_planner_user_email");
       const savedToken = localStorage.getItem("daechi_planner_token");
+      const cachedMe = readCachedMeState();
       if (savedEmail && savedToken) {
         setUserEmail(savedEmail);
         setAuthToken(savedToken);
+        if (cachedMe?.role) {
+          setMeRole(cachedMe.role);
+        }
+        setStudentInitialProfileCompleted(
+          cachedMe?.initialProfileCompleted ?? true
+        );
+        setStudentSetupGrade(cachedMe?.grade ?? "");
+        setStudentSetupGoal(cachedMe?.goal ?? "");
       }
     } catch {
       // ignore
@@ -545,11 +668,13 @@ const App: React.FC = () => {
       setStudentSetupGrade("");
       setStudentSetupGoal("");
       setStudentSetupError("");
+      clearCachedMeState();
       return;
     }
 
     let cancelled = false;
-    setMeRoleResolved(false);
+    const fallbackRole = meRole;
+    setMeRoleResolved(!fallbackRole);
     setProfileLoadError(null);
 
     const done = () => {
@@ -570,6 +695,7 @@ const App: React.FC = () => {
           } catch {
             // ignore
           }
+          clearCachedMeState();
           setAuthToken(null);
           setUserEmail(null);
           setMeRole(null);
@@ -580,11 +706,13 @@ const App: React.FC = () => {
 
         if (!res.ok) {
           const data = await res.json().catch(() => ({}));
-          setProfileLoadError(
-            String((data as { error?: string }).error || "").trim() ||
-              "계정 정보를 불러오지 못했습니다."
-          );
-          setMeRole(null);
+          if (!fallbackRole) {
+            setProfileLoadError(
+              String((data as { error?: string }).error || "").trim() ||
+                "계정 정보를 불러오지 못했습니다."
+            );
+            setMeRole(null);
+          }
           done();
           return;
         }
@@ -620,13 +748,36 @@ const App: React.FC = () => {
           setStudentSetupGoal("");
           setStudentSetupError("");
         }
+        writeCachedMeState({
+          role: nextRole,
+          email:
+            data.email != null && String(data.email).trim() !== ""
+              ? String(data.email).trim().toLowerCase()
+              : userEmail,
+          initialProfileCompleted:
+            nextRole === "student"
+              ? Boolean(data.initial_profile_completed)
+              : true,
+          grade:
+            nextRole === "student" &&
+            data.grade != null &&
+            String(data.grade).trim() !== ""
+              ? String(data.grade).trim()
+              : "",
+          goal:
+            nextRole === "student"
+              ? String(data.goal ?? "").trim()
+              : ""
+        });
         setProfileLoadError(null);
       } catch {
         if (!cancelled) {
-          setProfileLoadError(
-            `서버에 연결할 수 없습니다. API 주소(${API_BASE})에서 서버가 떠 있는지 확인해 주세요.`
-          );
-          setMeRole(null);
+          if (!fallbackRole) {
+            setProfileLoadError(
+              `서버에 연결할 수 없습니다. API 주소(${API_BASE})에서 서버가 떠 있는지 확인해 주세요.`
+            );
+            setMeRole(null);
+          }
         }
       } finally {
         done();
@@ -636,7 +787,7 @@ const App: React.FC = () => {
     return () => {
       cancelled = true;
     };
-  }, [authToken, meFetchNonce]);
+  }, [authToken, meFetchNonce, meRole, userEmail]);
 
   useEffect(() => {
     if (!authToken || !userEmail) {
@@ -1408,12 +1559,16 @@ const App: React.FC = () => {
   };
 
   const handleLogout = () => {
+    void stopNativeStudyRoomTracking({ clearConfig: true }).catch(() => {
+      // ignore native tracking cleanup failures during logout
+    });
     try {
       localStorage.removeItem("daechi_planner_token");
       localStorage.removeItem("daechi_planner_user_email");
     } catch {
       // ignore
     }
+    clearCachedMeState();
     setAuthToken(null);
     setUserEmail(null);
     setMeRole(null);
@@ -1425,6 +1580,14 @@ const App: React.FC = () => {
     setRoute("auth");
     setAppPath("#/auth");
   };
+
+  useEffect(() => {
+    if (!meRoleResolved) return;
+    if (authToken && meRole === "student") return;
+    void stopNativeStudyRoomTracking({ clearConfig: true }).catch(() => {
+      // ignore cleanup failures when leaving student mode
+    });
+  }, [authToken, meRole, meRoleResolved]);
 
   const saveInitialStudentProfile = async () => {
     if (!authToken) return;
@@ -1592,7 +1755,7 @@ const App: React.FC = () => {
   };
 
   const roleLoading = Boolean(
-    authToken && route !== "auth" && !meRoleResolved
+    authToken && route !== "auth" && !meRoleResolved && !meRole
   );
   const profileLoadFailed = Boolean(
     authToken && route !== "auth" && meRoleResolved && profileLoadError
@@ -1611,6 +1774,40 @@ const App: React.FC = () => {
     parentView &&
     meRole === "parent" &&
     coachParentTab !== null;
+
+  const headerTitle = roleLoading
+    ? route === "parent"
+      ? "학부모"
+      : tab === "profile"
+        ? "프로필"
+        : ""
+    : parentView
+      ? meRole === "parent"
+        ? coachParentMode
+          ? coachParentTab === "timeline"
+            ? "학습 타임라인"
+            : coachParentTab === "guide"
+              ? "대화 가이드"
+              : coachParentTab === "profile"
+                ? "학부모 프로필"
+                : "학부모 홈"
+          : parentTab === "profile"
+            ? "학부모 프로필"
+            : "AI 리포트"
+        : "학부모"
+      : showStudentShell
+        ? coachStudentMode
+          ? "AI 코치"
+          : tab === "profile"
+            ? "프로필"
+            : tab === "today"
+              ? "오늘 공부"
+              : tab === "records"
+                ? "기록"
+                : tab === "store"
+                  ? "학습 앱스토어"
+                  : "오늘 공부"
+        : "";
 
   const appMainPageKey = useMemo(() => {
     if (roleLoading) return "loading";
@@ -1696,11 +1893,28 @@ const App: React.FC = () => {
                   }
                   const token = data.token as string;
                   const nextEmail = String(data.email || email).trim().toLowerCase();
+                  const nextRole =
+                    data.role != null && String(data.role).trim() !== ""
+                      ? String(data.role).trim().toLowerCase()
+                      : authMode === "signup"
+                        ? authRole
+                        : null;
                   hapticSuccess();
                   setAuthLeaving(true);
                   window.setTimeout(() => {
                     setUserEmail(nextEmail);
                     setAuthToken(token);
+                    if (nextRole) {
+                      setMeRole(nextRole);
+                      writeCachedMeState({
+                        role: nextRole,
+                        email: nextEmail,
+                        initialProfileCompleted:
+                          nextRole === "student" ? false : true,
+                        grade: "",
+                        goal: ""
+                      });
+                    }
                     if (isStudentSignup) {
                       armStudentSetupPrompt(nextEmail);
                     }
@@ -1780,36 +1994,7 @@ const App: React.FC = () => {
           <div className="header-top">
             <div className="header-title-group">
               <div className="header-title-row">
-                <h1 className="header-title">
-                  {roleLoading && "불러오는 중…"}
-                  {!roleLoading &&
-                    parentView &&
-                    (meRole === "parent"
-                      ? coachParentMode
-                        ? coachParentTab === "timeline"
-                          ? "학습 타임라인"
-                          : coachParentTab === "guide"
-                            ? "대화 가이드"
-                            : coachParentTab === "profile"
-                              ? "학부모 프로필"
-                              : "학부모 홈"
-                            : parentTab === "profile"
-                              ? "학부모 프로필"
-                              : "AI 리포트"
-                      : "학부모")}
-                  {showStudentShell &&
-                    (coachStudentMode
-                      ? "AI 코치"
-                      : tab === "profile"
-                        ? "프로필"
-                        : tab === "today"
-                          ? "오늘 공부"
-                          : tab === "records"
-                            ? "기록"
-                            : tab === "store"
-                              ? "학습 앱스토어"
-                              : "오늘 공부")}
-                </h1>
+                <h1 className="header-title">{headerTitle}</h1>
               </div>
             </div>
             {(showStudentShell && !parentView) || (parentView && meRole === "parent") ? (
@@ -1865,9 +2050,6 @@ const App: React.FC = () => {
             pageKey={appMainPageKey}
             className="app-main__transition-root"
           >
-            {roleLoading && (
-              <p className="empty-state">불러오는 중…</p>
-            )}
             {profileLoadFailed && (
               <div className="section" style={{ padding: "16px 8px" }}>
                 <p className="empty-state" style={{ marginBottom: 14 }}>
@@ -2402,6 +2584,11 @@ const App: React.FC = () => {
                   apiBase={API_BASE}
                   authToken={authToken}
                   meRole={meRole}
+                  onNotificationAction={action => {
+                    if (meRole === "parent") {
+                      openParentAppTimetableRequestFromNotification(action);
+                    }
+                  }}
                   onReadAll={() => {
                     if (meRole === "parent") {
                       setParentNotificationUnreadCount(0);
@@ -2423,6 +2610,95 @@ const App: React.FC = () => {
                   }
                 >
                   닫기
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {parentAppTimetableRequestDetail && (
+          <div
+            className={
+              "dday-modal" +
+              (parentAppTimetableRequestReveal.revealed ? " dday-modal--open" : "")
+            }
+            onClick={() =>
+              parentAppTimetableRequestReveal.beginClose(() =>
+                setParentAppTimetableRequestDetail(null)
+              )
+            }
+          >
+            <div
+              className="dday-modal-inner parent-app-request-modal"
+              onClick={e => e.stopPropagation()}
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="parent-app-request-title"
+            >
+              <div className="dday-modal-header">
+                <span className="dday-modal-title" id="parent-app-request-title">
+                  앱 허용 시간표 요청
+                </span>
+              </div>
+              <div className="dday-modal-body parent-app-request-modal__body">
+                <div className="parent-app-request-modal__meta">
+                  <div className="parent-app-request-modal__meta-row">
+                    <span className="parent-app-request-modal__label">학생</span>
+                    <span className="parent-app-request-modal__value">
+                      {parentAppTimetableRequestDetail.studentEmail || "연결 학생"}
+                    </span>
+                  </div>
+                  <div className="parent-app-request-modal__meta-row">
+                    <span className="parent-app-request-modal__label">대상 날짜</span>
+                    <span className="parent-app-request-modal__value">
+                      {parentAppTimetableRequestDetail.targetDate || "내일"}
+                    </span>
+                  </div>
+                </div>
+                {parentAppTimetableRequestDetail.summary ? (
+                  <div className="parent-app-request-modal__card">
+                    <div className="parent-app-request-modal__card-title">요청 요약</div>
+                    <p className="parent-app-request-modal__card-copy">
+                      {parentAppTimetableRequestDetail.summary}
+                    </p>
+                  </div>
+                ) : null}
+                {parentAppTimetableRequestDetail.slotSummary ? (
+                  <div className="parent-app-request-modal__card">
+                    <div className="parent-app-request-modal__card-title">추천 시간대</div>
+                    <p className="parent-app-request-modal__card-copy">
+                      {parentAppTimetableRequestDetail.slotSummary}
+                    </p>
+                  </div>
+                ) : null}
+                <p className="parent-app-request-modal__hint">
+                  학부모 리포트 탭으로 이동된 상태입니다. 이 요청을 기준으로 자녀 일정과 계획을 검토하시면 됩니다.
+                </p>
+              </div>
+              <div className="dday-modal-footer">
+                <button
+                  type="button"
+                  className="modal-secondary"
+                  onClick={() =>
+                    parentAppTimetableRequestReveal.beginClose(() =>
+                      setParentAppTimetableRequestDetail(null)
+                    )
+                  }
+                >
+                  닫기
+                </button>
+                <button
+                  type="button"
+                  className="modal-primary"
+                  onClick={() => {
+                    setParentTab("report");
+                    setAppPath("#/parent/report");
+                    parentAppTimetableRequestReveal.beginClose(() =>
+                      setParentAppTimetableRequestDetail(null)
+                    );
+                  }}
+                >
+                  리포트 보기
                 </button>
               </div>
             </div>
@@ -2774,7 +3050,7 @@ const App: React.FC = () => {
 
       </div>
     ) : null}
-      <GlobalKeyboardOverlay />
+      <NativeKeyboardInputManager />
     </div>
   );
 };

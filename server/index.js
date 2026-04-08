@@ -75,6 +75,12 @@ const {
   listParentNotifications,
   markParentNotificationsReadAll,
   createParentNotificationForLinkedParents,
+  upsertParentStudentStudyRoom,
+  deleteParentStudentStudyRoom,
+  listStudyRoomConfigurationsForStudent,
+  recordStudentStudyRoomHeartbeat,
+  listRecentStudyRoomVisitSessionsForStudent,
+  listRecentStudyRoomVisitSessionsForParent,
   deleteUser
 } = require("./db");
 const {
@@ -606,6 +612,56 @@ function sanitizeStringArray(value, maxItems = 12, maxLen = 30) {
     .map(v => v.slice(0, maxLen));
 }
 
+function sanitizePromptText(value, maxLen = 4000) {
+  const cleaned = String(value ?? "")
+    .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g, " ")
+    .replace(/\r\n?/g, "\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+  return cleaned.slice(0, maxLen);
+}
+
+function safeJsonForPrompt(value, maxLen = 12000) {
+  try {
+    const json = JSON.stringify(value, (_key, nestedValue) => {
+      if (typeof nestedValue === "bigint") return String(nestedValue);
+      if (typeof nestedValue === "string") {
+        return sanitizePromptText(nestedValue, 800);
+      }
+      return nestedValue;
+    });
+    return sanitizePromptText(json, maxLen);
+  } catch (error) {
+    console.warn("safeJsonForPrompt fallback:", error?.message || error);
+    return "{}";
+  }
+}
+
+const NOTIFICATION_ACTION_PREFIX = "[[DAECHI_ACTION]]";
+
+function embedNotificationAction(action, visibleBody) {
+  const body = String(visibleBody || "").trim();
+  if (!action || typeof action !== "object") return body;
+  try {
+    return `${NOTIFICATION_ACTION_PREFIX}${JSON.stringify(action)}\n\n${body}`;
+  } catch {
+    return body;
+  }
+}
+
+function sanitizeCoachHistoryForPrompt(history, limit = 12) {
+  if (!Array.isArray(history)) return [];
+  return history
+    .slice(-Math.max(1, limit))
+    .map(entry => {
+      const role = entry?.role === "assistant" ? "assistant" : "user";
+      const content = sanitizePromptText(entry?.content, 1600);
+      if (!content) return null;
+      return { role, content };
+    })
+    .filter(Boolean);
+}
+
 function isScheduleManagementRequest(text) {
   const t = String(text || "").trim();
   if (!t) return false;
@@ -1068,29 +1124,66 @@ function normalizeTomorrowPlanDraft(rawPlanDraft, books = []) {
     .filter(item => item.bookName || item.plannedRange || item.startTime || item.endTime);
 }
 
+const DAECHI_ROOT_APP = {
+  id: "com.daechiroot.ios",
+  name: "대치루트",
+  category: "필수 앱",
+  description: "대치루트 앱은 항상 허용됩니다.",
+  bundleId: "com.daechiroot.ios"
+};
+
+function isDaechiRootApp(app) {
+  const id = String(app?.id || "").trim().toLowerCase();
+  const bundleId = String(app?.bundleId || "").trim().toLowerCase();
+  const name = String(app?.name || "").trim();
+  return id === "com.daechiroot.ios" || bundleId === "com.daechiroot.ios" || name === "대치루트";
+}
+
+function ensureDaechiRootAppCandidates(rows) {
+  const items = Array.isArray(rows) ? rows.filter(Boolean) : [];
+  const next = items.map(app => ({
+    id: String(app.id || app.app_key || app.bundleId || "").trim(),
+    name: String(app.name || "").trim(),
+    category: String(app.category || "").trim() || "기기 앱",
+    description: String(app.description || app.bundleId || "").trim(),
+    bundleId: String(app.bundleId || "").trim() || null
+  }));
+  if (!next.some(isDaechiRootApp)) {
+    next.unshift({ ...DAECHI_ROOT_APP });
+  }
+  return next.filter(app => app.id && app.name);
+}
+
+function ensureDaechiRootAppAllowed(rows) {
+  const normalized = ensureDaechiRootAppCandidates(rows);
+  const root = normalized.find(isDaechiRootApp) || { ...DAECHI_ROOT_APP };
+  const withoutRoot = normalized.filter(app => !isDaechiRootApp(app));
+  return [root, ...withoutRoot];
+}
+
+function ensureDaechiRootAppOnSlots(slots) {
+  return (Array.isArray(slots) ? slots : []).map(slot => ({
+    ...slot,
+    allowedApps: ensureDaechiRootAppAllowed(slot?.allowedApps)
+  }));
+}
+
 function normalizeInstalledAppsForPrompt(rows) {
-  return (rows || [])
-    .map(app => ({
-      id: String(app.id || app.app_key || app.bundleId || "").trim(),
-      name: String(app.name || "").trim(),
-      category: String(app.category || "").trim() || "기기 앱",
-      description: String(app.description || app.bundleId || "").trim(),
-      bundleId: String(app.bundleId || "").trim() || null
-    }))
-    .filter(app => app.id && app.name);
+  return ensureDaechiRootAppCandidates(rows);
 }
 
 function pickFallbackAllowedApps(installedApps, slot) {
   const list = Array.isArray(installedApps) ? installedApps : [];
-  if (list.length === 0) return [];
+  if (list.length === 0) return ensureDaechiRootAppAllowed([]);
   const text = `${slot?.title || ""} ${slot?.detail || ""} ${slot?.reason || ""}`
     .trim()
     .toLowerCase();
-  return list
-    .filter(app => {
+  return ensureDaechiRootAppAllowed(
+    list.filter(app => {
       const name = String(app.name || "").trim().toLowerCase();
       return Boolean(name) && text.includes(name);
-    });
+    })
+  );
 }
 
 function fillDailyCoverageSlots(slots) {
@@ -1112,7 +1205,7 @@ function fillDailyCoverageSlots(slots) {
         startTime: minutesToHhmm(cursor),
         endTime: minutesToHhmm(safeStart),
         reason: "학습 계획이나 등록 일정이 없는 시간대입니다.",
-        allowedApps: []
+        allowedApps: ensureDaechiRootAppAllowed([])
       });
     }
     covered.push({
@@ -1130,7 +1223,7 @@ function fillDailyCoverageSlots(slots) {
       startTime: minutesToHhmm(cursor),
       endTime: minutesToHhmm(24 * 60),
       reason: "학습 계획이나 등록 일정이 없는 시간대입니다.",
-      allowedApps: []
+      allowedApps: ensureDaechiRootAppAllowed([])
     });
   }
 
@@ -1142,11 +1235,11 @@ function fillDailyCoverageSlots(slots) {
         startTime: "00:00",
         endTime: "24:00",
         reason: "학습 계획이나 등록 일정이 없는 하루입니다.",
-        allowedApps: []
+        allowedApps: ensureDaechiRootAppAllowed([])
       }
     ];
   }
-  return covered;
+  return ensureDaechiRootAppOnSlots(covered);
 }
 
 function buildFallbackAppAllowancePlan({ tomorrowKey, scheduleRows, planRows, installedApps }) {
@@ -1258,7 +1351,7 @@ function buildFallbackAppAllowancePlan({ tomorrowKey, scheduleRows, planRows, in
       allowedApps: pickFallbackAllowedApps(installedApps, slot)
     }));
 
-  const fullDaySlots = fillDailyCoverageSlots(normalizedSlots);
+  const fullDaySlots = ensureDaechiRootAppOnSlots(fillDailyCoverageSlots(normalizedSlots));
 
   const weekday = getKoreanWeekdayNameFromIsoDate(tomorrowKey);
   const relatedCount = normalizedSlots.filter(slot => slot.source !== "free").length;
@@ -1315,7 +1408,7 @@ function normalizeAppAllowanceResponse(raw, installedApps) {
   const fullDaySlots = fillDailyCoverageSlots(slots);
   return {
     summary: String(raw.summary || "").trim().slice(0, 240),
-    slots: fullDaySlots
+    slots: ensureDaechiRootAppOnSlots(fullDaySlots)
   };
 }
 
@@ -1358,7 +1451,7 @@ async function generateStudentAppAllowancePlan({
         {
           role: "system",
           content:
-            "너는 한국 학생의 내일 휴대폰 허용 앱 시간표를 짜는 코치다. 반드시 학습 계획(studyPlans)과 등록 일정(schedules)에 직접 근거한 내용만 사용해야 하며, 제공되지 않은 새로운 공부 주제·앱·활동을 임의로 만들면 안 된다. schedules는 고정 일정이므로 시간을 바꾸지 않는다. studyPlans 중 startTime/endTime이 둘 다 있는 항목도 고정 시간으로 유지한다. 시간이 없는 studyPlans만 남는 시간대에 배치할 수 있다. 결과는 00:00부터 24:00까지 하루 전체가 빈틈없이 이어지는 슬롯이어야 하며, 슬롯끼리 절대 겹치면 안 된다. 계획이나 일정이 없는 구간은 source를 free, title을 계획 없음, allowedAppIds를 빈 배열로 둔다. installedApps에 있는 id만 allowedAppIds에 넣을 수 있고, 계획/일정 텍스트와 직접 관련이 없는 앱은 넣지 않는다. 반드시 JSON 객체만 출력한다. 형식은 {\"summary\":\"한두 문장\",\"slots\":[{\"title\":\"표시 제목\",\"source\":\"schedule\"|\"plan\"|\"free\",\"startTime\":\"HH:MM\",\"endTime\":\"HH:MM\",\"reason\":\"짧은 근거\",\"allowedAppIds\":[\"quizlet\"]}]} 이다."
+            "너는 한국 학생의 내일 휴대폰 허용 앱 시간표를 짜는 코치다. 반드시 학습 계획(studyPlans)과 등록 일정(schedules)에 직접 근거한 내용만 사용해야 하며, 제공되지 않은 새로운 공부 주제·앱·활동을 임의로 만들면 안 된다. schedules는 고정 일정이므로 시간을 바꾸지 않는다. studyPlans 중 startTime/endTime이 둘 다 있는 항목도 고정 시간으로 유지한다. 시간이 없는 studyPlans만 남는 시간대에 배치할 수 있다. 결과는 00:00부터 24:00까지 하루 전체가 빈틈없이 이어지는 슬롯이어야 하며, 슬롯끼리 절대 겹치면 안 된다. 계획이나 일정이 없는 구간도 슬롯으로 포함한다. 대치루트 앱(id=com.daechiroot.ios)은 모든 슬롯 allowedAppIds에 반드시 포함해야 한다. installedApps에 있는 id만 allowedAppIds에 넣을 수 있고, 계획/일정 텍스트와 직접 관련이 없는 앱은 넣지 않는다. 반드시 JSON 객체만 출력한다. 형식은 {\"summary\":\"한두 문장\",\"slots\":[{\"title\":\"표시 제목\",\"source\":\"schedule\"|\"plan\"|\"free\",\"startTime\":\"HH:MM\",\"endTime\":\"HH:MM\",\"reason\":\"짧은 근거\",\"allowedAppIds\":[\"com.daechiroot.ios\"]}]} 이다."
         },
         {
           role: "user",
@@ -1841,7 +1934,7 @@ app.post("/auth/register", async (req, res) => {
       console.warn("device link skipped on register:", err.message);
     });
     const token = jwt.sign({ userId }, JWT_SECRET, { expiresIn: "30d" });
-    res.json({ token, userId, email: trimmedEmail });
+    res.json({ token, userId, email: trimmedEmail, role: safeRole });
   } catch (e) {
     console.error("/auth/register error", e);
     res.status(500).json({ error: "회원가입에 실패했습니다." });
@@ -1879,7 +1972,7 @@ app.post("/auth/login", async (req, res) => {
     await attachDeviceByCookieIfPresent(req, user.id).catch(err => {
       console.warn("device link skipped on login:", err.message);
     });
-    res.json({ token, userId: user.id, email: user.email });
+    res.json({ token, userId: user.id, email: user.email, role: user.role });
   } catch (e) {
     console.error("/auth/login error", e);
     res.status(500).json({ error: "로그인에 실패했습니다." });
@@ -2322,6 +2415,100 @@ app.get("/api/parent/students", authMiddleware, async (req, res) => {
   }
 });
 
+app.put("/api/parent/students/:studentId/study-room", authMiddleware, async (req, res) => {
+  try {
+    const me = await getMe(req.userId);
+    if (!me || me.role !== "parent") {
+      return res.status(403).json({ error: "권한이 없습니다." });
+    }
+    const studentId = Number(req.params.studentId || 0);
+    if (!studentId) {
+      return res.status(400).json({ error: "studentId가 필요합니다." });
+    }
+    const has = await parentHasStudent(req.userId, studentId);
+    if (!has) {
+      return res.status(403).json({ error: "연결된 학생만 설정할 수 있습니다." });
+    }
+    const { name, address, latitude, longitude } = req.body || {};
+    const normalizedName = String(name || "").trim();
+    const normalizedLat = Number(latitude);
+    const normalizedLng = Number(longitude);
+    if (!normalizedName) {
+      return res.status(400).json({ error: "독서실 이름이 필요합니다." });
+    }
+    if (!Number.isFinite(normalizedLat) || !Number.isFinite(normalizedLng)) {
+      return res.status(400).json({ error: "위도와 경도를 확인해 주세요." });
+    }
+    const row = await upsertParentStudentStudyRoom(req.userId, studentId, {
+      name: normalizedName,
+      address,
+      latitude: normalizedLat,
+      longitude: normalizedLng
+    });
+    res.json({
+      ok: true,
+      studyRoom: row
+        ? {
+            studentId,
+            name: String(row.name || ""),
+            address: row.address != null ? String(row.address) : null,
+            latitude: Number(row.latitude),
+            longitude: Number(row.longitude),
+            updatedAt: row.updated_at ? new Date(row.updated_at).toISOString() : null
+          }
+        : null
+    });
+  } catch (e) {
+    console.error("/api/parent/students/:studentId/study-room PUT error", e);
+    res.status(500).json({ error: "독서실 위치를 저장하지 못했습니다." });
+  }
+});
+
+app.delete("/api/parent/students/:studentId/study-room", authMiddleware, async (req, res) => {
+  try {
+    const me = await getMe(req.userId);
+    if (!me || me.role !== "parent") {
+      return res.status(403).json({ error: "권한이 없습니다." });
+    }
+    const studentId = Number(req.params.studentId || 0);
+    if (!studentId) {
+      return res.status(400).json({ error: "studentId가 필요합니다." });
+    }
+    const has = await parentHasStudent(req.userId, studentId);
+    if (!has) {
+      return res.status(403).json({ error: "연결된 학생만 설정할 수 있습니다." });
+    }
+    await deleteParentStudentStudyRoom(req.userId, studentId);
+    res.json({ ok: true });
+  } catch (e) {
+    console.error("/api/parent/students/:studentId/study-room DELETE error", e);
+    res.status(500).json({ error: "독서실 위치를 삭제하지 못했습니다." });
+  }
+});
+
+app.get("/api/parent/students/:studentId/study-room-visits", authMiddleware, async (req, res) => {
+  try {
+    const me = await getMe(req.userId);
+    if (!me || me.role !== "parent") {
+      return res.status(403).json({ error: "권한이 없습니다." });
+    }
+    const studentId = Number(req.params.studentId || 0);
+    const limit = Math.min(20, Math.max(1, Number(req.query.limit || 6)));
+    if (!studentId) {
+      return res.status(400).json({ error: "studentId가 필요합니다." });
+    }
+    const has = await parentHasStudent(req.userId, studentId);
+    if (!has) {
+      return res.status(403).json({ error: "연결된 학생만 조회할 수 있습니다." });
+    }
+    const visits = await listRecentStudyRoomVisitSessionsForParent(req.userId, studentId, limit);
+    res.json({ visits });
+  } catch (e) {
+    console.error("/api/parent/students/:studentId/study-room-visits GET error", e);
+    res.status(500).json({ error: "체류 기록을 불러오지 못했습니다." });
+  }
+});
+
 // 학부모 → 학생 연결 요청 (학생 승인 필요)
 app.post("/api/parent/link-request", authMiddleware, async (req, res) => {
   try {
@@ -2498,6 +2685,60 @@ app.get("/api/student/parents", authMiddleware, async (req, res) => {
   } catch (e) {
     console.error("/api/student/parents error", e);
     res.status(500).json({ error: "목록을 불러오지 못했습니다." });
+  }
+});
+
+app.get("/api/student/study-room-tracking", authMiddleware, async (req, res) => {
+  try {
+    const me = await getMe(req.userId);
+    if (!me || me.role !== "student") {
+      return res.status(403).json({ error: "권한이 없습니다." });
+    }
+    const rooms = await listStudyRoomConfigurationsForStudent(req.userId);
+    const recentVisits = await listRecentStudyRoomVisitSessionsForStudent(req.userId, 10);
+    res.json({
+      rooms: rooms.map(row => ({
+        id: Number(row.id),
+        parentUserId: Number(row.parent_user_id),
+        parentEmail: String(row.parent_email || "").trim(),
+        name: String(row.name || "독서실").trim() || "독서실",
+        address: row.address != null ? String(row.address) : null,
+        latitude: Number(row.latitude),
+        longitude: Number(row.longitude),
+        updatedAt: row.updated_at ? new Date(row.updated_at).toISOString() : null
+      })),
+      recentVisits
+    });
+  } catch (e) {
+    console.error("/api/student/study-room-tracking GET error", e);
+    res.status(500).json({ error: "독서실 추적 정보를 불러오지 못했습니다." });
+  }
+});
+
+app.post("/api/student/location/heartbeat", authMiddleware, async (req, res) => {
+  try {
+    const me = await getMe(req.userId);
+    if (!me || me.role !== "student") {
+      return res.status(403).json({ error: "권한이 없습니다." });
+    }
+    const { latitude, longitude, accuracy, timestamp } = req.body || {};
+    const summary = await recordStudentStudyRoomHeartbeat(req.userId, {
+      latitude,
+      longitude,
+      accuracy,
+      timestamp
+    });
+    res.json({ ok: true, summary });
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : "";
+    if (msg === "invalid_location") {
+      return res.status(400).json({ error: "위치 좌표를 확인해 주세요." });
+    }
+    if (msg === "invalid_timestamp") {
+      return res.status(400).json({ error: "시간 값을 확인해 주세요." });
+    }
+    console.error("/api/student/location/heartbeat POST error", e);
+    res.status(500).json({ error: "위치 heartbeat 처리에 실패했습니다." });
   }
 });
 
@@ -3244,6 +3485,206 @@ app.post("/api/student/coach/app-timetable", authMiddleware, async (req, res) =>
   }
 });
 
+app.post("/api/student/coach/app-timetable/message", authMiddleware, async (req, res) => {
+  try {
+    const me = await getMe(req.userId);
+    if (!me || me.role !== "student") {
+      return res.status(403).json({ error: "권한이 없습니다." });
+    }
+
+    const body = req.body || {};
+    const message = String(body.message || "").trim().slice(0, 1200);
+    if (!message) {
+      return res.status(400).json({ error: "message가 필요합니다." });
+    }
+
+    const serialFromBody = String(body.serial || "").trim();
+    if (isLikelySerial(serialFromBody)) {
+      await linkDeviceToUserBySerial(req.userId, serialFromBody).catch(() => {
+        // ignore
+      });
+    }
+    await attachDeviceByCookieIfPresent(req, req.userId).catch(() => {
+      // ignore
+    });
+
+    const rawCurrentPlan =
+      body.currentPlan && typeof body.currentPlan === "object" ? body.currentPlan : {};
+    const requestedDate = String(rawCurrentPlan.targetDate || "")
+      .trim()
+      .slice(0, 10);
+    const todayKey = formatYmdSeoulFromInstant(new Date());
+    const targetDate = /^\d{4}-\d{2}-\d{2}$/.test(requestedDate)
+      ? requestedDate
+      : addDaysToSeoulDateKey(todayKey, 1);
+
+    const [scheduleRows, books, linkedSerial] = await Promise.all([
+      listStudentProfileSchedules(req.userId),
+      listStudyBooks(req.userId),
+      getActiveDeviceSerialForUser(req.userId)
+    ]);
+
+    const tomorrowSchedules = (scheduleRows || []).filter(row =>
+      scheduleOccursOnDate(row, targetDate)
+    );
+
+    let availableApps = [];
+    if (linkedSerial) {
+      const device = await findDeviceBySerial(linkedSerial).catch(() => null);
+      if (device?.id) {
+        const simpleMdmApps = await listInstalledAppsForDevice(Number(device.id)).catch(
+          () => []
+        );
+        availableApps = normalizeInstalledAppsForPrompt(simpleMdmApps);
+      }
+    }
+
+    const clientAvailableApps = Array.isArray(rawCurrentPlan.availableApps)
+      ? rawCurrentPlan.availableApps
+          .map(app => ({
+            id: String(app?.id || "").trim(),
+            name: String(app?.name || "").trim(),
+            category: String(app?.category || "").trim(),
+            description:
+              app?.description != null && String(app.description).trim() !== ""
+                ? String(app.description).trim().slice(0, 200)
+                : null,
+            bundleId:
+              app?.bundleId != null && String(app.bundleId).trim() !== ""
+                ? String(app.bundleId).trim().slice(0, 200)
+                : null
+          }))
+          .filter(app => app.id && app.name)
+      : [];
+    if (availableApps.length === 0 && clientAvailableApps.length > 0) {
+      availableApps = clientAvailableApps;
+    }
+
+    const draftPlans = normalizeTomorrowPlanDraft(body.planDraft, books);
+    let tomorrowPlans = draftPlans;
+    if (tomorrowPlans.length === 0) {
+      const data = await getStudyPlansForDate(req.userId, targetDate);
+      tomorrowPlans = (Array.isArray(data?.plans) ? data.plans : []).map(item => ({
+        bookId: Number(item.book_id || 0) || null,
+        bookName: String(item.book_name || "").trim(),
+        plannedRange: String(item.planned_range || "").trim(),
+        startTime: String(item.start_time || "").trim().slice(0, 5),
+        endTime: String(item.end_time || "").trim().slice(0, 5)
+      }));
+    }
+
+    let currentPlan = normalizeAppAllowanceResponse(
+      {
+        summary: String(rawCurrentPlan.summary || "").trim(),
+        slots: Array.isArray(rawCurrentPlan.slots) ? rawCurrentPlan.slots : []
+      },
+      availableApps
+    );
+    if (!currentPlan || currentPlan.slots.length === 0) {
+      const generated = await generateStudentAppAllowancePlan({
+        tomorrowKey: targetDate,
+        tomorrowSchedules,
+        tomorrowPlans,
+        installedApps: availableApps
+      });
+      currentPlan = {
+        summary: generated.summary,
+        slots: generated.slots
+      };
+    }
+
+    const currentPlanPromptSlots = currentPlan.slots.map(slot => ({
+      title: slot.title,
+      source: slot.source,
+      startTime: slot.startTime,
+      endTime: slot.endTime,
+      reason: slot.reason,
+      allowedAppIds: Array.isArray(slot.allowedApps)
+        ? slot.allowedApps.map(app => app.id)
+        : [],
+      allowedAppNames: Array.isArray(slot.allowedApps)
+        ? slot.allowedApps.map(app => app.name)
+        : []
+    }));
+
+    if (!openai) {
+      return res.json({
+        ok: true,
+        reply:
+          "지금은 GPT 연결이 없어 자동 대화 수정은 어렵습니다. 아래 시간표를 직접 조정하시거나, 다시 시도해 주세요.",
+        summary: currentPlan.summary,
+        slots: currentPlan.slots,
+        availableApps,
+        usedOpenAi: false,
+        model: null
+      });
+    }
+
+    const promptPayload = {
+      targetDate,
+      targetWeekday: getKoreanWeekdayNameFromIsoDate(targetDate),
+      userMessage: message,
+      tomorrowSchedules: serializeScheduleRowsForPrompt(tomorrowSchedules),
+      tomorrowStudyPlans: (tomorrowPlans || []).map(item => ({
+        bookName: item.bookName,
+        plannedRange: item.plannedRange,
+        startTime: item.startTime || null,
+        endTime: item.endTime || null
+      })),
+      availableApps,
+      currentPlan: {
+        summary: currentPlan.summary,
+        slots: currentPlanPromptSlots
+      }
+    };
+
+    const response = await openai.chat.completions.create({
+      model: OPENAI_MODEL,
+      temperature: 0.35,
+      max_tokens: 1100,
+      response_format: { type: "json_object" },
+      messages: [
+        {
+          role: "system",
+          content:
+            "너는 한국 학생의 내일 앱 허용 시간표를 대화로 수정해 주는 AI 코치다. 반드시 JSON 객체만 출력한다. 형식은 {\"reply\":\"학생에게 보여줄 자연스러운 한국어 답변\",\"summary\":\"시간표 요약 한두 문장\",\"slots\":[{\"title\":\"표시 제목\",\"source\":\"schedule\"|\"plan\"|\"free\",\"startTime\":\"HH:MM\",\"endTime\":\"HH:MM\",\"reason\":\"짧은 근거\",\"allowedAppIds\":[\"com.daechiroot.ios\"]}]} 이다. currentPlan.slots는 지금 팝업에 떠 있는 앱 허용 시간표 초안이다. 사용자의 요청에 맞게 이 초안을 수정해라. 대치루트 앱(id=com.daechiroot.ios)은 모든 슬롯 allowedAppIds에 반드시 포함해야 한다. availableApps에 있는 id만 allowedAppIds에 넣을 수 있다. time slot은 00:00부터 24:00까지 하루 전체가 끊김 없이 이어지도록 구성하고, 슬롯끼리 겹치면 안 된다. 계획이나 일정이 없는 구간도 슬롯으로 포함한다. tomorrowSchedules와 시간이 있는 tomorrowStudyPlans는 기본 앵커이므로 사용자가 명시적으로 바꾸라고 하지 않는 한 유지한다. 요청이 모호하면 slots는 currentPlan과 같게 두고 reply에서 짧게 다시 물어본다. reply는 짧고 자연스러운 존댓말로 작성한다."
+        },
+        {
+          role: "user",
+          content: safeJsonForPrompt(promptPayload, 16000)
+        }
+      ]
+    });
+
+    const rawText = String(response.choices?.[0]?.message?.content || "").trim();
+    const parsed = parseJsonObjectFromAssistantText(rawText) || {};
+    const nextPlan =
+      normalizeAppAllowanceResponse(
+        {
+          summary: parsed.summary,
+          slots: Array.isArray(parsed.slots) ? parsed.slots : currentPlanPromptSlots
+        },
+        availableApps
+      ) || currentPlan;
+    const reply =
+      sanitizePromptText(parsed.reply, 1200) ||
+      "말씀하신 방향으로 앱 허용 시간표를 다시 정리해 봤어요.";
+
+    res.json({
+      ok: true,
+      reply,
+      summary: nextPlan.summary || currentPlan.summary,
+      slots: nextPlan.slots,
+      availableApps,
+      usedOpenAi: true,
+      model: OPENAI_MODEL
+    });
+  } catch (e) {
+    console.error("/api/student/coach/app-timetable/message error", e);
+    res.status(500).json({ error: "앱 허용 시간표 대화 수정에 실패했습니다." });
+  }
+});
+
 app.post("/api/student/coach/app-timetable-request", authMiddleware, async (req, res) => {
   try {
     const me = await getMe(req.userId);
@@ -3293,10 +3734,22 @@ app.post("/api/student/coach/app-timetable-request", authMiddleware, async (req,
     if (summary) bodyParts.push(summary);
     if (slotSummary) bodyParts.push(`추천 시간대: ${slotSummary}`);
 
+    const visibleBody = bodyParts.join(" ").slice(0, 400);
+    const actionBody = embedNotificationAction(
+      {
+        type: "parent_app_timetable_request",
+        studentEmail: String(me.email || "").trim().toLowerCase(),
+        targetDate,
+        summary,
+        slotSummary
+      },
+      visibleBody
+    );
+
     await createParentNotificationForLinkedParents(
       req.userId,
       "내일 앱 허용 시간표 요청",
-      bodyParts.join(" ").slice(0, 400)
+      actionBody
     );
 
     res.json({ ok: true });
@@ -3405,6 +3858,8 @@ app.post("/api/student/coach/chat", authMiddleware, async (req, res) => {
       existingScheduleRows,
       weekData: recentWeekData
     });
+    const sanitizedCoachHistory = sanitizeCoachHistoryForPrompt(history, 12);
+    const coachDbContextJson = safeJsonForPrompt(coachDbContext, 12000);
 
     if (chatMode === "schedule" || isScheduleManagementRequest(text)) {
       if (openai) {
@@ -3421,16 +3876,13 @@ app.post("/api/student/coach/chat", authMiddleware, async (req, res) => {
             },
             {
               role: "system",
-              content: `학생 DB 컨텍스트(JSON): ${JSON.stringify(coachDbContext)}`
+              content: `학생 DB 컨텍스트(JSON): ${coachDbContextJson}`
             },
             {
               role: "system",
               content: `현재 등록된 일정 목록: ${JSON.stringify(existingSchedules)}`
             },
-            ...history.map(m => ({
-              role: m.role === "assistant" ? "assistant" : "user",
-              content: m.content
-            }))
+            ...sanitizedCoachHistory
           ]
         });
         const rawReply = String(response.choices?.[0]?.message?.content || "").trim();
@@ -3645,38 +4097,44 @@ app.post("/api/student/coach/chat", authMiddleware, async (req, res) => {
     let replyText = "";
     let usedOpenAi = false;
     if (openai) {
-      const response = await openai.chat.completions.create({
-        model: OPENAI_MODEL,
-        temperature: 0.4,
-        max_tokens: 900,
-        messages: [
-          {
-            role: "system",
-            content: chatMode === "suneung" ? systemSuneung : systemLearning
-          },
-          {
-            role: "system",
-            content:
-              `시간 기준은 반드시 한국/서울(KST)이다. 오늘은 ${todayDateKey}(${todayWeekdayKorean}요일), 내일은 ${tomorrowDateKey}(${tomorrowWeekdayKorean}요일)이다. 날짜/요일을 답변에 쓸 때는 이 기준만 사용하고, 확실하지 않으면 추정하지 말고 짧게 확인 질문을 해라.`
-          },
-          {
-            role: "system",
-            content: `학생 DB 컨텍스트(JSON): ${JSON.stringify(coachDbContext)}`
-          },
-          ...history.map(m => ({
-            role: m.role === "assistant" ? "assistant" : "user",
-            content: m.content
-          }))
-        ]
-      });
-      replyText = String(response.choices?.[0]?.message?.content || "").trim();
-      usedOpenAi = true;
-      if (!replyText) {
-        return res.status(502).json({
-          error: "GPT 응답이 비어 있습니다. 잠시 후 다시 시도해 주세요."
+      try {
+        const response = await openai.chat.completions.create({
+          model: OPENAI_MODEL,
+          temperature: 0.4,
+          max_tokens: 900,
+          messages: [
+            {
+              role: "system",
+              content: chatMode === "suneung" ? systemSuneung : systemLearning
+            },
+            {
+              role: "system",
+              content:
+                `시간 기준은 반드시 한국/서울(KST)이다. 오늘은 ${todayDateKey}(${todayWeekdayKorean}요일), 내일은 ${tomorrowDateKey}(${tomorrowWeekdayKorean}요일)이다. 날짜/요일을 답변에 쓸 때는 이 기준만 사용하고, 확실하지 않으면 추정하지 말고 짧게 확인 질문을 해라.`
+            },
+            {
+              role: "system",
+              content: `학생 DB 컨텍스트(JSON): ${coachDbContextJson}`
+            },
+            ...sanitizedCoachHistory
+          ]
         });
+        replyText = sanitizePromptText(
+          response.choices?.[0]?.message?.content,
+          2400
+        );
+        usedOpenAi = Boolean(replyText);
+      } catch (openAiError) {
+        console.warn(
+          "/api/student/coach/chat openai fallback:",
+          openAiError?.message || openAiError
+        );
       }
     } else {
+      usedOpenAi = false;
+    }
+
+    if (!replyText) {
       if (chatMode === "suneung") {
         replyText = [
           "1) 핵심 안내",

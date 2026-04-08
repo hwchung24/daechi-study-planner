@@ -140,6 +140,67 @@ async function main() {
   } catch {
     // ignore
   }
+  try {
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS parent_student_study_rooms (
+        id BIGSERIAL PRIMARY KEY,
+        parent_user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        student_user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        name TEXT NOT NULL,
+        address TEXT,
+        latitude DOUBLE PRECISION NOT NULL,
+        longitude DOUBLE PRECISION NOT NULL,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        UNIQUE (parent_user_id, student_user_id)
+      );
+    `);
+  } catch {
+    // ignore
+  }
+  try {
+    await pool.query(`
+      CREATE INDEX IF NOT EXISTS idx_pssr_parent_student
+        ON parent_student_study_rooms (parent_user_id, student_user_id);
+    `);
+  } catch {
+    // ignore
+  }
+  try {
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS parent_student_study_room_visit_sessions (
+        id BIGSERIAL PRIMARY KEY,
+        parent_user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        student_user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        study_room_id BIGINT REFERENCES parent_student_study_rooms(id) ON DELETE SET NULL,
+        entered_at TIMESTAMPTZ NOT NULL,
+        last_seen_at TIMESTAMPTZ NOT NULL,
+        exited_at TIMESTAMPTZ,
+        exit_reason TEXT,
+        last_distance_meters DOUBLE PRECISION,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+      );
+    `);
+  } catch {
+    // ignore
+  }
+  try {
+    await pool.query(`
+      CREATE INDEX IF NOT EXISTS idx_pssrv_student_entered
+        ON parent_student_study_room_visit_sessions (student_user_id, entered_at DESC);
+    `);
+  } catch {
+    // ignore
+  }
+  try {
+    await pool.query(`
+      CREATE INDEX IF NOT EXISTS idx_pssrv_parent_student_entered
+        ON parent_student_study_room_visit_sessions (parent_user_id, student_user_id, entered_at DESC);
+    `);
+  } catch {
+    // ignore
+  }
 }
 
 main()
