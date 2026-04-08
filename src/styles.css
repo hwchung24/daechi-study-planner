@@ -91,6 +91,11 @@ html {
   overflow: hidden;
 }
 
+html.app-keyboard-open,
+body.app-keyboard-open {
+  overscroll-behavior: none;
+}
+
 body {
   margin: 0;
   min-height: 100%;
@@ -583,7 +588,7 @@ select {
 }
 
 @media (max-width: 767px) {
-  .app-shell:has(.keyboard-dock-root.keyboard-dock--active) .bottom-nav {
+  .app-shell.app-shell--keyboard-dock-active .bottom-nav {
     opacity: 0;
     pointer-events: none;
     transform: translateY(calc(100% + env(safe-area-inset-bottom, 0px) + 18px));
@@ -592,7 +597,7 @@ select {
       transform var(--dur-med) var(--ease-standard);
   }
 
-  .app-shell:has(.keyboard-dock-root.keyboard-dock--active) .app-main.app-main--coach-chat {
+  .app-shell.app-shell--keyboard-dock-active .app-main.app-main--coach-chat {
     padding-bottom: 10px;
   }
 }

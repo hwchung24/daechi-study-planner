@@ -6,6 +6,10 @@ import { persistApiBaseOverride } from "./lib/apiBase";
 import { AppShell } from "./lib/nativeAppShell";
 import "./styles.css";
 
+let keyboardWasOpen = false;
+let keyboardResetTimer = 0;
+let keyboardScrollLockY = 0;
+
 const EDITABLE_SELECTOR = [
   'input:not([type="button"]):not([type="checkbox"]):not([type="file"]):not([type="hidden"]):not([type="radio"]):not([type="range"]):not([type="reset"]):not([type="submit"])',
   "textarea",
@@ -17,6 +21,40 @@ const EDITABLE_SELECTOR = [
 
 function isFocusedEditableElement(node: Element | null): node is HTMLElement {
   return node instanceof HTMLElement && node.matches(EDITABLE_SELECTOR);
+}
+
+function setKeyboardScrollLock(active: boolean) {
+  if (typeof window === "undefined" || typeof document === "undefined") {
+    return;
+  }
+
+  const bodyStyle = document.body.style;
+
+  if (active) {
+    keyboardScrollLockY = Math.max(
+      window.scrollY,
+      document.documentElement.scrollTop,
+      document.body.scrollTop
+    );
+    bodyStyle.position = "fixed";
+    bodyStyle.top = `${-keyboardScrollLockY}px`;
+    bodyStyle.left = "0";
+    bodyStyle.right = "0";
+    bodyStyle.width = "100%";
+    return;
+  }
+
+  const restoreY = keyboardScrollLockY;
+
+  bodyStyle.position = "";
+  bodyStyle.top = "";
+  bodyStyle.left = "";
+  bodyStyle.right = "";
+  bodyStyle.width = "";
+
+  window.scrollTo(0, restoreY);
+  document.documentElement.scrollTop = restoreY;
+  document.body.scrollTop = restoreY;
 }
 
 function syncViewportCssVars() {
@@ -40,6 +78,40 @@ function syncViewportCssVars() {
     "--app-viewport-height",
     `${viewportHeight}px`
   );
+  document.documentElement.classList.toggle("app-keyboard-open", keyboardOpen);
+  document.body.classList.toggle("app-keyboard-open", keyboardOpen);
+
+  if (keyboardOpen && !keyboardWasOpen) {
+    window.clearTimeout(keyboardResetTimer);
+    keyboardResetTimer = 0;
+    setKeyboardScrollLock(true);
+  }
+
+  if (!keyboardOpen && keyboardWasOpen) {
+    const restoreY = keyboardScrollLockY;
+    setKeyboardScrollLock(false);
+
+    const resetScroll = () => {
+      window.scrollTo(0, restoreY);
+      document.documentElement.scrollTop = restoreY;
+      document.body.scrollTop = restoreY;
+    };
+
+    resetScroll();
+    window.requestAnimationFrame(() => {
+      resetScroll();
+      window.requestAnimationFrame(resetScroll);
+    });
+
+    window.clearTimeout(keyboardResetTimer);
+    keyboardResetTimer = window.setTimeout(() => {
+      resetScroll();
+      keyboardResetTimer = 0;
+      keyboardScrollLockY = 0;
+    }, 180);
+  }
+
+  keyboardWasOpen = keyboardOpen;
 }
 
 function installViewportCssVars() {
@@ -61,6 +133,8 @@ function installViewportCssVars() {
   const visualViewport = window.visualViewport;
   visualViewport?.addEventListener("resize", scheduleSync);
   visualViewport?.addEventListener("scroll", scheduleSync);
+  document.addEventListener("focusin", scheduleSync, true);
+  document.addEventListener("focusout", scheduleSync, true);
   window.addEventListener("resize", scheduleSync);
   window.addEventListener("orientationchange", scheduleSync);
 }

@@ -35,18 +35,21 @@ export function useKeyboardDockInset(options: KeyboardDockInsetOptions) {
     const root = rootRef.current;
     const dock = dockRef.current;
     if (!root || !dock) return;
+    const shell = root.closest(".app-shell");
 
     let frame = 0;
     let timeoutId = 0;
     let baselineViewportBottom = getViewportBottom();
 
     const applyValues = (keyboardInset: number, dockLift: number) => {
+      const active = keyboardInset > 0 || dockLift > 0;
       root.style.setProperty("--keyboard-inset", `${Math.round(keyboardInset)}px`);
       root.style.setProperty("--keyboard-lift", `${Math.round(dockLift)}px`);
-      root.classList.toggle("keyboard-dock--active", keyboardInset > 0 || dockLift > 0);
+      root.classList.toggle("keyboard-dock--active", active);
+      shell?.classList.toggle("app-shell--keyboard-dock-active", active);
       scrollerRef?.current?.classList.toggle(
         "keyboard-dock-scroller--active",
-        keyboardInset > 0 || dockLift > 0
+        active
       );
     };
 
@@ -115,6 +118,7 @@ export function useKeyboardDockInset(options: KeyboardDockInsetOptions) {
       root.style.removeProperty("--keyboard-inset");
       root.style.removeProperty("--keyboard-lift");
       root.classList.remove("keyboard-dock--active");
+      shell?.classList.remove("app-shell--keyboard-dock-active");
       scrollerRef?.current?.classList.remove("keyboard-dock-scroller--active");
     };
   }, [dockRef, gap, rootRef, scrollerRef]);
