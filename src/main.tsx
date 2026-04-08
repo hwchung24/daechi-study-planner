@@ -11,7 +11,18 @@ let keyboardResetTimer = 0;
 let keyboardScrollLockY = 0;
 let lastTouchY = 0;
 
+function forceDocumentScrollTop() {
+  window.scrollTo(0, 0);
+  document.documentElement.scrollTop = 0;
+  document.body.scrollTop = 0;
+}
+
 function restoreKeyboardScrollPosition() {
+  if (keyboardScrollLockY === 0) {
+    forceDocumentScrollTop();
+    return;
+  }
+
   window.scrollTo(0, keyboardScrollLockY);
   document.documentElement.scrollTop = keyboardScrollLockY;
   document.body.scrollTop = keyboardScrollLockY;
@@ -70,26 +81,23 @@ function setKeyboardScrollLock(active: boolean) {
   const bodyStyle = document.body.style;
 
   if (active) {
-    keyboardScrollLockY = Math.max(
-      window.scrollY,
-      document.documentElement.scrollTop,
-      document.body.scrollTop
-    );
+    keyboardScrollLockY = 0;
+    forceDocumentScrollTop();
     bodyStyle.position = "fixed";
-    bodyStyle.top = `${-keyboardScrollLockY}px`;
+    bodyStyle.top = "0";
     bodyStyle.left = "0";
     bodyStyle.right = "0";
     bodyStyle.width = "100%";
+    bodyStyle.overflow = "hidden";
     return;
   }
-
-  const restoreY = keyboardScrollLockY;
 
   bodyStyle.position = "";
   bodyStyle.top = "";
   bodyStyle.left = "";
   bodyStyle.right = "";
   bodyStyle.width = "";
+  bodyStyle.overflow = "";
 
   restoreKeyboardScrollPosition();
 }
@@ -127,6 +135,10 @@ function syncViewportCssVars() {
     window.clearTimeout(keyboardResetTimer);
     keyboardResetTimer = 0;
     setKeyboardScrollLock(true);
+  }
+
+  if (keyboardOpen) {
+    forceDocumentScrollTop();
   }
 
   if (!keyboardOpen && keyboardWasOpen) {
@@ -213,7 +225,14 @@ function installViewportCssVars() {
   const visualViewport = window.visualViewport;
   visualViewport?.addEventListener("resize", scheduleSync);
   visualViewport?.addEventListener("scroll", scheduleSync);
-  document.addEventListener("focusin", scheduleSync, true);
+  document.addEventListener(
+    "focusin",
+    () => {
+      forceDocumentScrollTop();
+      scheduleSync();
+    },
+    true
+  );
   document.addEventListener("focusout", scheduleSync, true);
   document.addEventListener("touchstart", onTouchStart, { passive: true, capture: true });
   document.addEventListener("touchmove", onTouchMove, {
