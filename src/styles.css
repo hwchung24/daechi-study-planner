@@ -235,8 +235,6 @@ select {
   box-sizing: border-box;
   min-width: 0;
   overflow: hidden;
-  transform: translateY(var(--app-viewport-offset-top));
-  will-change: transform;
 }
 
 html.app-keyboard-open body,
@@ -244,6 +242,33 @@ html.app-keyboard-open #root,
 body.app-keyboard-open #root,
 body.app-keyboard-open .app-root {
   overscroll-behavior: none;
+}
+
+html.app-keyboard-open #root,
+body.app-keyboard-open #root {
+  position: fixed;
+  inset: 0;
+  width: 100%;
+  height: var(--app-viewport-height);
+  min-height: var(--app-viewport-height);
+  overflow: hidden;
+}
+
+html.app-keyboard-open .app-root,
+body.app-keyboard-open .app-root {
+  position: fixed;
+  inset: 0;
+  width: 100%;
+  height: var(--app-viewport-height);
+  min-height: var(--app-viewport-height);
+  overflow: hidden;
+  transform: none;
+}
+
+html.app-keyboard-open .app-shell,
+body.app-keyboard-open .app-shell {
+  height: 100%;
+  min-height: 0;
 }
 
 html.app-keyboard-open body,

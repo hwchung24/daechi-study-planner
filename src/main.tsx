@@ -10,6 +10,8 @@ let keyboardWasOpen = false;
 let keyboardResetTimer = 0;
 let keyboardScrollLockY = 0;
 let lastTouchY = 0;
+let keyboardStabilizeFrame = 0;
+let keyboardStabilizeTimer = 0;
 
 function forceDocumentScrollTop() {
   window.scrollTo(0, 0);
@@ -109,7 +111,6 @@ function syncViewportCssVars() {
 
   const visualViewport = window.visualViewport;
   const layoutViewportHeight = Math.round(window.innerHeight);
-  const viewportOffsetTop = Math.max(0, Math.round(visualViewport?.offsetTop ?? 0));
   const visualViewportHeight = Math.round(
     (visualViewport?.height ?? window.innerHeight) + (visualViewport?.offsetTop ?? 0)
   );
@@ -126,7 +127,7 @@ function syncViewportCssVars() {
   );
   document.documentElement.style.setProperty(
     "--app-viewport-offset-top",
-    `${keyboardOpen ? viewportOffsetTop : 0}px`
+    "0px"
   );
   document.documentElement.classList.toggle("app-keyboard-open", keyboardOpen);
   document.body.classList.toggle("app-keyboard-open", keyboardOpen);
@@ -179,12 +180,55 @@ function installViewportCssVars() {
     });
   };
 
+  const stopKeyboardStabilization = () => {
+    if (keyboardStabilizeFrame) {
+      window.cancelAnimationFrame(keyboardStabilizeFrame);
+      keyboardStabilizeFrame = 0;
+    }
+    if (keyboardStabilizeTimer) {
+      window.clearTimeout(keyboardStabilizeTimer);
+      keyboardStabilizeTimer = 0;
+    }
+  };
+
+  const stabilizeKeyboardViewport = () => {
+    stopKeyboardStabilization();
+
+    let remainingFrames = 7;
+    const tick = () => {
+      forceDocumentScrollTop();
+      syncViewportCssVars();
+      if (remainingFrames > 0) {
+        remainingFrames -= 1;
+        keyboardStabilizeFrame = window.requestAnimationFrame(tick);
+        return;
+      }
+      keyboardStabilizeFrame = 0;
+    };
+
+    keyboardStabilizeFrame = window.requestAnimationFrame(tick);
+    keyboardStabilizeTimer = window.setTimeout(() => {
+      forceDocumentScrollTop();
+      syncViewportCssVars();
+      keyboardStabilizeTimer = 0;
+    }, 260);
+  };
+
   const keepScrollLocked = () => {
     if (!keyboardWasOpen) {
       return;
     }
 
     restoreKeyboardScrollPosition();
+    scheduleSync();
+  };
+
+  const onVisualViewportChange = () => {
+    if (isFocusedEditableElement(document.activeElement)) {
+      stabilizeKeyboardViewport();
+      return;
+    }
+
     scheduleSync();
   };
 
@@ -223,17 +267,24 @@ function installViewportCssVars() {
   syncViewportCssVars();
 
   const visualViewport = window.visualViewport;
-  visualViewport?.addEventListener("resize", scheduleSync);
-  visualViewport?.addEventListener("scroll", scheduleSync);
+  visualViewport?.addEventListener("resize", onVisualViewportChange);
+  visualViewport?.addEventListener("scroll", onVisualViewportChange);
   document.addEventListener(
     "focusin",
     () => {
       forceDocumentScrollTop();
+      stabilizeKeyboardViewport();
+    },
+    true
+  );
+  document.addEventListener(
+    "focusout",
+    () => {
+      stopKeyboardStabilization();
       scheduleSync();
     },
     true
   );
-  document.addEventListener("focusout", scheduleSync, true);
   document.addEventListener("touchstart", onTouchStart, { passive: true, capture: true });
   document.addEventListener("touchmove", onTouchMove, {
     passive: false,
