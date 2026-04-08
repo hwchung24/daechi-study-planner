@@ -6,6 +6,7 @@ import React, {
   useRef,
   useState
 } from "react";
+import { Capacitor } from "@capacitor/core";
 import { SendHorizontal } from "lucide-react";
 import { motion } from "framer-motion";
 import { TabTransitionPanel } from "../../components/PageTransition";
@@ -42,6 +43,10 @@ import { CoachAvatar } from "../CoachAvatar";
 import { CoachTomorrowPlanCollab } from "./CoachTomorrowPlanCollab";
 
 export type StudentTabKey = "home" | "coach";
+
+const IS_NATIVE_PLATFORM = Capacitor.isNativePlatform();
+const NATIVE_KEYBOARD_DISMISS_EVENT = "daechi:native-keyboard-input-dismiss";
+const NATIVE_KEYBOARD_SUBMIT_EVENT = "daechi:native-keyboard-input-submit";
 
 type CoachPanelKey = "analysis" | "plan" | "chat";
 
@@ -1029,8 +1034,42 @@ function CoachChatTabConnected(props: { apiToken: string }) {
     };
   }, [composerOpen]);
 
+  useEffect(() => {
+    if (!IS_NATIVE_PLATFORM) {
+      return;
+    }
+
+    const handleNativeDismiss = (event: Event) => {
+      const detail = (event as CustomEvent<{ source?: EventTarget | null }>).detail;
+      if (detail?.source !== composerInputRef.current) {
+        return;
+      }
+
+      setComposerOpen(false);
+    };
+
+    const handleNativeSubmit = (event: Event) => {
+      const detail = (event as CustomEvent<{ source?: EventTarget | null; value?: string }>).detail;
+      if (detail?.source !== composerInputRef.current) {
+        return;
+      }
+
+      void send(String(detail?.value || draft));
+    };
+
+    window.addEventListener(NATIVE_KEYBOARD_DISMISS_EVENT, handleNativeDismiss);
+    window.addEventListener(NATIVE_KEYBOARD_SUBMIT_EVENT, handleNativeSubmit);
+    return () => {
+      window.removeEventListener(NATIVE_KEYBOARD_DISMISS_EVENT, handleNativeDismiss);
+      window.removeEventListener(NATIVE_KEYBOARD_SUBMIT_EVENT, handleNativeSubmit);
+    };
+  }, [draft, send]);
+
   const handleComposerBlur = () => {
     window.requestAnimationFrame(() => {
+      if (composerInputRef.current?.dataset.nativeKeyboardSource === "true") {
+        return;
+      }
       if (document.activeElement !== composerInputRef.current) {
         setComposerOpen(false);
       }
@@ -1047,10 +1086,10 @@ function CoachChatTabConnected(props: { apiToken: string }) {
       ref={rootRef}
       className={
         "coach-chat-embedded keyboard-dock-root" +
-        (composerOpen ? " coach-chat-composer-open" : "")
+        (composerOpen && !IS_NATIVE_PLATFORM ? " coach-chat-composer-open" : "")
       }
     >
-      {composerOpen && (
+      {composerOpen && !IS_NATIVE_PLATFORM && (
         <button
           type="button"
           className="coach-chat-composer-backdrop"
@@ -1179,12 +1218,20 @@ function CoachChatTabConnected(props: { apiToken: string }) {
             </span>
           </button>
         ) : (
-          <div className="coach-chat-composer" onMouseDown={e => e.stopPropagation()}>
+          <div
+            className={
+              "coach-chat-composer" +
+              (IS_NATIVE_PLATFORM ? " coach-chat-composer--native-bridge" : "")
+            }
+            onMouseDown={e => e.stopPropagation()}
+          >
             <div className="coach-chat-input coach-chat-input--composer">
               <input
                 ref={composerInputRef}
                 className="coach-chat-text"
                 value={draft}
+                enterKeyHint="send"
+                data-native-keyboard-submit="custom"
                 onBlur={handleComposerBlur}
                 onChange={e => setDraft(e.target.value)}
                 onFocus={() => setComposerOpen(true)}
@@ -1195,20 +1242,22 @@ function CoachChatTabConnected(props: { apiToken: string }) {
                   }
                 }}
               />
-              <button
-                type="button"
-                className="coach-primary-btn coach-primary-btn--sm"
-                onMouseDown={e => e.preventDefault()}
-                onClick={() => {
-                  send(draft);
-                  setComposerOpen(false);
-                }}
-                disabled={typing}
-                aria-label="메시지 보내기"
-                title="보내기"
-              >
-                <SendHorizontal size={15} strokeWidth={2.2} aria-hidden />
-              </button>
+              {!IS_NATIVE_PLATFORM && (
+                <button
+                  type="button"
+                  className="coach-primary-btn coach-primary-btn--sm"
+                  onMouseDown={e => e.preventDefault()}
+                  onClick={() => {
+                    send(draft);
+                    setComposerOpen(false);
+                  }}
+                  disabled={typing}
+                  aria-label="메시지 보내기"
+                  title="보내기"
+                >
+                  <SendHorizontal size={15} strokeWidth={2.2} aria-hidden />
+                </button>
+              )}
             </div>
           </div>
         )}

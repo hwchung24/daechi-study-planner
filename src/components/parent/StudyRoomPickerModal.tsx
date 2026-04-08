@@ -59,6 +59,7 @@ export function StudyRoomPickerModal(props: {
   const [searching, setSearching] = useState(false);
   const [searchError, setSearchError] = useState("");
   const [selected, setSelected] = useState<LatLng | null>(null);
+  const [radiusMeters, setRadiusMeters] = useState(120);
   const [mapZoom, setMapZoom] = useState(DEFAULT_ZOOM);
   const [resolvingAddress, setResolvingAddress] = useState(false);
 
@@ -74,6 +75,9 @@ export function StudyRoomPickerModal(props: {
     setSearchResults([]);
     setSearchError("");
     setSelected(nextSelected);
+    setRadiusMeters(
+      Math.min(1000, Math.max(30, Number(initialValue?.radiusMeters) || 120))
+    );
     setMapZoom(DEFAULT_ZOOM);
   }, [initialValue, open, student?.id]);
 
@@ -365,6 +369,25 @@ export function StudyRoomPickerModal(props: {
                 placeholder="검색 결과나 직접 선택한 위치 주소"
               />
             </div>
+            <div className="field">
+              <label className="field-label">근방 판정 반경</label>
+              <div className="study-room-modal__radius-row">
+                <input
+                  className="field-input"
+                  type="range"
+                  min={30}
+                  max={500}
+                  step={10}
+                  value={radiusMeters}
+                  onChange={event => setRadiusMeters(Number(event.target.value) || 120)}
+                  disabled={saving}
+                />
+                <span className="study-room-modal__radius-value">{radiusMeters}m</span>
+              </div>
+              <p className="study-room-modal__status">
+                학생이 이 위치에서 {radiusMeters}m 안에 들어오면 독서실 근방 체류로 기록합니다.
+              </p>
+            </div>
           </div>
 
           <div className="study-room-modal__coordinates">
@@ -392,6 +415,7 @@ export function StudyRoomPickerModal(props: {
                 address: studyRoomAddress.trim() || undefined,
                 latitude: selected.lat,
                 longitude: selected.lng,
+                radiusMeters,
                 updatedAt: new Date().toISOString()
               });
             }}

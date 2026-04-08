@@ -7,6 +7,9 @@ import {
 
 type SourceElement = HTMLInputElement | HTMLTextAreaElement;
 
+const NATIVE_KEYBOARD_DISMISS_EVENT = "daechi:native-keyboard-input-dismiss";
+const NATIVE_KEYBOARD_SUBMIT_EVENT = "daechi:native-keyboard-input-submit";
+
 const TEXT_INPUT_TYPES = new Set([
   "",
   "text",
@@ -31,11 +34,7 @@ function isEligibleSource(node: EventTarget | null): node is SourceElement {
     return false;
   }
 
-  if (
-    node.closest(
-      ".coach-chat-bottom-rail, .coach-chat-composer, [data-native-keyboard-input='off']"
-    )
-  ) {
+  if (node.closest("[data-native-keyboard-input='off']")) {
     return false;
   }
 
@@ -98,6 +97,16 @@ export function NativeKeyboardInputManager() {
     }
 
     const shell = document.querySelector(".app-shell");
+    const dispatchSourceEvent = (name: string, source: SourceElement, value: string) => {
+      window.dispatchEvent(
+        new CustomEvent(name, {
+          detail: {
+            source,
+            value
+          }
+        })
+      );
+    };
 
     const clearActiveSource = () => {
       const activeSource = activeSourceRef.current;
@@ -157,15 +166,24 @@ export function NativeKeyboardInputManager() {
         return;
       }
 
-      syncSourceValue(activeSource, String(event.value || ""));
+      const nextValue = String(event.value || "");
+      syncSourceValue(activeSource, nextValue);
+
+      if (activeSource.dataset.nativeKeyboardSubmit === "custom") {
+        dispatchSourceEvent(NATIVE_KEYBOARD_SUBMIT_EVENT, activeSource, nextValue);
+        return;
+      }
+
       submitSourceForm(activeSource);
     });
 
     const dismissPromise = NativeKeyboardInput.addListener("dismiss", event => {
       const activeSource = activeSourceRef.current;
       if (activeSource && activeSource.isConnected) {
-        syncSourceValue(activeSource, String(event.value || ""));
+        const nextValue = String(event.value || "");
+        syncSourceValue(activeSource, nextValue);
         activeSource.dispatchEvent(new Event("change", { bubbles: true }));
+        dispatchSourceEvent(NATIVE_KEYBOARD_DISMISS_EVENT, activeSource, nextValue);
       }
       clearActiveSource();
     });

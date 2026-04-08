@@ -5,6 +5,7 @@ export type ParentStudyRoomSetting = {
   address?: string | null;
   latitude: number;
   longitude: number;
+  radiusMeters: number;
   updatedAt: string;
 };
 

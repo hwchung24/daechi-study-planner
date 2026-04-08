@@ -317,7 +317,8 @@ export function ParentProfilePage(props: {
               name: value.name,
               address: value.address || null,
               latitude: value.latitude,
-              longitude: value.longitude
+              longitude: value.longitude,
+              radiusMeters: value.radiusMeters
             })
           }
         );
@@ -470,6 +471,11 @@ export function ParentProfilePage(props: {
                             ? `${setting.latitude.toFixed(5)}, ${setting.longitude.toFixed(5)}`
                             : "지도에서 위치를 눌러 학생별 독서실 위치를 저장하세요."}
                       </div>
+                      {setting ? (
+                        <div className="parent-study-room-item__meta">
+                          근방 판정 반경 {setting.radiusMeters}m
+                        </div>
+                      ) : null}
                       {setting ? (
                         <div className="parent-study-room-item__visits">
                           <div className="parent-study-room-item__visits-title">

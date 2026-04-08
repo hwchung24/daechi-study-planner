@@ -859,6 +859,9 @@ export function StudentProfilePage(props: {
                       {room.address || `${room.latitude.toFixed(5)}, ${room.longitude.toFixed(5)}`}
                     </div>
                     <div className="student-study-room-tracking-card__room-meta">
+                      근방 판정 반경 · {room.radiusMeters}m
+                    </div>
+                    <div className="student-study-room-tracking-card__room-meta">
                       연결 학부모 · {room.parentEmail}
                     </div>
                   </div>

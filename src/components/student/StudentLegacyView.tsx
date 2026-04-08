@@ -36,49 +36,6 @@ import {
 } from "../../lib/coachEvents";
 import { useModalReveal } from "../../lib/useModalReveal";
 
-/** 서버 실패·마이그레이션 전에도 탭에서 실천 여부가 유지되도록 보조 */
-const COMMITMENT_DONE_STORAGE_PREFIX = "daechi_commitment_done_";
-
-function commitmentDoneStorageKey(dayKey: string) {
-  return `${COMMITMENT_DONE_STORAGE_PREFIX}${dayKey}`;
-}
-
-function readStoredCommitmentDone(dayKey: string): boolean | null {
-  try {
-    const v = localStorage.getItem(commitmentDoneStorageKey(dayKey));
-    if (v === "1") return true;
-    if (v === "0") return false;
-  } catch {
-    // ignore
-  }
-  return null;
-}
-
-function writeStoredCommitmentDone(dayKey: string, done: boolean) {
-  try {
-    localStorage.setItem(commitmentDoneStorageKey(dayKey), done ? "1" : "0");
-  } catch {
-    // ignore
-  }
-}
-
-function mergeCommitmentDoneFromServer(
-  serverTd: boolean | null | undefined,
-  dayKey: string
-): boolean | null {
-  if (serverTd === true || serverTd === false) return serverTd;
-  return readStoredCommitmentDone(dayKey);
-}
-
-/** 생활 기록 1–5 슬라이더 → 필 너비 % */
-function recordLifeSliderFillPct(v: string | number): string {
-  const n = Number(v);
-  if (!Number.isFinite(n)) return "0%";
-  const clamped = Math.max(1, Math.min(5, n));
-  const pct = ((clamped - 1) / 4) * 100;
-  return `${pct}%`;
-}
-
 const SLEEP_HOURS_MAX = 14;
 
 /** 생활 기록 수면 0–14h 슬라이더 → 필 너비 % */
@@ -1356,67 +1313,72 @@ export function StudentLegacyView(props: {
             </section>
           </div>
 
-          <div
-            className={
-              "dday-modal" +
-              (ddayModalReveal.revealed ? " dday-modal--open" : "")
-            }
-            onClick={() =>
-              ddayModalReveal.beginClose(() => setDdayEditOpen(false))
-            }
-          >
-            <div className="dday-modal-inner" onClick={e => e.stopPropagation()}>
-              <div className="dday-modal-header">
-                <span className="dday-modal-title">디데이 설정</span>
-              </div>
-              <div className="dday-modal-body">
-                <div className="field">
-                  <label className="field-label">제목</label>
-                  <input
-                    className="field-input"
-                    value={ddayEditTitle}
-                    onChange={e => setDdayEditTitle(e.target.value)}
-                  />
-                </div>
-                <div className="field" style={{ marginTop: 10 }}>
-                  <label className="field-label">날짜</label>
-                  <DatePickerScroll
-                    value={ddayEditDate || getDateKeySeoul(0)}
-                    onChange={setDdayEditDate}
-                    hapticSelection={hapticSelection}
-                  />
-                </div>
-              </div>
-              <div className="dday-modal-footer">
-                <button
-                  type="button"
-                  className="modal-secondary"
+          {ddayEditOpen
+            ? createPortal(
+                <div
+                  className={
+                    "dday-modal" +
+                    (ddayModalReveal.revealed ? " dday-modal--open" : "")
+                  }
                   onClick={() =>
                     ddayModalReveal.beginClose(() => setDdayEditOpen(false))
                   }
                 >
-                  취소
-                </button>
-                <button
-                  type="button"
-                  className="modal-primary"
-                  onClick={() => {
-                    try {
-                      localStorage.setItem("daechi_student_dday_date", ddayEditDate);
-                      localStorage.setItem("daechi_student_dday_title", ddayEditTitle);
-                    } catch {
-                      // ignore
-                    }
-                    updateDdayLabelFromDate(ddayEditDate || null);
-                    ddayModalReveal.beginClose(() => setDdayEditOpen(false));
-                  }}
-                  disabled={!ddayEditDate}
-                >
-                  저장
-                </button>
-              </div>
-            </div>
-          </div>
+                  <div className="dday-modal-inner" onClick={e => e.stopPropagation()}>
+                    <div className="dday-modal-header">
+                      <span className="dday-modal-title">디데이 설정</span>
+                    </div>
+                    <div className="dday-modal-body">
+                      <div className="field">
+                        <label className="field-label">제목</label>
+                        <input
+                          className="field-input"
+                          value={ddayEditTitle}
+                          onChange={e => setDdayEditTitle(e.target.value)}
+                        />
+                      </div>
+                      <div className="field" style={{ marginTop: 10 }}>
+                        <label className="field-label">날짜</label>
+                        <DatePickerScroll
+                          value={ddayEditDate || getDateKeySeoul(0)}
+                          onChange={setDdayEditDate}
+                          hapticSelection={hapticSelection}
+                        />
+                      </div>
+                    </div>
+                    <div className="dday-modal-footer">
+                      <button
+                        type="button"
+                        className="modal-secondary"
+                        onClick={() =>
+                          ddayModalReveal.beginClose(() => setDdayEditOpen(false))
+                        }
+                      >
+                        취소
+                      </button>
+                      <button
+                        type="button"
+                        className="modal-primary"
+                        onClick={() => {
+                          try {
+                            localStorage.setItem("daechi_student_dday_date", ddayEditDate);
+                            localStorage.setItem("daechi_student_dday_title", ddayEditTitle);
+                          } catch {
+                            // ignore
+                          }
+                          updateDdayLabelFromDate(ddayEditDate || null);
+                          ddayModalReveal.beginClose(() => setDdayEditOpen(false));
+                        }}
+                        disabled={!ddayEditDate}
+                      >
+                        저장
+                      </button>
+                    </div>
+                  </div>
+                </div>,
+                document.body
+              )
+            : null}
         </>
       )}
 
@@ -2050,14 +2012,36 @@ export function StudentLegacyView(props: {
                               );
                               return;
                             }
-                            setStoreApps(prev =>
-                              prev.map(item =>
-                                item.id === app.id
-                                  ? (data as { app?: StudyStoreApp }).app ||
-                                    item
-                                  : item
-                              )
+                            const refreshRes = await fetch(
+                              `${apiBase}/api/student/store-apps`,
+                              {
+                                headers: {
+                                  Authorization: `Bearer ${authToken}`
+                                }
+                              }
                             );
+                            const refreshData = await refreshRes
+                              .json()
+                              .catch(() => ({}));
+                            if (
+                              refreshRes.ok &&
+                              Array.isArray(
+                                (refreshData as { apps?: StudyStoreApp[] }).apps
+                              )
+                            ) {
+                              setStoreApps(
+                                (refreshData as { apps: StudyStoreApp[] }).apps
+                              );
+                            } else {
+                              setStoreApps(prev =>
+                                prev.map(item =>
+                                  item.id === app.id
+                                    ? (data as { app?: StudyStoreApp }).app ||
+                                      item
+                                    : item
+                                )
+                              );
+                            }
                             if (!app.installed) {
                               hapticSuccess();
                             } else {
@@ -2074,7 +2058,7 @@ export function StudentLegacyView(props: {
                           ? "저장 중..."
                           : app.installed
                             ? "삭제하기"
-                            : "다운받기"}
+                            : "설치하기"}
                       </button>
                     </div>
                   </div>
@@ -2432,84 +2416,89 @@ export function StudentLegacyView(props: {
         />
       )}
 
-      <div
-        className={
-          "dday-modal" +
-          (coachPlanHintReveal.revealed ? " dday-modal--open" : "")
-        }
-        onClick={() =>
-          coachPlanHintReveal.beginClose(() => setCoachPlanHintOpen(false))
-        }
-        role="presentation"
-      >
-        <div
-          className="dday-modal-inner"
-          onClick={e => e.stopPropagation()}
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby="coach-plan-hint-title"
-        >
-          <div className="dday-modal-header">
-            <span className="dday-modal-title" id="coach-plan-hint-title">
-              오늘 기록을 먼저 작성해 주세요
-            </span>
-          </div>
-          <div className="dday-modal-body">
-            <p
-              className="settings-hint"
-              style={{
-                marginTop: 0,
-                lineHeight: 1.55,
-                fontSize: "var(--font-size-medium)"
-              }}
-            >
-              AI 코치와 내일 계획을 세울 때는, 기록 탭에 적어 둔 오늘 생활 좋았던 점과
-              나빴던 점, 그리고 오늘 탭에서 공부한 내용을 함께 참고하는 방식으로
-              이어갈 예정이에요. 먼저 아래 항목을 채운 뒤 다시 눌러 주세요.
-            </p>
-            {coachPlanHintKind === "study" ? (
-              <ul
-                className="settings-hint"
-                style={{
-                  margin: "12px 0 0",
-                  paddingLeft: 18,
-                  lineHeight: 1.6,
-                  fontSize: "var(--font-size-medium)"
-                }}
-              >
-                <li>오늘 학습 시간</li>
-                <li>오늘 공부 좋았던 점과 나빴던 점</li>
-                <li>오늘 공부한 내용을 설명해보세요</li>
-              </ul>
-            ) : (
-              <ul
-                className="settings-hint"
-                style={{
-                  margin: "12px 0 0",
-                  paddingLeft: 18,
-                  lineHeight: 1.6,
-                  fontSize: "var(--font-size-medium)"
-                }}
-              >
-                <li>오늘 생활 좋았던 점과 나빴던 점</li>
-              </ul>
-            )}
-          </div>
-          <div className="dday-modal-footer">
-            <button
-              type="button"
-              className="modal-primary"
-              onClick={() =>
-                coachPlanHintReveal.beginClose(() =>
-                  setCoachPlanHintOpen(false)
-                )
+      {coachPlanHintOpen
+        ? createPortal(
+            <div
+              className={
+                "dday-modal" +
+                (coachPlanHintReveal.revealed ? " dday-modal--open" : "")
               }
+              onClick={() =>
+                coachPlanHintReveal.beginClose(() => setCoachPlanHintOpen(false))
+              }
+              role="presentation"
             >
-              확인
-            </button>
-          </div>
-        </div>
-      </div>
+              <div
+                className="dday-modal-inner"
+                onClick={e => e.stopPropagation()}
+                role="dialog"
+                aria-modal="true"
+                aria-labelledby="coach-plan-hint-title"
+              >
+                <div className="dday-modal-header">
+                  <span className="dday-modal-title" id="coach-plan-hint-title">
+                    오늘 기록을 먼저 작성해 주세요
+                  </span>
+                </div>
+                <div className="dday-modal-body">
+                  <p
+                    className="settings-hint"
+                    style={{
+                      marginTop: 0,
+                      lineHeight: 1.55,
+                      fontSize: "var(--font-size-medium)"
+                    }}
+                  >
+                    AI 코치와 내일 계획을 세울 때는, 기록 탭에 적어 둔 오늘 생활 좋았던 점과
+                    나빴던 점, 그리고 오늘 탭에서 공부한 내용을 함께 참고하는 방식으로
+                    이어갈 예정이에요. 먼저 아래 항목을 채운 뒤 다시 눌러 주세요.
+                  </p>
+                  {coachPlanHintKind === "study" ? (
+                    <ul
+                      className="settings-hint"
+                      style={{
+                        margin: "12px 0 0",
+                        paddingLeft: 18,
+                        lineHeight: 1.6,
+                        fontSize: "var(--font-size-medium)"
+                      }}
+                    >
+                      <li>오늘 학습 시간</li>
+                      <li>오늘 공부 좋았던 점과 나빴던 점</li>
+                      <li>오늘 공부한 내용을 설명해보세요</li>
+                    </ul>
+                  ) : (
+                    <ul
+                      className="settings-hint"
+                      style={{
+                        margin: "12px 0 0",
+                        paddingLeft: 18,
+                        lineHeight: 1.6,
+                        fontSize: "var(--font-size-medium)"
+                      }}
+                    >
+                      <li>오늘 생활 좋았던 점과 나빴던 점</li>
+                    </ul>
+                  )}
+                </div>
+                <div className="dday-modal-footer">
+                  <button
+                    type="button"
+                    className="modal-primary"
+                    onClick={() =>
+                      coachPlanHintReveal.beginClose(() =>
+                        setCoachPlanHintOpen(false)
+                      )
+                    }
+                  >
+                    확인
+                  </button>
+                </div>
+              </div>
+            </div>,
+            document.body
+          )
+        : null}
     </>
   );
 }

@@ -1172,6 +1172,114 @@ function normalizeInstalledAppsForPrompt(rows) {
   return ensureDaechiRootAppCandidates(rows);
 }
 
+function normalizeStoreAppMatchValue(value) {
+  return String(value || "").trim().toLowerCase();
+}
+
+function mapStoreAppForResponse(app, installedOverride) {
+  return {
+    id: app.app_key,
+    name: app.name,
+    category: app.category,
+    description: app.description,
+    url: app.url,
+    installed:
+      typeof installedOverride === "boolean"
+        ? installedOverride
+        : Boolean(app.is_installed),
+    installedAt: app.installed_at,
+    removedAt: app.removed_at,
+    updatedAt: app.updated_at
+  };
+}
+
+function isStoreAppInstalledOnDevice(app, installedLookup) {
+  if (!installedLookup || installedLookup.source !== "device") {
+    return Boolean(app.is_installed);
+  }
+
+  const bundleId = normalizeStoreAppMatchValue(app.bundle_id);
+  if (bundleId && installedLookup.bundleIds.has(bundleId)) {
+    return true;
+  }
+
+  const name = normalizeStoreAppMatchValue(app.name);
+  if (name && installedLookup.names.has(name)) {
+    return true;
+  }
+
+  return false;
+}
+
+async function resolveInstalledStoreAppLookup(req, userId) {
+  await attachDeviceByCookieIfPresent(req, userId).catch(err => {
+    console.warn("device link skipped on store lookup:", err.message);
+  });
+
+  if (!isSimpleMdmConfigured()) {
+    return {
+      source: "cache",
+      bundleIds: new Set(),
+      names: new Set(),
+      deviceId: null
+    };
+  }
+
+  const serial = await getActiveDeviceSerialForUser(userId);
+  if (!serial) {
+    return {
+      source: "cache",
+      bundleIds: new Set(),
+      names: new Set(),
+      deviceId: null
+    };
+  }
+
+  const device = await findDeviceBySerial(serial).catch(err => {
+    console.warn("simplemdm device lookup failed on store lookup:", err.message);
+    return null;
+  });
+  if (!device?.id) {
+    return {
+      source: "cache",
+      bundleIds: new Set(),
+      names: new Set(),
+      deviceId: null
+    };
+  }
+
+  const installedApps = await listInstalledAppsForDevice(Number(device.id)).catch(
+    err => {
+      console.warn("simplemdm installed app lookup failed:", err.message);
+      return null;
+    }
+  );
+  if (!Array.isArray(installedApps)) {
+    return {
+      source: "cache",
+      bundleIds: new Set(),
+      names: new Set(),
+      deviceId: Number(device.id)
+    };
+  }
+
+  const bundleIds = new Set();
+  const names = new Set();
+  for (const app of installedApps) {
+    const bundleId = normalizeStoreAppMatchValue(app?.bundleId);
+    const name = normalizeStoreAppMatchValue(app?.name);
+    if (bundleId) bundleIds.add(bundleId);
+    if (name) names.add(name);
+  }
+
+  return {
+    source: "device",
+    bundleIds,
+    names,
+    deviceId: Number(device.id)
+  };
+}
+
 function pickFallbackAllowedApps(installedApps, slot) {
   const list = Array.isArray(installedApps) ? installedApps : [];
   if (list.length === 0) return ensureDaechiRootAppAllowed([]);
@@ -2429,21 +2537,26 @@ app.put("/api/parent/students/:studentId/study-room", authMiddleware, async (req
     if (!has) {
       return res.status(403).json({ error: "연결된 학생만 설정할 수 있습니다." });
     }
-    const { name, address, latitude, longitude } = req.body || {};
+    const { name, address, latitude, longitude, radiusMeters } = req.body || {};
     const normalizedName = String(name || "").trim();
     const normalizedLat = Number(latitude);
     const normalizedLng = Number(longitude);
+    const normalizedRadiusMeters = Math.min(1000, Math.max(30, Number(radiusMeters) || 120));
     if (!normalizedName) {
       return res.status(400).json({ error: "독서실 이름이 필요합니다." });
     }
     if (!Number.isFinite(normalizedLat) || !Number.isFinite(normalizedLng)) {
       return res.status(400).json({ error: "위도와 경도를 확인해 주세요." });
     }
+    if (!Number.isFinite(normalizedRadiusMeters)) {
+      return res.status(400).json({ error: "반경 값을 확인해 주세요." });
+    }
     const row = await upsertParentStudentStudyRoom(req.userId, studentId, {
       name: normalizedName,
       address,
       latitude: normalizedLat,
-      longitude: normalizedLng
+      longitude: normalizedLng,
+      radiusMeters: normalizedRadiusMeters
     });
     res.json({
       ok: true,
@@ -2454,6 +2567,10 @@ app.put("/api/parent/students/:studentId/study-room", authMiddleware, async (req
             address: row.address != null ? String(row.address) : null,
             latitude: Number(row.latitude),
             longitude: Number(row.longitude),
+            radiusMeters:
+              row.radius_meters != null && Number.isFinite(Number(row.radius_meters))
+                ? Number(row.radius_meters)
+                : 120,
             updatedAt: row.updated_at ? new Date(row.updated_at).toISOString() : null
           }
         : null
@@ -2705,6 +2822,10 @@ app.get("/api/student/study-room-tracking", authMiddleware, async (req, res) => 
         address: row.address != null ? String(row.address) : null,
         latitude: Number(row.latitude),
         longitude: Number(row.longitude),
+        radiusMeters:
+          row.radius_meters != null && Number.isFinite(Number(row.radius_meters))
+            ? Number(row.radius_meters)
+            : 120,
         updatedAt: row.updated_at ? new Date(row.updated_at).toISOString() : null
       })),
       recentVisits
@@ -3196,19 +3317,19 @@ app.get("/api/student/store-apps", authMiddleware, async (req, res) => {
     if (!me || me.role !== "student") {
       return res.status(403).json({ error: "권한이 없습니다." });
     }
-    const apps = await listStoreAppsForUser(req.userId);
+    const [apps, installedLookup] = await Promise.all([
+      listStoreAppsForUser(req.userId),
+      resolveInstalledStoreAppLookup(req, req.userId)
+    ]);
     res.json({
-      apps: apps.map(app => ({
-        id: app.app_key,
-        name: app.name,
-        category: app.category,
-        description: app.description,
-        url: app.url,
-        installed: Boolean(app.is_installed),
-        installedAt: app.installed_at,
-        removedAt: app.removed_at,
-        updatedAt: app.updated_at
-      }))
+      apps: apps.map(app =>
+        mapStoreAppForResponse(
+          app,
+          installedLookup.source === "device"
+            ? isStoreAppInstalledOnDevice(app, installedLookup)
+            : undefined
+        )
+      )
     });
   } catch (e) {
     console.error("/api/student/store-apps GET error", e);
@@ -4532,7 +4653,17 @@ app.put("/api/student/store-apps/:appId", authMiddleware, async (req, res) => {
         syncWarning = err.message || "device refresh failed";
       }
     });
-    const saved = await setStoreAppInstalled(req.userId, appId, installed);
+
+    let actualInstalled = installed;
+    const installedLookup = await resolveInstalledStoreAppLookup(req, req.userId);
+    if (installedLookup.source === "device") {
+      actualInstalled = isStoreAppInstalledOnDevice(appRow, installedLookup);
+      if (actualInstalled !== installed && !syncWarning) {
+        syncWarning = "기기 반영 상태가 아직 확인되지 않았습니다.";
+      }
+    }
+
+    const saved = await setStoreAppInstalled(req.userId, appId, actualInstalled);
     res.json({
       ok: true,
       sync: {
@@ -4540,17 +4671,7 @@ app.put("/api/student/store-apps/:appId", authMiddleware, async (req, res) => {
         refreshRequested: true,
         warning: syncWarning
       },
-      app: {
-        id: saved.app_key,
-        name: saved.name,
-        category: saved.category,
-        description: saved.description,
-        url: saved.url,
-        installed: Boolean(saved.is_installed),
-        installedAt: saved.installed_at,
-        removedAt: saved.removed_at,
-        updatedAt: saved.updated_at
-      }
+      app: mapStoreAppForResponse(saved, actualInstalled)
     });
   } catch (e) {
     console.error("/api/student/store-apps PUT error", e);

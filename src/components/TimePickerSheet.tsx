@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { useModalReveal } from "../lib/useModalReveal";
 
 const HOURS = Array.from({ length: 24 }, (_, i) => i);
@@ -289,7 +290,7 @@ export function TimePickerSheet(props: Props) {
 
   const closeModal = () => modalReveal.beginClose(onClose);
 
-  return (
+  return createPortal(
     <div
       className={
         "dday-modal time-picker-modal" +
@@ -338,6 +339,7 @@ export function TimePickerSheet(props: Props) {
           </button>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }

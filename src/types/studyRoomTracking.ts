@@ -21,6 +21,7 @@ export type StudentStudyRoomSummary = {
     address?: string | null;
     latitude: number;
     longitude: number;
+    radiusMeters: number;
     updatedAt: string;
   }>;
   recentVisits: StudyRoomVisitSession[];

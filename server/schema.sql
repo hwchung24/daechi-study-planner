@@ -418,6 +418,7 @@ CREATE TABLE IF NOT EXISTS parent_student_study_rooms (
   address TEXT,
   latitude DOUBLE PRECISION NOT NULL,
   longitude DOUBLE PRECISION NOT NULL,
+  radius_meters INTEGER NOT NULL DEFAULT 120 CHECK (radius_meters BETWEEN 30 AND 1000),
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   UNIQUE (parent_user_id, student_user_id)

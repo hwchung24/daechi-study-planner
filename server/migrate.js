@@ -150,10 +150,45 @@ async function main() {
         address TEXT,
         latitude DOUBLE PRECISION NOT NULL,
         longitude DOUBLE PRECISION NOT NULL,
+        radius_meters INTEGER NOT NULL DEFAULT 120 CHECK (radius_meters BETWEEN 30 AND 1000),
         created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
         updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
         UNIQUE (parent_user_id, student_user_id)
       );
+    `);
+  } catch {
+    // ignore
+  }
+  try {
+    await pool.query(`
+      ALTER TABLE parent_student_study_rooms
+      ADD COLUMN IF NOT EXISTS radius_meters INTEGER NOT NULL DEFAULT 120;
+    `);
+  } catch {
+    // ignore
+  }
+  try {
+    await pool.query(`
+      UPDATE parent_student_study_rooms
+      SET radius_meters = 120
+      WHERE radius_meters IS NULL;
+    `);
+  } catch {
+    // ignore
+  }
+  try {
+    await pool.query(`
+      ALTER TABLE parent_student_study_rooms
+      DROP CONSTRAINT IF EXISTS parent_student_study_rooms_radius_meters_check;
+    `);
+  } catch {
+    // ignore
+  }
+  try {
+    await pool.query(`
+      ALTER TABLE parent_student_study_rooms
+      ADD CONSTRAINT parent_student_study_rooms_radius_meters_check
+      CHECK (radius_meters BETWEEN 30 AND 1000);
     `);
   } catch {
     // ignore

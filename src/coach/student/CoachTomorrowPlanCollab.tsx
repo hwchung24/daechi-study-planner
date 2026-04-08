@@ -45,6 +45,7 @@ initializeCoachScheduleButton();
 /* SCHEDULE BUTTON INJECTION START */
 // Added 일정 관리 button for AI 코치 첫 메시지
 /* SCHEDULE BUTTON INJECTION END */
+import { Capacitor } from "@capacitor/core";
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { motion } from "framer-motion";
 import { SendHorizontal } from "lucide-react";
@@ -70,6 +71,10 @@ export type CoachTomorrowPlanCollabProps = {
   onApplyAndReturnToRecords: (next: ProgressPlan) => Promise<boolean>;
   onApplyTomorrowPracticeAndGoRecords: (text: string) => Promise<boolean>;
 };
+
+const IS_NATIVE_PLATFORM = Capacitor.isNativePlatform();
+const NATIVE_KEYBOARD_DISMISS_EVENT = "daechi:native-keyboard-input-dismiss";
+const NATIVE_KEYBOARD_SUBMIT_EVENT = "daechi:native-keyboard-input-submit";
 
 type ChatTurn = {
   role: "user" | "assistant";
@@ -448,8 +453,42 @@ export function CoachTomorrowPlanCollab(props: CoachTomorrowPlanCollabProps) {
     };
   }, [composerOpen]);
 
+  useEffect(() => {
+    if (!IS_NATIVE_PLATFORM) {
+      return;
+    }
+
+    const handleNativeDismiss = (event: Event) => {
+      const detail = (event as CustomEvent<{ source?: EventTarget | null }>).detail;
+      if (detail?.source !== composerInputRef.current) {
+        return;
+      }
+
+      setComposerOpen(false);
+    };
+
+    const handleNativeSubmit = (event: Event) => {
+      const detail = (event as CustomEvent<{ source?: EventTarget | null; value?: string }>).detail;
+      if (detail?.source !== composerInputRef.current) {
+        return;
+      }
+
+      void sendMessage(String(detail?.value || draft));
+    };
+
+    window.addEventListener(NATIVE_KEYBOARD_DISMISS_EVENT, handleNativeDismiss);
+    window.addEventListener(NATIVE_KEYBOARD_SUBMIT_EVENT, handleNativeSubmit);
+    return () => {
+      window.removeEventListener(NATIVE_KEYBOARD_DISMISS_EVENT, handleNativeDismiss);
+      window.removeEventListener(NATIVE_KEYBOARD_SUBMIT_EVENT, handleNativeSubmit);
+    };
+  }, [draft, sendMessage]);
+
   const handleComposerBlur = () => {
     window.requestAnimationFrame(() => {
+      if (composerInputRef.current?.dataset.nativeKeyboardSource === "true") {
+        return;
+      }
       if (document.activeElement !== composerInputRef.current) {
         setComposerOpen(false);
       }
@@ -556,10 +595,10 @@ export function CoachTomorrowPlanCollab(props: CoachTomorrowPlanCollabProps) {
       ref={rootRef}
       className={
         "coach-tomorrow-collab keyboard-dock-root" +
-        (composerOpen ? " coach-chat-composer-open" : "")
+        (composerOpen && !IS_NATIVE_PLATFORM ? " coach-chat-composer-open" : "")
       }
     >
-      {composerOpen && (
+      {composerOpen && !IS_NATIVE_PLATFORM && (
         <button
           type="button"
           className="coach-chat-composer-backdrop"
@@ -676,13 +715,21 @@ export function CoachTomorrowPlanCollab(props: CoachTomorrowPlanCollabProps) {
             </span>
           </button>
         ) : (
-          <div className="coach-chat-composer" onMouseDown={e => e.stopPropagation()}>
+          <div
+            className={
+              "coach-chat-composer" +
+              (IS_NATIVE_PLATFORM ? " coach-chat-composer--native-bridge" : "")
+            }
+            onMouseDown={e => e.stopPropagation()}
+          >
             <div className="coach-chat-input coach-chat-input--composer coach-tomorrow-collab__input">
               <input
                 ref={composerInputRef}
                 className="coach-chat-text"
                 placeholder="내일 하고 싶은 것, 고민을 적어 주세요…"
                 value={draft}
+                enterKeyHint="send"
+                data-native-keyboard-submit="custom"
                 onBlur={handleComposerBlur}
                 onChange={e => setDraft(e.target.value)}
                 onFocus={() => setComposerOpen(true)}
@@ -694,19 +741,21 @@ export function CoachTomorrowPlanCollab(props: CoachTomorrowPlanCollabProps) {
                 }}
                 disabled={!apiToken || typing}
               />
-              <button
-                type="button"
-                className="coach-primary-btn coach-primary-btn--sm"
-                onMouseDown={e => e.preventDefault()}
-                onClick={() => {
-                  void sendMessage(draft);
-                  setComposerOpen(false);
-                }}
-                disabled={!apiToken || typing}
-                aria-label="보내기"
-              >
-                <SendHorizontal size={15} strokeWidth={2.2} aria-hidden />
-              </button>
+              {!IS_NATIVE_PLATFORM && (
+                <button
+                  type="button"
+                  className="coach-primary-btn coach-primary-btn--sm"
+                  onMouseDown={e => e.preventDefault()}
+                  onClick={() => {
+                    void sendMessage(draft);
+                    setComposerOpen(false);
+                  }}
+                  disabled={!apiToken || typing}
+                  aria-label="보내기"
+                >
+                  <SendHorizontal size={15} strokeWidth={2.2} aria-hidden />
+                </button>
+              )}
             </div>
           </div>
         )}

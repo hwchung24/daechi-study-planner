@@ -124,6 +124,7 @@ async function listParentStudents(parentUserId) {
             pssr.address AS study_room_address,
             pssr.latitude AS study_room_latitude,
             pssr.longitude AS study_room_longitude,
+          pssr.radius_meters AS study_room_radius_meters,
             pssr.updated_at AS study_room_updated_at
      FROM parents_students ps
      JOIN users u ON u.id = ps.student_id
@@ -147,6 +148,10 @@ async function listParentStudents(parentUserId) {
             address: row.study_room_address != null ? String(row.study_room_address) : null,
             latitude: Number(row.study_room_latitude),
             longitude: Number(row.study_room_longitude),
+            radiusMeters:
+              row.study_room_radius_meters != null && Number.isFinite(Number(row.study_room_radius_meters))
+                ? Number(row.study_room_radius_meters)
+                : 120,
             updatedAt: row.study_room_updated_at
               ? new Date(row.study_room_updated_at).toISOString()
               : new Date().toISOString()
@@ -158,14 +163,15 @@ async function listParentStudents(parentUserId) {
 async function upsertParentStudentStudyRoom(parentUserId, studentUserId, input = {}) {
   const res = await query(
     `INSERT INTO parent_student_study_rooms
-      (parent_user_id, student_user_id, name, address, latitude, longitude, updated_at)
-     VALUES ($1, $2, $3, $4, $5, $6, now())
+      (parent_user_id, student_user_id, name, address, latitude, longitude, radius_meters, updated_at)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, now())
      ON CONFLICT (parent_user_id, student_user_id)
      DO UPDATE SET
        name = EXCLUDED.name,
        address = EXCLUDED.address,
        latitude = EXCLUDED.latitude,
        longitude = EXCLUDED.longitude,
+       radius_meters = EXCLUDED.radius_meters,
        updated_at = now()
      RETURNING *`,
     [
@@ -176,7 +182,8 @@ async function upsertParentStudentStudyRoom(parentUserId, studentUserId, input =
         ? String(input.address).trim()
         : null,
       Number(input.latitude),
-      Number(input.longitude)
+      Number(input.longitude),
+      Math.min(1000, Math.max(30, Number(input.radiusMeters) || 120))
     ]
   );
   return res.rows[0] || null;
@@ -212,6 +219,7 @@ async function listStudyRoomConfigurationsForStudent(studentUserId) {
             pssr.address,
             pssr.latitude,
             pssr.longitude,
+          pssr.radius_meters,
             pssr.updated_at,
             pu.email AS parent_email
      FROM parent_student_study_rooms pssr
@@ -278,7 +286,11 @@ async function recordStudentStudyRoomHeartbeat(studentUserId, input = {}) {
       Number(room.latitude),
       Number(room.longitude)
     );
-    const isNearby = distanceMeters <= 120;
+    const radiusMeters = Math.min(
+      1000,
+      Math.max(30, Number(room.radius_meters) || 120)
+    );
+    const isNearby = distanceMeters <= radiusMeters;
     const key = `${Number(room.parent_user_id)}:${Number(room.id)}`;
     const active = activeByKey.get(key) || null;
     if (isNearby) {

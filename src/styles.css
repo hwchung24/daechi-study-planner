@@ -726,6 +726,31 @@ body.app-keyboard-open .app-main {
   gap: 8px;
 }
 
+.coach-chat-composer--native-bridge {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.coach-chat-composer--native-bridge .coach-chat-input--composer {
+  min-height: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  box-shadow: none;
+  background: transparent;
+}
+
+.coach-chat-composer--native-bridge .coach-chat-text {
+  min-height: 1px;
+  padding: 0;
+  border: 0;
+  opacity: 0;
+}
+
 .coach-chat-input--composer {
   margin-top: 0;
 }
@@ -1398,6 +1423,24 @@ body.app-keyboard-open .app-main {
   margin: 0;
   color: var(--text-sub);
   font-size: var(--font-size-small);
+}
+
+.study-room-modal__radius-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.study-room-modal__radius-row .field-input[type="range"] {
+  flex: 1;
+}
+
+.study-room-modal__radius-value {
+  min-width: 58px;
+  text-align: right;
+  color: var(--text-accent);
+  font-size: var(--font-size-small);
+  font-weight: var(--font-weight-semibold);
 }
 
 .study-room-modal__results {
@@ -6302,6 +6345,22 @@ button:active:not(:disabled),
   padding: 0;
   backdrop-filter: none;
   -webkit-backdrop-filter: none;
+}
+
+.app-main.app-main--coach-chat .coach-bubble {
+  border: none;
+  box-shadow: none;
+}
+
+.app-main.app-main--coach-chat .coach-avatar {
+  background: transparent;
+  box-shadow: none;
+}
+
+.app-main.app-main--coach-chat .coach-avatar--logo {
+  padding: 0;
+  background: transparent;
+  border: none;
 }
 
 .coach-hero__bg {
