@@ -10,6 +10,12 @@ let keyboardWasOpen = false;
 let keyboardResetTimer = 0;
 let keyboardScrollLockY = 0;
 
+function restoreKeyboardScrollPosition() {
+  window.scrollTo(0, keyboardScrollLockY);
+  document.documentElement.scrollTop = keyboardScrollLockY;
+  document.body.scrollTop = keyboardScrollLockY;
+}
+
 const EDITABLE_SELECTOR = [
   'input:not([type="button"]):not([type="checkbox"]):not([type="file"]):not([type="hidden"]):not([type="radio"]):not([type="range"]):not([type="reset"]):not([type="submit"])',
   "textarea",
@@ -52,9 +58,7 @@ function setKeyboardScrollLock(active: boolean) {
   bodyStyle.right = "";
   bodyStyle.width = "";
 
-  window.scrollTo(0, restoreY);
-  document.documentElement.scrollTop = restoreY;
-  document.body.scrollTop = restoreY;
+  restoreKeyboardScrollPosition();
 }
 
 function syncViewportCssVars() {
@@ -64,6 +68,7 @@ function syncViewportCssVars() {
 
   const visualViewport = window.visualViewport;
   const layoutViewportHeight = Math.round(window.innerHeight);
+  const viewportOffsetTop = Math.max(0, Math.round(visualViewport?.offsetTop ?? 0));
   const visualViewportHeight = Math.round(
     (visualViewport?.height ?? window.innerHeight) + (visualViewport?.offsetTop ?? 0)
   );
@@ -78,6 +83,10 @@ function syncViewportCssVars() {
     "--app-viewport-height",
     `${viewportHeight}px`
   );
+  document.documentElement.style.setProperty(
+    "--app-viewport-offset-top",
+    `${keyboardOpen ? viewportOffsetTop : 0}px`
+  );
   document.documentElement.classList.toggle("app-keyboard-open", keyboardOpen);
   document.body.classList.toggle("app-keyboard-open", keyboardOpen);
 
@@ -88,13 +97,10 @@ function syncViewportCssVars() {
   }
 
   if (!keyboardOpen && keyboardWasOpen) {
-    const restoreY = keyboardScrollLockY;
     setKeyboardScrollLock(false);
 
     const resetScroll = () => {
-      window.scrollTo(0, restoreY);
-      document.documentElement.scrollTop = restoreY;
-      document.body.scrollTop = restoreY;
+      restoreKeyboardScrollPosition();
     };
 
     resetScroll();
@@ -128,6 +134,15 @@ function installViewportCssVars() {
     });
   };
 
+  const keepScrollLocked = () => {
+    if (!keyboardWasOpen) {
+      return;
+    }
+
+    restoreKeyboardScrollPosition();
+    scheduleSync();
+  };
+
   syncViewportCssVars();
 
   const visualViewport = window.visualViewport;
@@ -137,6 +152,7 @@ function installViewportCssVars() {
   document.addEventListener("focusout", scheduleSync, true);
   window.addEventListener("resize", scheduleSync);
   window.addEventListener("orientationchange", scheduleSync);
+  window.addEventListener("scroll", keepScrollLocked, { passive: true });
 }
 
 installViewportCssVars();
