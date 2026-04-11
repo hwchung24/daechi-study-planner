@@ -14,3 +14,11 @@ export type ParentStudentRow = {
   email: string;
   studyRoom?: ParentStudyRoomSetting | null;
 };
+
+export type ParentCoachCustomization = {
+  persona: string;
+  tone: string;
+  controlIntensity: number;
+  focusRules: string;
+  updatedAt?: string | null;
+};

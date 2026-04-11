@@ -5,6 +5,7 @@ const jwt = require("jsonwebtoken");
 const crypto = require("crypto");
 const fs = require("fs");
 const path = require("path");
+const multer = require("multer");
 require("dotenv").config({ path: path.join(__dirname, ".env") });
 const OpenAI = require("openai");
 
@@ -24,6 +25,9 @@ const {
   updateUserPasswordHash,
   listParentStudents,
   listLinkedParentUserIdsForStudent,
+  getParentCoachCustomization,
+  upsertParentCoachCustomization,
+  getEffectiveParentCoachCustomizationForStudent,
   listStudentParents,
   parentRequestLink,
   studentRequestParent,
@@ -32,6 +36,10 @@ const {
   studentConfirmLinkRequest,
   parentConfirmLinkRequest,
   rejectLinkRequest,
+  createUnlinkRequest,
+  confirmUnlinkRequest,
+  rejectUnlinkRequest,
+  unlinkParentStudent,
   parentHasStudent,
   countLinkedParentsForStudent,
   getActiveStudyBookForStudent,
@@ -61,8 +69,16 @@ const {
   setStudentCoachLogTomorrowPracticeDone,
   listRecentStudentCoachLogs,
   listStudentCoachLogsInWeekRange,
+  listStudentCoachLogsInDateRange,
   insertStudentCoachMessage,
   listRecentStudentCoachMessages,
+  insertStudentParentChatMessage,
+  listStudentParentChatMessages,
+  createStudentHomeworkSubmission,
+  updateStudentHomeworkSubmission,
+  listStudentHomeworkSubmissions,
+  deleteStudentHomeworkSubmission,
+  reviewStudentHomeworkSubmission,
   listStudentProfileSchedules,
   createStudentProfileSchedule,
   updateStudentProfileSchedule,
@@ -71,6 +87,8 @@ const {
   countUnreadStudentNotifications,
   listStudentNotifications,
   markStudentNotificationsReadAll,
+  createStudentNotification,
+  createParentNotification,
   countUnreadParentNotifications,
   listParentNotifications,
   markParentNotificationsReadAll,
@@ -119,11 +137,64 @@ const JWT_SECRET = String(process.env.JWT_SECRET || "");
 const PORT = process.env.PORT || 3000;
 const WEB_APP_URL =
   (process.env.WEB_APP_URL || "http://localhost:5173").replace(/\/+$/, "");
+const DEFAULT_PARENT_COACH_CUSTOMIZATION = Object.freeze({
+  persona: "다정하지만 기준이 분명한 학습 코치",
+  tone: "따뜻하고 또렷한 존댓말로, 공감 뒤에 바로 실행 행동을 제시한다.",
+  controlIntensity: 3,
+  focusRules:
+    "해야 할 일을 작게 쪼개 바로 시작하게 돕고, 미루는 핑계는 부드럽지만 분명하게 바로잡는다."
+});
 const WEBCLIP_COOKIE_NAME = "daechi_device_session";
 const OPENAI_MODEL = process.env.OPENAI_MODEL || "gpt-4o-mini";
+const NAVER_SEARCH_CLIENT_ID = String(process.env.NAVER_SEARCH_CLIENT_ID || "").trim();
+const NAVER_SEARCH_CLIENT_SECRET = String(process.env.NAVER_SEARCH_CLIENT_SECRET || "").trim();
 let dbConnected = false;
 let cronStarted = false;
 let schemaApplied = false;
+const UPLOADS_ROOT = path.join(__dirname, "uploads");
+const HOMEWORK_UPLOADS_DIR = path.join(UPLOADS_ROOT, "homework");
+
+fs.mkdirSync(HOMEWORK_UPLOADS_DIR, { recursive: true });
+
+function resolveHomeworkUploadPath(fileUrl) {
+  const raw = String(fileUrl || "").trim();
+  if (!raw.startsWith("/uploads/homework/")) return null;
+  const fileName = path.basename(raw);
+  if (!fileName) return null;
+  return path.join(HOMEWORK_UPLOADS_DIR, fileName);
+}
+
+async function removeHomeworkUpload(fileUrl) {
+  const filePath = resolveHomeworkUploadPath(fileUrl);
+  if (!filePath) return;
+  try {
+    await fs.promises.unlink(filePath);
+  } catch (error) {
+    if (error && error.code !== "ENOENT") {
+      console.error("homework upload cleanup error", error);
+    }
+  }
+}
+
+function sanitizeUploadExtension(originalName) {
+  const ext = path.extname(String(originalName || "")).toLowerCase();
+  return /^\.[a-z0-9]{1,12}$/.test(ext) ? ext : "";
+}
+
+const homeworkUpload = multer({
+  storage: multer.diskStorage({
+    destination(_req, _file, cb) {
+      cb(null, HOMEWORK_UPLOADS_DIR);
+    },
+    filename(_req, file, cb) {
+      const ext = sanitizeUploadExtension(file.originalname);
+      cb(null, `${Date.now()}-${crypto.randomBytes(6).toString("hex")}${ext}`);
+    }
+  }),
+  limits: {
+    fileSize: 15 * 1024 * 1024
+  }
+});
 
 function assertRuntimeConfig() {
   const isProd = process.env.NODE_ENV === "production";
@@ -154,6 +225,15 @@ if (process.env.NODE_ENV !== "test") {
 function avg(arr) {
   if (!arr || arr.length === 0) return 0;
   return arr.reduce((a, b) => a + Number(b || 0), 0) / arr.length;
+}
+
+function buildLegacyGoalSummary(goalUniversity, targetGrade) {
+  const parts = [];
+  const university = String(goalUniversity || "").trim();
+  const grade = String(targetGrade || "").trim();
+  if (university) parts.push(`목표 대학 ${university}`);
+  if (grade) parts.push(`목표 성적 ${grade}`);
+  return parts.join(" / ");
 }
 
 function buildCoachSnapshot(profile, logs = []) {
@@ -191,7 +271,13 @@ function buildCoachSnapshot(profile, logs = []) {
       name: profile?.name || "학생",
       schoolLevel: profile?.school_level || null,
       grade: profile?.grade || null,
-      goal: profile?.goal || "",
+      goal:
+        profile?.goal ||
+        buildLegacyGoalSummary(profile?.goal_university, profile?.target_grade),
+      goalUniversity: profile?.goal_university || "",
+      targetGrade: profile?.target_grade || "",
+      currentConcern: profile?.current_concern || "",
+      weakness: profile?.weakness || "",
       targetSubjects: profile?.target_subjects || [],
       weakSubjects: profile?.weak_subjects || []
     },
@@ -635,6 +721,69 @@ function safeJsonForPrompt(value, maxLen = 12000) {
     console.warn("safeJsonForPrompt fallback:", error?.message || error);
     return "{}";
   }
+}
+
+function clampControlIntensity(value) {
+  const num = Number(value);
+  if (!Number.isFinite(num)) return DEFAULT_PARENT_COACH_CUSTOMIZATION.controlIntensity;
+  return Math.min(5, Math.max(1, Math.round(num)));
+}
+
+function serializeParentCoachCustomization(row) {
+  return {
+    persona:
+      sanitizePromptText(
+        row?.persona || DEFAULT_PARENT_COACH_CUSTOMIZATION.persona,
+        300
+      ) || DEFAULT_PARENT_COACH_CUSTOMIZATION.persona,
+    tone:
+      sanitizePromptText(
+        row?.tone || DEFAULT_PARENT_COACH_CUSTOMIZATION.tone,
+        320
+      ) || DEFAULT_PARENT_COACH_CUSTOMIZATION.tone,
+    controlIntensity: clampControlIntensity(row?.control_intensity ?? row?.controlIntensity),
+    focusRules:
+      sanitizePromptText(
+        row?.focus_rules || row?.focusRules || DEFAULT_PARENT_COACH_CUSTOMIZATION.focusRules,
+        600
+      ) || DEFAULT_PARENT_COACH_CUSTOMIZATION.focusRules,
+    updatedAt: row?.updated_at ? new Date(row.updated_at).toISOString() : null,
+    parentEmail: row?.parent_email ? String(row.parent_email) : null
+  };
+}
+
+function buildParentCoachCustomizationPrompt(customization) {
+  const cfg = serializeParentCoachCustomization(customization);
+  const intensityGuide =
+    cfg.controlIntensity <= 1
+      ? "매우 낮음: 자율성을 존중하고 선택지를 제안하는 쪽으로 답한다."
+      : cfg.controlIntensity === 2
+        ? "낮음: 부드럽게 권하지만 행동 제안은 분명하게 한다."
+        : cfg.controlIntensity === 3
+          ? "보통: 공감과 기준 제시를 균형 있게 유지한다."
+          : cfg.controlIntensity === 4
+            ? "높음: 미루기나 회피는 짚되, 학생을 깎아내리지 말고 바로 실행을 요구한다."
+            : "매우 높음: 매우 분명하고 단호하게 방향을 제시하되, 위협·모욕·비난은 금지한다.";
+  return [
+    "연결된 관리자가 이 학생의 AI 코치 스타일을 다음과 같이 커스터마이징했다.",
+    `- 페르소나: ${cfg.persona}`,
+    `- 말투/화법: ${cfg.tone}`,
+    `- 통제 강도: ${cfg.controlIntensity}/5. ${intensityGuide}`,
+    `- 특히 강조할 원칙: ${cfg.focusRules}`,
+    "이 설정을 우선 반영하되, 항상 한국어 존댓말을 유지하고 학생을 인격적으로 존중하라. 공격적·모욕적·위협적인 표현은 금지한다."
+  ].join("\n");
+}
+
+function buildCustomizedFallbackAction(customization, suggestedAction) {
+  const cfg = serializeParentCoachCustomization(customization);
+  const action = String(suggestedAction || "첫 25분만 하는 블록부터 시작해 보세요.").trim();
+  if (cfg.controlIntensity <= 2) {
+    return `부담을 크게 잡지 말고 ${action}`;
+  }
+  if (cfg.controlIntensity === 3) {
+    return `지금은 생각을 길게 끌기보다 ${action}`;
+  }
+  return `지금 바로 미루지 말고 ${action}`;
 }
 
 const NOTIFICATION_ACTION_PREFIX = "[[DAECHI_ACTION]]";
@@ -1780,7 +1929,8 @@ async function generateScheduleValidationReply(params) {
     candidates = [],
     draft = null,
     snapshot = null,
-    existingSchedules = []
+    existingSchedules = [],
+    coachCustomization = null
   } = params || {};
 
   if (!openai) {
@@ -1808,6 +1958,10 @@ async function generateScheduleValidationReply(params) {
         role: "system",
         content:
           "너는 한국 학생의 일정 관리를 도와주는 AI 코치다. 서버 검증 결과를 학생에게 자연스럽고 짧은 한국어로 설명한다. 절대 JSON을 출력하지 말고, 지금 필요한 질문이나 안내만 2~4문장으로 답한다. 정보를 추정하지 말고 꼭 필요한 정보만 다시 물어본다. 사용자가 방금 논의하던 일정 자체를 접거나 말을 바꾼 상황이면 이전 일정은 더 붙잡지 말고, 그 일정은 진행하지 않겠다고 정리한 뒤 다음 일정 내용을 다시 물어본다."
+      },
+      {
+        role: "system",
+        content: buildParentCoachCustomizationPrompt(coachCustomization)
       },
       {
         role: "system",
@@ -1879,6 +2033,7 @@ app.use(
     credentials: true
   })
 );
+app.use("/uploads", express.static(UPLOADS_ROOT));
 app.use(express.json({ limit: "2mb" }));
 
 app.get("/health", (_req, res) => {
@@ -1998,6 +2153,36 @@ function authMiddleware(req, res, next) {
       .status(401)
       .json({ error: "로그인이 만료되었습니다. 다시 로그인해 주세요." });
   }
+}
+
+async function resolvePrimaryParentForStudent(studentUserId) {
+  const parents = await listStudentParents(studentUserId);
+  const parent = parents[0] || null;
+  if (!parent) return null;
+  const parentId = Number(parent.id);
+  if (!Number.isFinite(parentId)) return null;
+  return {
+    id: parentId,
+    email: String(parent.email || "")
+  };
+}
+
+function normalizeReviewStatus(raw) {
+  return raw === "approved"
+    ? "approved"
+    : raw === "needs_revision"
+      ? "needs_revision"
+      : raw === "pending"
+        ? "pending"
+        : null;
+}
+
+function isNaverLocalSearchConfigured() {
+  return Boolean(NAVER_SEARCH_CLIENT_ID && NAVER_SEARCH_CLIENT_SECRET);
+}
+
+function stripHtmlTags(value) {
+  return String(value || "").replace(/<[^>]+>/g, "").trim();
 }
 
 app.post("/auth/register", async (req, res) => {
@@ -2371,6 +2556,19 @@ async function handleAccountUpdate(req, res) {
     const hasNameKey = Object.prototype.hasOwnProperty.call(body, "name");
     const hasGradeKey = Object.prototype.hasOwnProperty.call(body, "grade");
     const hasGoalKey = Object.prototype.hasOwnProperty.call(body, "goal");
+    const hasGoalUniversityKey = Object.prototype.hasOwnProperty.call(
+      body,
+      "goalUniversity"
+    );
+    const hasTargetGradeKey = Object.prototype.hasOwnProperty.call(
+      body,
+      "targetGrade"
+    );
+    const hasCurrentConcernKey = Object.prototype.hasOwnProperty.call(
+      body,
+      "currentConcern"
+    );
+    const hasWeaknessKey = Object.prototype.hasOwnProperty.call(body, "weakness");
 
     const user = await getUserByIdForAuth(req.userId);
     if (!user) {
@@ -2428,7 +2626,18 @@ async function handleAccountUpdate(req, res) {
       await updateUserPasswordHash(req.userId, hash);
     }
 
-    if ((hasNameKey || hasGradeKey || hasGoalKey) && user.role === "student") {
+    if (
+      (
+        hasNameKey ||
+        hasGradeKey ||
+        hasGoalKey ||
+        hasGoalUniversityKey ||
+        hasTargetGradeKey ||
+        hasCurrentConcernKey ||
+        hasWeaknessKey
+      ) &&
+      user.role === "student"
+    ) {
       const profile = await getStudentCoachProfile(req.userId);
       const profilePatch = {};
 
@@ -2463,6 +2672,10 @@ async function handleAccountUpdate(req, res) {
       }
 
       let nextGoal = String(profile?.goal || "").trim();
+      let nextGoalUniversity = String(profile?.goal_university || "").trim();
+      let nextTargetGrade = String(profile?.target_grade || "").trim();
+      let nextCurrentConcern = String(profile?.current_concern || "").trim();
+      let nextWeakness = String(profile?.weakness || "").trim();
       if (hasGoalKey) {
         const goalIn = String(body.goal ?? "").trim();
         if (goalIn.length > 120) {
@@ -2472,8 +2685,65 @@ async function handleAccountUpdate(req, res) {
         profilePatch.goal = goalIn || null;
       }
 
+      if (hasGoalUniversityKey) {
+        const goalUniversityIn = String(body.goalUniversity ?? "").trim();
+        if (goalUniversityIn.length > 80) {
+          return res
+            .status(400)
+            .json({ error: "목표 대학은 80자 이내로 입력해 주세요." });
+        }
+        nextGoalUniversity = goalUniversityIn;
+        profilePatch.goalUniversity = goalUniversityIn || null;
+      }
+
+      if (hasTargetGradeKey) {
+        const targetGradeIn = String(body.targetGrade ?? "").trim();
+        if (targetGradeIn.length > 40) {
+          return res
+            .status(400)
+            .json({ error: "목표 성적은 40자 이내로 입력해 주세요." });
+        }
+        nextTargetGrade = targetGradeIn;
+        profilePatch.targetGrade = targetGradeIn || null;
+      }
+
+      if (hasCurrentConcernKey) {
+        const currentConcernIn = String(body.currentConcern ?? "").trim();
+        if (currentConcernIn.length > 300) {
+          return res
+            .status(400)
+            .json({ error: "현재 고민은 300자 이내로 입력해 주세요." });
+        }
+        nextCurrentConcern = currentConcernIn;
+        profilePatch.currentConcern = currentConcernIn || null;
+      }
+
+      if (hasWeaknessKey) {
+        const weaknessIn = String(body.weakness ?? "").trim();
+        if (weaknessIn.length > 300) {
+          return res
+            .status(400)
+            .json({ error: "취약점은 300자 이내로 입력해 주세요." });
+        }
+        nextWeakness = weaknessIn;
+        profilePatch.weakness = weaknessIn || null;
+      }
+
+      if (
+        hasGoalUniversityKey ||
+        hasTargetGradeKey ||
+        (!nextGoal && (nextGoalUniversity || nextTargetGrade))
+      ) {
+        nextGoal = buildLegacyGoalSummary(nextGoalUniversity, nextTargetGrade);
+        profilePatch.goal = nextGoal || null;
+      }
+
+      const hasStructuredGoal =
+        String(nextGoalUniversity).trim().length > 0 &&
+        String(nextTargetGrade).trim().length > 0;
       profilePatch.initialProfileCompleted =
-        Number.isInteger(Number(nextGrade)) && String(nextGoal).trim().length > 0;
+        Number.isInteger(Number(nextGrade)) &&
+        (hasStructuredGoal || String(nextGoal).trim().length > 0);
 
       if (Object.keys(profilePatch).length > 0) {
         await upsertStudentCoachProfile(req.userId, profilePatch);
@@ -2505,6 +2775,64 @@ app.post("/api/account/withdraw", authMiddleware, async (req, res) => {
   } catch (e) {
     console.error("/api/account/withdraw error", e);
     res.status(500).json({ error: "회원 탈퇴 처리에 실패했습니다." });
+  }
+});
+
+app.get("/api/location/naver/local-search", authMiddleware, async (req, res) => {
+  try {
+    const me = await getMe(req.userId);
+    if (!me || me.role !== "parent") {
+      return res.status(403).json({ error: "권한이 없습니다." });
+    }
+    if (!isNaverLocalSearchConfigured()) {
+      return res.status(503).json({
+        error: "네이버 지도 검색이 아직 설정되지 않았습니다. NAVER_SEARCH_CLIENT_ID와 NAVER_SEARCH_CLIENT_SECRET을 확인해 주세요."
+      });
+    }
+    const rawQuery = String(req.query.query || req.query.q || "").trim();
+    if (!rawQuery) {
+      return res.status(400).json({ error: "검색어를 입력해 주세요." });
+    }
+    const query = /(독서실|스터디카페|study cafe)/i.test(rawQuery)
+      ? rawQuery
+      : `${rawQuery} 독서실`;
+    const display = Math.min(5, Math.max(1, Number(req.query.limit || 5) || 5));
+    const url = `https://openapi.naver.com/v1/search/local.json?query=${encodeURIComponent(query)}&display=${display}&start=1&sort=random`;
+    const searchRes = await fetch(url, {
+      headers: {
+        "X-Naver-Client-Id": NAVER_SEARCH_CLIENT_ID,
+        "X-Naver-Client-Secret": NAVER_SEARCH_CLIENT_SECRET,
+        Accept: "application/json"
+      }
+    });
+    const payload = await searchRes.json().catch(() => ({}));
+    if (!searchRes.ok) {
+      return res.status(searchRes.status || 502).json({
+        error:
+          String(payload?.errorMessage || payload?.message || "").trim() ||
+          "네이버 장소 검색에 실패했습니다."
+      });
+    }
+    const items = Array.isArray(payload?.items) ? payload.items : [];
+    const results = items
+      .map(item => {
+        const longitude = Number(item?.mapx) / 10000000;
+        const latitude = Number(item?.mapy) / 10000000;
+        if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) return null;
+        return {
+          id: String(item?.link || item?.title || `${latitude},${longitude}`),
+          name: stripHtmlTags(item?.title) || "검색 결과",
+          address: String(item?.roadAddress || item?.address || "").trim(),
+          latitude,
+          longitude,
+          category: stripHtmlTags(item?.category)
+        };
+      })
+      .filter(Boolean);
+    return res.json({ results });
+  } catch (error) {
+    console.error("/api/location/naver/local-search GET error", error);
+    return res.status(500).json({ error: "네이버 장소 검색을 불러오지 못했습니다." });
   }
 });
 
@@ -2805,6 +3133,288 @@ app.get("/api/student/parents", authMiddleware, async (req, res) => {
   }
 });
 
+app.get("/api/student/admin-channel", authMiddleware, async (req, res) => {
+  try {
+    const parent = await resolvePrimaryParentForStudent(req.userId);
+    if (!parent) {
+      return res.json({
+        channelAvailable: false,
+        parent: null,
+        messages: [],
+        submissions: []
+      });
+    }
+    const [messages, submissions] = await Promise.all([
+      listStudentParentChatMessages(req.userId, parent.id, 80),
+      listStudentHomeworkSubmissions(req.userId, parent.id, 24)
+    ]);
+    res.json({
+      channelAvailable: true,
+      parent,
+      messages,
+      submissions
+    });
+  } catch (e) {
+    console.error("/api/student/admin-channel error", e);
+    res.status(500).json({ error: "관리자 채널을 불러오지 못했습니다." });
+  }
+});
+
+app.post("/api/student/admin-channel/messages", authMiddleware, async (req, res) => {
+  try {
+    const parent = await resolvePrimaryParentForStudent(req.userId);
+    if (!parent) {
+      return res.status(400).json({ error: "연결된 관리자가 없습니다." });
+    }
+    const message = String((req.body || {}).message || "").trim().slice(0, 2000);
+    if (!message) {
+      return res.status(400).json({ error: "message가 필요합니다." });
+    }
+    const saved = await insertStudentParentChatMessage(
+      req.userId,
+      parent.id,
+      "student",
+      message
+    );
+    await createParentNotificationForLinkedParents(
+      req.userId,
+      "새 학생 메시지",
+      "학생이 관리자 1:1 채널에 새 메시지를 보냈습니다."
+    ).catch(() => {});
+    res.json({ ok: true, message: saved });
+  } catch (e) {
+    console.error("/api/student/admin-channel/messages error", e);
+    res.status(500).json({ error: "메시지 전송에 실패했습니다." });
+  }
+});
+
+app.post(
+  "/api/student/homework-submissions",
+  authMiddleware,
+  homeworkUpload.single("file"),
+  async (req, res) => {
+    try {
+      const parent = await resolvePrimaryParentForStudent(req.userId);
+      if (!parent) {
+        return res.status(400).json({ error: "연결된 관리자가 없습니다." });
+      }
+      if (!req.file) {
+        return res.status(400).json({ error: "업로드할 파일이 필요합니다." });
+      }
+      const note = String((req.body || {}).note || "").trim().slice(0, 1000);
+      const created = await createStudentHomeworkSubmission(req.userId, parent.id, {
+        originalName: req.file.originalname,
+        storedName: req.file.filename,
+        fileUrl: `/uploads/homework/${req.file.filename}`,
+        mimeType: req.file.mimetype,
+        fileSize: req.file.size,
+        note
+      });
+      try {
+        await insertStudentParentChatMessage(
+          req.userId,
+          parent.id,
+          "student",
+          "숙제 제출했습니다"
+        );
+      } catch (messageError) {
+        console.error("student homework submission chat mirror error", messageError);
+      }
+      await createParentNotificationForLinkedParents(
+        req.userId,
+        "새 숙제 제출",
+        "학생이 새 숙제를 제출했습니다. 관리자 코치 채팅 탭에서 검토할 수 있습니다."
+      ).catch(() => {});
+      res.json({ ok: true, submission: created });
+    } catch (e) {
+      console.error("/api/student/homework-submissions error", e);
+      res.status(500).json({ error: "숙제 제출에 실패했습니다." });
+    }
+  }
+);
+
+app.patch(
+  "/api/student/homework-submissions/:submissionId",
+  authMiddleware,
+  homeworkUpload.single("file"),
+  async (req, res) => {
+    try {
+      const submissionId = Number(req.params.submissionId);
+      const parent = await resolvePrimaryParentForStudent(req.userId);
+      if (!parent) {
+        return res.status(400).json({ error: "연결된 관리자가 없습니다." });
+      }
+      if (!Number.isFinite(submissionId)) {
+        return res.status(400).json({ error: "submissionId가 필요합니다." });
+      }
+      const note = String((req.body || {}).note || "").trim().slice(0, 1000);
+      const updated = await updateStudentHomeworkSubmission(req.userId, parent.id, submissionId, {
+        originalName: req.file ? req.file.originalname : undefined,
+        storedName: req.file ? req.file.filename : undefined,
+        fileUrl: req.file ? `/uploads/homework/${req.file.filename}` : undefined,
+        mimeType: req.file ? req.file.mimetype : undefined,
+        fileSize: req.file ? req.file.size : undefined,
+        note
+      });
+      if (!updated) {
+        if (req.file) {
+          await removeHomeworkUpload(`/uploads/homework/${req.file.filename}`);
+        }
+        return res.status(404).json({ error: "제출 내역을 찾을 수 없습니다." });
+      }
+      if (req.file && updated.previous?.fileUrl && updated.previous.fileUrl !== updated.submission.fileUrl) {
+        await removeHomeworkUpload(updated.previous.fileUrl);
+      }
+      res.json({ ok: true, submission: updated.submission });
+    } catch (e) {
+      if (req.file) {
+        await removeHomeworkUpload(`/uploads/homework/${req.file.filename}`);
+      }
+      console.error("/api/student/homework-submissions/:submissionId error", e);
+      res.status(500).json({ error: "숙제 수정에 실패했습니다." });
+    }
+  }
+);
+
+app.delete(
+  "/api/student/homework-submissions/:submissionId",
+  authMiddleware,
+  async (req, res) => {
+    try {
+      const submissionId = Number(req.params.submissionId);
+      const parent = await resolvePrimaryParentForStudent(req.userId);
+      if (!parent) {
+        return res.status(400).json({ error: "연결된 관리자가 없습니다." });
+      }
+      if (!Number.isFinite(submissionId)) {
+        return res.status(400).json({ error: "submissionId가 필요합니다." });
+      }
+      const deleted = await deleteStudentHomeworkSubmission(req.userId, parent.id, submissionId);
+      if (!deleted) {
+        return res.status(404).json({ error: "제출 내역을 찾을 수 없습니다." });
+      }
+      await removeHomeworkUpload(deleted.fileUrl);
+      res.json({ ok: true, submission: deleted });
+    } catch (e) {
+      console.error("/api/student/homework-submissions/:submissionId delete error", e);
+      res.status(500).json({ error: "숙제 삭제에 실패했습니다." });
+    }
+  }
+);
+
+app.get("/api/parent/admin-channel", authMiddleware, async (req, res) => {
+  try {
+    const studentId = Number(req.query.studentId);
+    if (!Number.isFinite(studentId)) {
+      return res.status(400).json({ error: "studentId가 필요합니다." });
+    }
+    const allowed = await parentHasStudent(req.userId, studentId);
+    if (!allowed) {
+      return res.status(403).json({ error: "연결되지 않은 학생입니다." });
+    }
+    const students = await listParentStudents(req.userId);
+    const student = students.find(row => Number(row.id) === studentId) || null;
+    const [messages, submissions] = await Promise.all([
+      listStudentParentChatMessages(studentId, req.userId, 80),
+      listStudentHomeworkSubmissions(studentId, req.userId, 24)
+    ]);
+    res.json({
+      ok: true,
+      student: student
+        ? {
+            id: Number(student.id),
+            email: String(student.email || "")
+          }
+        : null,
+      messages,
+      submissions
+    });
+  } catch (e) {
+    console.error("/api/parent/admin-channel error", e);
+    res.status(500).json({ error: "학생 채널을 불러오지 못했습니다." });
+  }
+});
+
+app.post("/api/parent/admin-channel/messages", authMiddleware, async (req, res) => {
+  try {
+    const studentId = Number((req.body || {}).studentId);
+    const message = String((req.body || {}).message || "").trim().slice(0, 2000);
+    if (!Number.isFinite(studentId)) {
+      return res.status(400).json({ error: "studentId가 필요합니다." });
+    }
+    if (!message) {
+      return res.status(400).json({ error: "message가 필요합니다." });
+    }
+    const allowed = await parentHasStudent(req.userId, studentId);
+    if (!allowed) {
+      return res.status(403).json({ error: "연결되지 않은 학생입니다." });
+    }
+    const saved = await insertStudentParentChatMessage(
+      studentId,
+      req.userId,
+      "parent",
+      message
+    );
+    await createStudentNotification(
+      studentId,
+      "새 관리자 메시지",
+      "관리자 1:1 채널에 새 메시지가 도착했습니다."
+    ).catch(() => {});
+    res.json({ ok: true, message: saved });
+  } catch (e) {
+    console.error("/api/parent/admin-channel/messages error", e);
+    res.status(500).json({ error: "메시지 전송에 실패했습니다." });
+  }
+});
+
+app.patch(
+  "/api/parent/homework-submissions/:submissionId/review",
+  authMiddleware,
+  async (req, res) => {
+    try {
+      const submissionId = Number(req.params.submissionId);
+      const studentId = Number((req.body || {}).studentId);
+      const reviewStatus = normalizeReviewStatus((req.body || {}).reviewStatus);
+      const reviewComment = String((req.body || {}).reviewComment || "")
+        .trim()
+        .slice(0, 1000);
+      if (!Number.isFinite(submissionId) || !Number.isFinite(studentId)) {
+        return res.status(400).json({ error: "submissionId와 studentId가 필요합니다." });
+      }
+      if (!reviewStatus) {
+        return res.status(400).json({ error: "reviewStatus가 올바르지 않습니다." });
+      }
+      const allowed = await parentHasStudent(req.userId, studentId);
+      if (!allowed) {
+        return res.status(403).json({ error: "연결되지 않은 학생입니다." });
+      }
+      const updated = await reviewStudentHomeworkSubmission(
+        studentId,
+        req.userId,
+        submissionId,
+        reviewStatus,
+        reviewComment
+      );
+      if (!updated) {
+        return res.status(404).json({ error: "제출 내역을 찾을 수 없습니다." });
+      }
+      await createStudentNotification(
+        studentId,
+        "숙제 검토 완료",
+        reviewStatus === "approved"
+          ? "제출한 숙제가 승인되었습니다."
+          : reviewStatus === "needs_revision"
+            ? "숙제에 수정 요청이 도착했습니다."
+            : "숙제 검토 상태가 갱신되었습니다."
+      ).catch(() => {});
+      res.json({ ok: true, submission: updated });
+    } catch (e) {
+      console.error("/api/parent/homework-submissions/:submissionId/review error", e);
+      res.status(500).json({ error: "숙제 검토 저장에 실패했습니다." });
+    }
+  }
+);
+
 app.get("/api/student/study-room-tracking", authMiddleware, async (req, res) => {
   try {
     const me = await getMe(req.userId);
@@ -2963,6 +3573,157 @@ app.post("/api/link/reject", authMiddleware, async (req, res) => {
   }
 });
 
+app.post("/api/link/unlink", authMiddleware, async (req, res) => {
+  try {
+    const me = await getMe(req.userId);
+    if (!me || (me.role !== "parent" && me.role !== "student")) {
+      return res.status(403).json({ error: "권한이 없습니다." });
+    }
+
+    const body = req.body || {};
+    const result =
+      me.role === "parent"
+        ? await createUnlinkRequest({
+            actorUserId: req.userId,
+            actorRole: "parent",
+            parentUserId: req.userId,
+            studentUserId: Number(body.studentId || 0)
+          })
+        : await createUnlinkRequest({
+            actorUserId: req.userId,
+            actorRole: "student",
+            parentUserId: Number(body.parentUserId || 0),
+            studentUserId: req.userId
+          });
+
+    if (!result.ok) {
+      return res.status(400).json({ error: result.error || "연결 끊기 요청에 실패했습니다." });
+    }
+
+    if (me.role === "parent") {
+      const studentId = Number(body.studentId || 0);
+      const student = Number.isFinite(studentId) ? await getUserByIdForAuth(studentId) : null;
+      if (student) {
+        await createStudentNotification(
+          studentId,
+          "관리자 연결 끊기 요청",
+          embedNotificationAction(
+            {
+              type: "link_unlink_request",
+              requestId: Number(result.requestId || 0),
+              initiatorRole: "parent",
+              counterpartEmail: String(me.email || "").trim()
+            },
+            `${String(me.email || "관리자").trim() || "관리자"} 님이 연결 끊기를 요청했습니다. 알림을 열어 확인하면 연결이 해제됩니다.`
+          )
+        ).catch(() => {});
+      }
+    } else {
+      const parentUserId = Number(body.parentUserId || 0);
+      if (Number.isFinite(parentUserId) && parentUserId > 0) {
+        await createParentNotification(
+          parentUserId,
+          "학생 연결 끊기 요청",
+          embedNotificationAction(
+            {
+              type: "link_unlink_request",
+              requestId: Number(result.requestId || 0),
+              initiatorRole: "student",
+              counterpartEmail: String(me.email || "").trim()
+            },
+            `${String(me.email || "학생").trim() || "학생"} 님이 연결 끊기를 요청했습니다. 알림을 열어 확인하면 연결이 해제됩니다.`
+          )
+        ).catch(() => {});
+      }
+    }
+
+    res.json({ ok: true, requestId: result.requestId });
+  } catch (e) {
+    console.error("/api/link/unlink error", e);
+    res.status(500).json({ error: "연결 끊기 요청에 실패했습니다." });
+  }
+});
+
+app.post("/api/link/unlink-confirm", authMiddleware, async (req, res) => {
+  try {
+    const me = await getMe(req.userId);
+    if (!me || (me.role !== "parent" && me.role !== "student")) {
+      return res.status(403).json({ error: "권한이 없습니다." });
+    }
+    const requestId = Number((req.body || {}).requestId || 0);
+    if (!requestId) {
+      return res.status(400).json({ error: "requestId가 필요합니다." });
+    }
+    const result = await confirmUnlinkRequest({
+      actorUserId: req.userId,
+      actorRole: me.role,
+      requestId
+    });
+    if (!result.ok) {
+      return res.status(400).json({ error: result.error || "연결 해제에 실패했습니다." });
+    }
+
+    if (me.role === "parent") {
+      await createStudentNotification(
+        Number(result.studentUserId),
+        "연결 해제 완료",
+        "관리자가 연결 끊기 요청을 확인해 계정 연결이 해제되었습니다."
+      ).catch(() => {});
+    } else {
+      await createParentNotification(
+        Number(result.parentUserId),
+        "연결 해제 완료",
+        "학생이 연결 끊기 요청을 확인해 계정 연결이 해제되었습니다."
+      ).catch(() => {});
+    }
+
+    res.json({ ok: true });
+  } catch (e) {
+    console.error("/api/link/unlink-confirm error", e);
+    res.status(500).json({ error: "연결 해제에 실패했습니다." });
+  }
+});
+
+app.post("/api/link/unlink-reject", authMiddleware, async (req, res) => {
+  try {
+    const me = await getMe(req.userId);
+    if (!me || (me.role !== "parent" && me.role !== "student")) {
+      return res.status(403).json({ error: "권한이 없습니다." });
+    }
+    const requestId = Number((req.body || {}).requestId || 0);
+    if (!requestId) {
+      return res.status(400).json({ error: "requestId가 필요합니다." });
+    }
+    const result = await rejectUnlinkRequest({
+      actorUserId: req.userId,
+      actorRole: me.role,
+      requestId
+    });
+    if (!result.ok) {
+      return res.status(400).json({ error: result.error || "요청 거절에 실패했습니다." });
+    }
+
+    if (me.role === "parent") {
+      await createStudentNotification(
+        Number(result.studentUserId),
+        "연결 끊기 요청 거절됨",
+        "관리자가 연결 끊기 요청을 거절했습니다. 연결은 그대로 유지됩니다."
+      ).catch(() => {});
+    } else {
+      await createParentNotification(
+        Number(result.parentUserId),
+        "연결 끊기 요청 거절됨",
+        "학생이 연결 끊기 요청을 거절했습니다. 연결은 그대로 유지됩니다."
+      ).catch(() => {});
+    }
+
+    res.json({ ok: true });
+  } catch (e) {
+    console.error("/api/link/unlink-reject error", e);
+    res.status(500).json({ error: "요청 거절에 실패했습니다." });
+  }
+});
+
 // 특정 학생의 주간 리포트를 학부모가 조회
 app.get("/api/parent/week", authMiddleware, async (req, res) => {
   try {
@@ -2987,11 +3748,35 @@ app.get("/api/parent/week", authMiddleware, async (req, res) => {
     const endDate = new Date(startDate.getTime());
     endDate.setDate(startDate.getDate() + 6);
     const end = `${endDate.getFullYear()}-${String(endDate.getMonth() + 1).padStart(2, "0")}-${String(endDate.getDate()).padStart(2, "0")}`;
+    const prevDate = new Date(startDate.getTime());
+    prevDate.setDate(startDate.getDate() - 1);
+    const logsStart = `${prevDate.getFullYear()}-${String(prevDate.getMonth() + 1).padStart(2, "0")}-${String(prevDate.getDate()).padStart(2, "0")}`;
 
     const { days, blocks, plans } = await getWeekData(studentId, start, end);
+    const logs = await listStudentCoachLogsInDateRange(studentId, logsStart, end);
     const stats = computeWeeklyStats({ days, blocks, plans });
     const summaryLines = buildWeeklySummaryLines(stats);
-    res.json({ days, blocks, plans, stats, summaryLines });
+    res.json({
+      days,
+      blocks,
+      plans,
+      logs: logs.map(r => ({
+        date: formatPgLogDate(r.log_date),
+        sleepHours: r.sleep_hours,
+        concentrationScore: r.concentration_score,
+        stressScore: r.stress_score,
+        steps: r.steps,
+        planCompletionRate: r.plan_completion_rate,
+        studyMinutes: r.study_minutes,
+        memo: r.memo,
+        tomorrowPractice: r.tomorrow_practice,
+        tomorrowPracticeDone: r.tomorrow_practice_done,
+        studyEvaluation: r.study_evaluation,
+        metacognitionReflection: r.metacognition_reflection
+      })),
+      stats,
+      summaryLines
+    });
   } catch (e) {
     console.error("/api/parent/week error", e);
     res.status(500).json({ error: "주간 리포트를 불러오지 못했습니다." });
@@ -3036,6 +3821,135 @@ app.get("/api/parent/ai-daily-report", authMiddleware, async (req, res) => {
 });
 
 // 학부모: 지금 즉시 AI 리포트 생성 (테스트·수동 갱신, OPENAI_API_KEY 필요)
+
+app.get("/api/parent/coach/state", authMiddleware, async (req, res) => {
+  try {
+    const me = await getMe(req.userId);
+    if (!me || me.role !== "parent") {
+      return res.status(403).json({ error: "권한이 없습니다." });
+    }
+    const studentId = Number(req.query.studentId || 0);
+    if (!studentId) {
+      return res.status(400).json({ error: "studentId가 필요합니다." });
+    }
+    const has = await parentHasStudent(req.userId, studentId);
+    if (!has) {
+      return res.status(403).json({ error: "연결된 학생이 아닙니다." });
+    }
+    const profile = await getStudentCoachProfile(studentId);
+    const weekStart = String(req.query.weekStart || "").trim();
+    const logs =
+      weekStart && isIsoDate(weekStart)
+        ? await listStudentCoachLogsInWeekRange(studentId, weekStart)
+        : await listRecentStudentCoachLogs(studentId, 21);
+    const snapshot = buildCoachSnapshot(profile, logs);
+    res.json({
+      snapshot,
+      logs: logs.map(r => ({
+        date: formatPgLogDate(r.log_date),
+        sleepHours: r.sleep_hours,
+        concentrationScore: r.concentration_score,
+        stressScore: r.stress_score,
+        steps: r.steps,
+        planCompletionRate: r.plan_completion_rate,
+        studyMinutes: r.study_minutes,
+        memo: r.memo,
+        tomorrowPractice: r.tomorrow_practice,
+        tomorrowPracticeDone: r.tomorrow_practice_done,
+        studyEvaluation: r.study_evaluation,
+        metacognitionReflection: r.metacognition_reflection
+      }))
+    });
+  } catch (e) {
+    console.error("/api/parent/coach/state error", e);
+    res.status(500).json({ error: "학생 AI 분석 상태를 불러오지 못했습니다." });
+  }
+});
+
+app.get("/api/parent/coach/pattern-insights", authMiddleware, async (req, res) => {
+  try {
+    const me = await getMe(req.userId);
+    if (!me || me.role !== "parent") {
+      return res.status(403).json({ error: "권한이 없습니다." });
+    }
+    const studentId = Number(req.query.studentId || 0);
+    if (!studentId) {
+      return res.status(400).json({ error: "studentId가 필요합니다." });
+    }
+    const has = await parentHasStudent(req.userId, studentId);
+    if (!has) {
+      return res.status(403).json({ error: "연결된 학생이 아닙니다." });
+    }
+    const weekStart = String(req.query.weekStart || "").trim();
+    const logs =
+      weekStart && isIsoDate(weekStart)
+        ? await listStudentCoachLogsInWeekRange(studentId, weekStart)
+        : await listRecentStudentCoachLogs(studentId, 21);
+    const rhythmWeek = buildWeekRhythmPayloadFromLogs(
+      logs,
+      weekStart && isIsoDate(weekStart) ? weekStart : null
+    );
+    const recordedDays = rhythmWeek.filter(
+      d =>
+        d.sleepHours != null ||
+        d.studyMinutes != null ||
+        d.concentrationScore != null ||
+        d.stressScore != null ||
+        d.planCompletionRate != null
+    ).length;
+
+    if (!openai) {
+      return res.json({
+        patterns: [],
+        usedOpenAi: false,
+        rhythmWeek,
+        recordedDayCount: recordedDays
+      });
+    }
+
+    const payload = {
+      weekRhythm: rhythmWeek,
+      recordedDayCount: recordedDays,
+      basisMetrics: [
+        "sleepHours",
+        "stressScore",
+        "concentrationPercent",
+        "studyMinutes",
+        "planCompletionRate"
+      ],
+      fieldHelp: {
+        sleepHours: "해당 날짜 학생이 입력한 수면 시간(시간)",
+        stressScore: "1~5, 높을수록 스트레스 큼",
+        concentrationPercent: "집중도 1~5를 0~100%로 환산한 값",
+        studyMinutes: "해당 날짜 학생이 기록한 공부 시간(분)",
+        planCompletionRate: "해당 날짜 목표 달성률 0~100"
+      }
+    };
+
+    const { parsed, rawText } = await openAiPatternCompletion(payload);
+    let patterns = sanitizeAiPatterns(parsed?.patterns);
+    if (!patterns.length) {
+      console.warn(
+        "[parent-pattern-insights] JSON 파싱 실패, 응답 앞 240자:",
+        String(rawText || "").slice(0, 240)
+      );
+    }
+    if (!patterns.length || patterns.every(looksLikeInsufficientPattern)) {
+      patterns = [buildRhythmFallbackPattern(rhythmWeek, recordedDays)];
+    }
+
+    res.json({
+      patterns,
+      usedOpenAi: true,
+      rhythmWeek,
+      recordedDayCount: recordedDays,
+      model: OPENAI_MODEL
+    });
+  } catch (e) {
+    console.error("/api/parent/coach/pattern-insights error", e);
+    res.status(500).json({ error: "학생 AI 패턴 분석을 불러오지 못했습니다." });
+  }
+});
 app.post("/api/parent/ai-daily-report/refresh", authMiddleware, async (req, res) => {
   try {
     if (!process.env.OPENAI_API_KEY) {
@@ -3141,6 +4055,52 @@ app.put("/api/parent/planner-rule", authMiddleware, async (req, res) => {
   } catch (e) {
     console.error("/api/parent/planner-rule PUT error", e);
     res.status(500).json({ error: "설정 저장에 실패했습니다." });
+  }
+});
+
+app.get("/api/parent/coach-customization", authMiddleware, async (req, res) => {
+  try {
+    const me = await getMe(req.userId);
+    if (!me || me.role !== "parent") {
+      return res.status(403).json({ error: "권한이 없습니다." });
+    }
+    const row = await getParentCoachCustomization(req.userId);
+    res.json({
+      customization: serializeParentCoachCustomization(row)
+    });
+  } catch (e) {
+    console.error("/api/parent/coach-customization GET error", e);
+    res.status(500).json({ error: "AI 코치 설정을 불러오지 못했습니다." });
+  }
+});
+
+app.put("/api/parent/coach-customization", authMiddleware, async (req, res) => {
+  try {
+    const me = await getMe(req.userId);
+    if (!me || me.role !== "parent") {
+      return res.status(403).json({ error: "권한이 없습니다." });
+    }
+    const body = req.body || {};
+    const persona =
+      toNullableString(body.persona, 300) || DEFAULT_PARENT_COACH_CUSTOMIZATION.persona;
+    const tone =
+      toNullableString(body.tone, 320) || DEFAULT_PARENT_COACH_CUSTOMIZATION.tone;
+    const focusRules =
+      toNullableString(body.focusRules, 600) || DEFAULT_PARENT_COACH_CUSTOMIZATION.focusRules;
+    const controlIntensity = clampControlIntensity(body.controlIntensity);
+    const row = await upsertParentCoachCustomization(req.userId, {
+      persona,
+      tone,
+      focusRules,
+      controlIntensity
+    });
+    res.json({
+      ok: true,
+      customization: serializeParentCoachCustomization(row)
+    });
+  } catch (e) {
+    console.error("/api/parent/coach-customization PUT error", e);
+    res.status(500).json({ error: "AI 코치 설정 저장에 실패했습니다." });
   }
 });
 
@@ -3463,11 +4423,19 @@ app.put("/api/student/coach/profile", authMiddleware, async (req, res) => {
       return res.status(403).json({ error: "권한이 없습니다." });
     }
     const input = req.body || {};
+    const goalUniversity = toNullableString(input.goalUniversity, 80);
+    const targetGrade = toNullableString(input.targetGrade, 40);
     const profileInput = {
       name: toNullableString(input.name, 40),
       schoolLevel: toNullableString(input.schoolLevel, 10),
       grade: toNullableNumber(input.grade, 1, 12),
-      goal: toNullableString(input.goal, 200),
+      goal:
+        buildLegacyGoalSummary(goalUniversity, targetGrade) ||
+        toNullableString(input.goal, 200),
+      goalUniversity,
+      targetGrade,
+      currentConcern: toNullableString(input.currentConcern, 300),
+      weakness: toNullableString(input.weakness, 300),
       targetSubjects: sanitizeStringArray(input.targetSubjects, 10, 30),
       weakSubjects: sanitizeStringArray(input.weakSubjects, 10, 30),
       sleepTime: /^\d{2}:\d{2}$/.test(String(input.sleepTime || ""))
@@ -3965,6 +4933,9 @@ app.post("/api/student/coach/chat", authMiddleware, async (req, res) => {
     const snapshot = buildCoachSnapshot(profile, logs);
     const existingScheduleRows = await listStudentProfileSchedules(req.userId);
     const existingSchedules = serializeScheduleRowsForPrompt(existingScheduleRows);
+    const effectiveParentCoachCustomization = serializeParentCoachCustomization(
+      await getEffectiveParentCoachCustomizationForStudent(req.userId)
+    );
     const todayDateKey = formatYmdSeoulFromInstant(new Date());
     const tomorrowDateKey = addDaysToSeoulDateKey(todayDateKey, 1);
     const todayWeekdayKorean = getKoreanWeekdayNameFromIsoDate(todayDateKey);
@@ -3994,6 +4965,10 @@ app.post("/api/student/coach/chat", authMiddleware, async (req, res) => {
               role: "system",
               content:
                 `너는 한국 학생의 일정 관리를 도와주는 AI 코치다. 오늘 날짜는 ${formatYmdSeoulFromInstant(new Date())} 이다. 항상 한국어로 답하고 반드시 JSON 객체만 출력한다. 형식은 {"action":"inquire"|"create_schedule"|"update_schedule"|"delete_schedule"|"cancel_pending","message":"학생에게 보여줄 자연스러운 답변","schedule":null|{"title":"일정 제목","date":"YYYY-MM-DD","startTime":"HH:MM","endTime":"HH:MM","isRecurring":true|false,"recurrenceRule":"반복 설명 또는 빈 문자열","note":"보충 메모 또는 빈 문자열"},"targetScheduleId":null|number} 이다. create_schedule과 update_schedule은 일정 제목, 날짜, 시작 시간, 종료 시간이 모두 확실할 때만 사용한다. 이 중 하나라도 확실하지 않으면 반드시 inquire를 사용하고, 빠진 정보만 짧게 다시 물어본다. 종료 시간이 없으면 절대 생성하거나 수정하지 않는다. 반복 일정이면 recurrenceRule도 반드시 채운다. 기존 일정과 시간이 겹치더라도 사용자가 '같은 일정이다', '이름만 바꿔 달라', '기존 일정 수정이다'라고 분명히 말하면 create_schedule 대신 update_schedule을 사용한다. 일정이 취소됐다고 하거나 삭제해 달라고 하면 delete_schedule을 사용한다. 사용자가 방금 추가하려던 일정 자체를 접거나 말을 바꾼 경우, 예를 들면 '아니 그거 말고', '안 하기로 했어', '추가 안 할래' 같은 말이면 delete_schedule이 아니라 cancel_pending을 사용한다. cancel_pending은 아직 저장되지 않은 현재 대화상의 일정 초안을 그만두는 뜻이다. update_schedule과 delete_schedule일 때는 targetScheduleId에 수정/삭제할 기존 일정 id를 넣는다. 애매하면 추정하지 말고 다시 물어본다. 첫 질문은 반복 일정인지 단일 일정인지부터 묻고, 후속 대화에서도 정보가 부족하면 생성하거나 수정하거나 삭제하지 않는다. message는 학생에게 직접 보여질 짧고 자연스러운 문장이다.`
+            },
+            {
+              role: "system",
+              content: buildParentCoachCustomizationPrompt(effectiveParentCoachCustomization)
             },
             {
               role: "system",
@@ -4038,7 +5013,8 @@ app.post("/api/student/coach/chat", authMiddleware, async (req, res) => {
                 userText: text,
                 draft: accumulatedSchedule,
                 snapshot,
-                existingSchedules
+                existingSchedules,
+                coachCustomization: effectiveParentCoachCustomization
               }) ||
               parsedReply?.message ||
               "알겠어. 방금 이야기하던 일정은 추가하지 않을게. 다른 일정이 있으면 새로 말해줘."
@@ -4049,7 +5025,8 @@ app.post("/api/student/coach/chat", authMiddleware, async (req, res) => {
                 missingFields,
                 draft: accumulatedSchedule,
                 snapshot,
-                existingSchedules
+                existingSchedules,
+                coachCustomization: effectiveParentCoachCustomization
               }) || buildMissingScheduleFieldsMessage(missingFields)
             : parsedReply?.message || "일정을 저장할게요."
         ).trim();
@@ -4070,7 +5047,8 @@ app.post("/api/student/coach/chat", authMiddleware, async (req, res) => {
                   userText: text,
                   candidates: serializeScheduleRowsForPrompt(deleteCandidates),
                   snapshot,
-                  existingSchedules
+                  existingSchedules,
+                  coachCustomization: effectiveParentCoachCustomization
                 })) || buildAmbiguousDeleteMessage(deleteCandidates);
               await insertStudentCoachMessage(req.userId, "assistant", ambiguousReply);
               return res.json({
@@ -4120,7 +5098,8 @@ app.post("/api/student/coach/chat", authMiddleware, async (req, res) => {
                   conflicts,
                   draft: normalizedScheduleUpdate.schedule,
                   snapshot,
-                  existingSchedules
+                  existingSchedules,
+                  coachCustomization: effectiveParentCoachCustomization
                 })) ||
                 buildScheduleConflictMessage(
                   normalizedScheduleUpdate.schedule,
@@ -4155,7 +5134,8 @@ app.post("/api/student/coach/chat", authMiddleware, async (req, res) => {
                   conflicts,
                   draft: accumulatedSchedule,
                   snapshot,
-                  existingSchedules
+                  existingSchedules,
+                  coachCustomization: effectiveParentCoachCustomization
                 })) ||
                 buildScheduleConflictMessage(
                   accumulatedSchedule,
@@ -4235,6 +5215,10 @@ app.post("/api/student/coach/chat", authMiddleware, async (req, res) => {
             },
             {
               role: "system",
+              content: buildParentCoachCustomizationPrompt(effectiveParentCoachCustomization)
+            },
+            {
+              role: "system",
               content: `학생 DB 컨텍스트(JSON): ${coachDbContextJson}`
             },
             ...sanitizedCoachHistory
@@ -4274,7 +5258,7 @@ app.post("/api/student/coach/chat", authMiddleware, async (req, res) => {
         const topAction = snapshot.nextActions[0] || "첫 25분만 하는 블록부터 시작해 보세요.";
         replyText = [
           `${snapshot.heroNarrative} 흐름으로 보여요.`,
-          `오늘은 욕심내기보다 ${topAction}`,
+          buildCustomizedFallbackAction(effectiveParentCoachCustomization, topAction),
           "완벽하게 하려 하기보다 시작 난도를 낮추면 집중이 더 빨리 살아납니다. 지금 바로 시작할 수 있는 가장 짧은 과제 하나를 정해볼까요?"
         ].join("\n\n");
       }

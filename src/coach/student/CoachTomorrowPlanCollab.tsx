@@ -444,6 +444,11 @@ export function CoachTomorrowPlanCollab(props: CoachTomorrowPlanCollabProps) {
       return;
     }
 
+    if (IS_NATIVE_PLATFORM) {
+      composerInputRef.current?.focus();
+      return;
+    }
+
     const frame = window.requestAnimationFrame(() => {
       composerInputRef.current?.focus();
     });
@@ -498,6 +503,13 @@ export function CoachTomorrowPlanCollab(props: CoachTomorrowPlanCollabProps) {
   const closeComposer = () => {
     composerInputRef.current?.blur();
     setComposerOpen(false);
+  };
+
+  const openComposer = () => {
+    setComposerOpen(true);
+    if (IS_NATIVE_PLATFORM) {
+      composerInputRef.current?.focus();
+    }
   };
 
   useEffect(() => {
@@ -703,7 +715,7 @@ export function CoachTomorrowPlanCollab(props: CoachTomorrowPlanCollabProps) {
           <button
             type="button"
             className="coach-chat-trigger"
-            onClick={() => setComposerOpen(true)}
+            onClick={openComposer}
             aria-label="내일 계획 메시지 입력"
             disabled={!apiToken || typing}
           >
@@ -714,7 +726,7 @@ export function CoachTomorrowPlanCollab(props: CoachTomorrowPlanCollabProps) {
               <SendHorizontal size={15} strokeWidth={2.2} />
             </span>
           </button>
-        ) : (
+        ) : !IS_NATIVE_PLATFORM ? (
           <div
             className={
               "coach-chat-composer" +
@@ -756,6 +768,35 @@ export function CoachTomorrowPlanCollab(props: CoachTomorrowPlanCollabProps) {
                   <SendHorizontal size={15} strokeWidth={2.2} aria-hidden />
                 </button>
               )}
+            </div>
+          </div>
+        ) : null}
+
+        {IS_NATIVE_PLATFORM && (
+          <div
+            className="coach-chat-composer coach-chat-composer--native-bridge"
+            onMouseDown={e => e.stopPropagation()}
+            aria-hidden="true"
+          >
+            <div className="coach-chat-input coach-chat-input--composer coach-tomorrow-collab__input">
+              <input
+                ref={composerInputRef}
+                className="coach-chat-text"
+                placeholder="내일 하고 싶은 것, 고민을 적어 주세요…"
+                value={draft}
+                enterKeyHint="send"
+                data-native-keyboard-submit="custom"
+                onBlur={handleComposerBlur}
+                onChange={e => setDraft(e.target.value)}
+                onFocus={() => setComposerOpen(true)}
+                onKeyDown={e => {
+                  if (e.key === "Enter") {
+                    void sendMessage(draft);
+                    setComposerOpen(false);
+                  }
+                }}
+                disabled={!apiToken || typing}
+              />
             </div>
           </div>
         )}

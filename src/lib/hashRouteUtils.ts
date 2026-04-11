@@ -25,14 +25,15 @@ export function parseCoachStudentTabFromHash(path = getAppPath()) {
 }
 
 /** 코치 통합 탭(분석/계획/학습 코칭) — URL `?panel=plan` 등 */
-export type CoachStudentPanelParam = "plan" | "analysis" | "chat";
+export type CoachStudentPanelParam = "plan" | "analysis" | "chat" | "admin";
 
-export function readCoachPanelParamFromHash(path: string): CoachStudentPanelParam | null {
-  if (!path.startsWith("#/student/")) return null;
-  const q = path.indexOf("?");
+export function readCoachPanelParamFromHash(path = getAppPath()): CoachStudentPanelParam | null {
+  const h = String(path || "");
+  if (!h.startsWith("#/student/")) return null;
+  const q = h.indexOf("?");
   if (q < 0) return null;
-  const p = new URLSearchParams(path.slice(q + 1)).get("panel");
-  if (p === "plan" || p === "analysis" || p === "chat") return p;
+  const p = new URLSearchParams(h.slice(q + 1)).get("panel");
+  if (p === "plan" || p === "analysis" || p === "chat" || p === "admin") return p;
   return null;
 }
 
@@ -49,14 +50,16 @@ export function stripCoachPanelParamFromHash(hash: string): string {
 
 export function parseCoachParentTabFromHash(path = getAppPath()) {
   const h = path;
-  if (h === "#/parent" || h === "#/parent/report" || h === "#/parent/profile") return null;
+  if (h === "#/parent" || h === "#/parent/profile") return null;
+  if (h === "#/parent/report") return "aiReport" as const;
   if (!h.startsWith("#/parent/")) return null;
   const subPath = h.slice("#/parent/".length).split("?")[0];
   const seg = (subPath || "home").replace(/^\/+/, "");
-  if (seg === "timeline") return "timeline" as const;
-  if (seg === "guide") return "guide" as const;
-  if (seg === "profile") return "profile" as const;
-  return "home" as const;
+  if (seg === "manage") return "manage" as const;
+  if (seg === "ai-report") return "aiReport" as const;
+  if (seg === "records") return "records" as const;
+  if (seg === "student-settings") return "studentSettings" as const;
+  return "manage" as const;
 }
 
 export function parseRouteFromHash(path = getAppPath()): AppRoute {
@@ -67,7 +70,6 @@ export function parseRouteFromHash(path = getAppPath()): AppRoute {
 }
 
 export function parseParentTabFromHash(path = getAppPath()) {
-  if (path === "#/parent/report") return "report" as const;
   if (path === "#/parent/profile") return "profile" as const;
   return "profile" as const;
 }

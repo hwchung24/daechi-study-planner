@@ -1,10 +1,12 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { Card, SectionHeader } from "../../coach/ui/components";
 import { useEffectiveBearer } from "../../lib/useEffectiveBearer";
 import { useModalReveal } from "../../lib/useModalReveal";
-import { StudyRoomPickerModal, type StudyRoomSetting } from "./StudyRoomPickerModal";
-import type { ParentStudentRow } from "../../types/parent";
-import type { StudyRoomVisitSession } from "../../types/studyRoomTracking";
+import { DAECHI_LINKS_UPDATED_EVENT } from "../../lib/linkEvents";
+import type {
+  ParentCoachCustomization,
+  ParentStudentRow
+} from "../../types/parent";
 
 type ParentLinkRow = {
   id: number;
@@ -17,26 +19,63 @@ type LocalParentProfile = {
   intro?: string;
 };
 
+type ParentAlarmSettings = {
+  reportAlerts: boolean;
+  studentLinkAlerts: boolean;
+  studyRoomAlerts: boolean;
+};
+
 const PARENT_PROFILE_LS_KEY = "daechi_parent_profile_custom";
 
-function formatStudyRoomVisitDateTime(value: string | null) {
-  if (!value) return "-";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "-";
-  return date.toLocaleString("ko-KR", {
-    month: "numeric",
-    day: "numeric",
-    hour: "2-digit",
-    minute: "2-digit"
-  });
+const DEFAULT_PARENT_ALARM_SETTINGS: ParentAlarmSettings = {
+  reportAlerts: true,
+  studentLinkAlerts: true,
+  studyRoomAlerts: true
+};
+const DEFAULT_PARENT_COACH_CUSTOMIZATION: ParentCoachCustomization = {
+  persona: "다정하지만 기준이 분명한 학습 코치",
+  tone: "따뜻하고 또렷한 존댓말로, 공감 뒤에 바로 실행 행동을 제시한다.",
+  controlIntensity: 3,
+  focusRules:
+    "해야 할 일을 작게 쪼개 바로 시작하게 돕고, 미루는 핑계는 부드럽지만 분명하게 바로잡는다.",
+  updatedAt: null
+};
+
+function buildParentAlarmSettingsKey(email: string | null) {
+  const normalized = String(email || "").trim().toLowerCase() || "anonymous";
+  return `daechi_parent_alarm_settings:${normalized}`;
 }
 
-function formatStudyRoomVisitPeriod(visit: StudyRoomVisitSession) {
-  const enteredAt = formatStudyRoomVisitDateTime(visit.enteredAt);
-  const exitedAt = visit.exitedAt
-    ? formatStudyRoomVisitDateTime(visit.exitedAt)
-    : "현재 근방 체류 중";
-  return `${enteredAt} - ${exitedAt}`;
+function readParentAlarmSettings(key: string) {
+  try {
+    const raw = localStorage.getItem(key);
+    if (!raw) return DEFAULT_PARENT_ALARM_SETTINGS;
+    return {
+      ...DEFAULT_PARENT_ALARM_SETTINGS,
+      ...(JSON.parse(raw) as Partial<ParentAlarmSettings>)
+    };
+  } catch {
+    return DEFAULT_PARENT_ALARM_SETTINGS;
+  }
+}
+
+function clampControlIntensity(value: number) {
+  return Math.min(5, Math.max(1, Math.round(value || 3)));
+}
+
+function controlIntensityLabel(value: number) {
+  const level = clampControlIntensity(value);
+  if (level <= 1) return "매우 부드럽게";
+  if (level === 2) return "부드럽게";
+  if (level === 3) return "균형 있게";
+  if (level === 4) return "단호하게";
+  return "매우 단호하게";
+}
+
+function controlIntensitySliderFillPct(value: number) {
+  const level = clampControlIntensity(value);
+  const pct = ((level - 1) / 4) * 100;
+  return `${pct}%`;
 }
 
 export function ParentProfilePage(props: {
@@ -77,6 +116,10 @@ export function ParentProfilePage(props: {
     onUserEmailUpdated
   } = props;
   const token = useEffectiveBearer(props.authToken);
+  const alarmSettingsKey = useMemo(
+    () => buildParentAlarmSettingsKey(userEmail),
+    [userEmail]
+  );
   const [localProfile, setLocalProfile] = useState<LocalParentProfile | null>(() => {
     try {
       const raw = localStorage.getItem(PARENT_PROFILE_LS_KEY);
@@ -94,31 +137,88 @@ export function ParentProfilePage(props: {
   const [accountCurrentPw, setAccountCurrentPw] = useState("");
   const [accountSaving, setAccountSaving] = useState(false);
   const [accountError, setAccountError] = useState("");
-  const [studyRoomStudentId, setStudyRoomStudentId] = useState<number | null>(null);
-  const [studyRoomSaving, setStudyRoomSaving] = useState(false);
-  const [studyRoomMessage, setStudyRoomMessage] = useState("");
-  const [studyRoomVisits, setStudyRoomVisits] = useState<
-    Record<number, StudyRoomVisitSession[]>
-  >({});
-  const [studyRoomVisitsLoading, setStudyRoomVisitsLoading] = useState(false);
+  const [alarmSettings, setAlarmSettings] = useState<ParentAlarmSettings>(() =>
+    readParentAlarmSettings(alarmSettingsKey)
+  );
+  const [coachCustomization, setCoachCustomization] = useState<ParentCoachCustomization>(
+    DEFAULT_PARENT_COACH_CUSTOMIZATION
+  );
+  const [coachCustomizationLoading, setCoachCustomizationLoading] = useState(false);
+  const [coachCustomizationSaving, setCoachCustomizationSaving] = useState(false);
+  const [coachCustomizationMessage, setCoachCustomizationMessage] = useState("");
+  const [parentLinkFeedback, setParentLinkFeedback] = useState("");
+  const [unlinkingStudentId, setUnlinkingStudentId] = useState<number | null>(null);
 
   const accountModalReveal = useModalReveal(accountEditOpen);
   const profileEditModalReveal = useModalReveal(editOpen);
-  const studyRoomModalReveal = useModalReveal(studyRoomStudentId !== null);
+
+  useEffect(() => {
+    setAlarmSettings(readParentAlarmSettings(alarmSettingsKey));
+  }, [alarmSettingsKey]);
+
+  useEffect(() => {
+    if (!token) {
+      setCoachCustomization(DEFAULT_PARENT_COACH_CUSTOMIZATION);
+      setCoachCustomizationLoading(false);
+      setCoachCustomizationMessage("");
+      return;
+    }
+
+    let cancelled = false;
+    setCoachCustomizationLoading(true);
+    void (async () => {
+      try {
+        const res = await fetch(`${apiBase}/api/parent/coach-customization`, {
+          headers: {
+            Authorization: `Bearer ${token}`
+          }
+        });
+        const data = (await res.json().catch(() => ({}))) as {
+          customization?: Partial<ParentCoachCustomization>;
+          error?: string;
+        };
+        if (!res.ok) {
+          throw new Error(String(data.error || "AI 코치 설정을 불러오지 못했습니다."));
+        }
+        if (cancelled) return;
+        setCoachCustomization({
+          ...DEFAULT_PARENT_COACH_CUSTOMIZATION,
+          ...data.customization,
+          controlIntensity: clampControlIntensity(
+            Number(data.customization?.controlIntensity ?? 3)
+          )
+        });
+        setCoachCustomizationMessage("");
+      } catch (error) {
+        if (cancelled) return;
+        setCoachCustomizationMessage(
+          error instanceof Error && error.message
+            ? error.message
+            : "AI 코치 설정을 불러오지 못했습니다."
+        );
+      } finally {
+        if (!cancelled) {
+          setCoachCustomizationLoading(false);
+        }
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [apiBase, token]);
 
   const displayName = useMemo(() => {
     const email = String(userEmail || "").trim();
-    if (!email) return "학부모";
+    if (!email) return "관리자";
     const localPart = email.split("@")[0]?.trim();
-    return localPart || "학부모";
+    return localPart || "관리자";
   }, [userEmail]);
   const introText =
     localProfile?.intro ||
     (parentStudents.length > 0
       ? `${parentStudents.length}명의 학생과 학습 루틴을 함께 보고 있어요.`
       : "아직 연결된 학생이 없어요.");
-  const activeStudyRoomStudent =
-    parentStudents.find(student => student.id === studyRoomStudentId) || null;
 
   const persistLocalProfile = (next: LocalParentProfile) => {
     setLocalProfile(next);
@@ -129,7 +229,22 @@ export function ParentProfilePage(props: {
     }
   };
 
-  const refreshLinkRequests = async () => {
+  const toggleAlarmSetting = (key: keyof ParentAlarmSettings) => {
+    setAlarmSettings(prev => {
+      const next = {
+        ...prev,
+        [key]: !prev[key]
+      };
+      try {
+        localStorage.setItem(alarmSettingsKey, JSON.stringify(next));
+      } catch {
+        // ignore
+      }
+      return next;
+    });
+  };
+
+  const refreshLinkRequests = useCallback(async () => {
     if (!props.authToken) return;
     const lr = await fetch(`${apiBase}/api/parent/link-requests`, {
       headers: {
@@ -140,9 +255,9 @@ export function ParentProfilePage(props: {
     const data = await lr.json();
     setParentWaitingOnStudent(data.waitingOnStudent || []);
     setParentWaitingOnMe(data.waitingOnMe || []);
-  };
+  }, [apiBase, props.authToken, setParentWaitingOnMe, setParentWaitingOnStudent]);
 
-  const refreshStudents = async () => {
+  const refreshStudents = useCallback(async () => {
     if (!props.authToken) return;
     const st = await fetch(`${apiBase}/api/parent/students`, {
       headers: {
@@ -154,56 +269,18 @@ export function ParentProfilePage(props: {
     const next = data.students || [];
     setParentStudents(next);
     setParentStudentId(next.length > 0 ? next[0].id : null);
-  };
+  }, [apiBase, props.authToken, setParentStudentId, setParentStudents]);
 
   useEffect(() => {
-    if (!token) {
-      setStudyRoomVisits({});
-      return;
-    }
-
-    const studentsWithRooms = parentStudents.filter(student => student.studyRoom);
-    if (studentsWithRooms.length === 0) {
-      setStudyRoomVisits({});
-      return;
-    }
-
-    let cancelled = false;
-    setStudyRoomVisitsLoading(true);
-    void (async () => {
-      try {
-        const entries = await Promise.all(
-          studentsWithRooms.map(async student => {
-            const res = await fetch(
-              `${apiBase}/api/parent/students/${encodeURIComponent(String(student.id))}/study-room-visits?limit=4`,
-              {
-                cache: "no-store",
-                headers: {
-                  Authorization: `Bearer ${token}`
-                }
-              }
-            );
-            const data = (await res.json().catch(() => ({}))) as {
-              visits?: StudyRoomVisitSession[];
-            };
-            return [student.id, Array.isArray(data.visits) ? data.visits : []] as const;
-          })
-        );
-        if (cancelled) return;
-        setStudyRoomVisits(Object.fromEntries(entries));
-      } catch {
-        if (cancelled) return;
-      } finally {
-        if (!cancelled) {
-          setStudyRoomVisitsLoading(false);
-        }
-      }
-    })();
-
-    return () => {
-      cancelled = true;
+    const onLinksUpdated = () => {
+      void refreshLinkRequests();
+      void refreshStudents();
     };
-  }, [apiBase, parentStudents, token]);
+    window.addEventListener(DAECHI_LINKS_UPDATED_EVENT, onLinksUpdated);
+    return () => {
+      window.removeEventListener(DAECHI_LINKS_UPDATED_EVENT, onLinksUpdated);
+    };
+  }, [refreshLinkRequests, refreshStudents]);
 
   const openAccountEdit = () => {
     setAccountEmail((userEmail || "").trim());
@@ -299,84 +376,52 @@ export function ParentProfilePage(props: {
     profileEditModalReveal.beginClose(() => setEditOpen(false));
   };
 
-  const saveStudyRoomSetting = (value: StudyRoomSetting) => {
+  const saveCoachCustomization = async () => {
     if (!token) return;
-    setStudyRoomSaving(true);
-    setStudyRoomMessage("");
-    void (async () => {
-      try {
-        const res = await fetch(
-          `${apiBase}/api/parent/students/${encodeURIComponent(String(value.studentId))}/study-room`,
-          {
-            method: "PUT",
-            headers: {
-              "Content-Type": "application/json",
-              Authorization: `Bearer ${token}`
-            },
-            body: JSON.stringify({
-              name: value.name,
-              address: value.address || null,
-              latitude: value.latitude,
-              longitude: value.longitude,
-              radiusMeters: value.radiusMeters
-            })
-          }
-        );
-        if (!res.ok) {
-          const data = (await res.json().catch(() => ({}))) as { error?: string };
-          throw new Error(String(data.error || "독서실 위치 저장에 실패했습니다."));
-        }
-        await refreshStudents();
-        hapticSuccess();
-        setStudyRoomMessage("학생별 독서실 위치를 저장했습니다.");
-        studyRoomModalReveal.beginClose(() => setStudyRoomStudentId(null));
-      } catch (error) {
-        setStudyRoomMessage(
-          error instanceof Error && error.message
-            ? error.message
-            : "독서실 위치 저장 중 오류가 발생했습니다."
-        );
-        hapticWarning();
-      } finally {
-        setStudyRoomSaving(false);
+    setCoachCustomizationSaving(true);
+    setCoachCustomizationMessage("");
+    try {
+      const res = await fetch(`${apiBase}/api/parent/coach-customization`, {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          persona: coachCustomization.persona,
+          tone: coachCustomization.tone,
+          controlIntensity: clampControlIntensity(coachCustomization.controlIntensity),
+          focusRules: coachCustomization.focusRules
+        })
+      });
+      const data = (await res.json().catch(() => ({}))) as {
+        customization?: Partial<ParentCoachCustomization>;
+        error?: string;
+      };
+      if (!res.ok) {
+        throw new Error(String(data.error || "AI 코치 설정 저장에 실패했습니다."));
       }
-    })();
+      setCoachCustomization({
+        ...DEFAULT_PARENT_COACH_CUSTOMIZATION,
+        ...data.customization,
+        controlIntensity: clampControlIntensity(
+          Number(data.customization?.controlIntensity ?? coachCustomization.controlIntensity)
+        )
+      });
+      setCoachCustomizationMessage("저장한 설정이 연결된 학생들의 AI 코치에 반영됩니다.");
+      hapticSuccess();
+    } catch (error) {
+      setCoachCustomizationMessage(
+        error instanceof Error && error.message
+          ? error.message
+          : "AI 코치 설정 저장 중 오류가 발생했습니다."
+      );
+      hapticWarning();
+    } finally {
+      setCoachCustomizationSaving(false);
+    }
   };
 
-  const removeStudyRoomSetting = (studentId: number) => {
-    if (!token) return;
-    setStudyRoomSaving(true);
-    setStudyRoomMessage("");
-    void (async () => {
-      try {
-        const res = await fetch(
-          `${apiBase}/api/parent/students/${encodeURIComponent(String(studentId))}/study-room`,
-          {
-            method: "DELETE",
-            headers: {
-              Authorization: `Bearer ${token}`
-            }
-          }
-        );
-        if (!res.ok) {
-          const data = (await res.json().catch(() => ({}))) as { error?: string };
-          throw new Error(String(data.error || "독서실 위치 삭제에 실패했습니다."));
-        }
-        await refreshStudents();
-        hapticSuccess();
-        setStudyRoomMessage("학생 독서실 위치를 삭제했습니다.");
-      } catch (error) {
-        setStudyRoomMessage(
-          error instanceof Error && error.message
-            ? error.message
-            : "독서실 위치 삭제 중 오류가 발생했습니다."
-        );
-        hapticWarning();
-      } finally {
-        setStudyRoomSaving(false);
-      }
-    })();
-  };
 
   return (
     <>
@@ -387,9 +432,6 @@ export function ParentProfilePage(props: {
               <div className="coach-profile-card__content">
                 <div className="coach-profile-card__name-row">
                   <span className="coach-profile-card__name">{displayName}</span>
-                  <span className="coach-profile-card__grade-pill">
-                    연결 학생 {parentStudents.length}명
-                  </span>
                 </div>
                 <div className="coach-profile-card__goal">
                   {introText ? `소개 · ${introText}` : "아직 소개를 설정하지 않았어요."}
@@ -409,144 +451,197 @@ export function ParentProfilePage(props: {
           </div>
         </Card>
 
-        <Card className="coach-card coach-card--padded student-profile-settings-card">
-          <SectionHeader title="계정 및 앱" />
-          <div className="student-profile-settings-list">
-            <button type="button" className="settings-item" onClick={openAccountEdit}>
-              <span className="settings-label">이메일 · 비밀번호</span>
-              <span className="settings-value">수정</span>
-            </button>
-            <button
-              type="button"
-              className="settings-item"
-              onClick={() => {
-                hapticWarning();
-                onWithdrawPress();
-              }}
-            >
-              <span className="settings-label">회원 탈퇴</span>
-              <span className="settings-value">계정 삭제</span>
-            </button>
-            <button
-              type="button"
-              className="settings-item"
-              onClick={() => {
-                hapticWarning();
-                onLogoutPress();
-              }}
-            >
-              <span className="settings-label">로그아웃</span>
-              <span className="settings-value">계정 전환</span>
-            </button>
+        <Card className="coach-card coach-card--padded student-profile-alarm-card">
+          <SectionHeader title="알람 설정" />
+          <div className="student-profile-settings-list student-profile-alarm-list">
+            <div className="settings-item settings-item--stack student-profile-alarm-item">
+              <span className="student-profile-alarm-item__body">
+                <span className="student-profile-alarm-item__label">리포트 알림</span>
+                <span className="student-profile-alarm-item__copy">
+                  학생 리포트와 학습 요약 업데이트를 빠르게 확인합니다.
+                </span>
+              </span>
+              <button
+                type="button"
+                className={
+                  "student-profile-alarm-item__toggle student-profile-alarm-item__toggle-button" +
+                  (alarmSettings.reportAlerts
+                    ? " student-profile-alarm-item__toggle--on"
+                    : " student-profile-alarm-item__toggle--off")
+                }
+                onClick={() => toggleAlarmSetting("reportAlerts")}
+                aria-pressed={alarmSettings.reportAlerts}
+              >
+                {alarmSettings.reportAlerts ? "켜짐" : "꺼짐"}
+              </button>
+            </div>
+            <div className="settings-item settings-item--stack student-profile-alarm-item">
+              <span className="student-profile-alarm-item__body">
+                <span className="student-profile-alarm-item__label">학생 연결 알림</span>
+                <span className="student-profile-alarm-item__copy">
+                  연결 요청 승인, 대기, 변경 상태를 프로필에서 관리합니다.
+                </span>
+              </span>
+              <button
+                type="button"
+                className={
+                  "student-profile-alarm-item__toggle student-profile-alarm-item__toggle-button" +
+                  (alarmSettings.studentLinkAlerts
+                    ? " student-profile-alarm-item__toggle--on"
+                    : " student-profile-alarm-item__toggle--off")
+                }
+                onClick={() => toggleAlarmSetting("studentLinkAlerts")}
+                aria-pressed={alarmSettings.studentLinkAlerts}
+              >
+                {alarmSettings.studentLinkAlerts ? "켜짐" : "꺼짐"}
+              </button>
+            </div>
+            <div className="settings-item settings-item--stack student-profile-alarm-item">
+              <span className="student-profile-alarm-item__body">
+                <span className="student-profile-alarm-item__label">독서실 상태 알림</span>
+                <span className="student-profile-alarm-item__copy">
+                  학생 관리에서 설정한 독서실 위치와 최근 체류 상태 변화를 챙길 수 있어요.
+                </span>
+              </span>
+              <button
+                type="button"
+                className={
+                  "student-profile-alarm-item__toggle student-profile-alarm-item__toggle-button" +
+                  (alarmSettings.studyRoomAlerts
+                    ? " student-profile-alarm-item__toggle--on"
+                    : " student-profile-alarm-item__toggle--off")
+                }
+                onClick={() => toggleAlarmSetting("studyRoomAlerts")}
+                aria-pressed={alarmSettings.studyRoomAlerts}
+              >
+                {alarmSettings.studyRoomAlerts ? "켜짐" : "꺼짐"}
+              </button>
+            </div>
           </div>
         </Card>
 
-        <Card className="coach-card coach-card--padded student-profile-parent-link-card">
-          <SectionHeader title="학생별 독서실 설정" />
-          {parentStudents.length === 0 ? (
-            <div className="parent-study-room-empty">
-              연결된 학생이 생기면 학생별 독서실 위치를 지도에서 설정할 수 있어요.
+        <Card className="coach-card coach-card--padded student-profile-alarm-card">
+          <SectionHeader title="AI 코치 커스터마이징" />
+          <div className="field" style={{ marginTop: 14 }}>
+            <label className="field-label" htmlFor="parent-coach-persona">
+              AI 코치 페르소나
+            </label>
+            <textarea
+              id="parent-coach-persona"
+              className="field-input"
+              rows={3}
+              value={coachCustomization.persona}
+              onChange={e =>
+                setCoachCustomization(prev => ({
+                  ...prev,
+                  persona: e.target.value
+                }))
+              }
+              placeholder="예: 다정하지만 기준이 분명한 입시 코치"
+            />
+          </div>
+          <div className="field" style={{ marginTop: 12 }}>
+            <label className="field-label" htmlFor="parent-coach-tone">
+              말투와 화법
+            </label>
+            <textarea
+              id="parent-coach-tone"
+              className="field-input"
+              rows={3}
+              value={coachCustomization.tone}
+              onChange={e =>
+                setCoachCustomization(prev => ({
+                  ...prev,
+                  tone: e.target.value
+                }))
+              }
+              placeholder="예: 공감은 짧게, 실행 지시는 분명하게 말해 주세요."
+            />
+          </div>
+          <div className="field" style={{ marginTop: 12 }}>
+            <label className="field-label" htmlFor="parent-coach-control-intensity">
+              통제 강도
+            </label>
+            <div className="record-slider-row parent-profile-control-slider-row">
+              <div className="record-slider-pill">
+                <div
+                  className="record-slider-pill__fill"
+                  style={{
+                    width: controlIntensitySliderFillPct(
+                      coachCustomization.controlIntensity
+                    )
+                  }}
+                />
+                <input
+                  id="parent-coach-control-intensity"
+                  className="record-slider-pill__input"
+                  type="range"
+                  min={1}
+                  max={5}
+                  step={1}
+                  value={clampControlIntensity(coachCustomization.controlIntensity)}
+                  onChange={e =>
+                    setCoachCustomization(prev => ({
+                      ...prev,
+                      controlIntensity: clampControlIntensity(Number(e.target.value))
+                    }))
+                  }
+                  aria-valuetext={`${clampControlIntensity(
+                    coachCustomization.controlIntensity
+                  )}/5 ${controlIntensityLabel(
+                    coachCustomization.controlIntensity
+                  )}`}
+                />
+              </div>
+              <span className="record-slider-value parent-profile-control-slider-value">
+                {clampControlIntensity(coachCustomization.controlIntensity)}/5
+              </span>
             </div>
-          ) : (
-            <div className="parent-study-room-list">
-              {parentStudents.map(student => {
-                const setting = student.studyRoom || null;
-                const visits = studyRoomVisits[student.id] || [];
-                return (
-                  <div key={student.id} className="parent-study-room-item">
-                    <div className="parent-study-room-item__body">
-                      <div className="parent-study-room-item__title-row">
-                        <span className="parent-study-room-item__student">{student.email}</span>
-                        <span className="parent-study-room-item__pill">
-                          {setting ? "설정됨" : "미설정"}
-                        </span>
-                      </div>
-                      <div className="parent-study-room-item__name">
-                        {setting?.name || "아직 독서실 위치를 지정하지 않았어요."}
-                      </div>
-                      <div className="parent-study-room-item__meta">
-                        {setting?.address
-                          ? setting.address
-                          : setting
-                            ? `${setting.latitude.toFixed(5)}, ${setting.longitude.toFixed(5)}`
-                            : "지도에서 위치를 눌러 학생별 독서실 위치를 저장하세요."}
-                      </div>
-                      {setting ? (
-                        <div className="parent-study-room-item__meta">
-                          근방 판정 반경 {setting.radiusMeters}m
-                        </div>
-                      ) : null}
-                      {setting ? (
-                        <div className="parent-study-room-item__visits">
-                          <div className="parent-study-room-item__visits-title">
-                            최근 독서실 근방 체류
-                          </div>
-                          {studyRoomVisitsLoading && visits.length === 0 ? (
-                            <div className="parent-study-room-item__visit-empty">
-                              체류 기록을 불러오는 중입니다.
-                            </div>
-                          ) : visits.length === 0 ? (
-                            <div className="parent-study-room-item__visit-empty">
-                              아직 저장된 체류 기록이 없습니다.
-                            </div>
-                          ) : (
-                            <div className="parent-study-room-item__visit-list">
-                              {visits.map(visit => (
-                                <div
-                                  key={visit.id}
-                                  className="parent-study-room-item__visit-item"
-                                >
-                                  <div className="parent-study-room-item__visit-row">
-                                    <span className="parent-study-room-item__visit-name">
-                                      {visit.studyRoomName}
-                                    </span>
-                                    <span className="parent-study-room-item__visit-pill">
-                                      {visit.exitedAt ? "체류 완료" : "체류 중"}
-                                    </span>
-                                  </div>
-                                  <div className="parent-study-room-item__visit-meta">
-                                    {formatStudyRoomVisitPeriod(visit)}
-                                  </div>
-                                  <div className="parent-study-room-item__visit-meta">
-                                    {visit.lastDistanceMeters != null
-                                      ? `마지막 거리 ${Math.round(visit.lastDistanceMeters)}m`
-                                      : "거리 기록 없음"}
-                                  </div>
-                                </div>
-                              ))}
-                            </div>
-                          )}
-                        </div>
-                      ) : null}
-                    </div>
-                    <div className="parent-study-room-item__actions">
-                      <button
-                        type="button"
-                        className="progress-footer-btn"
-                        disabled={studyRoomSaving}
-                        onClick={() => setStudyRoomStudentId(student.id)}
-                      >
-                        {setting ? "수정" : "위치 설정"}
-                      </button>
-                      {setting ? (
-                        <button
-                          type="button"
-                          className="progress-footer-btn"
-                          disabled={studyRoomSaving}
-                          onClick={() => removeStudyRoomSetting(student.id)}
-                        >
-                          삭제
-                        </button>
-                      ) : null}
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          )}
-          {studyRoomMessage ? (
+          </div>
+          <div className="field" style={{ marginTop: 12 }}>
+            <label className="field-label" htmlFor="parent-coach-focus-rules">
+              특히 강조할 원칙
+            </label>
+            <textarea
+              id="parent-coach-focus-rules"
+              className="field-input"
+              rows={4}
+              value={coachCustomization.focusRules}
+              onChange={e =>
+                setCoachCustomization(prev => ({
+                  ...prev,
+                  focusRules: e.target.value
+                }))
+              }
+              placeholder="예: 핑계보다 오늘 할 일 한 개를 바로 시작하게 이끌어 주세요."
+            />
+          </div>
+          <div
+            style={{
+              display: "flex",
+              gap: 10,
+              marginTop: 14,
+              flexWrap: "wrap"
+            }}
+          >
+            <button
+              type="button"
+              className="coach-primary-btn"
+              disabled={coachCustomizationSaving || coachCustomizationLoading}
+              onClick={() => {
+                void saveCoachCustomization();
+              }}
+            >
+              {coachCustomizationSaving
+                ? "저장 중…"
+                : coachCustomizationLoading
+                  ? "불러오는 중…"
+                  : "AI 코치 설정 저장"}
+            </button>
+          </div>
+          {coachCustomizationMessage ? (
             <p className="settings-hint" style={{ marginTop: 12 }}>
-              {studyRoomMessage}
+              {coachCustomizationMessage}
             </p>
           ) : null}
         </Card>
@@ -556,11 +651,53 @@ export function ParentProfilePage(props: {
           {parentStudents.length > 0 && (
             <div className="student-profile-link-status" style={{ marginTop: 12 }}>
               <span className="student-profile-link-status__title">연결된 학생</span>
-              {parentStudents.map(student => (
-                <span key={student.id} className="student-profile-link-status__hint">
-                  {student.email}
-                </span>
-              ))}
+              <div className="student-profile-schedule-stack">
+                <div className="student-profile-schedule-panel">
+                  {parentStudents.map(student => (
+                    <div key={student.id} className="student-profile-schedule-item">
+                      <div className="student-profile-schedule-item__body">
+                        <div className="student-profile-schedule-item__title">{student.email}</div>
+                      </div>
+                      <button
+                        type="button"
+                        className="student-profile-schedule-remove"
+                        disabled={unlinkingStudentId === student.id}
+                        onClick={async () => {
+                          if (!token) return;
+                          setUnlinkingStudentId(student.id);
+                          try {
+                            const res = await fetch(`${apiBase}/api/link/unlink`, {
+                              method: "POST",
+                              headers: {
+                                "Content-Type": "application/json",
+                                Authorization: `Bearer ${token}`
+                              },
+                              body: JSON.stringify({ studentId: student.id })
+                            });
+                            const data = (await res.json().catch(() => ({}))) as { error?: string };
+                            if (!res.ok) {
+                              setParentLinkFeedback(
+                                String(data.error || "연결 끊기 요청에 실패했습니다.")
+                              );
+                              hapticWarning();
+                              return;
+                            }
+                            setParentLinkFeedback("학생에게 연결 끊기 요청을 보냈습니다.");
+                            hapticSuccess();
+                          } catch {
+                            setParentLinkFeedback("네트워크 오류로 요청을 보내지 못했습니다.");
+                            hapticWarning();
+                          } finally {
+                            setUnlinkingStudentId(null);
+                          }
+                        }}
+                      >
+                        {unlinkingStudentId === student.id ? "요청 중…" : "연결 끊기 요청"}
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              </div>
             </div>
           )}
           <div className="field" style={{ marginTop: 12 }}>
@@ -581,7 +718,11 @@ export function ParentProfilePage(props: {
             onClick={async () => {
               if (!props.authToken) return;
               const studentEmail = parentLinkEmail.trim();
-              if (!studentEmail) return;
+              if (!studentEmail) {
+                setParentLinkFeedback("학생 이메일을 입력해 주세요.");
+                hapticWarning();
+                return;
+              }
               try {
                 const res = await fetch(`${apiBase}/api/parent/link-request`, {
                   method: "POST",
@@ -591,16 +732,31 @@ export function ParentProfilePage(props: {
                   },
                   body: JSON.stringify({ studentEmail })
                 });
-                if (!res.ok) return;
+                const data = (await res.json().catch(() => ({}))) as { error?: string };
+                if (!res.ok) {
+                  setParentLinkFeedback(
+                    String(data.error || "연결 요청을 보내지 못했습니다.")
+                  );
+                  hapticWarning();
+                  return;
+                }
                 setParentLinkEmail("");
+                setParentLinkFeedback("학생에게 연결 요청을 보냈어요.");
                 await refreshLinkRequests();
+                hapticSuccess();
               } catch {
-                // ignore
+                setParentLinkFeedback("네트워크 오류로 연결 요청을 보내지 못했습니다.");
+                hapticWarning();
               }
             }}
           >
             연결 요청 보내기
           </button>
+          {parentLinkFeedback ? (
+            <p className="settings-hint" style={{ marginTop: 10 }}>
+              {parentLinkFeedback}
+            </p>
+          ) : null}
           {parentWaitingOnStudent.length > 0 && (
             <div className="student-profile-link-status">
               <span className="student-profile-link-status__title">학생 승인 대기</span>
@@ -661,6 +817,38 @@ export function ParentProfilePage(props: {
               ))}
             </div>
           )}
+        </Card>
+
+        <Card className="coach-card coach-card--padded student-profile-settings-card">
+          <SectionHeader title="계정 및 앱" />
+          <div className="student-profile-settings-list">
+            <button type="button" className="settings-item" onClick={openAccountEdit}>
+              <span className="settings-label">이메일 · 비밀번호</span>
+              <span className="settings-value">수정</span>
+            </button>
+            <button
+              type="button"
+              className="settings-item"
+              onClick={() => {
+                hapticWarning();
+                onWithdrawPress();
+              }}
+            >
+              <span className="settings-label">회원 탈퇴</span>
+              <span className="settings-value">계정 삭제</span>
+            </button>
+            <button
+              type="button"
+              className="settings-item"
+              onClick={() => {
+                hapticWarning();
+                onLogoutPress();
+              }}
+            >
+              <span className="settings-label">로그아웃</span>
+              <span className="settings-value">계정 전환</span>
+            </button>
+          </div>
         </Card>
       </div>
 
@@ -789,15 +977,6 @@ export function ParentProfilePage(props: {
         </div>
       </div>
 
-      <StudyRoomPickerModal
-        open={studyRoomStudentId !== null}
-        revealed={studyRoomModalReveal.revealed}
-        student={activeStudyRoomStudent}
-        initialValue={activeStudyRoomStudent?.studyRoom || undefined}
-        saving={studyRoomSaving}
-        onClose={() => studyRoomModalReveal.beginClose(() => setStudyRoomStudentId(null))}
-        onSave={saveStudyRoomSetting}
-      />
     </>
   );
 }

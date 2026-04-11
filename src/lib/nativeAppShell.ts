@@ -9,6 +9,7 @@ type AppShellPlugin = {
   switchToBundledAssets(options: PendingNetworkBanner): Promise<void>;
   switchToRemoteIfAvailable(options: PendingNetworkBanner): Promise<{ switched: boolean }>;
   consumePendingNetworkBanner(): Promise<PendingNetworkBanner>;
+  openExternalUrl(options: { url: string }): Promise<void>;
 };
 
 export const AppShell = registerPlugin<AppShellPlugin>("AppShell");

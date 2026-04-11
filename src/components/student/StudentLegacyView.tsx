@@ -665,13 +665,14 @@ export function StudentLegacyView(props: {
         setTodayLogMessage(
           String(data.error || "").trim() ||
             (data.code === "NO_LINKED_PARENT"
-              ? "연결된 학부모 계정이 없어 요청을 보낼 수 없습니다."
-              : "학부모에게 요청을 보내지 못했습니다.")
+              ? "연결된 관리자 계정이 없어 요청을 보낼 수 없습니다."
+              : "관리자에게 요청을 보내지 못했습니다.")
         );
         return;
       }
       hapticSuccess();
       setTodayLogMessage("학부모 페이지 알림으로 내일 앱 허용 시간표 요청을 보냈습니다.");
+        setTodayLogMessage("관리자 페이지 알림으로 내일 앱 허용 시간표 요청을 보냈습니다.");
       appAllowanceReveal.beginClose(() => setAppAllowancePlan(null));
     } catch {
       hapticWarning();
@@ -1060,7 +1061,7 @@ export function StudentLegacyView(props: {
     );
   }, [storeApps, storeCategoryFilter]);
 
-  const handleSaveTodayLog = async () => {
+  const handleSaveTodayLog = async (kind: "study" | "life") => {
     if (!authToken) return;
     const sleepRaw = todaySleepHours.trim();
     if (!sleepRaw) {
@@ -1153,31 +1154,33 @@ export function StudentLegacyView(props: {
       } catch {
         // ignore
       }
-      setAppAllowancePlan(
-        hydrateAppAllowancePlan({
-        targetDate: getDateKeySeoul(1),
-        summary: "학생 일정과 내일 계획을 바탕으로 앱 허용 시간표를 생성 중이에요.",
-        slots: [],
-        usedOpenAi: false,
-        model: null,
-        availableApps: []
-      })
-      );
-      const generatedPlan = await requestAppAllowancePlan();
-      if (generatedPlan) {
-        setAppAllowancePlan(generatedPlan);
-      } else {
+      if (kind === "study") {
         setAppAllowancePlan(
           hydrateAppAllowancePlan({
-          targetDate: getDateKeySeoul(1),
-          summary:
-            "시간표를 자동 생성하지 못했어요. 그래도 내일 허용 앱 팝업은 열어 두었어요.",
-          slots: [],
-          usedOpenAi: false,
-          model: null,
-          availableApps: []
-        })
+            targetDate: getDateKeySeoul(1),
+            summary: "학생 일정과 내일 계획을 바탕으로 앱 허용 시간표를 생성 중이에요.",
+            slots: [],
+            usedOpenAi: false,
+            model: null,
+            availableApps: []
+          })
         );
+        const generatedPlan = await requestAppAllowancePlan();
+        if (generatedPlan) {
+          setAppAllowancePlan(generatedPlan);
+        } else {
+          setAppAllowancePlan(
+            hydrateAppAllowancePlan({
+              targetDate: getDateKeySeoul(1),
+              summary:
+                "시간표를 자동 생성하지 못했어요. 그래도 내일 허용 앱 팝업은 열어 두었어요.",
+              slots: [],
+              usedOpenAi: false,
+              model: null,
+              availableApps: []
+            })
+          );
+        }
       }
     } catch {
       hapticWarning();
@@ -1643,7 +1646,9 @@ export function StudentLegacyView(props: {
                                   type="button"
                                   className="timeline-save-button"
                                   disabled={todayLogSaving}
-                                  onClick={handleSaveTodayLog}
+                                  onClick={() => {
+                                    void handleSaveTodayLog("study");
+                                  }}
                                 >
                                   {todayLogSaving ? "저장 중..." : "기록 저장"}
                                 </button>
@@ -1915,7 +1920,9 @@ export function StudentLegacyView(props: {
                                   type="button"
                                   className="timeline-save-button"
                                   disabled={todayLogSaving}
-                                  onClick={handleSaveTodayLog}
+                                  onClick={() => {
+                                    void handleSaveTodayLog("life");
+                                  }}
                                 >
                                   {todayLogSaving ? "저장 중..." : "기록 저장"}
                                 </button>

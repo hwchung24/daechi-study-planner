@@ -63,7 +63,7 @@ async function generateAiReportText(studentUserId, weekStart, weekEnd) {
 
   const userContent = [
     "역할: 학원 학습 플래너 앱의 코치입니다.",
-    "아래는 자녀의 최근 7일(또는 해당 기간) 학습 타임라인·진도표에서 계산한 통계와 요약입니다.",
+    "아래는 학생의 최근 7일(또는 해당 기간) 학습 타임라인·진도표에서 계산한 통계와 요약입니다.",
     "학부모에게 보내는 '일일 리포트' 본문만 작성하세요.",
     "",
     "규칙:",

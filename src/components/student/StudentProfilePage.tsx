@@ -20,10 +20,20 @@ import type {
   StudyRoomVisitSession
 } from "../../types/studyRoomTracking";
 import { DatePickerScroll } from "../DatePickerScroll";
-import { TimePickerInline } from "../TimePickerSheet";
+import { TimePickerInline, TimePickerSheet } from "../TimePickerSheet";
+import { Capacitor } from "@capacitor/core";
+import { LocalNotifications } from "@capacitor/local-notifications";
 import { getWeekStartKeySeoul } from "../../lib/weekDates";
+import {
+  buildStudentAlarmSettingsCacheKey,
+  DEFAULT_STUDENT_ALARM_SETTINGS,
+  readStudentAlarmSettings,
+  type StudentAlarmSettings,
+  writeStudentAlarmSettings
+} from "../../lib/studentAlarmSettings";
 import { useEffectiveBearer } from "../../lib/useEffectiveBearer";
 import { useModalReveal } from "../../lib/useModalReveal";
+import { DAECHI_LINKS_UPDATED_EVENT } from "../../lib/linkEvents";
 import type { StudentLinkRow } from "./StudentLegacyView";
 
 const STUDENT_PROFILE_NAME_LS_KEY = "daechi_student_profile_name";
@@ -36,6 +46,10 @@ type RemoteCoachState = {
       schoolLevel?: string | null;
       grade?: number | null;
       goal?: string;
+      goalUniversity?: string;
+      targetGrade?: string;
+      currentConcern?: string;
+      weakness?: string;
       targetSubjects?: string[];
     };
   };
@@ -180,6 +194,10 @@ export function StudentProfilePage(props: {
     () => buildProfileCacheKey(cacheScope, "linked-parents"),
     [cacheScope]
   );
+  const alarmSettingsCacheKey = useMemo(
+    () => buildStudentAlarmSettingsCacheKey(userEmail),
+    [userEmail]
+  );
   const activeStudentId = useCoachStore(s => s.activeStudentId);
   const student = useMemo(
     () => demoStudents.find(s => s.id === activeStudentId) || demoStudents[0],
@@ -198,7 +216,10 @@ export function StudentProfilePage(props: {
   const [accountCurrentPw, setAccountCurrentPw] = useState("");
   const [accountSaving, setAccountSaving] = useState(false);
   const [accountError, setAccountError] = useState("");
-  const [goalInput, setGoalInput] = useState("");
+  const [goalUniversityInput, setGoalUniversityInput] = useState("");
+  const [targetGradeInput, setTargetGradeInput] = useState("");
+  const [currentConcernInput, setCurrentConcernInput] = useState("");
+  const [weaknessInput, setWeaknessInput] = useState("");
   const [profileSaving, setProfileSaving] = useState(false);
   const [profileError, setProfileError] = useState("");
   const [scheduleItems, setScheduleItems] = useState<StudentProfileSchedule[]>(() =>
@@ -215,6 +236,11 @@ export function StudentProfilePage(props: {
   const [linkedParents, setLinkedParents] = useState<StudentLinkedParentRow[]>(() =>
     readProfileCache<StudentLinkedParentRow[]>(linkedParentsCacheKey, [])
   );
+  const [unlinkingParentId, setUnlinkingParentId] = useState<number | string | null>(null);
+  const [alarmSettings, setAlarmSettings] = useState<StudentAlarmSettings>(() =>
+    readStudentAlarmSettings(alarmSettingsCacheKey)
+  );
+  const [wakeAlarmSheetOpen, setWakeAlarmSheetOpen] = useState(false);
   const [studyRoomTrackingSummary, setStudyRoomTrackingSummary] =
     useState<StudentStudyRoomSummary>(EMPTY_TRACKING_SUMMARY);
   const [studyRoomTrackingStatus, setStudyRoomTrackingStatus] =
@@ -245,7 +271,93 @@ export function StudentProfilePage(props: {
     setLinkedParents(
       readProfileCache<StudentLinkedParentRow[]>(linkedParentsCacheKey, [])
     );
-  }, [linkedParentsCacheKey, remoteCacheKey, schedulesCacheKey]);
+    setAlarmSettings(
+      readStudentAlarmSettings(alarmSettingsCacheKey)
+    );
+  }, [alarmSettingsCacheKey, linkedParentsCacheKey, remoteCacheKey, schedulesCacheKey]);
+
+  type StudentAlarmToggleKey =
+    | "scheduleReminders"
+    | "parentLinkAlerts"
+    | "studyRoomAlerts"
+    | "wakeAlarmEnabled";
+
+  const toggleAlarmSetting = useCallback(
+    (key: StudentAlarmToggleKey) => {
+      setAlarmSettings(prev => {
+        const next = {
+          ...prev,
+          [key]: !prev[key]
+        };
+        writeStudentAlarmSettings(alarmSettingsCacheKey, next);
+        return next;
+      });
+      hapticSelection();
+    },
+    [alarmSettingsCacheKey, hapticSelection]
+  );
+
+  // 네이티브 알람 예약/취소
+  const scheduleWakeAlarm = useCallback(
+    async (enabled: boolean, time: string) => {
+      if (!Capacitor.isNativePlatform()) return;
+      const id = 10001; // 고정 ID, 계정별로 다르게 하려면 키 추가
+      if (enabled) {
+        // 시간 파싱 ("HH:mm")
+        const [h, m] = time.split(":").map(Number);
+        const now = new Date();
+        const alarm = new Date();
+        alarm.setHours(h, m, 0, 0);
+        if (alarm.getTime() <= now.getTime()) {
+          alarm.setDate(alarm.getDate() + 1); // 이미 지난 시간이면 내일로
+        }
+        // 권한 요청
+        const perm = await LocalNotifications.checkPermissions();
+        if (perm.display !== "granted") {
+          await LocalNotifications.requestPermissions();
+        }
+        // 예약
+        await LocalNotifications.schedule({
+          notifications: [
+            {
+              id,
+              title: "기상 알람",
+              body: "설정한 기상 시간입니다! 일어나세요!",
+              schedule: { at: alarm },
+              sound: "beep.caf", // iOS/Android 기본음, 필요시 커스텀
+              smallIcon: "ic_stat_icon_config_sample",
+              actionTypeId: "default",
+              extra: { type: "wake-alarm" }
+            }
+          ]
+        });
+      } else {
+        // 취소
+        await LocalNotifications.cancel({ notifications: [{ id }] });
+      }
+    },
+    []
+  );
+
+  // 알람 설정 변경 시 네이티브 예약 동기화
+  useEffect(() => {
+    scheduleWakeAlarm(alarmSettings.wakeAlarmEnabled, alarmSettings.wakeAlarmTime);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [alarmSettings.wakeAlarmEnabled, alarmSettings.wakeAlarmTime]);
+
+  const updateWakeAlarmTime = useCallback(
+    (time: string) => {
+      setAlarmSettings(prev => {
+        const next = {
+          ...prev,
+          wakeAlarmTime: time
+        };
+        writeStudentAlarmSettings(alarmSettingsCacheKey, next);
+        return next;
+      });
+    },
+    [alarmSettingsCacheKey]
+  );
 
   const refreshSchedules = useCallback(() => {
     if (!token) {
@@ -293,13 +405,28 @@ export function StudentProfilePage(props: {
       headers: { Authorization: `Bearer ${token}` }
     });
     if (!res.ok) {
-      throw new Error("연결된 학부모 목록을 불러오지 못했습니다.");
+      throw new Error("연결된 관리자 목록을 불러오지 못했습니다.");
     }
     const data = await res.json();
     const nextParents = Array.isArray(data?.parents) ? data.parents : [];
     setLinkedParents(nextParents);
     writeProfileCache(linkedParentsCacheKey, nextParents);
   }, [apiBase, linkedParentsCacheKey, token]);
+
+  useEffect(() => {
+    const onLinksUpdated = () => {
+      void refreshStudentLinkRequests().catch(() => {
+        // ignore
+      });
+      void refreshLinkedParents().catch(() => {
+        // ignore
+      });
+    };
+    window.addEventListener(DAECHI_LINKS_UPDATED_EVENT, onLinksUpdated);
+    return () => {
+      window.removeEventListener(DAECHI_LINKS_UPDATED_EVENT, onLinksUpdated);
+    };
+  }, [refreshLinkedParents, refreshStudentLinkRequests]);
 
   const refreshStudyRoomTracking = useCallback(
     async (options?: { silent?: boolean }) => {
@@ -582,9 +709,15 @@ export function StudentProfilePage(props: {
 
   const saveProfile = async () => {
     if (!token) return;
-    const trimmedGoal = goalInput.trim();
-    if (!trimmedGoal) {
-      setProfileError("목표를 입력해 주세요.");
+    const trimmedGoalUniversity = goalUniversityInput.trim();
+    const trimmedTargetGrade = targetGradeInput.trim();
+    if (!trimmedGoalUniversity) {
+      setProfileError("목표 대학을 입력해 주세요.");
+      hapticWarning();
+      return;
+    }
+    if (!trimmedTargetGrade) {
+      setProfileError("목표 성적을 입력해 주세요.");
       hapticWarning();
       return;
     }
@@ -599,7 +732,10 @@ export function StudentProfilePage(props: {
           Authorization: `Bearer ${token}`
         },
         body: JSON.stringify({
-          goal: trimmedGoal
+          goalUniversity: trimmedGoalUniversity,
+          targetGrade: trimmedTargetGrade,
+          currentConcern: currentConcernInput.trim(),
+          weakness: weaknessInput.trim()
         })
       });
       const data = await res.json().catch(() => ({}));
@@ -635,10 +771,25 @@ export function StudentProfilePage(props: {
     rawSchoolLevel === "고" ? "고등학교" : rawSchoolLevel === "중" ? "중학교" : rawSchoolLevel;
   const displayGrade = token ? profile?.grade ?? null : student.grade;
   const displayGoal = token ? String(profile?.goal ?? "").trim() : student.goal;
+  const displayGoalUniversity = token
+    ? String(profile?.goalUniversity ?? "").trim()
+    : "";
+  const displayTargetGrade = token
+    ? String(profile?.targetGrade ?? "").trim()
+    : "";
+  const displayCurrentConcern = token
+    ? String(profile?.currentConcern ?? "").trim()
+    : "";
+  const displayWeakness = token ? String(profile?.weakness ?? "").trim() : "";
   const trackingPermissionLabel = formatTrackingAuthorizationStatus(
     studyRoomTrackingStatus.authorizationStatus
   );
   const modalRoot = typeof document === "undefined" ? null : document.body;
+  const linkedParent = linkedParents[0] || null;
+  const hasLinkedParent = linkedParents.length > 0;
+  const hasPendingParentLink =
+    studentWaitingOnParent.length > 0 || studentWaitingOnMe.length > 0;
+  const parentLinkInputDisabled = hasLinkedParent || hasPendingParentLink;
 
   const requestTrackingPermission = async () => {
     setStudyRoomTrackingBusy(true);
@@ -670,7 +821,7 @@ export function StudentProfilePage(props: {
     if (!token) return;
     if (studyRoomTrackingSummary.rooms.length === 0) {
       setStudyRoomTrackingMessage(
-        "연결된 학부모가 독서실 위치를 먼저 설정해야 추적을 시작할 수 있습니다."
+        "연결된 관리자가 독서실 위치를 먼저 설정해야 추적을 시작할 수 있습니다."
       );
       hapticWarning();
       return;
@@ -741,16 +892,41 @@ export function StudentProfilePage(props: {
                     </span>
                   )}
                 </div>
-                <div className="coach-profile-card__goal">
-                  {displayGoal ? `목표 · ${displayGoal}` : "아직 목표를 설정하지 않았어요."}
-                </div>
+                {displayGoalUniversity ? (
+                  <div className="coach-profile-card__goal">
+                    {`목표 대학 · ${displayGoalUniversity}`}
+                  </div>
+                ) : null}
+                {displayTargetGrade ? (
+                  <div className="coach-profile-card__goal">
+                    {`목표 성적 · ${displayTargetGrade}`}
+                  </div>
+                ) : null}
+                {displayCurrentConcern ? (
+                  <div className="coach-profile-card__goal">
+                    {`현재 고민 · ${displayCurrentConcern}`}
+                  </div>
+                ) : null}
+                {displayWeakness ? (
+                  <div className="coach-profile-card__goal">
+                    {`취약점 · ${displayWeakness}`}
+                  </div>
+                ) : null}
+                {!displayGoalUniversity && !displayTargetGrade ? (
+                  <div className="coach-profile-card__goal">
+                    {displayGoal ? `목표 · ${displayGoal}` : "아직 목표를 설정하지 않았어요."}
+                  </div>
+                ) : null}
               </div>
               <button
                 type="button"
                 className="coach-primary-btn coach-profile-card__action"
                 onClick={() => {
                   setProfileError("");
-                  setGoalInput(displayGoal || "");
+                  setGoalUniversityInput(displayGoalUniversity || "");
+                  setTargetGradeInput(displayTargetGrade || "");
+                  setCurrentConcernInput(displayCurrentConcern || "");
+                  setWeaknessInput(displayWeakness || "");
                   setEditOpen(true);
                 }}
               >
@@ -806,6 +982,120 @@ export function StudentProfilePage(props: {
           </div>
         </Card>
 
+        <Card className="coach-card coach-card--padded student-profile-alarm-card">
+          <SectionHeader title="알람 설정" />
+          <p className="settings-hint student-profile-alarm-card__hint">
+            필요한 알림만 켜 두고 프로필에서 바로 바꿀 수 있어요.
+          </p>
+          <div className="student-profile-settings-list student-profile-alarm-list">
+            <div className="settings-item settings-item--stack student-profile-alarm-item">
+              <span className="student-profile-alarm-item__body">
+                <span className="student-profile-alarm-item__label">학습 일정 알림</span>
+                <span className="student-profile-alarm-item__copy">
+                  오늘 타임라인 공부 카드 시작 시간에 팝업과 로컬 알림으로 알려줍니다.
+                </span>
+              </span>
+              <button
+                type="button"
+                className={
+                  "student-profile-alarm-item__toggle student-profile-alarm-item__toggle-button" +
+                  (alarmSettings.scheduleReminders
+                    ? " student-profile-alarm-item__toggle--on"
+                    : " student-profile-alarm-item__toggle--off")
+                }
+                onClick={() => toggleAlarmSetting("scheduleReminders")}
+                aria-pressed={alarmSettings.scheduleReminders}
+              >
+                {alarmSettings.scheduleReminders ? "켜짐" : "꺼짐"}
+              </button>
+            </div>
+            <div className="settings-item settings-item--stack student-profile-alarm-item">
+              <span className="student-profile-alarm-item__body">
+                <span className="student-profile-alarm-item__label">관리자 연결 알림</span>
+                <span className="student-profile-alarm-item__copy">
+                  연결 요청 승인과 상태 변경을 놓치지 않도록 알려줍니다.
+                </span>
+              </span>
+              <button
+                type="button"
+                className={
+                  "student-profile-alarm-item__toggle student-profile-alarm-item__toggle-button" +
+                  (alarmSettings.parentLinkAlerts
+                    ? " student-profile-alarm-item__toggle--on"
+                    : " student-profile-alarm-item__toggle--off")
+                }
+                onClick={() => toggleAlarmSetting("parentLinkAlerts")}
+                aria-pressed={alarmSettings.parentLinkAlerts}
+              >
+                {alarmSettings.parentLinkAlerts ? "켜짐" : "꺼짐"}
+              </button>
+            </div>
+            <div className="settings-item settings-item--stack student-profile-alarm-item">
+              <span className="student-profile-alarm-item__body">
+                <span className="student-profile-alarm-item__label">독서실 확인 알림</span>
+                <span className="student-profile-alarm-item__copy">
+                  위치 권한과 독서실 근방 기록 상태 변화를 프로필에서 확인합니다.
+                </span>
+              </span>
+              <button
+                type="button"
+                className={
+                  "student-profile-alarm-item__toggle student-profile-alarm-item__toggle-button" +
+                  (alarmSettings.studyRoomAlerts
+                    ? " student-profile-alarm-item__toggle--on"
+                    : " student-profile-alarm-item__toggle--off")
+                }
+                onClick={() => toggleAlarmSetting("studyRoomAlerts")}
+                aria-pressed={alarmSettings.studyRoomAlerts}
+              >
+                {alarmSettings.studyRoomAlerts ? "켜짐" : "꺼짐"}
+              </button>
+            </div>
+            <div className="settings-item settings-item--stack student-profile-alarm-item student-profile-alarm-item--detail">
+              <div className="student-profile-alarm-item__row">
+                <span className="student-profile-alarm-item__body">
+                  <span className="student-profile-alarm-item__label">기상 알람</span>
+                  <span className="student-profile-alarm-item__copy">
+                    평일 기준으로 아침 기상 알람 시간을 정해 둘 수 있어요.
+                  </span>
+                </span>
+                <button
+                  type="button"
+                  className={
+                    "student-profile-alarm-item__toggle student-profile-alarm-item__toggle-button" +
+                    (alarmSettings.wakeAlarmEnabled
+                      ? " student-profile-alarm-item__toggle--on"
+                      : " student-profile-alarm-item__toggle--off")
+                  }
+                  onClick={() => {
+                    if (alarmSettings.wakeAlarmEnabled && wakeAlarmSheetOpen) {
+                      setWakeAlarmSheetOpen(false);
+                    }
+                    toggleAlarmSetting("wakeAlarmEnabled");
+                  }}
+                  aria-pressed={alarmSettings.wakeAlarmEnabled}
+                >
+                  {alarmSettings.wakeAlarmEnabled ? "켜짐" : "꺼짐"}
+                </button>
+              </div>
+              <button
+                type="button"
+                className="student-profile-alarm-item__time-trigger"
+                onClick={() => {
+                  setWakeAlarmSheetOpen(true);
+                  hapticSelection();
+                }}
+                disabled={!alarmSettings.wakeAlarmEnabled}
+              >
+                <span className="student-profile-alarm-item__time-label">기상 시간</span>
+                <span className="student-profile-alarm-item__time-value">
+                  {alarmSettings.wakeAlarmTime}
+                </span>
+              </button>
+            </div>
+          </div>
+        </Card>
+
         {meRole === "student" && (
           <Card className="coach-card coach-card--padded student-study-room-tracking-card">
             <SectionHeader
@@ -824,130 +1114,339 @@ export function StudentProfilePage(props: {
                 </button>
               }
             />
-            <div className="student-study-room-tracking-card__summary">
-              <div className="student-study-room-tracking-card__status-row">
-                <span className="student-study-room-tracking-card__badge">
-                  {studyRoomTrackingStatus.trackingEnabled ? "추적 중" : "추적 대기"}
-                </span>
-                <span className="student-study-room-tracking-card__meta">
-                  권한 · {trackingPermissionLabel}
-                </span>
-              </div>
-              <div className="student-study-room-tracking-card__meta-list">
-                <span>
+            <div className="student-study-room-tracking-card__stack">
+              <div className="student-study-room-tracking-card__summary student-profile-link-status student-profile-link-status--first">
+                <div className="student-study-room-tracking-card__status-row">
+                  <span className="student-profile-link-status__title">
+                    {studyRoomTrackingStatus.trackingEnabled ? "현재 추적 중" : "현재 추적 대기"}
+                  </span>
+                  <span className="student-study-room-tracking-card__status-value">
+                    권한 · {trackingPermissionLabel}
+                  </span>
+                </div>
+                <span className="student-profile-link-status__hint">
                   설정된 독서실 {studyRoomTrackingSummary.rooms.length}곳
                 </span>
-                <span>
+                <span className="student-profile-link-status__hint">
                   마지막 heartbeat {formatTrackingDateTime(studyRoomTrackingStatus.lastHeartbeatAt)}
                 </span>
+                {studyRoomTrackingStatus.lastError ? (
+                  <p className="settings-hint student-study-room-tracking-card__error">
+                    최근 추적 오류 · {studyRoomTrackingStatus.lastError}
+                  </p>
+                ) : null}
               </div>
-              {studyRoomTrackingStatus.lastError ? (
-                <p className="settings-hint student-study-room-tracking-card__error">
-                  최근 추적 오류 · {studyRoomTrackingStatus.lastError}
+
+              <div className="student-profile-link-status">
+                <span className="student-profile-link-status__title">설정된 독서실</span>
+                {studyRoomTrackingSummary.rooms.length > 0 ? (
+                  <div className="student-profile-schedule-stack student-study-room-tracking-card__list">
+                    <div className="student-profile-schedule-panel">
+                      {studyRoomTrackingSummary.rooms.map(room => (
+                        <div key={room.id} className="student-profile-schedule-item">
+                          <div className="student-profile-schedule-item__body">
+                            <div className="student-profile-schedule-item__title">{room.name}</div>
+                            <div className="student-profile-schedule-item__meta">
+                              {room.address || `${room.latitude.toFixed(5)}, ${room.longitude.toFixed(5)}`}
+                            </div>
+                            <div className="student-profile-schedule-item__meta">
+                              근방 판정 반경 {room.radiusMeters}m · 연결 관리자 {room.parentEmail}
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ) : (
+                  <span className="student-profile-link-status__hint">
+                    아직 연결된 관리자가 독서실 위치를 설정하지 않았습니다.
+                  </span>
+                )}
+              </div>
+
+              <div className="student-profile-link-status student-study-room-tracking-card__controls">
+                <span className="student-profile-link-status__title">추적 제어</span>
+                <div className="student-profile-link-request-row__actions">
+                  <button
+                    type="button"
+                    className="student-profile-link-action-btn"
+                    onClick={() => void requestTrackingPermission()}
+                    disabled={studyRoomTrackingBusy}
+                  >
+                    위치 권한 확인
+                  </button>
+                  <button
+                    type="button"
+                    className="student-profile-link-action-btn"
+                    onClick={() => void startTracking()}
+                    disabled={
+                      studyRoomTrackingBusy ||
+                      studyRoomTrackingSummary.rooms.length === 0 ||
+                      studyRoomTrackingStatus.trackingEnabled
+                    }
+                  >
+                    추적 시작
+                  </button>
+                  <button
+                    type="button"
+                    className="student-profile-link-action-btn"
+                    onClick={() => void stopTracking()}
+                    disabled={studyRoomTrackingBusy || !studyRoomTrackingStatus.trackingEnabled}
+                  >
+                    추적 중지
+                  </button>
+                </div>
+              </div>
+
+              {studyRoomTrackingMessage ? (
+                <p className="settings-hint student-study-room-tracking-card__message">
+                  {studyRoomTrackingMessage}
                 </p>
               ) : null}
-            </div>
 
-            {studyRoomTrackingSummary.rooms.length > 0 ? (
-              <div className="student-study-room-tracking-card__rooms">
-                {studyRoomTrackingSummary.rooms.map(room => (
-                  <div key={room.id} className="student-study-room-tracking-card__room">
-                    <div className="student-study-room-tracking-card__room-name">
-                      {room.name}
+              <div className="student-profile-link-status student-study-room-tracking-card__visits">
+                <span className="student-profile-link-status__title">최근 체류 기록</span>
+                {studyRoomTrackingLoading ? (
+                  <span className="student-profile-link-status__hint">
+                    체류 기록을 불러오는 중입니다.
+                  </span>
+                ) : studyRoomTrackingSummary.recentVisits.length === 0 ? (
+                  <span className="student-profile-link-status__hint">
+                    아직 기록된 독서실 근방 체류 이력이 없습니다.
+                  </span>
+                ) : (
+                  <div className="student-profile-schedule-stack student-study-room-tracking-card__list">
+                    <div className="student-profile-schedule-panel">
+                      {studyRoomTrackingSummary.recentVisits.map(visit => (
+                        <div key={visit.id} className="student-profile-schedule-item">
+                          <div className="student-profile-schedule-item__body">
+                            <div className="student-study-room-tracking-card__visit-head">
+                              <span className="student-profile-schedule-item__title">
+                                {visit.studyRoomName}
+                              </span>
+                              <span className="student-study-room-tracking-card__visit-state">
+                                {visit.exitedAt ? "체류 완료" : "체류 중"}
+                              </span>
+                            </div>
+                            <div className="student-profile-schedule-item__meta">
+                              {formatStudyRoomVisitPeriod(visit)}
+                            </div>
+                            <div className="student-profile-schedule-item__meta">
+                              관리자 {visit.parentEmail}
+                              {visit.lastDistanceMeters != null
+                                ? ` · 마지막 거리 ${Math.round(visit.lastDistanceMeters)}m`
+                                : ""}
+                            </div>
+                          </div>
+                        </div>
+                      ))}
                     </div>
-                    <div className="student-study-room-tracking-card__room-meta">
-                      {room.address || `${room.latitude.toFixed(5)}, ${room.longitude.toFixed(5)}`}
+                  </div>
+                )}
+              </div>
+            </div>
+          </Card>
+        )}
+
+        {meRole === "student" && (
+          <Card className="coach-card coach-card--padded student-profile-parent-link-card">
+            <SectionHeader title="관리자와 계정 연결" />
+            {linkedParent && (
+              <div className="student-profile-link-status" style={{ marginTop: 12 }}>
+                <span className="student-profile-link-status__title">연결된 관리자</span>
+                <div className="student-profile-schedule-stack">
+                  <div className="student-profile-schedule-panel">
+                    <div className="student-profile-schedule-item">
+                      <div className="student-profile-schedule-item__body">
+                        <div className="student-profile-schedule-item__title">{linkedParent.email}</div>
+                        <div className="student-profile-schedule-item__meta">
+                          학생 계정은 관리자 1명과만 연결할 수 있어요.
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        className="student-profile-schedule-remove"
+                        disabled={unlinkingParentId === linkedParent.id}
+                        onClick={async () => {
+                          if (!token) return;
+                          setUnlinkingParentId(linkedParent.id);
+                          try {
+                            const res = await fetch(`${apiBase}/api/link/unlink`, {
+                              method: "POST",
+                              headers: {
+                                "Content-Type": "application/json",
+                                Authorization: `Bearer ${token}`
+                              },
+                              body: JSON.stringify({ parentUserId: linkedParent.id })
+                            });
+                            const data = await res.json().catch(() => ({}));
+                            if (!res.ok) {
+                              setParentLinkFeedback(
+                                String(data?.error || "연결 끊기 요청에 실패했습니다.")
+                              );
+                              hapticWarning();
+                              return;
+                            }
+                            setParentLinkFeedback("관리자에게 연결 끊기 요청을 보냈습니다.");
+                            hapticSuccess();
+                          } catch {
+                            setParentLinkFeedback("네트워크 오류로 요청을 보내지 못했습니다.");
+                            hapticWarning();
+                          } finally {
+                            setUnlinkingParentId(null);
+                          }
+                        }}
+                      >
+                        {unlinkingParentId === linkedParent.id ? "요청 중…" : "연결 끊기 요청"}
+                      </button>
                     </div>
-                    <div className="student-study-room-tracking-card__room-meta">
-                      근방 판정 반경 · {room.radiusMeters}m
-                    </div>
-                    <div className="student-study-room-tracking-card__room-meta">
-                      연결 학부모 · {room.parentEmail}
+                  </div>
+                </div>
+              </div>
+            )}
+            <div className="field" style={{ marginTop: 12 }}>
+              <label className="field-label" htmlFor="student-parent-email">
+                관리자 이메일
+              </label>
+              <input
+                id="student-parent-email"
+                className="field-input"
+                value={studentParentEmail}
+                onChange={e => setStudentParentEmail(e.target.value)}
+                disabled={parentLinkInputDisabled}
+              />
+            </div>
+            <button
+              type="button"
+              className="coach-primary-btn"
+              style={{ marginTop: 10 }}
+              disabled={parentLinkInputDisabled}
+              onClick={async () => {
+                if (!token) return;
+                const parentEmail = studentParentEmail.trim();
+                if (!parentEmail) {
+                  setParentLinkFeedback("관리자 이메일을 입력해 주세요.");
+                  hapticWarning();
+                  return;
+                }
+                try {
+                  const res = await fetch(`${apiBase}/api/student/request-parent`, {
+                    method: "POST",
+                    headers: {
+                      "Content-Type": "application/json",
+                      Authorization: `Bearer ${token}`
+                    },
+                    body: JSON.stringify({ parentEmail })
+                  });
+                  const data = await res.json().catch(() => ({}));
+                  if (!res.ok) {
+                    const msg = String(data?.error || "연결 요청에 실패했습니다.").trim();
+                    setParentLinkFeedback(msg);
+                    if (msg.includes("이미 진행 중") || msg.includes("이미 연결")) {
+                      await refreshStudentLinkRequests();
+                    }
+                    hapticWarning();
+                    return;
+                  }
+                  setStudentParentEmail("");
+                  await refreshStudentLinkRequests();
+                  await refreshLinkedParents();
+                  setParentLinkFeedback("관리자에게 연결 요청을 보냈어요.");
+                  hapticSuccess();
+                } catch {
+                  setParentLinkFeedback("네트워크 오류로 연결 요청을 보내지 못했습니다.");
+                  hapticWarning();
+                }
+              }}
+            >
+              연결 요청 보내기
+            </button>
+            {hasLinkedParent ? (
+              <p className="settings-hint" style={{ marginTop: 10 }}>
+                이미 연결된 관리자가 있어서 새 요청은 보낼 수 없습니다.
+              </p>
+            ) : hasPendingParentLink ? (
+              <p className="settings-hint" style={{ marginTop: 10 }}>
+                진행 중인 관리자 연결 요청이 있어서 새 요청은 잠시 막아 두었습니다.
+              </p>
+            ) : null}
+            {parentLinkFeedback ? (
+              <p className="settings-hint" style={{ marginTop: 10 }}>
+                {parentLinkFeedback}
+              </p>
+            ) : null}
+            {studentWaitingOnParent.length > 0 && (
+              <div className="student-profile-link-status">
+                <span className="student-profile-link-status__title">관리자 승인 대기</span>
+                {studentWaitingOnParent.map(row => (
+                  <span key={row.id} className="student-profile-link-status__hint">
+                    {row.parent_email}
+                  </span>
+                ))}
+              </div>
+            )}
+            {studentWaitingOnMe.length > 0 && (
+              <div className="student-profile-link-status student-profile-link-status--requests">
+                <span className="student-profile-link-status__title">관리자 연결 요청</span>
+                {studentWaitingOnMe.map(row => (
+                  <div key={row.id} className="student-profile-link-request-row">
+                    <span className="student-profile-link-status__hint">{row.parent_email}</span>
+                    <div className="student-profile-link-request-row__actions">
+                      <button
+                        type="button"
+                        className="progress-footer-btn"
+                        disabled={hasLinkedParent}
+                        onClick={async () => {
+                          if (!token) return;
+                          const res = await fetch(`${apiBase}/api/student/link-confirm`, {
+                            method: "POST",
+                            headers: {
+                              "Content-Type": "application/json",
+                              Authorization: `Bearer ${token}`
+                            },
+                            body: JSON.stringify({ requestId: row.id })
+                          });
+                          if (!res.ok) {
+                            const data = await res.json().catch(() => ({}));
+                            setParentLinkFeedback(
+                              String(data?.error || "연결 승인에 실패했습니다.")
+                            );
+                            hapticWarning();
+                            return;
+                          }
+                          await refreshStudentLinkRequests();
+                          await refreshLinkedParents();
+                          setParentLinkFeedback("관리자 계정과 연결했어요.");
+                          hapticSuccess();
+                        }}
+                      >
+                        {hasLinkedParent ? "이미 관리자 연결됨" : "승인 — 이 관리자와 연결"}
+                      </button>
+                      <button
+                        type="button"
+                        className="progress-footer-btn"
+                        onClick={async () => {
+                          if (!token) return;
+                          await fetch(`${apiBase}/api/link/reject`, {
+                            method: "POST",
+                            headers: {
+                              "Content-Type": "application/json",
+                              Authorization: `Bearer ${token}`
+                            },
+                            body: JSON.stringify({ requestId: row.id })
+                          });
+                          await refreshStudentLinkRequests();
+                          await refreshLinkedParents();
+                          setParentLinkFeedback("연결 요청을 거절했어요.");
+                        }}
+                      >
+                        거절
+                      </button>
                     </div>
                   </div>
                 ))}
               </div>
-            ) : (
-              <div className="student-study-room-tracking-card__empty">
-                아직 연결된 학부모가 독서실 위치를 설정하지 않았습니다.
-              </div>
             )}
-
-            <div className="student-study-room-tracking-card__actions">
-              <button
-                type="button"
-                className="progress-footer-btn"
-                onClick={() => void requestTrackingPermission()}
-                disabled={studyRoomTrackingBusy}
-              >
-                위치 권한 확인
-              </button>
-              <button
-                type="button"
-                className="progress-footer-btn"
-                onClick={() => void startTracking()}
-                disabled={
-                  studyRoomTrackingBusy ||
-                  studyRoomTrackingSummary.rooms.length === 0 ||
-                  studyRoomTrackingStatus.trackingEnabled
-                }
-              >
-                추적 시작
-              </button>
-              <button
-                type="button"
-                className="progress-footer-btn"
-                onClick={() => void stopTracking()}
-                disabled={studyRoomTrackingBusy || !studyRoomTrackingStatus.trackingEnabled}
-              >
-                추적 중지
-              </button>
-            </div>
-
-            {studyRoomTrackingMessage ? (
-              <p className="settings-hint student-study-room-tracking-card__message">
-                {studyRoomTrackingMessage}
-              </p>
-            ) : null}
-
-            <div className="student-study-room-tracking-card__visits">
-              <div className="student-study-room-tracking-card__visits-title">
-                최근 체류 기록
-              </div>
-              {studyRoomTrackingLoading ? (
-                <div className="student-study-room-tracking-card__empty">
-                  체류 기록을 불러오는 중입니다.
-                </div>
-              ) : studyRoomTrackingSummary.recentVisits.length === 0 ? (
-                <div className="student-study-room-tracking-card__empty">
-                  아직 기록된 독서실 근방 체류 이력이 없습니다.
-                </div>
-              ) : (
-                <div className="student-study-room-tracking-card__visit-list">
-                  {studyRoomTrackingSummary.recentVisits.map(visit => (
-                    <div key={visit.id} className="student-study-room-tracking-card__visit-item">
-                      <div className="student-study-room-tracking-card__visit-title-row">
-                        <span className="student-study-room-tracking-card__visit-title">
-                          {visit.studyRoomName}
-                        </span>
-                        <span className="student-study-room-tracking-card__visit-pill">
-                          {visit.exitedAt ? "체류 완료" : "체류 중"}
-                        </span>
-                      </div>
-                      <div className="student-study-room-tracking-card__visit-meta">
-                        {formatStudyRoomVisitPeriod(visit)}
-                      </div>
-                      <div className="student-study-room-tracking-card__visit-meta">
-                        학부모 · {visit.parentEmail}
-                        {visit.lastDistanceMeters != null
-                          ? ` · 마지막 거리 ${Math.round(visit.lastDistanceMeters)}m`
-                          : ""}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
           </Card>
         )}
 
@@ -982,154 +1481,6 @@ export function StudentProfilePage(props: {
             </button>
           </div>
         </Card>
-
-        {meRole === "student" && (
-          <Card className="coach-card coach-card--padded student-profile-parent-link-card">
-            <SectionHeader title="학부모와 계정 연결" />
-            {linkedParents.length > 0 && (
-              <div className="student-profile-link-status student-profile-link-status--first">
-                <span className="student-profile-link-status__title">연결된 학부모</span>
-                {linkedParents.map(parent => (
-                  <span key={parent.id} className="student-profile-link-status__hint">
-                    {parent.email}
-                  </span>
-                ))}
-              </div>
-            )}
-            <div className="student-profile-link-form">
-              <div className="field student-profile-link-field">
-                <label className="field-label" htmlFor="student-parent-email">
-                  학부모 이메일
-                </label>
-                <input
-                  id="student-parent-email"
-                  className="field-input student-profile-link-input"
-                  value={studentParentEmail}
-                  onChange={e => setStudentParentEmail(e.target.value)}
-                />
-              </div>
-              <button
-                type="button"
-                className="student-profile-link-submit"
-                onClick={async () => {
-                  if (!token) return;
-                  const parentEmail = studentParentEmail.trim();
-                  if (!parentEmail) {
-                    setParentLinkFeedback("학부모 이메일을 입력해 주세요.");
-                    hapticWarning();
-                    return;
-                  }
-                  try {
-                    const res = await fetch(`${apiBase}/api/student/request-parent`, {
-                      method: "POST",
-                      headers: {
-                        "Content-Type": "application/json",
-                        Authorization: `Bearer ${token}`
-                      },
-                      body: JSON.stringify({ parentEmail })
-                    });
-                    const data = await res.json().catch(() => ({}));
-                    if (!res.ok) {
-                      const msg = String(data?.error || "연결 요청에 실패했습니다.").trim();
-                      setParentLinkFeedback(msg);
-                      if (msg.includes("이미 진행 중") || msg.includes("이미 연결")) {
-                        await refreshStudentLinkRequests();
-                      }
-                      hapticWarning();
-                      return;
-                    }
-                    setStudentParentEmail("");
-                    await refreshStudentLinkRequests();
-                    await refreshLinkedParents();
-                    setParentLinkFeedback("학부모에게 연결 요청을 보냈어요.");
-                    hapticSuccess();
-                  } catch {
-                    setParentLinkFeedback("네트워크 오류로 연결 요청을 보내지 못했습니다.");
-                    hapticWarning();
-                  }
-                }}
-              >
-                연결 요청 보내기
-              </button>
-              {parentLinkFeedback ? (
-                <p className="settings-hint student-profile-link-feedback">
-                  {parentLinkFeedback}
-                </p>
-              ) : null}
-            </div>
-            {studentWaitingOnParent.length > 0 && (
-              <div className="student-profile-link-status">
-                <span className="student-profile-link-status__title">학부모 승인 대기</span>
-                {studentWaitingOnParent.map(row => (
-                  <span key={row.id} className="student-profile-link-status__hint">
-                    {row.parent_email}
-                  </span>
-                ))}
-              </div>
-            )}
-            {studentWaitingOnMe.length > 0 && (
-              <div className="student-profile-link-status student-profile-link-status--requests">
-                <span className="student-profile-link-status__title">학부모 연결 요청</span>
-                {studentWaitingOnMe.map(row => (
-                  <div key={row.id} className="student-profile-link-request-row">
-                    <span className="student-profile-link-status__hint">{row.parent_email}</span>
-                    <div className="student-profile-link-request-row__actions">
-                      <button
-                        type="button"
-                        className="student-profile-link-action-btn"
-                        onClick={async () => {
-                            if (!token) return;
-                          const res = await fetch(`${apiBase}/api/student/link-confirm`, {
-                            method: "POST",
-                            headers: {
-                              "Content-Type": "application/json",
-                                Authorization: `Bearer ${token}`
-                            },
-                            body: JSON.stringify({ requestId: row.id })
-                          });
-                            if (!res.ok) {
-                              const data = await res.json().catch(() => ({}));
-                              setParentLinkFeedback(
-                                String(data?.error || "연결 승인에 실패했습니다.")
-                              );
-                              hapticWarning();
-                              return;
-                            }
-                            await refreshStudentLinkRequests();
-                            await refreshLinkedParents();
-                            setParentLinkFeedback("학부모 계정과 연결했어요.");
-                            hapticSuccess();
-                        }}
-                      >
-                        승인 — 이 학부모와 연결
-                      </button>
-                      <button
-                        type="button"
-                        className="student-profile-link-action-btn student-profile-link-action-btn--danger"
-                        onClick={async () => {
-                            if (!token) return;
-                          await fetch(`${apiBase}/api/link/reject`, {
-                            method: "POST",
-                            headers: {
-                              "Content-Type": "application/json",
-                                Authorization: `Bearer ${token}`
-                            },
-                            body: JSON.stringify({ requestId: row.id })
-                          });
-                            await refreshStudentLinkRequests();
-                          await refreshLinkedParents();
-                            setParentLinkFeedback("연결 요청을 거절했어요.");
-                        }}
-                      >
-                        거절
-                      </button>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </Card>
-        )}
       </div>
 
       {scheduleEditOpen && modalRoot
@@ -1214,6 +1565,20 @@ export function StudentProfilePage(props: {
             modalRoot
           )
         : null}
+
+      {alarmSettings.wakeAlarmEnabled ? (
+        <TimePickerSheet
+          open={wakeAlarmSheetOpen}
+          title="기상 시간 설정"
+          value={alarmSettings.wakeAlarmTime}
+          onClose={() => setWakeAlarmSheetOpen(false)}
+          onConfirm={time => {
+            updateWakeAlarmTime(time);
+            setWakeAlarmSheetOpen(false);
+          }}
+          hapticSelection={hapticSelection}
+        />
+      ) : null}
 
       {accountEditOpen && modalRoot
         ? createPortal(
@@ -1350,12 +1715,43 @@ export function StudentProfilePage(props: {
                 </div>
                 <div className="dday-modal-body">
                   <div className="field">
-                    <label className="field-label">나의 목표</label>
+                    <label className="field-label">목표 대학</label>
+                    <input
+                      className="field-input"
+                      type="text"
+                      value={goalUniversityInput}
+                      onChange={e => setGoalUniversityInput(e.target.value)}
+                      placeholder="예: 연세대학교"
+                    />
+                  </div>
+                  <div className="field">
+                    <label className="field-label">목표 성적</label>
+                    <input
+                      className="field-input"
+                      type="text"
+                      value={targetGradeInput}
+                      onChange={e => setTargetGradeInput(e.target.value)}
+                      placeholder="예: 수학 1등급, 평균 92점"
+                    />
+                  </div>
+                  <div className="field">
+                    <label className="field-label">현재 고민</label>
                     <textarea
                       className="field-input"
-                      rows={4}
-                      value={goalInput}
-                      onChange={e => setGoalInput(e.target.value)}
+                      rows={3}
+                      value={currentConcernInput}
+                      onChange={e => setCurrentConcernInput(e.target.value)}
+                      placeholder="예: 계획은 세우는데 실천이 자주 밀려요"
+                    />
+                  </div>
+                  <div className="field">
+                    <label className="field-label">취약점</label>
+                    <textarea
+                      className="field-input"
+                      rows={3}
+                      value={weaknessInput}
+                      onChange={e => setWeaknessInput(e.target.value)}
+                      placeholder="예: 수학 킬러 문항, 영어 빈칸 추론"
                     />
                   </div>
                   {profileError ? (

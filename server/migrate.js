@@ -28,6 +28,111 @@ async function main() {
   } catch {
     // ignore
   }
+  try {
+    await pool.query(`
+      CREATE UNIQUE INDEX IF NOT EXISTS uq_pslr_pending_student
+      ON parent_student_link_requests (student_user_id)
+      WHERE status = 'pending';
+    `);
+  } catch (error) {
+    console.warn(
+      "Skipping uq_pslr_pending_student index; existing duplicate pending student requests may need cleanup.",
+      error?.message || error
+    );
+  }
+  try {
+    await pool.query(`
+      CREATE UNIQUE INDEX IF NOT EXISTS uq_parents_students_single_student
+      ON parents_students (student_id);
+    `);
+  } catch (error) {
+    console.warn(
+      "Skipping uq_parents_students_single_student index; existing multi-admin student links may need cleanup.",
+      error?.message || error
+    );
+  }
+  try {
+    await pool.query(`
+      CREATE UNIQUE INDEX IF NOT EXISTS uq_psur_pending_pair
+      ON parent_student_unlink_requests (parent_user_id, student_user_id)
+      WHERE status = 'pending';
+    `);
+  } catch {
+    // ignore
+  }
+
+  try {
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS parent_coach_customizations (
+        parent_user_id BIGINT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+        persona TEXT NOT NULL DEFAULT '다정하지만 기준이 분명한 학습 코치',
+        tone TEXT NOT NULL DEFAULT '따뜻하고 또렷한 존댓말로, 공감 뒤에 바로 실행 행동을 제시한다.',
+        control_intensity INTEGER NOT NULL DEFAULT 3 CHECK (control_intensity BETWEEN 1 AND 5),
+        focus_rules TEXT NOT NULL DEFAULT '해야 할 일을 작게 쪼개 바로 시작하게 돕고, 미루는 핑계는 부드럽지만 분명하게 바로잡는다.',
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+      );
+    `);
+  } catch {
+    // ignore
+  }
+  try {
+    await pool.query(`
+      ALTER TABLE parent_coach_customizations
+      ADD COLUMN IF NOT EXISTS persona TEXT NOT NULL DEFAULT '다정하지만 기준이 분명한 학습 코치';
+    `);
+  } catch {
+    // ignore
+  }
+  try {
+    await pool.query(`
+      ALTER TABLE parent_coach_customizations
+      ADD COLUMN IF NOT EXISTS tone TEXT NOT NULL DEFAULT '따뜻하고 또렷한 존댓말로, 공감 뒤에 바로 실행 행동을 제시한다.';
+    `);
+  } catch {
+    // ignore
+  }
+  try {
+    await pool.query(`
+      ALTER TABLE parent_coach_customizations
+      ADD COLUMN IF NOT EXISTS control_intensity INTEGER NOT NULL DEFAULT 3;
+    `);
+  } catch {
+    // ignore
+  }
+  try {
+    await pool.query(`
+      ALTER TABLE parent_coach_customizations
+      ADD COLUMN IF NOT EXISTS focus_rules TEXT NOT NULL DEFAULT '해야 할 일을 작게 쪼개 바로 시작하게 돕고, 미루는 핑계는 부드럽지만 분명하게 바로잡는다.';
+    `);
+  } catch {
+    // ignore
+  }
+  try {
+    await pool.query(`
+      ALTER TABLE parent_coach_customizations
+      DROP CONSTRAINT IF EXISTS parent_coach_customizations_control_intensity_check;
+    `);
+  } catch {
+    // ignore
+  }
+  try {
+    await pool.query(`
+      ALTER TABLE parent_coach_customizations
+      ADD CONSTRAINT parent_coach_customizations_control_intensity_check
+      CHECK (control_intensity BETWEEN 1 AND 5);
+    `);
+  } catch {
+    // ignore
+  }
+  try {
+    await pool.query(`
+      CREATE INDEX IF NOT EXISTS idx_parent_coach_customizations_updated
+      ON parent_coach_customizations (updated_at DESC);
+    `);
+  } catch {
+    // ignore
+  }
 
   try {
     await pool.query(`
@@ -75,6 +180,38 @@ async function main() {
     await pool.query(`
       ALTER TABLE student_coach_profiles
       ADD COLUMN IF NOT EXISTS initial_profile_completed BOOLEAN NOT NULL DEFAULT false;
+    `);
+  } catch {
+    // ignore
+  }
+  try {
+    await pool.query(`
+      ALTER TABLE student_coach_profiles
+      ADD COLUMN IF NOT EXISTS goal_university TEXT;
+    `);
+  } catch {
+    // ignore
+  }
+  try {
+    await pool.query(`
+      ALTER TABLE student_coach_profiles
+      ADD COLUMN IF NOT EXISTS target_grade TEXT;
+    `);
+  } catch {
+    // ignore
+  }
+  try {
+    await pool.query(`
+      ALTER TABLE student_coach_profiles
+      ADD COLUMN IF NOT EXISTS current_concern TEXT;
+    `);
+  } catch {
+    // ignore
+  }
+  try {
+    await pool.query(`
+      ALTER TABLE student_coach_profiles
+      ADD COLUMN IF NOT EXISTS weakness TEXT;
     `);
   } catch {
     // ignore
@@ -232,6 +369,58 @@ async function main() {
     await pool.query(`
       CREATE INDEX IF NOT EXISTS idx_pssrv_parent_student_entered
         ON parent_student_study_room_visit_sessions (parent_user_id, student_user_id, entered_at DESC);
+    `);
+  } catch {
+    // ignore
+  }
+  try {
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS student_parent_chat_messages (
+        id BIGSERIAL PRIMARY KEY,
+        student_user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        parent_user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        sender_role TEXT NOT NULL CHECK (sender_role IN ('student', 'parent')),
+        content TEXT NOT NULL DEFAULT '',
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+      );
+    `);
+  } catch {
+    // ignore
+  }
+  try {
+    await pool.query(`
+      CREATE INDEX IF NOT EXISTS idx_student_parent_chat_pair
+        ON student_parent_chat_messages (student_user_id, parent_user_id, created_at DESC);
+    `);
+  } catch {
+    // ignore
+  }
+  try {
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS student_homework_submissions (
+        id BIGSERIAL PRIMARY KEY,
+        student_user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        parent_user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        original_name TEXT NOT NULL,
+        stored_name TEXT NOT NULL,
+        file_url TEXT NOT NULL,
+        mime_type TEXT,
+        file_size BIGINT,
+        note TEXT,
+        review_status TEXT NOT NULL DEFAULT 'pending'
+          CHECK (review_status IN ('pending', 'approved', 'needs_revision')),
+        review_comment TEXT,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        reviewed_at TIMESTAMPTZ
+      );
+    `);
+  } catch {
+    // ignore
+  }
+  try {
+    await pool.query(`
+      CREATE INDEX IF NOT EXISTS idx_student_homework_pair
+        ON student_homework_submissions (student_user_id, parent_user_id, created_at DESC);
     `);
   } catch {
     // ignore

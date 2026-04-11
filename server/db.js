@@ -69,6 +69,10 @@ async function getMe(userId) {
             scp.name,
             scp.grade,
             scp.goal,
+            scp.goal_university,
+            scp.target_grade,
+            scp.current_concern,
+            scp.weakness,
             COALESCE(scp.initial_profile_completed, false) AS initial_profile_completed
      FROM users u
      LEFT JOIN student_coach_profiles scp ON scp.user_id = u.id
@@ -404,12 +408,136 @@ async function listLinkedParentUserIdsForStudent(studentUserId) {
   return res.rows.map(row => Number(row.user_id)).filter(Number.isFinite);
 }
 
+async function getParentCoachCustomization(parentUserId) {
+  const res = await query(
+    `SELECT *
+     FROM parent_coach_customizations
+     WHERE parent_user_id = $1
+     LIMIT 1`,
+    [parentUserId]
+  );
+  return res.rows[0] || null;
+}
+
+async function upsertParentCoachCustomization(parentUserId, input = {}) {
+  const res = await query(
+    `INSERT INTO parent_coach_customizations
+      (parent_user_id, persona, tone, control_intensity, focus_rules, updated_at)
+     VALUES ($1, $2, $3, $4, $5, now())
+     ON CONFLICT (parent_user_id)
+     DO UPDATE SET
+       persona = EXCLUDED.persona,
+       tone = EXCLUDED.tone,
+       control_intensity = EXCLUDED.control_intensity,
+       focus_rules = EXCLUDED.focus_rules,
+       updated_at = now()
+     RETURNING *`,
+    [
+      parentUserId,
+      String(input.persona || "").trim(),
+      String(input.tone || "").trim(),
+      Number(input.controlIntensity),
+      String(input.focusRules || "").trim()
+    ]
+  );
+  return res.rows[0] || null;
+}
+
+async function getEffectiveParentCoachCustomizationForStudent(studentUserId) {
+  const res = await query(
+    `SELECT pcc.*, pu.email AS parent_email
+     FROM parent_coach_customizations pcc
+     JOIN parents p ON p.user_id = pcc.parent_user_id
+     JOIN parents_students ps ON ps.parent_id = p.id
+     JOIN users pu ON pu.id = pcc.parent_user_id
+     WHERE ps.student_id = $1
+     ORDER BY pcc.updated_at DESC, pcc.parent_user_id ASC
+     LIMIT 1`,
+    [studentUserId]
+  );
+  return res.rows[0] || null;
+}
+
 async function insertParentsStudentsRow(parentDbId, studentUserId) {
   await query(
     `INSERT INTO parents_students (parent_id, student_id)
      VALUES ($1, $2)
      ON CONFLICT (parent_id, student_id) DO NOTHING`,
     [parentDbId, studentUserId]
+  );
+}
+
+async function withStudentLinkLock(studentUserId, work) {
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    await client.query("SELECT pg_advisory_xact_lock($1)", [Number(studentUserId)]);
+    const result = await work(client);
+    await client.query("COMMIT");
+    return result;
+  } catch (error) {
+    try {
+      await client.query("ROLLBACK");
+    } catch {
+      // ignore rollback failures
+    }
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
+async function getParentIdByUserIdWithClient(client, parentUserId) {
+  const res = await client.query("SELECT id FROM parents WHERE user_id = $1", [parentUserId]);
+  return res.rows[0] || null;
+}
+
+async function findLinkedParentForStudentWithClient(client, studentUserId) {
+  const res = await client.query(
+    `SELECT ps.parent_id, p.user_id, u.email
+     FROM parents_students ps
+     JOIN parents p ON p.id = ps.parent_id
+     JOIN users u ON u.id = p.user_id
+     WHERE ps.student_id = $1
+     ORDER BY u.email ASC
+     LIMIT 1`,
+    [studentUserId]
+  );
+  return res.rows[0] || null;
+}
+
+async function findPendingLinkRequestForStudentWithClient(client, studentUserId) {
+  const res = await client.query(
+    `SELECT r.id, r.parent_user_id, u.email AS parent_email
+     FROM parent_student_link_requests r
+     JOIN users u ON u.id = r.parent_user_id
+     WHERE r.student_user_id = $1 AND r.status = 'pending'
+     ORDER BY r.created_at ASC
+     LIMIT 1`,
+    [studentUserId]
+  );
+  return res.rows[0] || null;
+}
+
+async function insertParentsStudentsRowWithClient(client, parentDbId, studentUserId) {
+  await client.query(
+    `INSERT INTO parents_students (parent_id, student_id)
+     VALUES ($1, $2)
+     ON CONFLICT (parent_id, student_id) DO NOTHING`,
+    [parentDbId, studentUserId]
+  );
+}
+
+async function rejectOtherPendingLinkRequestsForStudentWithClient(
+  client,
+  studentUserId,
+  activeRequestId
+) {
+  await client.query(
+    `UPDATE parent_student_link_requests
+     SET status = 'rejected', updated_at = now()
+     WHERE student_user_id = $1 AND status = 'pending' AND id <> $2`,
+    [studentUserId, activeRequestId]
   );
 }
 
@@ -426,30 +554,30 @@ async function parentRequestLink(parentUserId, studentEmail) {
   if (student.id === parentUserId) {
     return { ok: false, error: "자기 자신과 연결할 수 없습니다." };
   }
-  const already = await query(
-    `SELECT 1 FROM parents_students ps
-     WHERE ps.parent_id = $1 AND ps.student_id = $2`,
-    [parent.id, student.id]
-  );
-  if (already.rows.length) {
-    return { ok: false, error: "이미 연결된 학생입니다." };
-  }
-  const pend = await query(
-    `SELECT id FROM parent_student_link_requests
-     WHERE parent_user_id = $1 AND student_user_id = $2 AND status = 'pending'`,
-    [parentUserId, student.id]
-  );
-  if (pend.rows.length) {
-    return { ok: false, error: "이미 진행 중인 연결 요청이 있습니다." };
-  }
-  const ins = await query(
-    `INSERT INTO parent_student_link_requests
-     (parent_user_id, student_user_id, initiated_by, parent_confirmed_at, student_confirmed_at, status)
-     VALUES ($1, $2, 'parent', now(), NULL, 'pending')
-     RETURNING id`,
-    [parentUserId, student.id]
-  );
-  return { ok: true, requestId: ins.rows[0].id };
+  return withStudentLinkLock(student.id, async client => {
+    const linked = await findLinkedParentForStudentWithClient(client, student.id);
+    if (linked) {
+      if (Number(linked.user_id) === Number(parentUserId)) {
+        return { ok: false, error: "이미 연결된 학생입니다." };
+      }
+      return { ok: false, error: "이 학생은 이미 다른 관리자와 연결되어 있습니다." };
+    }
+    const pending = await findPendingLinkRequestForStudentWithClient(client, student.id);
+    if (pending) {
+      if (Number(pending.parent_user_id) === Number(parentUserId)) {
+        return { ok: false, error: "이미 진행 중인 연결 요청이 있습니다." };
+      }
+      return { ok: false, error: "이 학생은 이미 다른 관리자와 연결 요청을 진행 중입니다." };
+    }
+    const ins = await client.query(
+      `INSERT INTO parent_student_link_requests
+       (parent_user_id, student_user_id, initiated_by, parent_confirmed_at, student_confirmed_at, status)
+       VALUES ($1, $2, 'parent', now(), NULL, 'pending')
+       RETURNING id`,
+      [parentUserId, student.id]
+    );
+    return { ok: true, requestId: ins.rows[0].id };
+  });
 }
 
 /** 학생이 학부모 이메일로 연결 요청 (학부모 승인 필요) */
@@ -465,30 +593,30 @@ async function studentRequestParent(studentUserId, parentEmail) {
   if (studentUserId === parentUser.id) {
     return { ok: false, error: "자기 자신과 연결할 수 없습니다." };
   }
-  const already = await query(
-    `SELECT 1 FROM parents_students ps
-     WHERE ps.parent_id = $1 AND ps.student_id = $2`,
-    [parent.id, studentUserId]
-  );
-  if (already.rows.length) {
-    return { ok: false, error: "이미 연결된 학부모입니다." };
-  }
-  const pend = await query(
-    `SELECT id FROM parent_student_link_requests
-     WHERE parent_user_id = $1 AND student_user_id = $2 AND status = 'pending'`,
-    [parentUser.id, studentUserId]
-  );
-  if (pend.rows.length) {
-    return { ok: false, error: "이미 진행 중인 연결 요청이 있습니다." };
-  }
-  const ins = await query(
-    `INSERT INTO parent_student_link_requests
-     (parent_user_id, student_user_id, initiated_by, parent_confirmed_at, student_confirmed_at, status)
-     VALUES ($1, $2, 'student', NULL, now(), 'pending')
-     RETURNING id`,
-    [parentUser.id, studentUserId]
-  );
-  return { ok: true, requestId: ins.rows[0].id };
+  return withStudentLinkLock(studentUserId, async client => {
+    const linked = await findLinkedParentForStudentWithClient(client, studentUserId);
+    if (linked) {
+      if (Number(linked.user_id) === Number(parentUser.id)) {
+        return { ok: false, error: "이미 연결된 관리자입니다." };
+      }
+      return { ok: false, error: "이미 연결된 관리자가 있습니다." };
+    }
+    const pending = await findPendingLinkRequestForStudentWithClient(client, studentUserId);
+    if (pending) {
+      if (Number(pending.parent_user_id) === Number(parentUser.id)) {
+        return { ok: false, error: "이미 진행 중인 연결 요청이 있습니다." };
+      }
+      return { ok: false, error: "이미 다른 관리자와 연결 요청을 진행 중입니다." };
+    }
+    const ins = await client.query(
+      `INSERT INTO parent_student_link_requests
+       (parent_user_id, student_user_id, initiated_by, parent_confirmed_at, student_confirmed_at, status)
+       VALUES ($1, $2, 'student', NULL, now(), 'pending')
+       RETURNING id`,
+      [parentUser.id, studentUserId]
+    );
+    return { ok: true, requestId: ins.rows[0].id };
+  });
 }
 
 async function listParentLinkRequests(parentUserId) {
@@ -550,53 +678,83 @@ async function listStudentLinkRequests(studentUserId) {
 }
 
 async function studentConfirmLinkRequest(studentUserId, requestId) {
-  const req = await query(
-    `SELECT * FROM parent_student_link_requests WHERE id = $1 AND status = 'pending'`,
-    [requestId]
-  );
-  const row = req.rows[0];
-  if (!row) return { ok: false, error: "요청을 찾을 수 없습니다." };
-  if (Number(row.student_user_id) !== Number(studentUserId)) {
-    return { ok: false, error: "권한이 없습니다." };
-  }
-  if (row.initiated_by !== "parent" || !row.parent_confirmed_at || row.student_confirmed_at) {
-    return { ok: false, error: "승인할 수 없는 요청입니다." };
-  }
-  const parent = await getParentIdByUserId(row.parent_user_id);
-  if (!parent) return { ok: false, error: "학부모 정보를 찾을 수 없습니다." };
-  await query(
-    `UPDATE parent_student_link_requests
-     SET student_confirmed_at = now(), status = 'active', updated_at = now()
-     WHERE id = $1`,
-    [requestId]
-  );
-  await insertParentsStudentsRow(parent.id, row.student_user_id);
-  return { ok: true };
+  return withStudentLinkLock(studentUserId, async client => {
+    const req = await client.query(
+      `SELECT * FROM parent_student_link_requests WHERE id = $1 AND status = 'pending' FOR UPDATE`,
+      [requestId]
+    );
+    const row = req.rows[0];
+    if (!row) return { ok: false, error: "요청을 찾을 수 없습니다." };
+    if (Number(row.student_user_id) !== Number(studentUserId)) {
+      return { ok: false, error: "권한이 없습니다." };
+    }
+    if (row.initiated_by !== "parent" || !row.parent_confirmed_at || row.student_confirmed_at) {
+      return { ok: false, error: "승인할 수 없는 요청입니다." };
+    }
+    const linked = await findLinkedParentForStudentWithClient(client, studentUserId);
+    if (linked && Number(linked.user_id) !== Number(row.parent_user_id)) {
+      return { ok: false, error: "이미 다른 관리자와 연결되어 있습니다." };
+    }
+    const parent = await getParentIdByUserIdWithClient(client, row.parent_user_id);
+    if (!parent) return { ok: false, error: "학부모 정보를 찾을 수 없습니다." };
+    await client.query(
+      `UPDATE parent_student_link_requests
+       SET student_confirmed_at = now(), status = 'active', updated_at = now()
+       WHERE id = $1`,
+      [requestId]
+    );
+    await insertParentsStudentsRowWithClient(client, parent.id, row.student_user_id);
+    await rejectOtherPendingLinkRequestsForStudentWithClient(
+      client,
+      row.student_user_id,
+      requestId
+    );
+    return { ok: true };
+  });
 }
 
 async function parentConfirmLinkRequest(parentUserId, requestId) {
   const req = await query(
-    `SELECT * FROM parent_student_link_requests WHERE id = $1 AND status = 'pending'`,
+    `SELECT student_user_id FROM parent_student_link_requests WHERE id = $1 AND status = 'pending'`,
     [requestId]
   );
-  const row = req.rows[0];
-  if (!row) return { ok: false, error: "요청을 찾을 수 없습니다." };
-  if (Number(row.parent_user_id) !== Number(parentUserId)) {
-    return { ok: false, error: "권한이 없습니다." };
+  const studentUserId = Number(req.rows[0]?.student_user_id || 0);
+  if (!studentUserId) {
+    return { ok: false, error: "요청을 찾을 수 없습니다." };
   }
-  if (row.initiated_by !== "student" || !row.student_confirmed_at || row.parent_confirmed_at) {
-    return { ok: false, error: "승인할 수 없는 요청입니다." };
-  }
-  const parent = await getParentIdByUserId(parentUserId);
-  if (!parent) return { ok: false, error: "학부모 정보를 찾을 수 없습니다." };
-  await query(
-    `UPDATE parent_student_link_requests
-     SET parent_confirmed_at = now(), status = 'active', updated_at = now()
-     WHERE id = $1`,
-    [requestId]
-  );
-  await insertParentsStudentsRow(parent.id, row.student_user_id);
-  return { ok: true };
+  return withStudentLinkLock(studentUserId, async client => {
+    const pending = await client.query(
+      `SELECT * FROM parent_student_link_requests WHERE id = $1 AND status = 'pending' FOR UPDATE`,
+      [requestId]
+    );
+    const row = pending.rows[0];
+    if (!row) return { ok: false, error: "요청을 찾을 수 없습니다." };
+    if (Number(row.parent_user_id) !== Number(parentUserId)) {
+      return { ok: false, error: "권한이 없습니다." };
+    }
+    if (row.initiated_by !== "student" || !row.student_confirmed_at || row.parent_confirmed_at) {
+      return { ok: false, error: "승인할 수 없는 요청입니다." };
+    }
+    const linked = await findLinkedParentForStudentWithClient(client, row.student_user_id);
+    if (linked && Number(linked.user_id) !== Number(parentUserId)) {
+      return { ok: false, error: "이 학생은 이미 다른 관리자와 연결되어 있습니다." };
+    }
+    const parent = await getParentIdByUserIdWithClient(client, parentUserId);
+    if (!parent) return { ok: false, error: "학부모 정보를 찾을 수 없습니다." };
+    await client.query(
+      `UPDATE parent_student_link_requests
+       SET parent_confirmed_at = now(), status = 'active', updated_at = now()
+       WHERE id = $1`,
+      [requestId]
+    );
+    await insertParentsStudentsRowWithClient(client, parent.id, row.student_user_id);
+    await rejectOtherPendingLinkRequestsForStudentWithClient(
+      client,
+      row.student_user_id,
+      requestId
+    );
+    return { ok: true };
+  });
 }
 
 async function rejectLinkRequest(userId, requestId) {
@@ -616,6 +774,219 @@ async function rejectLinkRequest(userId, requestId) {
     [requestId]
   );
   return { ok: true };
+}
+
+async function unlinkParentStudentWithClient(client, parentUserId, studentUserId) {
+  const parent = await getParentIdByUserIdWithClient(client, parentUserId);
+  if (!parent) {
+    return { ok: false, error: "관리자 정보를 찾을 수 없습니다." };
+  }
+
+  const linked = await client.query(
+    `SELECT 1
+     FROM parents_students
+     WHERE parent_id = $1 AND student_id = $2
+     FOR UPDATE`,
+    [parent.id, studentUserId]
+  );
+  if (linked.rows.length === 0) {
+    return { ok: false, error: "이미 연결이 해제되었습니다." };
+  }
+
+  await client.query(
+    `DELETE FROM parent_planner_rules
+     WHERE parent_user_id = $1 AND student_user_id = $2`,
+    [parentUserId, studentUserId]
+  );
+  await client.query(
+    `DELETE FROM parent_student_study_rooms
+     WHERE parent_user_id = $1 AND student_user_id = $2`,
+    [parentUserId, studentUserId]
+  );
+  await client.query(
+    `DELETE FROM parents_students
+     WHERE parent_id = $1 AND student_id = $2`,
+    [parent.id, studentUserId]
+  );
+  return { ok: true };
+}
+
+async function createUnlinkRequest({ actorUserId, actorRole, parentUserId, studentUserId }) {
+  if (actorRole !== "parent" && actorRole !== "student") {
+    return { ok: false, error: "권한이 없습니다." };
+  }
+  if (!Number.isFinite(Number(parentUserId)) || !Number.isFinite(Number(studentUserId))) {
+    return { ok: false, error: "연결 정보를 확인해 주세요." };
+  }
+
+  return withStudentLinkLock(studentUserId, async client => {
+    if (actorRole === "parent" && Number(actorUserId) !== Number(parentUserId)) {
+      return { ok: false, error: "권한이 없습니다." };
+    }
+    if (actorRole === "student" && Number(actorUserId) !== Number(studentUserId)) {
+      return { ok: false, error: "권한이 없습니다." };
+    }
+
+    const parent = await getParentIdByUserIdWithClient(client, parentUserId);
+    if (!parent) {
+      return { ok: false, error: "관리자 정보를 찾을 수 없습니다." };
+    }
+
+    const linked = await client.query(
+      `SELECT 1
+       FROM parents_students
+       WHERE parent_id = $1 AND student_id = $2
+       FOR UPDATE`,
+      [parent.id, studentUserId]
+    );
+    if (linked.rows.length === 0) {
+      return { ok: false, error: "연결된 계정이 없습니다." };
+    }
+
+    const pending = await client.query(
+      `SELECT id, initiated_by
+       FROM parent_student_unlink_requests
+       WHERE parent_user_id = $1 AND student_user_id = $2 AND status = 'pending'
+       LIMIT 1`,
+      [parentUserId, studentUserId]
+    );
+    if (pending.rows[0]) {
+      return {
+        ok: false,
+        error:
+          pending.rows[0].initiated_by === actorRole
+            ? "이미 보낸 연결 끊기 요청이 있습니다."
+            : "상대 확인을 기다리는 연결 끊기 요청이 있습니다."
+      };
+    }
+
+    const ins = await client.query(
+      `INSERT INTO parent_student_unlink_requests
+       (parent_user_id, student_user_id, initiated_by, status)
+       VALUES ($1, $2, $3, 'pending')
+       RETURNING id`,
+      [parentUserId, studentUserId, actorRole]
+    );
+    return { ok: true, requestId: Number(ins.rows[0]?.id || 0) };
+  });
+}
+
+async function confirmUnlinkRequest({ actorUserId, actorRole, requestId }) {
+  const req = await query(
+    `SELECT student_user_id
+     FROM parent_student_unlink_requests
+     WHERE id = $1 AND status = 'pending'`,
+    [requestId]
+  );
+  const studentUserId = Number(req.rows[0]?.student_user_id || 0);
+  if (!studentUserId) {
+    return { ok: false, error: "요청을 찾을 수 없습니다." };
+  }
+
+  return withStudentLinkLock(studentUserId, async client => {
+    const pending = await client.query(
+      `SELECT *
+       FROM parent_student_unlink_requests
+       WHERE id = $1 AND status = 'pending'
+       FOR UPDATE`,
+      [requestId]
+    );
+    const row = pending.rows[0];
+    if (!row) {
+      return { ok: false, error: "요청을 찾을 수 없습니다." };
+    }
+    const actorIsRecipient =
+      (row.initiated_by === "parent" && actorRole === "student" && Number(row.student_user_id) === Number(actorUserId)) ||
+      (row.initiated_by === "student" && actorRole === "parent" && Number(row.parent_user_id) === Number(actorUserId));
+    if (!actorIsRecipient) {
+      return { ok: false, error: "권한이 없습니다." };
+    }
+
+    const unlinkResult = await unlinkParentStudentWithClient(
+      client,
+      Number(row.parent_user_id),
+      Number(row.student_user_id)
+    );
+    if (!unlinkResult.ok) {
+      return unlinkResult;
+    }
+
+    await client.query(
+      `UPDATE parent_student_unlink_requests
+       SET status = 'approved', resolved_at = now(), resolved_by_user_id = $2
+       WHERE id = $1`,
+      [requestId, actorUserId]
+    );
+    return {
+      ok: true,
+      parentUserId: Number(row.parent_user_id),
+      studentUserId: Number(row.student_user_id),
+      initiatedBy: String(row.initiated_by || "")
+    };
+  });
+}
+
+async function rejectUnlinkRequest({ actorUserId, actorRole, requestId }) {
+  const req = await query(
+    `SELECT student_user_id
+     FROM parent_student_unlink_requests
+     WHERE id = $1 AND status = 'pending'`,
+    [requestId]
+  );
+  const studentUserId = Number(req.rows[0]?.student_user_id || 0);
+  if (!studentUserId) {
+    return { ok: false, error: "요청을 찾을 수 없습니다." };
+  }
+  return withStudentLinkLock(studentUserId, async client => {
+    const pending = await client.query(
+      `SELECT *
+       FROM parent_student_unlink_requests
+       WHERE id = $1 AND status = 'pending'
+       FOR UPDATE`,
+      [requestId]
+    );
+    const row = pending.rows[0];
+    if (!row) {
+      return { ok: false, error: "요청을 찾을 수 없습니다." };
+    }
+    const actorIsRecipient =
+      (row.initiated_by === "parent" && actorRole === "student" && Number(row.student_user_id) === Number(actorUserId)) ||
+      (row.initiated_by === "student" && actorRole === "parent" && Number(row.parent_user_id) === Number(actorUserId));
+    if (!actorIsRecipient) {
+      return { ok: false, error: "권한이 없습니다." };
+    }
+    await client.query(
+      `UPDATE parent_student_unlink_requests
+       SET status = 'rejected', resolved_at = now(), resolved_by_user_id = $2
+       WHERE id = $1`,
+      [requestId, actorUserId]
+    );
+    return {
+      ok: true,
+      parentUserId: Number(row.parent_user_id),
+      studentUserId: Number(row.student_user_id),
+      initiatedBy: String(row.initiated_by || "")
+    };
+  });
+}
+
+async function unlinkParentStudent({ actorUserId, actorRole, parentUserId, studentUserId }) {
+  if (actorRole !== "parent" && actorRole !== "student") {
+    return { ok: false, error: "권한이 없습니다." };
+  }
+  if (!Number.isFinite(Number(parentUserId)) || !Number.isFinite(Number(studentUserId))) {
+    return { ok: false, error: "연결 정보를 확인해 주세요." };
+  }
+
+  return withStudentLinkLock(studentUserId, async client => {
+    if (actorRole === "parent" && Number(actorUserId) !== Number(parentUserId)) {
+      return { ok: false, error: "권한이 없습니다." };
+    }
+    if (actorRole === "student" && Number(actorUserId) !== Number(studentUserId)) {
+      return { ok: false, error: "권한이 없습니다." };
+    }
+    return unlinkParentStudentWithClient(client, parentUserId, studentUserId);
+  });
 }
 
 async function parentHasStudent(parentUserId, studentId) {
@@ -1524,14 +1895,18 @@ async function upsertStudentMdmGroup(userId, assignmentGroupId, assignmentGroupN
 async function upsertStudentCoachProfile(userId, input = {}) {
   const res = await query(
     `INSERT INTO student_coach_profiles
-      (user_id, name, school_level, grade, goal, target_subjects, weak_subjects, sleep_time, wake_time, initial_profile_completed, updated_at)
-     VALUES ($1, $2, $3, $4, $5, $6::text[], $7::text[], $8, $9, $10, now())
+      (user_id, name, school_level, grade, goal, goal_university, target_grade, current_concern, weakness, target_subjects, weak_subjects, sleep_time, wake_time, initial_profile_completed, updated_at)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10::text[], $11::text[], $12, $13, $14, now())
      ON CONFLICT (user_id)
      DO UPDATE SET
        name = COALESCE(EXCLUDED.name, student_coach_profiles.name),
        school_level = COALESCE(EXCLUDED.school_level, student_coach_profiles.school_level),
        grade = COALESCE(EXCLUDED.grade, student_coach_profiles.grade),
        goal = COALESCE(EXCLUDED.goal, student_coach_profiles.goal),
+       goal_university = COALESCE(EXCLUDED.goal_university, student_coach_profiles.goal_university),
+       target_grade = COALESCE(EXCLUDED.target_grade, student_coach_profiles.target_grade),
+       current_concern = COALESCE(EXCLUDED.current_concern, student_coach_profiles.current_concern),
+       weakness = COALESCE(EXCLUDED.weakness, student_coach_profiles.weakness),
        target_subjects = COALESCE(EXCLUDED.target_subjects, student_coach_profiles.target_subjects),
        weak_subjects = COALESCE(EXCLUDED.weak_subjects, student_coach_profiles.weak_subjects),
        sleep_time = COALESCE(EXCLUDED.sleep_time, student_coach_profiles.sleep_time),
@@ -1548,8 +1923,12 @@ async function upsertStudentCoachProfile(userId, input = {}) {
       input.schoolLevel || null,
       Number.isFinite(Number(input.grade)) ? Number(input.grade) : null,
       input.goal || null,
-      Array.isArray(input.targetSubjects) ? input.targetSubjects : [],
-      Array.isArray(input.weakSubjects) ? input.weakSubjects : [],
+      input.goalUniversity || null,
+      input.targetGrade || null,
+      input.currentConcern || null,
+      input.weakness || null,
+      Array.isArray(input.targetSubjects) ? input.targetSubjects : null,
+      Array.isArray(input.weakSubjects) ? input.weakSubjects : null,
       input.sleepTime || null,
       input.wakeTime || null,
       Object.prototype.hasOwnProperty.call(input, "initialProfileCompleted")
@@ -1747,6 +2126,19 @@ async function listStudentCoachLogsInWeekRange(userId, weekMondayIso) {
   return res.rows;
 }
 
+async function listStudentCoachLogsInDateRange(userId, startDateIso, endDateIso) {
+  const res = await query(
+    `SELECT *
+     FROM student_coach_logs
+     WHERE user_id = $1
+       AND log_date >= $2::date
+       AND log_date <= $3::date
+     ORDER BY log_date DESC, created_at DESC`,
+    [userId, startDateIso, endDateIso]
+  );
+  return res.rows;
+}
+
 async function insertStudentCoachMessage(userId, role, content) {
   const res = await query(
     `INSERT INTO student_coach_messages (user_id, role, content)
@@ -1767,6 +2159,193 @@ async function listRecentStudentCoachMessages(userId, limit = 20) {
     [userId, Math.max(1, Number(limit) || 20)]
   );
   return res.rows.reverse();
+}
+
+function serializeStudentParentChatMessage(row) {
+  if (!row) return null;
+  return {
+    id: Number(row.id),
+    studentUserId: Number(row.student_user_id),
+    parentUserId: Number(row.parent_user_id),
+    senderRole: row.sender_role === "parent" ? "parent" : "student",
+    content: String(row.content || ""),
+    createdAt: row.created_at
+      ? new Date(row.created_at).toISOString()
+      : new Date().toISOString()
+  };
+}
+
+async function insertStudentParentChatMessage(
+  studentUserId,
+  parentUserId,
+  senderRole,
+  content
+) {
+  const res = await query(
+    `INSERT INTO student_parent_chat_messages
+      (student_user_id, parent_user_id, sender_role, content)
+     VALUES ($1, $2, $3, $4)
+     RETURNING *`,
+    [studentUserId, parentUserId, senderRole, String(content || "")]
+  );
+  return serializeStudentParentChatMessage(res.rows[0]);
+}
+
+async function listStudentParentChatMessages(
+  studentUserId,
+  parentUserId,
+  limit = 60
+) {
+  const res = await query(
+    `SELECT id, student_user_id, parent_user_id, sender_role, content, created_at
+     FROM student_parent_chat_messages
+     WHERE student_user_id = $1 AND parent_user_id = $2
+     ORDER BY created_at DESC
+     LIMIT $3`,
+    [studentUserId, parentUserId, Math.max(1, Number(limit) || 60)]
+  );
+  return res.rows.map(serializeStudentParentChatMessage).reverse();
+}
+
+function serializeHomeworkSubmission(row) {
+  if (!row) return null;
+  return {
+    id: Number(row.id),
+    studentUserId: Number(row.student_user_id),
+    parentUserId: Number(row.parent_user_id),
+    originalName: String(row.original_name || ""),
+    storedName: String(row.stored_name || ""),
+    fileUrl: String(row.file_url || ""),
+    mimeType: row.mime_type != null ? String(row.mime_type) : null,
+    fileSize:
+      row.file_size != null && Number.isFinite(Number(row.file_size))
+        ? Number(row.file_size)
+        : null,
+    note: row.note != null ? String(row.note) : "",
+    reviewStatus:
+      row.review_status === "approved"
+        ? "approved"
+        : row.review_status === "needs_revision"
+          ? "needs_revision"
+          : "pending",
+    reviewComment: row.review_comment != null ? String(row.review_comment) : "",
+    createdAt: row.created_at
+      ? new Date(row.created_at).toISOString()
+      : new Date().toISOString(),
+    reviewedAt: row.reviewed_at ? new Date(row.reviewed_at).toISOString() : null
+  };
+}
+
+async function createStudentHomeworkSubmission(studentUserId, parentUserId, input = {}) {
+  const res = await query(
+    `INSERT INTO student_homework_submissions
+      (student_user_id, parent_user_id, original_name, stored_name, file_url, mime_type, file_size, note)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+     RETURNING *`,
+    [
+      studentUserId,
+      parentUserId,
+      String(input.originalName || "").trim(),
+      String(input.storedName || "").trim(),
+      String(input.fileUrl || "").trim(),
+      input.mimeType != null ? String(input.mimeType).trim() : null,
+      Number.isFinite(Number(input.fileSize)) ? Number(input.fileSize) : null,
+      input.note != null ? String(input.note).trim() : null
+    ]
+  );
+  return serializeHomeworkSubmission(res.rows[0]);
+}
+
+async function updateStudentHomeworkSubmission(
+  studentUserId,
+  parentUserId,
+  submissionId,
+  input = {}
+) {
+  const currentRes = await query(
+    `SELECT *
+     FROM student_homework_submissions
+     WHERE id = $1 AND student_user_id = $2 AND parent_user_id = $3`,
+    [submissionId, studentUserId, parentUserId]
+  );
+  const current = currentRes.rows[0];
+  if (!current) return null;
+
+  const res = await query(
+    `UPDATE student_homework_submissions
+     SET original_name = $4,
+         stored_name = $5,
+         file_url = $6,
+         mime_type = $7,
+         file_size = $8,
+         note = $9,
+         review_status = 'pending',
+         review_comment = '',
+         reviewed_at = NULL
+     WHERE id = $1 AND student_user_id = $2 AND parent_user_id = $3
+     RETURNING *`,
+    [
+      submissionId,
+      studentUserId,
+      parentUserId,
+      input.originalName != null ? String(input.originalName).trim() : String(current.original_name || ""),
+      input.storedName != null ? String(input.storedName).trim() : String(current.stored_name || ""),
+      input.fileUrl != null ? String(input.fileUrl).trim() : String(current.file_url || ""),
+      input.mimeType != null ? String(input.mimeType).trim() : current.mime_type,
+      Number.isFinite(Number(input.fileSize)) ? Number(input.fileSize) : current.file_size,
+      input.note != null ? String(input.note).trim() : current.note
+    ]
+  );
+
+  return {
+    previous: serializeHomeworkSubmission(current),
+    submission: serializeHomeworkSubmission(res.rows[0])
+  };
+}
+
+async function listStudentHomeworkSubmissions(
+  studentUserId,
+  parentUserId,
+  limit = 20
+) {
+  const res = await query(
+    `SELECT *
+     FROM student_homework_submissions
+     WHERE student_user_id = $1 AND parent_user_id = $2
+     ORDER BY created_at DESC
+     LIMIT $3`,
+    [studentUserId, parentUserId, Math.max(1, Number(limit) || 20)]
+  );
+  return res.rows.map(serializeHomeworkSubmission);
+}
+
+async function deleteStudentHomeworkSubmission(studentUserId, parentUserId, submissionId) {
+  const res = await query(
+    `DELETE FROM student_homework_submissions
+     WHERE id = $1 AND student_user_id = $2 AND parent_user_id = $3
+     RETURNING *`,
+    [submissionId, studentUserId, parentUserId]
+  );
+  return serializeHomeworkSubmission(res.rows[0]);
+}
+
+async function reviewStudentHomeworkSubmission(
+  studentUserId,
+  parentUserId,
+  submissionId,
+  reviewStatus,
+  reviewComment
+) {
+  const res = await query(
+    `UPDATE student_homework_submissions
+     SET review_status = $4,
+         review_comment = $5,
+         reviewed_at = now()
+     WHERE id = $1 AND student_user_id = $2 AND parent_user_id = $3
+     RETURNING *`,
+    [submissionId, studentUserId, parentUserId, reviewStatus, reviewComment || null]
+  );
+  return serializeHomeworkSubmission(res.rows[0]);
 }
 
 function hhmmFromDb(t) {
@@ -2020,6 +2599,26 @@ async function markStudentNotificationsReadAll(userId) {
   );
 }
 
+async function createStudentNotification(userId, title, body) {
+  const res = await query(
+    `INSERT INTO student_in_app_notifications (user_id, title, body)
+     VALUES ($1, $2, $3)
+     RETURNING *`,
+    [userId, String(title || ""), body != null ? String(body) : null]
+  );
+  return res.rows[0] || null;
+}
+
+async function createParentNotification(userId, title, body) {
+  const res = await query(
+    `INSERT INTO parent_in_app_notifications (user_id, title, body)
+     VALUES ($1, $2, $3)
+     RETURNING *`,
+    [userId, String(title || ""), body != null ? String(body) : null]
+  );
+  return res.rows[0] || null;
+}
+
 async function countUnreadParentNotifications(userId) {
   try {
     const r = await query(
@@ -2081,6 +2680,9 @@ module.exports = {
   deleteUser,
   listParentStudents,
   listLinkedParentUserIdsForStudent,
+  getParentCoachCustomization,
+  upsertParentCoachCustomization,
+  getEffectiveParentCoachCustomizationForStudent,
   listStudentParents,
   parentRequestLink,
   studentRequestParent,
@@ -2089,6 +2691,10 @@ module.exports = {
   studentConfirmLinkRequest,
   parentConfirmLinkRequest,
   rejectLinkRequest,
+  createUnlinkRequest,
+  confirmUnlinkRequest,
+  rejectUnlinkRequest,
+  unlinkParentStudent,
   parentHasStudent,
   listAllParentStudentPairs,
   upsertParentAiReport,
@@ -2120,11 +2726,21 @@ module.exports = {
   setStudentCoachLogTomorrowPracticeDone,
   listRecentStudentCoachLogs,
   listStudentCoachLogsInWeekRange,
+  listStudentCoachLogsInDateRange,
   insertStudentCoachMessage,
   listRecentStudentCoachMessages,
+  insertStudentParentChatMessage,
+  listStudentParentChatMessages,
+  createStudentHomeworkSubmission,
+  updateStudentHomeworkSubmission,
+  listStudentHomeworkSubmissions,
+  deleteStudentHomeworkSubmission,
+  reviewStudentHomeworkSubmission,
   countUnreadStudentNotifications,
   listStudentNotifications,
   markStudentNotificationsReadAll,
+  createStudentNotification,
+  createParentNotification,
   countUnreadParentNotifications,
   listParentNotifications,
   markParentNotificationsReadAll,

@@ -66,6 +66,57 @@ CREATE INDEX IF NOT EXISTS idx_pslr_student_pending
   ON parent_student_link_requests (student_user_id)
   WHERE status = 'pending';
 
+-- 3c. Parent–student unlink requests (상대 확인 후 연결 해제)
+CREATE TABLE IF NOT EXISTS parent_student_unlink_requests (
+  id BIGSERIAL PRIMARY KEY,
+  parent_user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  student_user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  initiated_by TEXT NOT NULL CHECK (initiated_by IN ('parent', 'student')),
+  status TEXT NOT NULL DEFAULT 'pending'
+    CHECK (status IN ('pending', 'approved', 'rejected')),
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  resolved_at TIMESTAMPTZ,
+  resolved_by_user_id BIGINT NULL REFERENCES users(id) ON DELETE SET NULL
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS uq_psur_pending_pair
+  ON parent_student_unlink_requests (parent_user_id, student_user_id)
+  WHERE status = 'pending';
+
+CREATE INDEX IF NOT EXISTS idx_psur_parent_pending
+  ON parent_student_unlink_requests (parent_user_id)
+  WHERE status = 'pending';
+
+CREATE INDEX IF NOT EXISTS idx_psur_student_pending
+  ON parent_student_unlink_requests (student_user_id)
+  WHERE status = 'pending';
+
+-- 3c. Parent-level AI coach customization applied to linked students
+CREATE TABLE IF NOT EXISTS parent_coach_customizations (
+  parent_user_id BIGINT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+  persona TEXT NOT NULL DEFAULT '다정하지만 기준이 분명한 학습 코치',
+  tone TEXT NOT NULL DEFAULT '따뜻하고 또렷한 존댓말로, 공감 뒤에 바로 실행 행동을 제시한다.',
+  control_intensity INTEGER NOT NULL DEFAULT 3 CHECK (control_intensity BETWEEN 1 AND 5),
+  focus_rules TEXT NOT NULL DEFAULT '해야 할 일을 작게 쪼개 바로 시작하게 돕고, 미루는 핑계는 부드럽지만 분명하게 바로잡는다.',
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+ALTER TABLE parent_coach_customizations
+ADD COLUMN IF NOT EXISTS persona TEXT NOT NULL DEFAULT '다정하지만 기준이 분명한 학습 코치';
+
+ALTER TABLE parent_coach_customizations
+ADD COLUMN IF NOT EXISTS tone TEXT NOT NULL DEFAULT '따뜻하고 또렷한 존댓말로, 공감 뒤에 바로 실행 행동을 제시한다.';
+
+ALTER TABLE parent_coach_customizations
+ADD COLUMN IF NOT EXISTS control_intensity INTEGER NOT NULL DEFAULT 3;
+
+ALTER TABLE parent_coach_customizations
+ADD COLUMN IF NOT EXISTS focus_rules TEXT NOT NULL DEFAULT '해야 할 일을 작게 쪼개 바로 시작하게 돕고, 미루는 핑계는 부드럽지만 분명하게 바로잡는다.';
+
+CREATE INDEX IF NOT EXISTS idx_parent_coach_customizations_updated
+  ON parent_coach_customizations (updated_at DESC);
+
 -- 4. Study days (per student, per date)
 CREATE TABLE IF NOT EXISTS study_days (
   id         BIGSERIAL PRIMARY KEY,
@@ -281,6 +332,10 @@ CREATE TABLE IF NOT EXISTS student_coach_profiles (
   school_level TEXT,
   grade INTEGER,
   goal TEXT,
+  goal_university TEXT,
+  target_grade TEXT,
+  current_concern TEXT,
+  weakness TEXT,
   target_subjects TEXT[] NOT NULL DEFAULT '{}'::text[],
   weak_subjects TEXT[] NOT NULL DEFAULT '{}'::text[],
   sleep_time TEXT,
@@ -292,6 +347,18 @@ CREATE TABLE IF NOT EXISTS student_coach_profiles (
 
 ALTER TABLE student_coach_profiles
 ADD COLUMN IF NOT EXISTS initial_profile_completed BOOLEAN NOT NULL DEFAULT false;
+
+ALTER TABLE student_coach_profiles
+ADD COLUMN IF NOT EXISTS goal_university TEXT;
+
+ALTER TABLE student_coach_profiles
+ADD COLUMN IF NOT EXISTS target_grade TEXT;
+
+ALTER TABLE student_coach_profiles
+ADD COLUMN IF NOT EXISTS current_concern TEXT;
+
+ALTER TABLE student_coach_profiles
+ADD COLUMN IF NOT EXISTS weakness TEXT;
 
 CREATE TABLE IF NOT EXISTS student_coach_logs (
   id BIGSERIAL PRIMARY KEY,
@@ -326,6 +393,38 @@ CREATE TABLE IF NOT EXISTS student_coach_messages (
 
 CREATE INDEX IF NOT EXISTS idx_student_coach_messages_user
   ON student_coach_messages (user_id, created_at DESC);
+
+CREATE TABLE IF NOT EXISTS student_parent_chat_messages (
+  id BIGSERIAL PRIMARY KEY,
+  student_user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  parent_user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  sender_role TEXT NOT NULL CHECK (sender_role IN ('student', 'parent')),
+  content TEXT NOT NULL DEFAULT '',
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_student_parent_chat_pair
+  ON student_parent_chat_messages (student_user_id, parent_user_id, created_at DESC);
+
+CREATE TABLE IF NOT EXISTS student_homework_submissions (
+  id BIGSERIAL PRIMARY KEY,
+  student_user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  parent_user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  original_name TEXT NOT NULL,
+  stored_name TEXT NOT NULL,
+  file_url TEXT NOT NULL,
+  mime_type TEXT,
+  file_size BIGINT,
+  note TEXT,
+  review_status TEXT NOT NULL DEFAULT 'pending'
+    CHECK (review_status IN ('pending', 'approved', 'needs_revision')),
+  review_comment TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  reviewed_at TIMESTAMPTZ
+);
+
+CREATE INDEX IF NOT EXISTS idx_student_homework_pair
+  ON student_homework_submissions (student_user_id, parent_user_id, created_at DESC);
 
 -- 17. Student profile schedule items (date-based, AI/manual unified storage)
 CREATE TABLE IF NOT EXISTS student_profile_schedules (

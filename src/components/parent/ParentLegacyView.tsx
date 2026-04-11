@@ -4,7 +4,11 @@ import { setAppPath } from "../../lib/appNavigation";
 import { getWeekRangeLabel } from "../../lib/weekDates";
 import type { ParentLockStatus } from "../../types/lockStatus";
 import type { ParentStudentRow } from "../../types/parent";
+
 import { ParentProfilePage } from "./ParentProfilePage";
+import { buildAdminGuide } from "../../coach/ai/parent-guide";
+import { buildWeeklyInsight } from "../../coach/ai/insight-engine";
+import { demoDailyLogs, demoStudents } from "../../coach/demoData";
 
 export type ParentTabKey = "report" | "profile";
 
@@ -58,6 +62,7 @@ export function ParentLegacyView(props: {
     React.SetStateAction<ParentStudentRow[]>
   >;
   setParentAiDaily: (v: ParentAiDaily | null) => void;
+  onSelectManagedStudent: (id: number) => void;
   hapticSelection: () => void;
   hapticWarning: () => void;
   hapticSuccess: () => void;
@@ -97,6 +102,7 @@ export function ParentLegacyView(props: {
     setParentWaitingOnMe,
     setParentStudents,
     setParentAiDaily,
+    onSelectManagedStudent,
     hapticSelection,
     hapticWarning,
     hapticSuccess,
@@ -109,11 +115,19 @@ export function ParentLegacyView(props: {
     return (
       <section className="section">
         <div className="section-header">
-          <h2 className="section-title">학부모</h2>
+          <h2 className="section-title">관리자</h2>
         </div>
       </section>
     );
   }
+
+  // 홈(리포트)용 학생/insight/guide 생성
+  const student = parentStudentId
+    ? demoStudents.find(s => s.id === parentStudentId) || demoStudents[0]
+    : demoStudents[0];
+  const logs7d = demoDailyLogs.filter(l => l.studentId === student.id).slice(-7);
+  const insight = buildWeeklyInsight(student.id, demoDailyLogs);
+  const guide = buildAdminGuide(insight, logs7d);
 
   const report = parentReport as {
     stats?: {
@@ -153,7 +167,7 @@ export function ParentLegacyView(props: {
         />
       )}
 
-      {parentTab === "report" && (
+      {parentTab === "report" && false && (
         <section className="section">
           <div className="section-header">
             <h2 className="section-title">주간 · AI 리포트</h2>
@@ -199,11 +213,11 @@ export function ParentLegacyView(props: {
           {parentStudents.length > 0 && (
             <div className="settings-list" style={{ marginTop: 14 }}>
               <div className="settings-item" style={{ cursor: "default" }}>
-                <span className="settings-label">연결된 자녀</span>
+                <span className="settings-label">연결된 학생</span>
                 <span className="settings-value">
                   <select
                     value={parentStudentId ?? ""}
-                    onChange={e => setParentStudentId(Number(e.target.value))}
+                    onChange={e => onSelectManagedStudent(Number(e.target.value))}
                     style={{
                       fontSize: "var(--font-size-medium)",
                       padding: "6px 8px",
@@ -251,7 +265,7 @@ export function ParentLegacyView(props: {
                   className="settings-item"
                   style={{ cursor: "default", padding: "10px 0 0", borderBottom: "none" }}
                 >
-                  <span className="settings-label">자녀가 계획표를 쓰는 시각</span>
+                  <span className="settings-label">학생이 계획표를 쓰는 시각</span>
                   <input
                     type="time"
                     className="field-input"
@@ -442,34 +456,67 @@ export function ParentLegacyView(props: {
 
           <div style={{ marginTop: 14 }}>
             {!report ? null : (
-              <div className="progress-card">
-                <div className="progress-row">
-                  <span className="progress-label">총 학습 시간</span>
-                  <span className="progress-value">
-                    {Math.floor((report.stats?.totalStudyMinutes || 0) / 60)}
-                    {"시간 "}
-                    {(report.stats?.totalStudyMinutes || 0) % 60}
-                    {"분"}
-                  </span>
-                </div>
-                <div className="progress-meta-row" style={{ marginTop: 10 }}>
-                  <span className="progress-meta">
-                    {report.summaryLines?.length
-                      ? report.summaryLines.join(" ")
-                      : ""}
-                  </span>
-                </div>
-                {report.stats?.focusDistribution && (
-                  <div className="progress-meta-row" style={{ marginTop: 10 }}>
-                    <span className="progress-meta">
-                      집중도 분포 ◎/○/△/✕: {report.stats.focusDistribution.best}/
-                      {report.stats.focusDistribution.good}/
-                      {report.stats.focusDistribution.ok}/
-                      {report.stats.focusDistribution.bad}
+              <>
+                <div className="progress-card">
+                  <div className="progress-row">
+                    <span className="progress-label">총 학습 시간</span>
+                    <span className="progress-value">
+                      {Math.floor((report.stats?.totalStudyMinutes || 0) / 60)}
+                      {"시간 "}
+                      {(report.stats?.totalStudyMinutes || 0) % 60}
+                      {"분"}
                     </span>
                   </div>
+                  <div className="progress-meta-row" style={{ marginTop: 10 }}>
+                    <span className="progress-meta">
+                      {report.summaryLines?.length
+                        ? report.summaryLines.join(" ")
+                        : ""}
+                    </span>
+                  </div>
+                  {report.stats?.focusDistribution && (
+                    <div className="progress-meta-row" style={{ marginTop: 10 }}>
+                      <span className="progress-meta">
+                        집중도 분포 ◎/○/△/✕: {report.stats.focusDistribution.best}/
+                        {report.stats.focusDistribution.good}/
+                        {report.stats.focusDistribution.ok}/
+                        {report.stats.focusDistribution.bad}
+                      </span>
+                    </div>
+                  )}
+                </div>
+                {/* 바로 쓸 수 있는 문장 카드 추가 */}
+                {guide && guide.suggestedPhrases && guide.suggestedPhrases.length > 0 && (
+                  <div className="coach-card coach-card--padded" style={{ marginTop: 12 }}>
+                    <div className="coach-section-header">
+                      <div className="coach-section-header__left">
+                        <h2 className="coach-section-title">바로 쓸 수 있는 문장</h2>
+                        <p className="coach-section-subtitle">짧고 구체적인 말이 가장 효과적입니다.</p>
+                      </div>
+                    </div>
+                    <div className="coach-phrases">
+                      {guide.suggestedPhrases.map((p, i) => (
+                        <button
+                          key={i}
+                          type="button"
+                          className="coach-phrase"
+                          onClick={() => {
+                            try {
+                              navigator.clipboard.writeText(p);
+                              alert("문장을 복사했어요.");
+                            } catch {
+                              alert(p);
+                            }
+                          }}
+                        >
+                          {p}
+                          <span className="coach-phrase__hint">탭해서 복사</span>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
                 )}
-              </div>
+              </>
             )}
           </div>
         </section>

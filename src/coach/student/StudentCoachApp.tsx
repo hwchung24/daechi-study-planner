@@ -39,6 +39,7 @@ import {
 import { useKeyboardDockInset } from "../../lib/useKeyboardDockInset";
 import { useEffectiveBearer } from "../../lib/useEffectiveBearer";
 import type { ProgressBook, ProgressPlan, StudyBlock } from "../../types/planner";
+import { StudentAdminChannelPanel } from "../admin/AdminChannelPanels";
 import { CoachAvatar } from "../CoachAvatar";
 import { CoachTomorrowPlanCollab } from "./CoachTomorrowPlanCollab";
 
@@ -48,22 +49,22 @@ const IS_NATIVE_PLATFORM = Capacitor.isNativePlatform();
 const NATIVE_KEYBOARD_DISMISS_EVENT = "daechi:native-keyboard-input-dismiss";
 const NATIVE_KEYBOARD_SUBMIT_EVENT = "daechi:native-keyboard-input-submit";
 
-type CoachPanelKey = "analysis" | "plan" | "chat";
+type CoachPanelKey = "analysis" | "plan" | "chat" | "admin";
 
 /** Strict Mode 이중 마운트에서도 URL·sessionStorage 기준으로 동일하게 시작 (초기화에서 storage는 제거하지 않음) */
 function readInitialCoachPanelFromWindow(entryTab: StudentTabKey): CoachPanelKey {
   if (typeof window === "undefined") {
-    return entryTab === "coach" ? "chat" : "analysis";
+    return "analysis";
   }
   const fromHash = readCoachPanelParamFromHash(getAppPath());
   if (fromHash) return fromHash;
   try {
     const v = sessionStorage.getItem(DAECHI_COACH_INITIAL_PANEL_KEY);
-    if (v === "plan" || v === "analysis" || v === "chat") return v;
+    if (v === "plan" || v === "analysis" || v === "chat" || v === "admin") return v;
   } catch {
     // ignore
   }
-  return entryTab === "coach" ? "chat" : "analysis";
+  return "analysis";
 }
 
 function formatCoachLogDateKey(raw: string | undefined | null): string {
@@ -256,37 +257,25 @@ function CoachRhythmSparkline(props: {
   });
 
   const pathSegments: string[] = [];
-  let currentChunk: { x: number; y: number }[] = [];
-  const flushChunk = () => {
-    if (currentChunk.length === 0) return;
-    if (currentChunk.length === 1) {
-      const p = currentChunk[0];
-      pathSegments.push(`M ${p.x} ${p.y}`);
-      currentChunk = [];
-      return;
+  const validPoints = pts
+    .filter((point): point is { x: number; y: number; v: number; date: string } => point.y != null && point.v != null);
+
+  if (validPoints.length === 1) {
+    const point = validPoints[0];
+    pathSegments.push(`M ${point.x} ${point.y}`);
+  } else if (validPoints.length > 1) {
+    let d = `M ${validPoints[0].x} ${validPoints[0].y}`;
+    for (let index = 0; index < validPoints.length - 1; index += 1) {
+      const current = validPoints[index];
+      const next = validPoints[index + 1];
+      const midX = (current.x + next.x) / 2;
+      const midY = (current.y + next.y) / 2;
+      d += ` Q ${current.x} ${current.y} ${midX} ${midY}`;
     }
-    let d = `M ${currentChunk[0].x} ${currentChunk[0].y}`;
-    for (let i = 0; i < currentChunk.length - 1; i++) {
-      const a = currentChunk[i];
-      const b = currentChunk[i + 1];
-      const midX = (a.x + b.x) / 2;
-      const midY = (a.y + b.y) / 2;
-      d += ` Q ${a.x} ${a.y} ${midX} ${midY}`;
-    }
-    const last = currentChunk[currentChunk.length - 1];
+    const last = validPoints[validPoints.length - 1];
     d += ` T ${last.x} ${last.y}`;
     pathSegments.push(d);
-    currentChunk = [];
-  };
-
-  for (const p of pts) {
-    if (p.y == null) {
-      flushChunk();
-      continue;
-    }
-    currentChunk.push({ x: p.x, y: p.y });
   }
-  flushChunk();
 
   const labelShort = (dateKey: string) => String(dateKey).replace(/^\d{4}-/, "");
 
@@ -347,7 +336,7 @@ function CoachRhythmSparkline(props: {
             key={`dot-${i}`}
             cx={p.x}
             cy={p.y}
-            r={2.25}
+            r={2}
             fill="currentColor"
           >
             <title>{`${labelShort(p.date)} · ${valueFormatter(p.v)}`}</title>
@@ -430,7 +419,7 @@ function CoachStudentUnified(props: {
     }
     try {
       const v = sessionStorage.getItem(DAECHI_COACH_INITIAL_PANEL_KEY);
-      if (v === "plan" || v === "analysis" || v === "chat") {
+      if (v === "plan" || v === "analysis" || v === "chat" || v === "admin") {
         sessionStorage.removeItem(DAECHI_COACH_INITIAL_PANEL_KEY);
         setPanel(v);
         return true;
@@ -463,7 +452,7 @@ function CoachStudentUnified(props: {
     }
     if (prevEntryTabRef.current !== props.entryTab) {
       prevEntryTabRef.current = props.entryTab;
-      setPanel(props.entryTab === "coach" ? "chat" : "analysis");
+      setPanel("analysis");
     }
   }, [props.entryTab, tryApplyCoachPanelDeepLink]);
 
@@ -476,7 +465,9 @@ function CoachStudentUnified(props: {
 
   useEffect(() => {
     props.onLayoutModeChange?.(
-      panel === "chat" || panel === "plan" ? "chat" : "scroll"
+      panel === "chat" || panel === "plan" || panel === "admin"
+        ? "chat"
+        : "scroll"
     );
   }, [panel, props.onLayoutModeChange]);
   const activeStudentId = useCoachStore(s => s.activeStudentId);
@@ -743,12 +734,24 @@ function CoachStudentUnified(props: {
         >
           학습 코칭
         </button>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={panel === "admin"}
+          className={
+            "store-filter-btn" +
+            (panel === "admin" ? " store-filter-btn--active" : "")
+          }
+          onClick={() => selectCoachPanel("admin")}
+        >
+          관리자 1:1
+        </button>
       </div>
 
       <TabTransitionPanel
         tabKey={panel}
         className={
-          panel === "chat" || panel === "plan"
+          panel === "chat" || panel === "plan" || panel === "admin"
             ? "coach-shell__tab-panel coach-unified-tab-panel--fill"
             : "coach-unified-tab-panel"
         }
@@ -895,8 +898,10 @@ function CoachStudentUnified(props: {
               />
             </div>
           )
-        ) : (
+        ) : panel === "chat" ? (
           <CoachChatTabConnected apiToken={token} />
+        ) : (
+          <StudentAdminChannelPanel authToken={token} />
         )}
       </TabTransitionPanel>
     </div>
@@ -1025,6 +1030,11 @@ function CoachChatTabConnected(props: { apiToken: string }) {
       return;
     }
 
+    if (IS_NATIVE_PLATFORM) {
+      composerInputRef.current?.focus();
+      return;
+    }
+
     const frame = window.requestAnimationFrame(() => {
       composerInputRef.current?.focus();
     });
@@ -1079,6 +1089,13 @@ function CoachChatTabConnected(props: { apiToken: string }) {
   const closeComposer = () => {
     composerInputRef.current?.blur();
     setComposerOpen(false);
+  };
+
+  const openComposer = () => {
+    setComposerOpen(true);
+    if (IS_NATIVE_PLATFORM) {
+      composerInputRef.current?.focus();
+    }
   };
 
   return (
@@ -1207,7 +1224,7 @@ function CoachChatTabConnected(props: { apiToken: string }) {
           <button
             type="button"
             className="coach-chat-trigger"
-            onClick={() => setComposerOpen(true)}
+            onClick={openComposer}
             aria-label="코치에게 메시지 입력"
           >
             <span className={draft.trim() ? "coach-chat-trigger__text" : "coach-chat-trigger__placeholder"}>
@@ -1217,7 +1234,7 @@ function CoachChatTabConnected(props: { apiToken: string }) {
               <SendHorizontal size={15} strokeWidth={2.2} />
             </span>
           </button>
-        ) : (
+        ) : !IS_NATIVE_PLATFORM ? (
           <div
             className={
               "coach-chat-composer" +
@@ -1258,6 +1275,33 @@ function CoachChatTabConnected(props: { apiToken: string }) {
                   <SendHorizontal size={15} strokeWidth={2.2} aria-hidden />
                 </button>
               )}
+            </div>
+          </div>
+        ) : null}
+
+        {IS_NATIVE_PLATFORM && (
+          <div
+            className="coach-chat-composer coach-chat-composer--native-bridge"
+            onMouseDown={e => e.stopPropagation()}
+            aria-hidden="true"
+          >
+            <div className="coach-chat-input coach-chat-input--composer">
+              <input
+                ref={composerInputRef}
+                className="coach-chat-text"
+                value={draft}
+                enterKeyHint="send"
+                data-native-keyboard-submit="custom"
+                onBlur={handleComposerBlur}
+                onChange={e => setDraft(e.target.value)}
+                onFocus={() => setComposerOpen(true)}
+                onKeyDown={e => {
+                  if (e.key === "Enter") {
+                    send(draft);
+                    setComposerOpen(false);
+                  }
+                }}
+              />
             </div>
           </div>
         )}

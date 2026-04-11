@@ -5,7 +5,8 @@ function avg(xs: number[]) {
   return xs.reduce((a, b) => a + b, 0) / xs.length;
 }
 
-export type ParentGuide = {
+
+export type AdminGuide = {
   urgency: Severity;
   headline: string;
   guidanceLines: string[];
@@ -13,7 +14,7 @@ export type ParentGuide = {
   intervention: "관찰" | "칭찬" | "질문 1개" | "루틴 도움" | "상담 권장";
 };
 
-export function buildParentGuide(insight: WeeklyInsight, logs7d: DailyLog[]): ParentGuide {
+export function buildAdminGuide(insight: WeeklyInsight, logs7d: DailyLog[]): AdminGuide {
   const concAvg = avg(logs7d.map(l => l.concentrationScore));
   const stressAvg = avg(logs7d.map(l => l.stressScore));
   const sleepAvg = avg(logs7d.map(l => l.sleepHours));
@@ -21,7 +22,7 @@ export function buildParentGuide(insight: WeeklyInsight, logs7d: DailyLog[]): Pa
 
   const urgency = insight.riskLevel;
 
-  const intervention: ParentGuide["intervention"] =
+  const intervention: AdminGuide["intervention"] =
     urgency === "높음"
       ? stressAvg >= 4.0
         ? "상담 권장"
@@ -79,7 +80,7 @@ export function buildParentGuide(insight: WeeklyInsight, logs7d: DailyLog[]): Pa
     headline,
     guidanceLines,
     suggestedPhrases,
-    intervention
+    intervention,
   };
 }
 

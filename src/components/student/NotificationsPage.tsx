@@ -14,6 +14,11 @@ export type ParentNotificationAction = {
   targetDate?: string;
   summary?: string;
   slotSummary?: string;
+} | {
+  type: "link_unlink_request";
+  requestId: number;
+  initiatorRole: "parent" | "student";
+  counterpartEmail?: string;
 };
 
 const NOTIFICATION_ACTION_PREFIX = "[[DAECHI_ACTION]]";
@@ -48,6 +53,24 @@ function parseNotificationAction(body?: string | null): {
           summary: parsed.summary != null ? String(parsed.summary).trim() : undefined,
           slotSummary:
             parsed.slotSummary != null ? String(parsed.slotSummary).trim() : undefined
+        }
+      };
+    }
+    if (
+      parsed?.type === "link_unlink_request" &&
+      Number.isFinite(Number(parsed.requestId)) &&
+      (parsed.initiatorRole === "parent" || parsed.initiatorRole === "student")
+    ) {
+      return {
+        visibleBody: visibleBody || null,
+        action: {
+          type: "link_unlink_request",
+          requestId: Number(parsed.requestId),
+          initiatorRole: parsed.initiatorRole,
+          counterpartEmail:
+            parsed.counterpartEmail != null
+              ? String(parsed.counterpartEmail).trim()
+              : undefined
         }
       };
     }

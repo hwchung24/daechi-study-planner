@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
+import { API_BASE } from "../../lib/apiBase";
 import type { ParentStudyRoomSetting } from "../../types/parent";
 
 export type StudyRoomSetting = ParentStudyRoomSetting;
@@ -30,25 +31,20 @@ const selectedMarkerIcon = L.divIcon({
   iconAnchor: [11, 22]
 });
 
-function formatCoordinate(value: number, suffix: string) {
-  return `${Math.abs(value).toFixed(5)}°${suffix}`;
-}
-
 function studentAlias(email: string) {
   const localPart = String(email || "").split("@")[0]?.trim();
   return localPart || email || "학생";
 }
 
-export function StudyRoomPickerModal(props: {
-  open: boolean;
-  revealed: boolean;
+export function StudyRoomPickerEditor(props: {
   student: { id: number; email: string } | null;
   initialValue?: StudyRoomSetting;
+  authToken?: string | null;
   saving?: boolean;
-  onClose: () => void;
+  onCancel?: () => void;
   onSave: (value: StudyRoomSetting) => void;
 }) {
-  const { open, revealed, student, initialValue, saving = false, onClose, onSave } = props;
+  const { student, initialValue, authToken = null, saving = false, onCancel, onSave } = props;
   const mapHostRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<L.Map | null>(null);
   const markerRef = useRef<L.Marker | null>(null);
@@ -61,10 +57,9 @@ export function StudyRoomPickerModal(props: {
   const [selected, setSelected] = useState<LatLng | null>(null);
   const [radiusMeters, setRadiusMeters] = useState(120);
   const [mapZoom, setMapZoom] = useState(DEFAULT_ZOOM);
-  const [resolvingAddress, setResolvingAddress] = useState(false);
 
   useEffect(() => {
-    if (!open) return;
+    if (!student) return;
     const nextSelected =
       initialValue && Number.isFinite(initialValue.latitude) && Number.isFinite(initialValue.longitude)
         ? { lat: initialValue.latitude, lng: initialValue.longitude }
@@ -75,14 +70,12 @@ export function StudyRoomPickerModal(props: {
     setSearchResults([]);
     setSearchError("");
     setSelected(nextSelected);
-    setRadiusMeters(
-      Math.min(1000, Math.max(30, Number(initialValue?.radiusMeters) || 120))
-    );
+    setRadiusMeters(Math.min(1000, Math.max(30, Number(initialValue?.radiusMeters) || 120)));
     setMapZoom(DEFAULT_ZOOM);
-  }, [initialValue, open, student?.id]);
+  }, [initialValue, student?.id]);
 
   useEffect(() => {
-    if (!open || !mapHostRef.current || mapRef.current) return;
+    if (!student || !mapHostRef.current || mapRef.current) return;
     const initialCenter = selected || DEFAULT_CENTER;
     const map = L.map(mapHostRef.current, {
       center: [initialCenter.lat, initialCenter.lng],
@@ -110,17 +103,17 @@ export function StudyRoomPickerModal(props: {
       map.remove();
       mapRef.current = null;
     };
-  }, [open]);
+  }, [student, selected]);
 
   useEffect(() => {
-    if (!open || !mapRef.current) return;
+    if (!student || !mapRef.current) return;
     const map = mapRef.current;
     const center = selected || DEFAULT_CENTER;
     map.setView([center.lat, center.lng], initialValue ? DEFAULT_ZOOM : map.getZoom(), {
       animate: false
     });
     requestAnimationFrame(() => map.invalidateSize());
-  }, [open, student?.id, initialValue?.latitude, initialValue?.longitude]);
+  }, [student, initialValue?.latitude, initialValue?.longitude]);
 
   useEffect(() => {
     if (!mapRef.current) return;
@@ -144,7 +137,6 @@ export function StudyRoomPickerModal(props: {
     if (!selected) return;
     let cancelled = false;
     const resolveAddress = async () => {
-      setResolvingAddress(true);
       try {
         const res = await fetch(
           `https://nominatim.openstreetmap.org/reverse?format=jsonv2&accept-language=ko&lat=${encodeURIComponent(String(selected.lat))}&lon=${encodeURIComponent(String(selected.lng))}`,
@@ -164,20 +156,13 @@ export function StudyRoomPickerModal(props: {
         }
       } catch {
         // ignore reverse-geocoding failures
-      } finally {
-        if (!cancelled) setResolvingAddress(false);
       }
     };
     void resolveAddress();
     return () => {
       cancelled = true;
     };
-  }, [selected]);
-
-  const activeStudentName = useMemo(() => {
-    if (!student) return "학생";
-    return studentAlias(student.email);
-  }, [student]);
+  }, [selected, studyRoomName]);
 
   const runSearch = async () => {
     const raw = searchQuery.trim();
@@ -189,34 +174,40 @@ export function StudyRoomPickerModal(props: {
     setSearching(true);
     setSearchError("");
     try {
-      const q = /(독서실|스터디카페|study cafe)/i.test(raw) ? raw : `${raw} 독서실`;
+      if (!authToken) {
+        throw new Error("로그인 정보가 없어 검색할 수 없습니다.");
+      }
       const res = await fetch(
-        `https://nominatim.openstreetmap.org/search?format=jsonv2&limit=8&countrycodes=kr&accept-language=ko&q=${encodeURIComponent(q)}`,
+        `${API_BASE}/api/location/naver/local-search?query=${encodeURIComponent(raw)}&limit=5`,
         {
           headers: {
-            Accept: "application/json"
+            Accept: "application/json",
+            Authorization: `Bearer ${authToken}`
           }
         }
       );
       if (!res.ok) {
-        throw new Error(`검색에 실패했습니다. (${res.status})`);
+        const errorPayload = (await res.json().catch(() => ({}))) as { error?: string };
+        throw new Error(String(errorPayload.error || `검색에 실패했습니다. (${res.status})`));
       }
-      const data = (await res.json()) as Array<{
-        place_id?: number | string;
-        display_name?: string;
-        lat?: string;
-        lon?: string;
-        name?: string;
-      }>;
-      const nextResults = data
+      const data = (await res.json()) as {
+        results?: Array<{
+          id?: string;
+          name?: string;
+          address?: string;
+          latitude?: number;
+          longitude?: number;
+        }>;
+      };
+      const nextResults = (Array.isArray(data.results) ? data.results : [])
         .map(row => {
-          const latitude = Number(row.lat);
-          const longitude = Number(row.lon);
+          const latitude = Number(row.latitude);
+          const longitude = Number(row.longitude);
           if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) return null;
           return {
-            id: String(row.place_id || `${latitude},${longitude}`),
-            name: String(row.name || "").trim() || String(row.display_name || "").split(",")[0] || "검색 결과",
-            address: String(row.display_name || "").trim(),
+            id: String(row.id || `${latitude},${longitude}`),
+            name: String(row.name || "").trim() || "검색 결과",
+            address: String(row.address || "").trim(),
             latitude,
             longitude
           };
@@ -229,9 +220,7 @@ export function StudyRoomPickerModal(props: {
     } catch (error) {
       setSearchResults([]);
       setSearchError(
-        error instanceof Error && error.message
-          ? error.message
-          : "위치 검색 중 오류가 발생했습니다."
+        error instanceof Error && error.message ? error.message : "위치 검색 중 오류가 발생했습니다."
       );
     } finally {
       setSearching(false);
@@ -255,6 +244,162 @@ export function StudyRoomPickerModal(props: {
     });
   };
 
+  const radiusFillWidth = `${((radiusMeters - 30) / (500 - 30)) * 100}%`;
+
+  if (!student) return null;
+
+  return (
+    <div className="study-room-editor">
+      <div className="study-room-modal__search-row">
+        <input
+          className="field-input"
+          value={searchQuery}
+          onChange={event => setSearchQuery(event.target.value)}
+          placeholder="예: 대치동 스터디카페"
+        />
+        <button
+          type="button"
+          className="modal-secondary study-room-modal__search-btn"
+          onClick={() => void runSearch()}
+          disabled={searching || saving}
+        >
+          {searching ? "검색 중…" : "검색"}
+        </button>
+      </div>
+
+      {searchError ? <p className="study-room-modal__status">{searchError}</p> : null}
+
+      {searchResults.length > 0 ? (
+        <div className="study-room-modal__results">
+          {searchResults.map(result => (
+            <button
+              key={result.id}
+              type="button"
+              className="study-room-modal__result"
+              disabled={saving}
+              onClick={() => moveToResult(result)}
+            >
+              <span className="study-room-modal__result-name">{result.name}</span>
+              <span className="study-room-modal__result-address">{result.address}</span>
+            </button>
+          ))}
+        </div>
+      ) : null}
+
+      <div className="study-room-map">
+        <div className="study-room-map__frame">
+          <div ref={mapHostRef} className="study-room-map__surface" />
+          <div className="study-room-map__overlay">
+            <button
+              type="button"
+              className="study-room-map__focus-btn"
+              onClick={focusSelected}
+              disabled={!selected || saving}
+            >
+              선택 위치 보기
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <div className="study-room-modal__field-grid">
+        <div className="field">
+          <label className="field-label">독서실 이름</label>
+          <input
+            className="field-input"
+            value={studyRoomName}
+            onChange={event => setStudyRoomName(event.target.value)}
+            disabled={saving}
+            placeholder="예: 대치 에이스 독서실"
+          />
+        </div>
+        <div className="field">
+          <label className="field-label">주소 메모</label>
+          <input
+            className="field-input"
+            value={studyRoomAddress}
+            onChange={event => setStudyRoomAddress(event.target.value)}
+            disabled={saving}
+            placeholder="검색 결과나 직접 선택한 위치 주소"
+          />
+        </div>
+        <div className="field">
+          <label className="field-label">근방 판정 반경</label>
+          <div className="record-slider-row study-room-modal__radius-row">
+            <div className="record-slider-pill">
+              <div className="record-slider-pill__fill" style={{ width: radiusFillWidth }} />
+              <input
+                className="record-slider-pill__input"
+                type="range"
+                min={30}
+                max={500}
+                step={10}
+                value={radiusMeters}
+                onChange={event => setRadiusMeters(Number(event.target.value) || 120)}
+                disabled={saving}
+                aria-valuetext={`${radiusMeters}m`}
+              />
+            </div>
+            <span className="record-slider-value study-room-modal__radius-value">
+              {radiusMeters}m
+            </span>
+          </div>
+        </div>
+      </div>
+
+      <div
+        className={
+          "study-room-editor__footer" + (!onCancel ? " study-room-editor__footer--single" : "")
+        }
+      >
+        {onCancel ? (
+          <button type="button" className="modal-secondary" onClick={onCancel} disabled={saving}>
+            취소
+          </button>
+        ) : null}
+        <button
+          type="button"
+          className={
+            (onCancel ? "modal-primary" : "timeline-save-button") + " study-room-editor__save-button"
+          }
+          onClick={() => {
+            if (!selected || !studyRoomName.trim()) return;
+            onSave({
+              studentId: student.id,
+              studentEmail: student.email,
+              name: studyRoomName.trim(),
+              address: studyRoomAddress.trim() || undefined,
+              latitude: selected.lat,
+              longitude: selected.lng,
+              radiusMeters,
+              updatedAt: new Date().toISOString()
+            });
+          }}
+          disabled={!selected || !studyRoomName.trim() || saving}
+        >
+          {saving ? "저장 중…" : "저장"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+export function StudyRoomPickerModal(props: {
+  open: boolean;
+  revealed: boolean;
+  student: { id: number; email: string } | null;
+  initialValue?: StudyRoomSetting;
+  authToken?: string | null;
+  saving?: boolean;
+  onClose: () => void;
+  onSave: (value: StudyRoomSetting) => void;
+}) {
+  const { open, revealed, student, initialValue, authToken = null, saving, onClose, onSave } = props;
+  const activeStudentName = useMemo(() => {
+    if (!student) return "학생";
+    return studentAlias(student.email);
+  }, [student]);
+
   if (!open || !student) return null;
 
   return (
@@ -267,162 +412,14 @@ export function StudyRoomPickerModal(props: {
           <span className="dday-modal-title">{activeStudentName} 독서실 위치 설정</span>
         </div>
         <div className="dday-modal-body">
-          <p className="study-room-modal__guide">
-            실제 지도에서 끌어 이동하거나 클릭해서 위치를 지정하세요. 검색 결과를 누르면 그 위치로 바로 이동합니다.
-          </p>
-
-          <div className="study-room-modal__search-row">
-            <input
-              className="field-input"
-              value={searchQuery}
-              onChange={event => setSearchQuery(event.target.value)}
-              placeholder="예: 대치동 스터디카페"
-            />
-            <button
-              type="button"
-              className="modal-secondary study-room-modal__search-btn"
-              onClick={() => void runSearch()}
-              disabled={searching || saving}
-            >
-              {searching ? "검색 중…" : "검색"}
-            </button>
-          </div>
-
-          {searchError ? <p className="study-room-modal__status">{searchError}</p> : null}
-
-          {searchResults.length > 0 ? (
-            <div className="study-room-modal__results">
-              {searchResults.map(result => (
-                <button
-                  key={result.id}
-                  type="button"
-                  className="study-room-modal__result"
-                  disabled={saving}
-                  onClick={() => moveToResult(result)}
-                >
-                  <span className="study-room-modal__result-name">{result.name}</span>
-                  <span className="study-room-modal__result-address">{result.address}</span>
-                </button>
-              ))}
-            </div>
-          ) : null}
-
-          <div className="study-room-map">
-            <div className="study-room-map__frame">
-              <div ref={mapHostRef} className="study-room-map__surface" />
-              <div className="study-room-map__overlay">
-                <span className="study-room-map__badge">드래그 · 휠 줌 · 탭 선택</span>
-                <button
-                  type="button"
-                  className="study-room-map__focus-btn"
-                  onClick={focusSelected}
-                  disabled={!selected || saving}
-                >
-                  선택 위치 보기
-                </button>
-              </div>
-            </div>
-            <div className="study-room-map__toolbar">
-              <div className="study-room-map__zoom-group">
-                <button
-                  type="button"
-                  className="study-room-map__tool-btn"
-                  onClick={() => mapRef.current?.zoomOut()}
-                  disabled={mapZoom <= MIN_ZOOM || saving}
-                >
-                  -
-                </button>
-                <span className="study-room-map__zoom-label">줌 {mapZoom}</span>
-                <button
-                  type="button"
-                  className="study-room-map__tool-btn"
-                  onClick={() => mapRef.current?.zoomIn()}
-                  disabled={mapZoom >= MAX_ZOOM || saving}
-                >
-                  +
-                </button>
-              </div>
-              <span className="study-room-map__hint">
-                {selected ? "지도 아무 곳이나 눌러 위치를 다시 지정할 수 있어요." : "먼저 위치를 클릭해 주세요."}
-              </span>
-            </div>
-          </div>
-
-          <div className="study-room-modal__field-grid">
-            <div className="field">
-              <label className="field-label">독서실 이름</label>
-              <input
-                className="field-input"
-                value={studyRoomName}
-                onChange={event => setStudyRoomName(event.target.value)}
-                disabled={saving}
-                placeholder="예: 대치 에이스 독서실"
-              />
-            </div>
-            <div className="field">
-              <label className="field-label">주소 메모</label>
-              <input
-                className="field-input"
-                value={studyRoomAddress}
-                onChange={event => setStudyRoomAddress(event.target.value)}
-                disabled={saving}
-                placeholder="검색 결과나 직접 선택한 위치 주소"
-              />
-            </div>
-            <div className="field">
-              <label className="field-label">근방 판정 반경</label>
-              <div className="study-room-modal__radius-row">
-                <input
-                  className="field-input"
-                  type="range"
-                  min={30}
-                  max={500}
-                  step={10}
-                  value={radiusMeters}
-                  onChange={event => setRadiusMeters(Number(event.target.value) || 120)}
-                  disabled={saving}
-                />
-                <span className="study-room-modal__radius-value">{radiusMeters}m</span>
-              </div>
-              <p className="study-room-modal__status">
-                학생이 이 위치에서 {radiusMeters}m 안에 들어오면 독서실 근방 체류로 기록합니다.
-              </p>
-            </div>
-          </div>
-
-          <div className="study-room-modal__coordinates">
-            <span>
-              {selected
-                ? `${formatCoordinate(selected.lat, selected.lat >= 0 ? "N" : "S")} · ${formatCoordinate(selected.lng, selected.lng >= 0 ? "E" : "W")}`
-                : "지도를 눌러 위치를 선택해 주세요."}
-            </span>
-            {resolvingAddress ? <span>주소 확인 중…</span> : null}
-          </div>
-        </div>
-        <div className="dday-modal-footer">
-          <button type="button" className="modal-secondary" onClick={onClose} disabled={saving}>
-            취소
-          </button>
-          <button
-            type="button"
-            className="modal-primary"
-            onClick={() => {
-              if (!selected || !studyRoomName.trim()) return;
-              onSave({
-                studentId: student.id,
-                studentEmail: student.email,
-                name: studyRoomName.trim(),
-                address: studyRoomAddress.trim() || undefined,
-                latitude: selected.lat,
-                longitude: selected.lng,
-                radiusMeters,
-                updatedAt: new Date().toISOString()
-              });
-            }}
-            disabled={!selected || !studyRoomName.trim() || saving}
-          >
-            {saving ? "저장 중…" : "저장"}
-          </button>
+          <StudyRoomPickerEditor
+            student={student}
+            initialValue={initialValue}
+            authToken={authToken}
+            saving={saving}
+            onCancel={onClose}
+            onSave={onSave}
+          />
         </div>
       </div>
     </div>

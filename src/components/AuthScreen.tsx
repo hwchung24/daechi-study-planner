@@ -107,7 +107,7 @@ export function AuthScreen(props: {
                   className={"auth-tab" + (authRole === "parent" ? " active" : "")}
                   onClick={() => onRoleChange("parent")}
                 >
-                  학부모
+                  관리자
                 </button>
               </div>
             </div>

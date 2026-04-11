@@ -1,0 +1,1 @@
+export const DAECHI_LINKS_UPDATED_EVENT = "daechi:links-updated";

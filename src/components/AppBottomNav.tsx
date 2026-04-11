@@ -1,16 +1,12 @@
 import React, { useCallback, useLayoutEffect, useRef, useState } from "react";
 import { motion, useReducedMotion } from "framer-motion";
 import {
-  ArrowLeft,
   Bot,
-  BookOpen,
   Calendar,
   ClipboardList,
-  Clock,
   FileText,
-  Home,
   LayoutGrid,
-  Link2,
+  Settings,
   User
 } from "lucide-react";
 
@@ -25,7 +21,7 @@ function NavIcon({ children }: { children: React.ReactNode }) {
 type TabKey = "today" | "records" | "store" | "profile";
 type CoachStudentTabKey = "home" | "coach";
 type ParentTabKey = "report" | "profile";
-type CoachParentTabKey = "home" | "timeline" | "guide" | "profile";
+type CoachParentTabKey = "manage" | "aiReport" | "records" | "studentSettings";
 
 type PillMetrics = {
   left: number;
@@ -103,7 +99,6 @@ export function AppBottomNav(props: {
   onCoachStudentNavClick: (tab: CoachStudentTabKey) => void;
   onParentNavClick: (tab: ParentTabKey) => void;
   onCoachParentNavClick: (tab: CoachParentTabKey) => void;
-  onParentCoachExit: () => void;
 }) {
   const {
     showStudentShell,
@@ -117,8 +112,7 @@ export function AppBottomNav(props: {
     onStudentNavClick,
     onCoachStudentNavClick,
     onParentNavClick,
-    onCoachParentNavClick,
-    onParentCoachExit
+    onCoachParentNavClick
   } = props;
 
   const coachStudentMode = Boolean(coachStudentTab);
@@ -255,103 +249,67 @@ export function AppBottomNav(props: {
             }}
             transition={pillTransition}
           />
-          {coachParentMode ? (
-            <>
-              <button
-                type="button"
-                className={
-                  "nav-item" + (coachParentTab === "home" ? " nav-item-active" : "")
-                }
-                onClick={() => onCoachParentNavClick("home")}
-              >
-                <NavIcon>
-                  <Home size={20} strokeWidth={2} />
-                </NavIcon>
-                <span className="nav-label">홈</span>
-              </button>
-              <button
-                type="button"
-                className={
-                  "nav-item" +
-                  (coachParentTab === "timeline" ? " nav-item-active" : "")
-                }
-                onClick={() => onCoachParentNavClick("timeline")}
-              >
-                <NavIcon>
-                  <Clock size={20} strokeWidth={2} />
-                </NavIcon>
-                <span className="nav-label">타임라인</span>
-              </button>
-              <button
-                type="button"
-                className={
-                  "nav-item" + (coachParentTab === "guide" ? " nav-item-active" : "")
-                }
-                onClick={() => onCoachParentNavClick("guide")}
-              >
-                <NavIcon>
-                  <BookOpen size={20} strokeWidth={2} />
-                </NavIcon>
-                <span className="nav-label">가이드</span>
-              </button>
-              <button
-                type="button"
-                className={
-                  "nav-item" +
-                  (coachParentTab === "profile" ? " nav-item-active" : "")
-                }
-                onClick={() => onCoachParentNavClick("profile")}
-              >
-                <NavIcon>
-                  <User size={20} strokeWidth={2} />
-                </NavIcon>
-                <span className="nav-label">프로필</span>
-              </button>
-              <button type="button" className="nav-item" onClick={onParentCoachExit}>
-                <NavIcon>
-                  <ArrowLeft size={20} strokeWidth={2} />
-                </NavIcon>
-                <span className="nav-label">기본</span>
-              </button>
-            </>
-          ) : (
-            <>
-              <button
-                type="button"
-                className={
-                  "nav-item" + (parentTab === "profile" ? " nav-item-active" : "")
-                }
-                onClick={() => onParentNavClick("profile")}
-              >
-                <NavIcon>
-                  <User size={20} strokeWidth={2} />
-                </NavIcon>
-                <span className="nav-label">프로필</span>
-              </button>
-              <button
-                type="button"
-                className="nav-item"
-                onClick={() => onCoachParentNavClick("home")}
-              >
-                <NavIcon>
-                  <Bot size={20} strokeWidth={2} />
-                </NavIcon>
-                <span className="nav-label">코치</span>
-              </button>
-              <button
-                type="button"
-                className={
-                  "nav-item" + (parentTab === "report" ? " nav-item-active" : "")
-                }
-                onClick={() => onParentNavClick("report")}
-              >
-                <NavIcon>
-                  <FileText size={20} strokeWidth={2} />
-                </NavIcon>
-                <span className="nav-label">리포트</span>
-              </button>
-            </>
-          )}
+          <button
+            type="button"
+            className={
+              "nav-item" + (coachParentTab === "manage" ? " nav-item-active" : "")
+            }
+            onClick={() => onCoachParentNavClick("manage")}
+          >
+            <NavIcon>
+              <User size={20} strokeWidth={2} />
+            </NavIcon>
+            <span className="nav-label">학생 관리</span>
+          </button>
+          <button
+            type="button"
+            className={
+              "nav-item" +
+              (coachParentTab === "aiReport" ? " nav-item-active" : "")
+            }
+            onClick={() => onCoachParentNavClick("aiReport")}
+          >
+            <NavIcon>
+              <FileText size={20} strokeWidth={2} />
+            </NavIcon>
+            <span className="nav-label">AI 리포트</span>
+          </button>
+          <button
+            type="button"
+            className={
+              "nav-item" + (coachParentTab === "records" ? " nav-item-active" : "")
+            }
+            onClick={() => onCoachParentNavClick("records")}
+          >
+            <NavIcon>
+              <ClipboardList size={20} strokeWidth={2} />
+            </NavIcon>
+            <span className="nav-label">학생 기록</span>
+          </button>
+          <button
+            type="button"
+            className={
+              "nav-item" + (coachParentTab === "studentSettings" ? " nav-item-active" : "")
+            }
+            onClick={() => onCoachParentNavClick("studentSettings")}
+          >
+            <NavIcon>
+              <Settings size={20} strokeWidth={2} />
+            </NavIcon>
+            <span className="nav-label">학생 설정</span>
+          </button>
+          <button
+            type="button"
+            className={
+              "nav-item" + (!coachParentMode && parentTab === "profile" ? " nav-item-active" : "")
+            }
+            onClick={() => onParentNavClick("profile")}
+          >
+            <NavIcon>
+              <User size={20} strokeWidth={2} />
+            </NavIcon>
+            <span className="nav-label">프로필</span>
+          </button>
         </nav>
       )}
     </>

@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Capacitor } from "@capacitor/core";
 import { AppConfig } from "@capacitor-community/mdm-appconfig";
+import { LocalNotifications } from "@capacitor/local-notifications";
 import { Bell, BellDot } from "lucide-react";
 import SplashScreen from "./SplashScreen";
 import { AuthScreen } from "./components/AuthScreen";
@@ -18,6 +19,7 @@ import { TimePickerInline } from "./components/TimePickerSheet";
 import { NativeKeyboardInputManager } from "./components/NativeKeyboardInputManager";
 import { useOnlineStatus } from "./hooks/useOnlineStatus";
 import { canUseNativeAppShell, AppShell, type PendingNetworkBanner } from "./lib/nativeAppShell";
+import { DAECHI_LINKS_UPDATED_EVENT } from "./lib/linkEvents";
 import { StudentCoachApp, type StudentTabKey as CoachStudentTabKey } from "./coach/student/StudentCoachApp";
 import { ParentCoachApp, type ParentTabKey as CoachParentTabKey } from "./coach/parent/ParentCoachApp";
 import {
@@ -30,6 +32,7 @@ import {
 import {
   getInitialRoute,
   injectSerialIntoLocation,
+  readCoachPanelParamFromHash,
   parseCoachParentTabFromHash,
   parseCoachStudentTabFromHash,
   parseParentTabFromHash,
@@ -58,6 +61,12 @@ import {
   DAECHI_COACH_LOG_SAVED_EVENT,
   DAECHI_COACH_LOG_SAVED_STORAGE_KEY
 } from "./lib/coachEvents";
+import {
+  buildStudentAlarmSettingsCacheKey,
+  readStudentAlarmSettings,
+  STUDENT_ALARM_SETTINGS_UPDATED_EVENT,
+  type StudentAlarmSettings
+} from "./lib/studentAlarmSettings";
 import { stopNativeStudyRoomTracking } from "./lib/nativeStudyRoomTracking";
 import type { ParentLockStatus, StudentLockStatus } from "./types/lockStatus";
 import type { ProgressBook, ProgressPlan, StudyBlock } from "./types/planner";
@@ -95,9 +104,21 @@ type ParentAppTimetableRequestDetail = {
   slotSummary: string;
 };
 
+type ActiveStudyReminder = {
+  reminderKey: string;
+  blockId: number;
+  subject: string;
+  start: string;
+  end: string;
+  plannedRange?: string;
+};
+
 const STUDENT_SETUP_PROMPT_PENDING_KEY_PREFIX =
   "daechi_student_setup_prompt_pending:";
 const ME_CACHE_KEY = "daechi_me_cache";
+const STUDY_REMINDER_NOTIFICATION_IDS_STORAGE_PREFIX =
+  "daechi_study_reminder_notification_ids:";
+const STUDY_REMINDER_SHOWN_STORAGE_PREFIX = "daechi_study_reminder_shown:";
 
 type CachedMeState = {
   role: string | null;
@@ -105,6 +126,10 @@ type CachedMeState = {
   initialProfileCompleted: boolean;
   grade: string;
   goal: string;
+  goalUniversity: string;
+  targetGrade: string;
+  currentConcern: string;
+  weakness: string;
 };
 
 function getStudentSetupPromptPendingKey(email: string) {
@@ -153,7 +178,11 @@ function readCachedMeState(): CachedMeState | null {
           : null,
       initialProfileCompleted: Boolean(parsed.initialProfileCompleted),
       grade: String(parsed.grade ?? "").trim(),
-      goal: String(parsed.goal ?? "").trim()
+      goal: String(parsed.goal ?? "").trim(),
+      goalUniversity: String(parsed.goalUniversity ?? "").trim(),
+      targetGrade: String(parsed.targetGrade ?? "").trim(),
+      currentConcern: String(parsed.currentConcern ?? "").trim(),
+      weakness: String(parsed.weakness ?? "").trim()
     };
   } catch {
     return null;
@@ -202,6 +231,130 @@ function sortStudyBlocksByStart(blocks: StudyBlock[]): StudyBlock[] {
   return [...blocks].sort(
     (a, b) => blockTimeSortKey(a.start) - blockTimeSortKey(b.start)
   );
+}
+
+function studyReminderScope(email: string | null) {
+  const normalized = String(email || "").trim().toLowerCase();
+  return normalized || "anonymous";
+}
+
+function buildStudyReminderNotificationStorageKey(scope: string) {
+  return `${STUDY_REMINDER_NOTIFICATION_IDS_STORAGE_PREFIX}${scope}`;
+}
+
+function buildStudyReminderShownStorageKey(scope: string, dayKey: string) {
+  return `${STUDY_REMINDER_SHOWN_STORAGE_PREFIX}${scope}:${dayKey}`;
+}
+
+function readStoredNumberList(key: string): number[] {
+  if (typeof window === "undefined") return [];
+  try {
+    const raw = localStorage.getItem(key);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw) as unknown;
+    if (!Array.isArray(parsed)) return [];
+    return parsed
+      .map(value => Number(value))
+      .filter(value => Number.isInteger(value) && value > 0);
+  } catch {
+    return [];
+  }
+}
+
+function writeStoredNumberList(key: string, values: number[]) {
+  if (typeof window === "undefined") return;
+  try {
+    localStorage.setItem(key, JSON.stringify(values));
+  } catch {
+    // ignore
+  }
+}
+
+function readShownReminderKeys(scope: string, dayKey: string): string[] {
+  if (typeof window === "undefined") return [];
+  try {
+    const raw = localStorage.getItem(buildStudyReminderShownStorageKey(scope, dayKey));
+    if (!raw) return [];
+    const parsed = JSON.parse(raw) as unknown;
+    if (!Array.isArray(parsed)) return [];
+    return parsed
+      .map(value => String(value || "").trim())
+      .filter(Boolean);
+  } catch {
+    return [];
+  }
+}
+
+function hasShownReminder(scope: string, dayKey: string, reminderKey: string) {
+  return readShownReminderKeys(scope, dayKey).includes(reminderKey);
+}
+
+function markReminderShown(scope: string, dayKey: string, reminderKey: string) {
+  if (typeof window === "undefined") return;
+  const storageKey = buildStudyReminderShownStorageKey(scope, dayKey);
+  const next = Array.from(
+    new Set([...readShownReminderKeys(scope, dayKey), reminderKey])
+  );
+  try {
+    localStorage.setItem(storageKey, JSON.stringify(next));
+  } catch {
+    // ignore
+  }
+}
+
+function buildStudyReminderKey(dayKey: string, block: StudyBlock) {
+  return [
+    dayKey,
+    normalizeBlockTime(block.start),
+    normalizeBlockTime(block.end),
+    String(block.subject || "").trim(),
+    String(block.plannedRange || "").trim()
+  ].join("|");
+}
+
+function buildStudyReminderNotificationId(reminderKey: string) {
+  let hash = 0;
+  for (let index = 0; index < reminderKey.length; index += 1) {
+    hash = (hash * 31 + reminderKey.charCodeAt(index)) % 1000000000;
+  }
+  return 100000000 + hash;
+}
+
+function parseTimeParts(value: string) {
+  const match = String(value || "").trim().match(/^(\d{1,2}):(\d{2})$/);
+  if (!match) return null;
+  const hour = Number(match[1]);
+  const minute = Number(match[2]);
+  if (!Number.isInteger(hour) || !Number.isInteger(minute)) return null;
+  if (hour < 0 || hour > 23 || minute < 0 || minute > 59) return null;
+  return { hour, minute };
+}
+
+function getSeoulCurrentHm() {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Seoul",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false
+  }).formatToParts(new Date());
+  const hour = parts.find(part => part.type === "hour")?.value || "00";
+  const minute = parts.find(part => part.type === "minute")?.value || "00";
+  return `${hour}:${minute}`;
+}
+
+function buildTodayReminderDate(startTime: string) {
+  const parsed = parseTimeParts(startTime);
+  if (!parsed) return null;
+  const at = new Date();
+  at.setHours(parsed.hour, parsed.minute, 0, 0);
+  return at;
+}
+
+function buildStudyReminderBody(block: StudyBlock) {
+  const plan = String(block.plannedRange || "").trim();
+  return plan
+    ? `${block.start} ${block.subject} 공부를 시작할 시간입니다. ${plan}`
+    : `${block.start} ${block.subject} 공부를 시작할 시간입니다.`;
 }
 
 /**
@@ -311,7 +464,12 @@ const App: React.FC = () => {
   >(null);
   const [studentSetupOpen, setStudentSetupOpen] = useState(false);
   const [studentSetupGrade, setStudentSetupGrade] = useState("");
-  const [studentSetupGoal, setStudentSetupGoal] = useState("");
+  const [studentSetupGoalUniversity, setStudentSetupGoalUniversity] =
+    useState("");
+  const [studentSetupTargetGrade, setStudentSetupTargetGrade] = useState("");
+  const [studentSetupCurrentConcern, setStudentSetupCurrentConcern] =
+    useState("");
+  const [studentSetupWeakness, setStudentSetupWeakness] = useState("");
   const [studentSetupSaving, setStudentSetupSaving] = useState(false);
   const [studentSetupError, setStudentSetupError] = useState("");
   const [studentInitialProfileCompleted, setStudentInitialProfileCompleted] =
@@ -337,6 +495,27 @@ const App: React.FC = () => {
   const [showNotificationsModal, setShowNotificationsModal] = useState(false);
   const [parentAppTimetableRequestDetail, setParentAppTimetableRequestDetail] =
     useState<ParentAppTimetableRequestDetail | null>(null);
+  const [parentStudentsLoaded, setParentStudentsLoaded] = useState(false);
+  const [showParentStudentRequiredModal, setShowParentStudentRequiredModal] =
+    useState(false);
+  const [pendingLinkUnlinkAction, setPendingLinkUnlinkAction] = useState<Extract<
+    ParentNotificationAction,
+    { type: "link_unlink_request" }
+  > | null>(null);
+  const [pendingLinkUnlinkBusy, setPendingLinkUnlinkBusy] = useState(false);
+  const [pendingLinkUnlinkError, setPendingLinkUnlinkError] = useState("");
+  const studentAlarmSettingsKey = useMemo(
+    () => buildStudentAlarmSettingsCacheKey(userEmail),
+    [userEmail]
+  );
+  const [studentAlarmSettings, setStudentAlarmSettings] =
+    useState<StudentAlarmSettings>(() =>
+      readStudentAlarmSettings(buildStudentAlarmSettingsCacheKey(userEmail))
+    );
+  const [activeStudyReminder, setActiveStudyReminder] =
+    useState<ActiveStudyReminder | null>(null);
+  const studyReminderScheduleSignatureRef = useRef("");
+  const lastStudyReminderScopeRef = useRef<string | null>(null);
 
   useEffect(() => {
     if (!networkBanner?.message) return;
@@ -401,8 +580,12 @@ const App: React.FC = () => {
   const studentSetupReveal = useModalReveal(studentSetupOpen);
   const checkSettingsModalReveal = useModalReveal(checkSettingsOpen);
   const notificationsModalReveal = useModalReveal(showNotificationsModal);
+  const activeStudyReminderReveal = useModalReveal(activeStudyReminder !== null);
   const parentAppTimetableRequestReveal = useModalReveal(
     parentAppTimetableRequestDetail !== null
+  );
+  const parentStudentRequiredModalReveal = useModalReveal(
+    showParentStudentRequiredModal
   );
 
   const [newBookName, setNewBookName] = useState("");
@@ -474,8 +657,8 @@ const App: React.FC = () => {
         }
       }
 
-      setParentTab("report");
-      setAppPath("#/parent/report");
+        setCoachParentTab("aiReport");
+        setAppPath("#/parent/ai-report");
       notificationsModalReveal.beginClose(() => {
         setShowNotificationsModal(false);
         setParentAppTimetableRequestDetail({
@@ -488,13 +671,26 @@ const App: React.FC = () => {
     },
     [notificationsModalReveal, parentStudents]
   );
+  const openLinkUnlinkRequestFromNotification = useCallback(
+    (action: ParentNotificationAction) => {
+      if (action.type !== "link_unlink_request") return;
+      setPendingLinkUnlinkError("");
+      notificationsModalReveal.beginClose(() => {
+        setShowNotificationsModal(false);
+        setPendingLinkUnlinkAction(action);
+      });
+    },
+    [notificationsModalReveal]
+  );
   const [coachStudentTab, setCoachStudentTab] = useState<CoachStudentTabKey | null>(
     () => parseCoachStudentTabFromHash()
   );
   const [coachStudentCoachLayout, setCoachStudentCoachLayout] = useState<
     "scroll" | "chat"
   >(() =>
-    typeof window !== "undefined" && parseCoachStudentTabFromHash() === "coach"
+    typeof window !== "undefined" &&
+    parseCoachStudentTabFromHash() === "coach" &&
+    readCoachPanelParamFromHash() === "chat"
       ? "chat"
       : "scroll"
   );
@@ -558,7 +754,10 @@ const App: React.FC = () => {
           cachedMe?.initialProfileCompleted ?? true
         );
         setStudentSetupGrade(cachedMe?.grade ?? "");
-        setStudentSetupGoal(cachedMe?.goal ?? "");
+        setStudentSetupGoalUniversity(cachedMe?.goalUniversity ?? "");
+        setStudentSetupTargetGrade(cachedMe?.targetGrade ?? "");
+        setStudentSetupCurrentConcern(cachedMe?.currentConcern ?? "");
+        setStudentSetupWeakness(cachedMe?.weakness ?? "");
       }
     } catch {
       // ignore
@@ -604,6 +803,10 @@ const App: React.FC = () => {
         setRoute("auth");
         return;
       }
+      if (path === "#/parent/report") {
+        replaceAppPath("#/parent/ai-report");
+        return;
+      }
       setRoute(parseRouteFromHash(path));
       if (path === "#/settings") {
         replaceAppPath("#/profile");
@@ -613,7 +816,11 @@ const App: React.FC = () => {
       setParentTab(parseParentTabFromHash(path));
       const coachFromHash = parseCoachStudentTabFromHash(path);
       setCoachStudentTab(coachFromHash);
-      setCoachStudentCoachLayout(coachFromHash === "coach" ? "chat" : "scroll");
+      setCoachStudentCoachLayout(
+        coachFromHash === "coach" && readCoachPanelParamFromHash(path) === "chat"
+          ? "chat"
+          : "scroll"
+      );
       setCoachParentTab(parseCoachParentTabFromHash(path));
     };
     const onHash = () => syncRouteFromHash();
@@ -666,7 +873,10 @@ const App: React.FC = () => {
       setStudentSetupPromptArmed(false);
       setStudentSetupOpen(false);
       setStudentSetupGrade("");
-      setStudentSetupGoal("");
+      setStudentSetupGoalUniversity("");
+      setStudentSetupTargetGrade("");
+      setStudentSetupCurrentConcern("");
+      setStudentSetupWeakness("");
       setStudentSetupError("");
       clearCachedMeState();
       return;
@@ -740,12 +950,18 @@ const App: React.FC = () => {
               ? String(data.grade).trim()
               : ""
           );
-          setStudentSetupGoal(String(data.goal ?? "").trim());
+          setStudentSetupGoalUniversity(String(data.goal_university ?? "").trim());
+          setStudentSetupTargetGrade(String(data.target_grade ?? "").trim());
+          setStudentSetupCurrentConcern(String(data.current_concern ?? "").trim());
+          setStudentSetupWeakness(String(data.weakness ?? "").trim());
         } else {
           setStudentInitialProfileCompleted(true);
           setStudentSetupOpen(false);
           setStudentSetupGrade("");
-          setStudentSetupGoal("");
+          setStudentSetupGoalUniversity("");
+          setStudentSetupTargetGrade("");
+          setStudentSetupCurrentConcern("");
+          setStudentSetupWeakness("");
           setStudentSetupError("");
         }
         writeCachedMeState({
@@ -764,9 +980,22 @@ const App: React.FC = () => {
             String(data.grade).trim() !== ""
               ? String(data.grade).trim()
               : "",
-          goal:
+          goal: nextRole === "student" ? String(data.goal ?? "").trim() : "",
+          goalUniversity:
             nextRole === "student"
-              ? String(data.goal ?? "").trim()
+              ? String(data.goal_university ?? "").trim()
+              : "",
+          targetGrade:
+            nextRole === "student"
+              ? String(data.target_grade ?? "").trim()
+              : "",
+          currentConcern:
+            nextRole === "student"
+              ? String(data.current_concern ?? "").trim()
+              : "",
+          weakness:
+            nextRole === "student"
+              ? String(data.weakness ?? "").trim()
               : ""
         });
         setProfileLoadError(null);
@@ -952,7 +1181,16 @@ const App: React.FC = () => {
     if (meRole !== "parent") return;
     if (typeof window === "undefined") return;
     const h = getAppPath();
-    if (h === "#/parent" || h === "#/parent/report" || h === "#/parent/profile") return;
+    if (
+      h === "#/parent" ||
+      h === "#/parent/manage" ||
+      h === "#/parent/ai-report" ||
+      h === "#/parent/student-settings" ||
+      h === "#/parent/records" ||
+      h === "#/parent/report" ||
+      h === "#/parent/profile"
+    )
+      return;
     setAppPath("#/parent");
   }, [meRole]);
 
@@ -961,7 +1199,15 @@ const App: React.FC = () => {
     if (meRole !== "student") return;
     if (typeof window === "undefined") return;
     const h = getAppPath();
-    if (h === "#/parent" || h === "#/parent/report" || h === "#/parent/profile") {
+    if (
+      h === "#/parent" ||
+      h === "#/parent/manage" ||
+      h === "#/parent/ai-report" ||
+      h === "#/parent/student-settings" ||
+      h === "#/parent/records" ||
+      h === "#/parent/report" ||
+      h === "#/parent/profile"
+    ) {
       setAppPath("#/");
     }
   }, [meRole]);
@@ -1237,26 +1483,33 @@ const App: React.FC = () => {
     return () => window.clearInterval(t);
   }, [authToken, meRole, refreshParentPlanAddRequests]);
 
+  const refreshParentStudents = useCallback(async () => {
+    if (!authToken || meRole !== "parent") {
+      setParentStudentsLoaded(false);
+      return;
+    }
+    try {
+      const res = await fetch(`${API_BASE}/api/parent/students`, {
+        headers: { Authorization: `Bearer ${authToken}` }
+      });
+      if (!res.ok) return;
+      const data = await res.json();
+      setParentStudents(data.students || []);
+      if (data.students && data.students.length > 0) {
+        setParentStudentId(data.students[0].id);
+      } else {
+        setParentStudentId(null);
+      }
+      setParentStudentsLoaded(true);
+    } catch {
+      // ignore
+    }
+  }, [authToken, meRole]);
+
   // 학부모 페이지: 연결된 학생 목록 로딩
   useEffect(() => {
-    const run = async () => {
-      if (!authToken || meRole !== "parent") return;
-      try {
-        const res = await fetch(`${API_BASE}/api/parent/students`, {
-          headers: { Authorization: `Bearer ${authToken}` }
-        });
-        if (!res.ok) return;
-        const data = await res.json();
-        setParentStudents(data.students || []);
-        if (data.students && data.students.length > 0) {
-          setParentStudentId(data.students[0].id);
-        }
-      } catch {
-        // ignore
-      }
-    };
-    run();
-  }, [authToken, meRole]);
+    void refreshParentStudents();
+  }, [refreshParentStudents]);
 
   // 학부모: 연결 요청 목록 (양쪽 확인)
   useEffect(() => {
@@ -1368,7 +1621,7 @@ const App: React.FC = () => {
     run();
   }, [authToken, meRole, parentStudentId]);
 
-  // 학부모: 자녀별 계획표 시간 설정 조회
+  // 학부모: 학생별 계획표 시간 설정 조회
   useEffect(() => {
     const run = async () => {
       if (!authToken || meRole !== "parent" || !parentStudentId) return;
@@ -1397,10 +1650,23 @@ const App: React.FC = () => {
   const toggleDone = (id: number) => {
     hapticImpactLight();
     setBlocks(prev => {
+      const target = prev.find(block => block.id === id);
+      if (!target) return prev;
       const next = prev.map(b =>
         b.id === id ? { ...b, done: !b.done } : b
       );
-      syncBlocksToServer(next);
+      const attemptedDone = !target.done;
+      void (async () => {
+        const ok = await syncBlocksToServer(next);
+        if (ok) return;
+        setBlocks(current =>
+          current.map(block =>
+            block.id === id && block.done === attemptedDone
+              ? { ...block, done: target.done }
+              : block
+          )
+        );
+      })();
       return next;
     });
   };
@@ -1575,7 +1841,10 @@ const App: React.FC = () => {
     setStudentInitialProfileCompleted(true);
     setStudentSetupOpen(false);
     setStudentSetupGrade("");
-    setStudentSetupGoal("");
+    setStudentSetupGoalUniversity("");
+    setStudentSetupTargetGrade("");
+    setStudentSetupCurrentConcern("");
+    setStudentSetupWeakness("");
     setStudentSetupError("");
     setRoute("auth");
     setAppPath("#/auth");
@@ -1591,7 +1860,10 @@ const App: React.FC = () => {
 
   const saveInitialStudentProfile = async () => {
     if (!authToken) return;
-    const trimmedGoal = studentSetupGoal.trim();
+    const trimmedGoalUniversity = studentSetupGoalUniversity.trim();
+    const trimmedTargetGrade = studentSetupTargetGrade.trim();
+    const trimmedCurrentConcern = studentSetupCurrentConcern.trim();
+    const trimmedWeakness = studentSetupWeakness.trim();
     const parsedGrade = Number(studentSetupGrade);
 
     if (!Number.isInteger(parsedGrade) || parsedGrade < 1 || parsedGrade > 12) {
@@ -1599,8 +1871,13 @@ const App: React.FC = () => {
       hapticWarning();
       return;
     }
-    if (!trimmedGoal) {
-      setStudentSetupError("목표를 입력해 주세요.");
+    if (!trimmedGoalUniversity) {
+      setStudentSetupError("목표 대학을 입력해 주세요.");
+      hapticWarning();
+      return;
+    }
+    if (!trimmedTargetGrade) {
+      setStudentSetupError("목표 성적을 입력해 주세요.");
       hapticWarning();
       return;
     }
@@ -1616,7 +1893,10 @@ const App: React.FC = () => {
         },
         body: JSON.stringify({
           grade: parsedGrade,
-          goal: trimmedGoal
+          goalUniversity: trimmedGoalUniversity,
+          targetGrade: trimmedTargetGrade,
+          currentConcern: trimmedCurrentConcern,
+          weakness: trimmedWeakness
         })
       });
       const data = await res.json().catch(() => ({}));
@@ -1633,10 +1913,27 @@ const App: React.FC = () => {
         savedUser?.grade != null && String(savedUser.grade).trim() !== ""
           ? String(savedUser.grade).trim()
           : String(parsedGrade);
-      const savedGoal =
-        savedUser?.goal != null ? String(savedUser.goal).trim() : trimmedGoal;
       setStudentSetupGrade(savedGrade);
-      setStudentSetupGoal(savedGoal);
+      setStudentSetupGoalUniversity(
+        savedUser?.goal_university != null
+          ? String(savedUser.goal_university).trim()
+          : trimmedGoalUniversity
+      );
+      setStudentSetupTargetGrade(
+        savedUser?.target_grade != null
+          ? String(savedUser.target_grade).trim()
+          : trimmedTargetGrade
+      );
+      setStudentSetupCurrentConcern(
+        savedUser?.current_concern != null
+          ? String(savedUser.current_concern).trim()
+          : trimmedCurrentConcern
+      );
+      setStudentSetupWeakness(
+        savedUser?.weakness != null
+          ? String(savedUser.weakness).trim()
+          : trimmedWeakness
+      );
       setStudentInitialProfileCompleted(true);
       setStudentSetupPromptArmed(false);
       setStudentSetupOpen(false);
@@ -1684,6 +1981,226 @@ const App: React.FC = () => {
       });
     }
   };
+
+  useEffect(() => {
+    setStudentAlarmSettings(readStudentAlarmSettings(studentAlarmSettingsKey));
+  }, [studentAlarmSettingsKey]);
+
+  useEffect(() => {
+    const syncFromStorage = () => {
+      setStudentAlarmSettings(readStudentAlarmSettings(studentAlarmSettingsKey));
+    };
+    const handleAlarmSettingsUpdated = (event: Event) => {
+      const detail = (
+        event as CustomEvent<{
+          key?: string;
+          settings?: StudentAlarmSettings;
+        }>
+      ).detail;
+      if (detail?.key && detail.key !== studentAlarmSettingsKey) return;
+      if (detail?.settings) {
+        setStudentAlarmSettings(detail.settings);
+        return;
+      }
+      syncFromStorage();
+    };
+    window.addEventListener(
+      STUDENT_ALARM_SETTINGS_UPDATED_EVENT,
+      handleAlarmSettingsUpdated as EventListener
+    );
+    window.addEventListener("storage", syncFromStorage);
+    return () => {
+      window.removeEventListener(
+        STUDENT_ALARM_SETTINGS_UPDATED_EVENT,
+        handleAlarmSettingsUpdated as EventListener
+      );
+      window.removeEventListener("storage", syncFromStorage);
+    };
+  }, [studentAlarmSettingsKey]);
+
+  useEffect(() => {
+    const scope = studyReminderScope(userEmail);
+    const previousScope = lastStudyReminderScopeRef.current;
+    lastStudyReminderScopeRef.current = scope;
+
+    const cancelStoredNotifications = async (targetScope: string) => {
+      if (!Capacitor.isNativePlatform()) return;
+      const storageKey = buildStudyReminderNotificationStorageKey(targetScope);
+      const ids = readStoredNumberList(storageKey);
+      if (!ids.length) return;
+      await LocalNotifications.cancel({
+        notifications: ids.map(id => ({ id }))
+      }).catch(() => {
+        // ignore
+      });
+      writeStoredNumberList(storageKey, []);
+    };
+
+    if (previousScope && previousScope !== scope) {
+      void cancelStoredNotifications(previousScope);
+    }
+
+    const dayKey = getDateKey(0);
+    const pendingBlocks = sortStudyBlocksByStart(blocks).filter(block => {
+      if (block.done) return false;
+      const startMinutes = blockTimeSortKey(block.start);
+      return startMinutes >= blockTimeSortKey(getSeoulCurrentHm());
+    });
+    const signature = [
+      scope,
+      meRole,
+      studentAlarmSettings.scheduleReminders ? "on" : "off",
+      pendingBlocks.map(block => buildStudyReminderKey(dayKey, block)).join("||")
+    ].join("::");
+    if (studyReminderScheduleSignatureRef.current === signature) return;
+    studyReminderScheduleSignatureRef.current = signature;
+
+    const syncStudyReminderNotifications = async () => {
+      const storageKey = buildStudyReminderNotificationStorageKey(scope);
+      const previousIds = readStoredNumberList(storageKey);
+
+      if (
+        !Capacitor.isNativePlatform() ||
+        meRole !== "student" ||
+        !authToken ||
+        !studentAlarmSettings.scheduleReminders
+      ) {
+        if (previousIds.length) {
+          await LocalNotifications.cancel({
+            notifications: previousIds.map(id => ({ id }))
+          }).catch(() => {
+            // ignore
+          });
+          writeStoredNumberList(storageKey, []);
+        }
+        return;
+      }
+
+      const permission = await LocalNotifications.checkPermissions();
+      if (permission.display !== "granted") {
+        await LocalNotifications.requestPermissions().catch(() => {
+          // ignore
+        });
+      }
+      const latestPermission = await LocalNotifications.checkPermissions();
+      if (latestPermission.display !== "granted") {
+        if (previousIds.length) {
+          await LocalNotifications.cancel({
+            notifications: previousIds.map(id => ({ id }))
+          }).catch(() => {
+            // ignore
+          });
+          writeStoredNumberList(storageKey, []);
+        }
+        return;
+      }
+
+      if (previousIds.length) {
+        await LocalNotifications.cancel({
+          notifications: previousIds.map(id => ({ id }))
+        }).catch(() => {
+          // ignore
+        });
+      }
+
+      const notifications = pendingBlocks
+        .map(block => {
+          const reminderKey = buildStudyReminderKey(dayKey, block);
+          const at = buildTodayReminderDate(block.start);
+          if (!at) return null;
+          return {
+            id: buildStudyReminderNotificationId(reminderKey),
+            title: `${block.subject} 공부 시작 시간`,
+            body: buildStudyReminderBody(block),
+            schedule: { at },
+            actionTypeId: "default",
+            extra: {
+              type: "study-reminder",
+              reminderKey
+            }
+          };
+        })
+        .filter(
+          (
+            value
+          ): value is {
+            id: number;
+            title: string;
+            body: string;
+            schedule: { at: Date };
+            actionTypeId: string;
+            extra: { type: string; reminderKey: string };
+          } => value != null
+        );
+
+      if (!notifications.length) {
+        writeStoredNumberList(storageKey, []);
+        return;
+      }
+
+      await LocalNotifications.schedule({ notifications }).catch(() => {
+        // ignore
+      });
+      writeStoredNumberList(
+        storageKey,
+        notifications.map(notification => notification.id)
+      );
+    };
+
+    void syncStudyReminderNotifications();
+  }, [
+    authToken,
+    blocks,
+    meRole,
+    studentAlarmSettings.scheduleReminders,
+    userEmail
+  ]);
+
+  useEffect(() => {
+    if (meRole !== "student" || !studentAlarmSettings.scheduleReminders) {
+      if (activeStudyReminder) {
+        activeStudyReminderReveal.beginClose(() => setActiveStudyReminder(null));
+      }
+      return;
+    }
+    if (activeStudyReminder) return;
+
+    const scope = studyReminderScope(userEmail);
+    const checkReminderPopup = () => {
+      const dayKey = getDateKey(0);
+      const currentHm = getSeoulCurrentHm();
+      const dueBlock = sortStudyBlocksByStart(blocks).find(block => {
+        if (block.done) return false;
+        if (normalizeBlockTime(block.start) !== currentHm) return false;
+        const reminderKey = buildStudyReminderKey(dayKey, block);
+        return !hasShownReminder(scope, dayKey, reminderKey);
+      });
+      if (!dueBlock) return;
+
+      const reminderKey = buildStudyReminderKey(dayKey, dueBlock);
+      markReminderShown(scope, dayKey, reminderKey);
+      setActiveStudyReminder({
+        reminderKey,
+        blockId: dueBlock.id,
+        subject: dueBlock.subject,
+        start: dueBlock.start,
+        end: dueBlock.end,
+        plannedRange: dueBlock.plannedRange
+      });
+      hapticImpactMedium();
+    };
+
+    checkReminderPopup();
+    const timerId = window.setInterval(checkReminderPopup, 15000);
+    return () => window.clearInterval(timerId);
+  }, [
+    activeStudyReminder,
+    activeStudyReminderReveal,
+    blocks,
+    meRole,
+    studentAlarmSettings.scheduleReminders,
+    userEmail
+  ]);
 
   const handleAdd = async () => {
     if (!authToken) {
@@ -1733,7 +2250,7 @@ const App: React.FC = () => {
       setAddBlockPlan("");
       addModalReveal.beginClose(() => setShowAddModal(false));
       setPlanRequestNotice(
-        "학부모에게 요청을 보냈습니다. 승인되면 오늘 계획에 반영돼요."
+        "관리자에게 요청을 보냈습니다. 승인되면 오늘 계획에 반영돼요."
       );
       hapticSuccess();
     } catch {
@@ -1775,26 +2292,58 @@ const App: React.FC = () => {
     meRole === "parent" &&
     coachParentTab !== null;
 
+  const redirectParentToProfileForStudentLink = useCallback(() => {
+    hapticWarning();
+    setShowParentStudentRequiredModal(true);
+    setCoachParentTab(null);
+    setParentTab("profile");
+    replaceAppPath("#/parent/profile");
+  }, [hapticWarning]);
+
+  useEffect(() => {
+    if (meRole !== "parent" || !parentStudentsLoaded || parentStudents.length > 0) {
+      return;
+    }
+
+    const path = getAppPath();
+    const requiresLinkedStudent =
+      path === "#/parent/manage" ||
+      path === "#/parent/ai-report" ||
+      path === "#/parent/records" ||
+      path === "#/parent/student-settings";
+
+    if (!requiresLinkedStudent) return;
+
+    redirectParentToProfileForStudentLink();
+  }, [
+    coachParentTab,
+    meRole,
+    parentStudents.length,
+    parentStudentsLoaded,
+    parentTab,
+    redirectParentToProfileForStudentLink
+  ]);
+
   const headerTitle = roleLoading
     ? route === "parent"
-      ? "학부모"
+      ? "관리자"
       : tab === "profile"
         ? "프로필"
         : ""
     : parentView
       ? meRole === "parent"
         ? coachParentMode
-          ? coachParentTab === "timeline"
-            ? "학습 타임라인"
-            : coachParentTab === "guide"
-              ? "대화 가이드"
-              : coachParentTab === "profile"
-                ? "학부모 프로필"
-                : "학부모 홈"
+          ? coachParentTab === "manage"
+            ? "학생 관리"
+            : coachParentTab === "aiReport"
+              ? "AI 리포트"
+              : coachParentTab === "records"
+                ? "학생 기록"
+                : "학생 설정"
           : parentTab === "profile"
-            ? "학부모 프로필"
+            ? "관리자 프로필"
             : "AI 리포트"
-        : "학부모"
+        : "관리자"
       : showStudentShell
         ? coachStudentMode
           ? "AI 코치"
@@ -1912,7 +2461,11 @@ const App: React.FC = () => {
                         initialProfileCompleted:
                           nextRole === "student" ? false : true,
                         grade: "",
-                        goal: ""
+                        goal: "",
+                        goalUniversity: "",
+                        targetGrade: "",
+                        currentConcern: "",
+                        weakness: ""
                       });
                     }
                     if (isStudentSignup) {
@@ -2039,9 +2592,10 @@ const App: React.FC = () => {
             (showStudentShell && !coachStudentMode && tab === "today"
               ? " app-main--today-fixed"
               : "") +
-            (showStudentShell &&
+            ((showStudentShell &&
             coachStudentMode &&
-            coachStudentCoachLayout === "chat"
+            coachStudentCoachLayout === "chat") ||
+            (parentView && coachParentMode && coachParentTab === "manage")
               ? " app-main--coach-chat"
               : "")
           }
@@ -2086,6 +2640,26 @@ const App: React.FC = () => {
             {!roleLoading && coachParentMode && coachParentTab && (
               <ParentCoachApp
                 tab={coachParentTab}
+                apiBase={API_BASE}
+                authToken={authToken}
+                parentStudents={parentStudents}
+                setParentStudents={setParentStudents}
+                parentStudentId={parentStudentId}
+                setParentStudentId={setParentStudentId}
+                parentReport={parentReport}
+                parentAiDaily={parentAiDaily}
+                parentPlannerEnabled={parentPlannerEnabled}
+                setParentPlannerEnabled={setParentPlannerEnabled}
+                parentPlannerTime={parentPlannerTime}
+                setParentPlannerTime={setParentPlannerTime}
+                parentPlannerSaving={parentPlannerSaving}
+                setParentPlannerSaving={setParentPlannerSaving}
+                parentPlannerMessage={parentPlannerMessage}
+                setParentPlannerMessage={setParentPlannerMessage}
+                parentLockStatus={parentLockStatus}
+                setParentLockStatus={setParentLockStatus}
+                hapticWarning={hapticWarning}
+                hapticSuccess={hapticSuccess}
               />
             )}
             {!roleLoading && parentView && !coachParentMode && (
@@ -2121,6 +2695,11 @@ const App: React.FC = () => {
                 setParentWaitingOnMe={setParentWaitingOnMe}
                 setParentStudents={setParentStudents}
                 setParentAiDaily={setParentAiDaily}
+                onSelectManagedStudent={studentId => {
+                  setParentStudentId(studentId);
+                  setCoachParentTab("manage");
+                  setAppPath("#/parent/manage");
+                }}
                 hapticSelection={hapticSelection}
                 hapticWarning={hapticWarning}
                 hapticSuccess={hapticSuccess}
@@ -2236,40 +2815,37 @@ const App: React.FC = () => {
           onCoachStudentNavClick={nextTab => {
               hapticSelection();
             setCoachStudentTab(nextTab);
-            setCoachStudentCoachLayout(nextTab === "coach" ? "chat" : "scroll");
+            setCoachStudentCoachLayout("scroll");
             setAppPath(
               nextTab === "coach" ? "#/student/coach" : "#/student/home"
             );
           }}
           onParentNavClick={nextTab => {
-              hapticSelection();
+            hapticSelection();
             setParentTab(nextTab);
             setAppPath(
-              nextTab === "report"
-                ? "#/parent/report"
-                : nextTab === "profile"
+              nextTab === "profile"
                   ? "#/parent/profile"
                   : "#/parent"
             );
           }}
           onCoachParentNavClick={nextTab => {
-              hapticSelection();
+            if (parentStudentsLoaded && parentStudents.length === 0) {
+              redirectParentToProfileForStudentLink();
+              return;
+            }
+            hapticSelection();
             setCoachParentTab(nextTab);
             setAppPath(
-              nextTab === "home"
-                ? "#/parent/home"
-                : nextTab === "timeline"
-                  ? "#/parent/timeline"
-                  : nextTab === "guide"
-                    ? "#/parent/guide"
-                    : "#/parent/profile"
+              nextTab === "manage"
+                ? "#/parent/manage"
+                : nextTab === "aiReport"
+                  ? "#/parent/ai-report"
+                  : nextTab === "records"
+                    ? "#/parent/records"
+                    : "#/parent/student-settings"
             );
           }}
-          onParentCoachExit={() => {
-                hapticSelection();
-            setCoachParentTab(null);
-                setAppPath("#/parent");
-              }}
         />
 
         {showAddModal && (
@@ -2463,11 +3039,11 @@ const App: React.FC = () => {
                   className="settings-hint"
                   style={{ margin: "0 0 10px", lineHeight: 1.5 }}
                 >
-                  자녀가 오늘 타임라인 계획 수정을 요청했습니다.
+                  학생이 오늘 타임라인 계획 수정을 요청했습니다.
                 </p>
                 <div className="parent-plan-add-request-detail">
                   <p className="parent-plan-add-request-line">
-                    <span className="parent-plan-add-request-k">자녀</span>{" "}
+                    <span className="parent-plan-add-request-k">학생</span>{" "}
                     {parentPlanAddRequests[0].student_email}
                   </p>
                   <p className="parent-plan-add-request-line">
@@ -2585,6 +3161,10 @@ const App: React.FC = () => {
                   authToken={authToken}
                   meRole={meRole}
                   onNotificationAction={action => {
+                    if (action.type === "link_unlink_request") {
+                      openLinkUnlinkRequestFromNotification(action);
+                      return;
+                    }
                     if (meRole === "parent") {
                       openParentAppTimetableRequestFromNotification(action);
                     }
@@ -2610,6 +3190,200 @@ const App: React.FC = () => {
                   }
                 >
                   닫기
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {pendingLinkUnlinkAction ? (
+          <div
+            className="dday-modal dday-modal--open"
+            onClick={() => {
+              if (pendingLinkUnlinkBusy) return;
+              setPendingLinkUnlinkAction(null);
+              setPendingLinkUnlinkError("");
+            }}
+          >
+            <div
+              className="dday-modal-inner"
+              onClick={event => {
+                event.stopPropagation();
+              }}
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="link-unlink-request-modal-title"
+            >
+              <div className="dday-modal-header">
+                <span className="dday-modal-title" id="link-unlink-request-modal-title">
+                  연결 끊기 요청
+                </span>
+              </div>
+              <div className="dday-modal-body">
+                <p className="settings-hint" style={{ marginTop: 0 }}>
+                  {pendingLinkUnlinkAction.counterpartEmail
+                    ? `${pendingLinkUnlinkAction.counterpartEmail} 계정이 연결 끊기를 요청했습니다. 확인하면 연결이 해제됩니다.`
+                    : "상대 계정이 연결 끊기를 요청했습니다. 확인하면 연결이 해제됩니다."}
+                </p>
+                {pendingLinkUnlinkError ? (
+                  <p className="settings-hint" style={{ color: "#b91c1c", marginTop: 10 }}>
+                    {pendingLinkUnlinkError}
+                  </p>
+                ) : null}
+              </div>
+              <div className="dday-modal-footer">
+                <button
+                  type="button"
+                  className="modal-secondary"
+                  disabled={pendingLinkUnlinkBusy}
+                  onClick={async () => {
+                    if (!authToken) return;
+                    setPendingLinkUnlinkBusy(true);
+                    setPendingLinkUnlinkError("");
+                    try {
+                      const res = await fetch(`${API_BASE}/api/link/unlink-reject`, {
+                        method: "POST",
+                        headers: {
+                          "Content-Type": "application/json",
+                          Authorization: `Bearer ${authToken}`
+                        },
+                        body: JSON.stringify({ requestId: pendingLinkUnlinkAction.requestId })
+                      });
+                      const data = await res.json().catch(() => ({}));
+                      if (!res.ok) {
+                        setPendingLinkUnlinkError(
+                          String(data?.error || "요청 거절에 실패했습니다.")
+                        );
+                        hapticWarning();
+                        return;
+                      }
+                      window.dispatchEvent(new Event(DAECHI_LINKS_UPDATED_EVENT));
+                      setPendingLinkUnlinkAction(null);
+                      hapticSelection();
+                    } catch {
+                      setPendingLinkUnlinkError("네트워크 오류로 요청을 거절하지 못했습니다.");
+                      hapticWarning();
+                    } finally {
+                      setPendingLinkUnlinkBusy(false);
+                    }
+                  }}
+                >
+                  {pendingLinkUnlinkBusy ? "처리 중…" : "거절"}
+                </button>
+                <button
+                  type="button"
+                  className="modal-primary"
+                  disabled={pendingLinkUnlinkBusy}
+                  onClick={async () => {
+                    if (!authToken) return;
+                    setPendingLinkUnlinkBusy(true);
+                    setPendingLinkUnlinkError("");
+                    try {
+                      const res = await fetch(`${API_BASE}/api/link/unlink-confirm`, {
+                        method: "POST",
+                        headers: {
+                          "Content-Type": "application/json",
+                          Authorization: `Bearer ${authToken}`
+                        },
+                        body: JSON.stringify({ requestId: pendingLinkUnlinkAction.requestId })
+                      });
+                      const data = await res.json().catch(() => ({}));
+                      if (!res.ok) {
+                        setPendingLinkUnlinkError(
+                          String(data?.error || "연결 해제에 실패했습니다.")
+                        );
+                        hapticWarning();
+                        return;
+                      }
+                      if (meRole === "parent") {
+                        await refreshParentStudents();
+                      }
+                      window.dispatchEvent(new Event(DAECHI_LINKS_UPDATED_EVENT));
+                      setPendingLinkUnlinkAction(null);
+                      hapticSuccess();
+                    } catch {
+                      setPendingLinkUnlinkError("네트워크 오류로 연결을 해제하지 못했습니다.");
+                      hapticWarning();
+                    } finally {
+                      setPendingLinkUnlinkBusy(false);
+                    }
+                  }}
+                >
+                  {pendingLinkUnlinkBusy ? "처리 중…" : "확인 후 연결 끊기"}
+                </button>
+              </div>
+            </div>
+          </div>
+        ) : null}
+
+        {activeStudyReminder && (
+          <div
+            className={
+              "dday-modal" +
+              (activeStudyReminderReveal.revealed ? " dday-modal--open" : "")
+            }
+            onClick={() =>
+              activeStudyReminderReveal.beginClose(() =>
+                setActiveStudyReminder(null)
+              )
+            }
+          >
+            <div
+              className="dday-modal-inner"
+              onClick={event => {
+                event.stopPropagation();
+              }}
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="study-reminder-title"
+            >
+              <div className="dday-modal-header">
+                <span className="dday-modal-title" id="study-reminder-title">
+                  공부 시작 알림
+                </span>
+              </div>
+              <div className="dday-modal-body">
+                <p className="settings-hint" style={{ margin: 0, lineHeight: 1.5 }}>
+                  {activeStudyReminder.start}부터 {activeStudyReminder.subject} 공부를 시작할
+                  시간입니다.
+                </p>
+                {activeStudyReminder.plannedRange ? (
+                  <p
+                    className="settings-hint"
+                    style={{ margin: 0, color: "var(--neutral)", lineHeight: 1.5 }}
+                  >
+                    오늘 범위: {activeStudyReminder.plannedRange}
+                  </p>
+                ) : null}
+              </div>
+              <div className="dday-modal-footer">
+                <button
+                  type="button"
+                  className="modal-secondary"
+                  onClick={() =>
+                    activeStudyReminderReveal.beginClose(() =>
+                      setActiveStudyReminder(null)
+                    )
+                  }
+                >
+                  닫기
+                </button>
+                <button
+                  type="button"
+                  className="modal-primary"
+                  onClick={() => {
+                    const block = blocks.find(
+                      item => item.id === activeStudyReminder.blockId
+                    );
+                    activeStudyReminderReveal.beginClose(() =>
+                      setActiveStudyReminder(null)
+                    );
+                    if (block && !block.done) {
+                      toggleDone(activeStudyReminder.blockId);
+                    }
+                  }}
+                >
+                  완료로 체크
                 </button>
               </div>
             </div>
@@ -2672,7 +3446,7 @@ const App: React.FC = () => {
                   </div>
                 ) : null}
                 <p className="parent-app-request-modal__hint">
-                  학부모 리포트 탭으로 이동된 상태입니다. 이 요청을 기준으로 자녀 일정과 계획을 검토하시면 됩니다.
+                  학부모 리포트 탭으로 이동된 상태입니다. 이 요청을 기준으로 학생 일정과 계획을 검토하시면 됩니다.
                 </p>
               </div>
               <div className="dday-modal-footer">
@@ -2691,14 +3465,14 @@ const App: React.FC = () => {
                   type="button"
                   className="modal-primary"
                   onClick={() => {
-                    setParentTab("report");
-                    setAppPath("#/parent/report");
+                    setCoachParentTab("aiReport");
+                    setAppPath("#/parent/ai-report");
                     parentAppTimetableRequestReveal.beginClose(() =>
                       setParentAppTimetableRequestDetail(null)
                     );
                   }}
                 >
-                  리포트 보기
+                  AI 리포트 보기
                 </button>
               </div>
             </div>
@@ -2723,7 +3497,7 @@ const App: React.FC = () => {
               </div>
               <div className="dday-modal-body">
                 <p className="settings-hint" style={{ margin: 0, lineHeight: 1.5 }}>
-                  처음 한 번만 학생 학년과 목표를 설정해 주세요. 저장하면 프로필 페이지에도 그대로 표시됩니다.
+                  처음 한 번만 학생 학년과 목표를 설정해 주세요. 목표 대학과 목표 성적은 필수이고, 현재 고민과 취약점은 함께 기록해 둘 수 있습니다.
                 </p>
                 <div className="field">
                   <label className="field-label" htmlFor="student-setup-grade">
@@ -2742,16 +3516,55 @@ const App: React.FC = () => {
                   />
                 </div>
                 <div className="field">
-                  <label className="field-label" htmlFor="student-setup-goal">
-                    목표
+                  <label className="field-label" htmlFor="student-setup-goal-university">
+                    목표 대학
+                  </label>
+                  <input
+                    id="student-setup-goal-university"
+                    className="field-input"
+                    type="text"
+                    value={studentSetupGoalUniversity}
+                    onChange={e => setStudentSetupGoalUniversity(e.target.value)}
+                    placeholder="예: 연세대학교"
+                  />
+                </div>
+                <div className="field">
+                  <label className="field-label" htmlFor="student-setup-target-grade">
+                    목표 성적
+                  </label>
+                  <input
+                    id="student-setup-target-grade"
+                    className="field-input"
+                    type="text"
+                    value={studentSetupTargetGrade}
+                    onChange={e => setStudentSetupTargetGrade(e.target.value)}
+                    placeholder="예: 수학 1등급, 평균 92점"
+                  />
+                </div>
+                <div className="field">
+                  <label className="field-label" htmlFor="student-setup-current-concern">
+                    현재 고민
                   </label>
                   <textarea
-                    id="student-setup-goal"
+                    id="student-setup-current-concern"
                     className="field-input"
-                    rows={4}
-                    value={studentSetupGoal}
-                    onChange={e => setStudentSetupGoal(e.target.value)}
-                    placeholder="예: 이번 학기 수학 평균 90점 이상"
+                    rows={3}
+                    value={studentSetupCurrentConcern}
+                    onChange={e => setStudentSetupCurrentConcern(e.target.value)}
+                    placeholder="예: 계획은 세우는데 실천이 자주 밀려요"
+                  />
+                </div>
+                <div className="field">
+                  <label className="field-label" htmlFor="student-setup-weakness">
+                    취약점
+                  </label>
+                  <textarea
+                    id="student-setup-weakness"
+                    className="field-input"
+                    rows={3}
+                    value={studentSetupWeakness}
+                    onChange={e => setStudentSetupWeakness(e.target.value)}
+                    placeholder="예: 수학 킬러 문항, 영어 빈칸 추론"
                   />
                 </div>
                 {studentSetupError ? (
@@ -2768,6 +3581,68 @@ const App: React.FC = () => {
                   disabled={studentSetupSaving}
                 >
                   {studentSetupSaving ? "저장 중…" : "저장하고 시작하기"}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {showParentStudentRequiredModal && (
+          <div
+            className={
+              "dday-modal" +
+              (parentStudentRequiredModalReveal.revealed ? " dday-modal--open" : "")
+            }
+            onClick={() =>
+              parentStudentRequiredModalReveal.beginClose(() =>
+                setShowParentStudentRequiredModal(false)
+              )
+            }
+          >
+            <div
+              className="dday-modal-inner"
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="parent-student-required-title"
+              onClick={e => {
+                e.stopPropagation();
+              }}
+            >
+              <div className="dday-modal-header">
+                <span id="parent-student-required-title" className="dday-modal-title">
+                  학생 연결이 먼저 필요해요
+                </span>
+              </div>
+              <div className="dday-modal-body">
+                <p className="settings-hint" style={{ margin: 0, lineHeight: 1.5 }}>
+                  연결된 학생이 없어서 이 페이지는 아직 볼 수 없어요. 관리자 프로필에서 학생을 연결한 뒤 다시 들어와 주세요.
+                </p>
+              </div>
+              <div className="dday-modal-footer">
+                <button
+                  type="button"
+                  className="modal-secondary"
+                  onClick={() =>
+                    parentStudentRequiredModalReveal.beginClose(() =>
+                      setShowParentStudentRequiredModal(false)
+                    )
+                  }
+                >
+                  확인
+                </button>
+                <button
+                  type="button"
+                  className="modal-primary"
+                  onClick={() => {
+                    setCoachParentTab(null);
+                    setParentTab("profile");
+                    replaceAppPath("#/parent/profile");
+                    parentStudentRequiredModalReveal.beginClose(() =>
+                      setShowParentStudentRequiredModal(false)
+                    );
+                  }}
+                >
+                  학생 연결하러 가기
                 </button>
               </div>
             </div>
