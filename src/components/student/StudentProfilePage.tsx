@@ -12,6 +12,23 @@ import {
   STUDENT_PROFILE_SCHEDULES_UPDATED_EVENT,
   type StudentProfileSchedule
 } from "../../lib/studentProfileSchedules";
+import {
+  WEEKLY_APP_ALLOWANCE_DAYS,
+  createEmptyWeeklyAppAllowanceSchedule,
+  createWeeklyAppAllowanceSlot,
+  ensureDaechiRootWeeklyApps,
+  hhmmToMinutesAllow24,
+  minutesToHhmmAllow24,
+  normalizeWeeklyAppAllowanceCandidates,
+  normalizeWeeklyAppAllowanceSchedule,
+  sanitizeWeeklyAppAllowanceTime,
+  sortWeeklyAppAllowanceSlots,
+  isDaechiRootWeeklyApp,
+  type WeeklyAppAllowanceCandidate,
+  type WeeklyAppAllowanceDayKey,
+  type WeeklyAppAllowanceSchedule,
+  type WeeklyAppAllowanceSlot
+} from "../../lib/studentWeeklyAppAllowance";
 import type {
   StudentStudyRoomSummary
 } from "../../types/studyRoomTracking";
@@ -31,6 +48,7 @@ import {
 import { useEffectiveBearer } from "../../lib/useEffectiveBearer";
 import { useModalReveal } from "../../lib/useModalReveal";
 import { DAECHI_LINKS_UPDATED_EVENT } from "../../lib/linkEvents";
+import { DAECHI_STUDENT_PROFILE_INITIAL_MODAL_KEY } from "../../lib/coachEvents";
 import type { StudentLinkRow } from "./StudentLegacyView";
 
 const STUDENT_PROFILE_NAME_LS_KEY = "daechi_student_profile_name";
@@ -56,6 +74,14 @@ type RemoteCoachState = {
 type StudentLinkedParentRow = {
   id: number | string;
   email: string;
+};
+
+type StudentStoreApp = {
+  id: string;
+  name: string;
+  category: string;
+  description?: string | null;
+  installed: boolean;
 };
 
 const EMPTY_TRACKING_SUMMARY: StudentStudyRoomSummary = {
@@ -121,6 +147,7 @@ export function StudentProfilePage(props: {
   apiBase: string;
   userEmail: string | null;
   meRole: string | null;
+  storeApps: StudentStoreApp[];
   studentParentEmail: string;
   setStudentParentEmail: (v: string) => void;
   studentWaitingOnParent: StudentLinkRow[];
@@ -138,6 +165,7 @@ export function StudentProfilePage(props: {
     apiBase,
     userEmail,
     meRole,
+    storeApps,
     studentParentEmail,
     setStudentParentEmail,
     studentWaitingOnParent,
@@ -161,6 +189,10 @@ export function StudentProfilePage(props: {
     () => buildProfileCacheKey(cacheScope, "schedules"),
     [cacheScope]
   );
+  const weeklyAppAllowanceCacheKey = useMemo(
+    () => buildProfileCacheKey(cacheScope, "weekly-app-allowance"),
+    [cacheScope]
+  );
   const linkedParentsCacheKey = useMemo(
     () => buildProfileCacheKey(cacheScope, "linked-parents"),
     [cacheScope]
@@ -178,8 +210,12 @@ export function StudentProfilePage(props: {
     readProfileCache<RemoteCoachState | null>(remoteCacheKey, null)
   );
   const [editOpen, setEditOpen] = useState(false);
+  const [scheduleManagementModalOpen, setScheduleManagementModalOpen] = useState(false);
   const [scheduleEditOpen, setScheduleEditOpen] = useState(false);
   const [accountEditOpen, setAccountEditOpen] = useState(false);
+  const [alarmSettingsModalOpen, setAlarmSettingsModalOpen] = useState(false);
+  const [studyRoomTrackingModalOpen, setStudyRoomTrackingModalOpen] = useState(false);
+  const [parentManagementModalOpen, setParentManagementModalOpen] = useState(false);
   const [linkedParentExistsModalOpen, setLinkedParentExistsModalOpen] = useState(false);
   const [accountName, setAccountName] = useState("");
   const [accountEmail, setAccountEmail] = useState("");
@@ -204,6 +240,33 @@ export function StudentProfilePage(props: {
   const [scheduleTime, setScheduleTime] = useState("18:00");
   const [scheduleEndTime, setScheduleEndTime] = useState("19:00");
   const [scheduleError, setScheduleError] = useState("");
+  const [weeklyAppManagementModalOpen, setWeeklyAppManagementModalOpen] = useState(false);
+  const [weeklyAppEditorOpen, setWeeklyAppEditorOpen] = useState(false);
+  const [selectedWeeklyAppDay, setSelectedWeeklyAppDay] =
+    useState<WeeklyAppAllowanceDayKey>("mon");
+  const [weeklyAppAllowanceSchedule, setWeeklyAppAllowanceSchedule] =
+    useState<WeeklyAppAllowanceSchedule>(() =>
+      normalizeWeeklyAppAllowanceSchedule(
+        readProfileCache<WeeklyAppAllowanceSchedule | null>(
+          weeklyAppAllowanceCacheKey,
+          null
+        )
+      )
+    );
+  const [weeklyAppEditorSlotId, setWeeklyAppEditorSlotId] = useState<string | null>(null);
+  const [weeklyAppEditorOriginalDay, setWeeklyAppEditorOriginalDay] =
+    useState<WeeklyAppAllowanceDayKey>("mon");
+  const [weeklyAppEditorDay, setWeeklyAppEditorDay] =
+    useState<WeeklyAppAllowanceDayKey>("mon");
+  const [weeklyAppEditorStartTime, setWeeklyAppEditorStartTime] = useState("18:00");
+  const [weeklyAppEditorEndTime, setWeeklyAppEditorEndTime] = useState("19:00");
+  const [weeklyAppEditorAllowedApps, setWeeklyAppEditorAllowedApps] = useState<
+    WeeklyAppAllowanceCandidate[]
+  >(() => ensureDaechiRootWeeklyApps([]));
+  const [weeklyAppEditorError, setWeeklyAppEditorError] = useState("");
+  const [weeklyAppLoading, setWeeklyAppLoading] = useState(false);
+  const [weeklyAppSaving, setWeeklyAppSaving] = useState(false);
+  const [weeklyAppError, setWeeklyAppError] = useState("");
   const [parentLinkFeedback, setParentLinkFeedback] = useState("");
   const [linkedParents, setLinkedParents] = useState<StudentLinkedParentRow[]>(() =>
     readProfileCache<StudentLinkedParentRow[]>(linkedParentsCacheKey, [])
@@ -231,15 +294,96 @@ export function StudentProfilePage(props: {
   });
   const fetchRef = useRef<AbortController | null>(null);
 
+  const enabledAlarmCount = useMemo(() => {
+    let count = 0;
+    if (alarmSettings.scheduleReminders) count += 1;
+    if (alarmSettings.parentLinkAlerts) count += 1;
+    if (alarmSettings.studyRoomAlerts) count += 1;
+    if (alarmSettings.messageAlerts) count += 1;
+    if (alarmSettings.homeworkAlerts) count += 1;
+    if (alarmSettings.wakeAlarmEnabled) count += 1;
+    return count;
+  }, [alarmSettings]);
+
+  const alarmSettingsSummary = enabledAlarmCount
+    ? `${enabledAlarmCount}개 켜짐`
+    : "모두 꺼짐";
+
+  const scheduleSummary = scheduleItems.length
+    ? `${scheduleItems.length}개 등록`
+    : "일정 없음";
+  const weeklyAppSlotCount = useMemo(
+    () =>
+      WEEKLY_APP_ALLOWANCE_DAYS.reduce(
+        (count, day) => count + (weeklyAppAllowanceSchedule[day.key]?.length || 0),
+        0
+      ),
+    [weeklyAppAllowanceSchedule]
+  );
+  const weeklyAppActiveDayCount = useMemo(
+    () =>
+      WEEKLY_APP_ALLOWANCE_DAYS.reduce(
+        (count, day) => count + ((weeklyAppAllowanceSchedule[day.key]?.length || 0) > 0 ? 1 : 0),
+        0
+      ),
+    [weeklyAppAllowanceSchedule]
+  );
+  const weeklyAppSummary = weeklyAppSlotCount
+    ? `${weeklyAppActiveDayCount}일 · ${weeklyAppSlotCount}구간`
+    : "미설정";
+
+  const parentManagementSummary = linkedParents.length > 0
+    ? "연결됨"
+    : studentWaitingOnParent.length > 0 || studentWaitingOnMe.length > 0
+      ? "요청 진행 중"
+      : "미연결";
+
   const accountModalReveal = useModalReveal(accountEditOpen);
+  const alarmSettingsModalReveal = useModalReveal(alarmSettingsModalOpen);
   const profileEditModalReveal = useModalReveal(editOpen);
+  const scheduleManagementModalReveal = useModalReveal(scheduleManagementModalOpen);
+  const weeklyAppManagementModalReveal = useModalReveal(weeklyAppManagementModalOpen);
+  const studyRoomTrackingModalReveal = useModalReveal(studyRoomTrackingModalOpen);
+  const parentManagementModalReveal = useModalReveal(parentManagementModalOpen);
   const scheduleModalReveal = useModalReveal(scheduleEditOpen);
+  const weeklyAppEditorModalReveal = useModalReveal(weeklyAppEditorOpen);
   const linkedParentExistsModalReveal = useModalReveal(linkedParentExistsModalOpen);
+
+  const installedWeeklyAppCandidates = useMemo(
+    () =>
+      normalizeWeeklyAppAllowanceCandidates(
+        storeApps
+          .filter(app => app.installed)
+          .map(app => ({
+            id: app.id,
+            name: app.name,
+            category: app.category,
+            description: app.description,
+            bundleId: null
+          }))
+      ),
+    [storeApps]
+  );
+  const weeklyAppAvailableApps = useMemo(() => {
+    const scheduledApps = WEEKLY_APP_ALLOWANCE_DAYS.flatMap(day =>
+      (weeklyAppAllowanceSchedule[day.key] || []).flatMap(slot => slot.allowedApps)
+    );
+    return normalizeWeeklyAppAllowanceCandidates([
+      ...installedWeeklyAppCandidates,
+      ...scheduledApps
+    ]);
+  }, [installedWeeklyAppCandidates, weeklyAppAllowanceSchedule]);
+  const selectedWeeklyAppDaySlots = weeklyAppAllowanceSchedule[selectedWeeklyAppDay] || [];
 
   useEffect(() => {
     setRemote(readProfileCache<RemoteCoachState | null>(remoteCacheKey, null));
     setScheduleItems(
       readProfileCache<StudentProfileSchedule[]>(schedulesCacheKey, [])
+    );
+    setWeeklyAppAllowanceSchedule(
+      normalizeWeeklyAppAllowanceSchedule(
+        readProfileCache<WeeklyAppAllowanceSchedule | null>(weeklyAppAllowanceCacheKey, null)
+      )
     );
     setLinkedParents(
       readProfileCache<StudentLinkedParentRow[]>(linkedParentsCacheKey, [])
@@ -247,7 +391,18 @@ export function StudentProfilePage(props: {
     setAlarmSettings(
       readStudentAlarmSettings(alarmSettingsCacheKey)
     );
-  }, [alarmSettingsCacheKey, linkedParentsCacheKey, remoteCacheKey, schedulesCacheKey]);
+    setWeeklyAppError("");
+  }, [
+    alarmSettingsCacheKey,
+    linkedParentsCacheKey,
+    remoteCacheKey,
+    schedulesCacheKey,
+    weeklyAppAllowanceCacheKey
+  ]);
+
+  useEffect(() => {
+    writeProfileCache(weeklyAppAllowanceCacheKey, weeklyAppAllowanceSchedule);
+  }, [weeklyAppAllowanceCacheKey, weeklyAppAllowanceSchedule]);
 
   useEffect(() => {
     const syncFromStorage = () => {
@@ -307,6 +462,8 @@ export function StudentProfilePage(props: {
     | "scheduleReminders"
     | "parentLinkAlerts"
     | "studyRoomAlerts"
+    | "messageAlerts"
+    | "homeworkAlerts"
     | "wakeAlarmEnabled";
 
   const toggleAlarmSetting = useCallback(
@@ -407,6 +564,78 @@ export function StudentProfilePage(props: {
         // keep stale schedules visible
       });
   }, [apiBase, schedulesCacheKey, token]);
+
+  const refreshWeeklyAppAllowance = useCallback(
+    async (options?: { silent?: boolean }) => {
+      if (!token) {
+        setWeeklyAppAllowanceSchedule(createEmptyWeeklyAppAllowanceSchedule());
+        return;
+      }
+      if (!options?.silent) {
+        setWeeklyAppLoading(true);
+      }
+      try {
+        const res = await fetch(`${apiBase}/api/student/weekly-app-allowance`, {
+          cache: "no-store",
+          headers: { Authorization: `Bearer ${token}` }
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          throw new Error(
+            String(data?.error || "주간 허용 앱 시간표를 불러오지 못했습니다.")
+          );
+        }
+        const nextSchedule = normalizeWeeklyAppAllowanceSchedule(data?.schedule);
+        setWeeklyAppAllowanceSchedule(nextSchedule);
+        writeProfileCache(weeklyAppAllowanceCacheKey, nextSchedule);
+        setWeeklyAppError("");
+      } catch (error) {
+        setWeeklyAppError(
+          error instanceof Error && error.message
+            ? error.message
+            : "주간 허용 앱 시간표를 불러오지 못했습니다."
+        );
+      } finally {
+        if (!options?.silent) {
+          setWeeklyAppLoading(false);
+        }
+      }
+    },
+    [apiBase, token, weeklyAppAllowanceCacheKey]
+  );
+
+  const persistWeeklyAppAllowance = useCallback(
+    async (nextSchedule: WeeklyAppAllowanceSchedule) => {
+      if (!token) {
+        throw new Error("로그인 정보가 없어 저장할 수 없습니다.");
+      }
+      setWeeklyAppSaving(true);
+      try {
+        const res = await fetch(`${apiBase}/api/student/weekly-app-allowance`, {
+          method: "PUT",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`
+          },
+          body: JSON.stringify({ schedule: nextSchedule })
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          throw new Error(
+            String(data?.error || "주간 허용 앱 시간표를 저장하지 못했습니다.")
+          );
+        }
+        const savedSchedule = normalizeWeeklyAppAllowanceSchedule(data?.schedule);
+        setWeeklyAppAllowanceSchedule(savedSchedule);
+        writeProfileCache(weeklyAppAllowanceCacheKey, savedSchedule);
+        setWeeklyAppError("");
+        return savedSchedule;
+      } finally {
+        setWeeklyAppSaving(false);
+      }
+    },
+    [apiBase, token, weeklyAppAllowanceCacheKey]
+  );
 
   const refreshStudentLinkRequests = useCallback(async () => {
     if (!token) {
@@ -566,6 +795,186 @@ export function StudentProfilePage(props: {
     setScheduleEditOpen(true);
   };
 
+  const openScheduleManagementModal = () => {
+    hapticSelection();
+    setScheduleManagementModalOpen(true);
+  };
+
+  const openScheduleEditorFromManagement = () => {
+    scheduleManagementModalReveal.beginClose(() => {
+      setScheduleManagementModalOpen(false);
+      openScheduleEditor();
+    });
+  };
+
+  const closeScheduleManagementModal = () => {
+    scheduleManagementModalReveal.beginClose(() => setScheduleManagementModalOpen(false));
+  };
+
+  const openWeeklyAppManagementModal = () => {
+    hapticSelection();
+    setWeeklyAppError("");
+    setWeeklyAppManagementModalOpen(true);
+  };
+
+  const closeWeeklyAppManagementModal = () => {
+    weeklyAppManagementModalReveal.beginClose(() => setWeeklyAppManagementModalOpen(false));
+  };
+
+  const openWeeklyAppEditor = useCallback(
+    (dayKey: WeeklyAppAllowanceDayKey, slot?: WeeklyAppAllowanceSlot) => {
+      setWeeklyAppEditorError("");
+      setSelectedWeeklyAppDay(dayKey);
+      setWeeklyAppEditorSlotId(slot?.id ?? null);
+      setWeeklyAppEditorOriginalDay(slot?.dayKey ?? dayKey);
+      setWeeklyAppEditorDay(slot?.dayKey ?? dayKey);
+      if (slot) {
+        setWeeklyAppEditorStartTime(slot.startTime);
+        setWeeklyAppEditorEndTime(slot.endTime);
+        setWeeklyAppEditorAllowedApps(ensureDaechiRootWeeklyApps(slot.allowedApps));
+      } else {
+        const daySlots = weeklyAppAllowanceSchedule[dayKey] || [];
+        const lastEndMinutes =
+          hhmmToMinutesAllow24(daySlots[daySlots.length - 1]?.endTime || "") ?? 18 * 60;
+        let start = Math.min(lastEndMinutes, 23 * 60);
+        let end = Math.min(start + 60, 24 * 60);
+        if (end <= start) {
+          start = Math.max(0, Math.min(start - 60, 23 * 60));
+          end = Math.min(start + 60, 24 * 60);
+        }
+        setWeeklyAppEditorStartTime(minutesToHhmmAllow24(start));
+        setWeeklyAppEditorEndTime(minutesToHhmmAllow24(end));
+        setWeeklyAppEditorAllowedApps(ensureDaechiRootWeeklyApps([]));
+      }
+      setWeeklyAppEditorOpen(true);
+    },
+    [weeklyAppAllowanceSchedule]
+  );
+
+  const openWeeklyAppEditorFromManagement = () => {
+    openWeeklyAppEditor(selectedWeeklyAppDay);
+  };
+
+  const closeWeeklyAppEditor = () => {
+    weeklyAppEditorModalReveal.beginClose(() => setWeeklyAppEditorOpen(false));
+  };
+
+  const toggleWeeklyAppEditorAllowedApp = (app: WeeklyAppAllowanceCandidate) => {
+    if (isDaechiRootWeeklyApp(app)) return;
+    hapticSelection();
+    setWeeklyAppEditorAllowedApps(prev => {
+      const exists = prev.some(item => item.id === app.id);
+      return ensureDaechiRootWeeklyApps(
+        exists ? prev.filter(item => item.id !== app.id) : [...prev, app]
+      );
+    });
+  };
+
+  const saveWeeklyAppSlot = async () => {
+    const startTime = sanitizeWeeklyAppAllowanceTime(weeklyAppEditorStartTime);
+    const endTime = sanitizeWeeklyAppAllowanceTime(weeklyAppEditorEndTime);
+    if (!startTime || !endTime) {
+      setWeeklyAppEditorError("시간을 다시 확인해 주세요.");
+      hapticWarning();
+      return;
+    }
+    const startMinutes = hhmmToMinutesAllow24(startTime);
+    const endMinutes = hhmmToMinutesAllow24(endTime);
+    if (startMinutes == null || endMinutes == null || endMinutes <= startMinutes) {
+      setWeeklyAppEditorError("종료 시간은 시작 시간보다 늦어야 합니다.");
+      hapticWarning();
+      return;
+    }
+
+    const candidate = createWeeklyAppAllowanceSlot({
+      id: weeklyAppEditorSlotId || undefined,
+      dayKey: weeklyAppEditorDay,
+      startTime,
+      endTime,
+      allowedApps: weeklyAppEditorAllowedApps
+    });
+
+    const targetSlots = sortWeeklyAppAllowanceSlots(
+      [
+        ...(weeklyAppAllowanceSchedule[weeklyAppEditorDay] || []).filter(
+          slot => slot.id !== weeklyAppEditorSlotId
+        ),
+        candidate
+      ]
+    );
+    const hasOverlap = targetSlots.some((slot, index) => {
+      if (index === 0) return false;
+      const previous = targetSlots[index - 1];
+      const previousEnd = hhmmToMinutesAllow24(previous.endTime);
+      const currentStart = hhmmToMinutesAllow24(slot.startTime);
+      return previousEnd != null && currentStart != null && currentStart < previousEnd;
+    });
+    if (hasOverlap) {
+      setWeeklyAppEditorError("같은 요일 안에서 시간이 겹치지 않게 설정해 주세요.");
+      hapticWarning();
+      return;
+    }
+
+    const nextSchedule = {
+      ...weeklyAppAllowanceSchedule,
+      [weeklyAppEditorOriginalDay]: (weeklyAppAllowanceSchedule[weeklyAppEditorOriginalDay] || []).filter(
+        slot => slot.id !== weeklyAppEditorSlotId
+      ),
+      [weeklyAppEditorDay]: targetSlots
+    };
+    try {
+      await persistWeeklyAppAllowance(nextSchedule);
+      setSelectedWeeklyAppDay(weeklyAppEditorDay);
+      hapticSuccess();
+      weeklyAppEditorModalReveal.beginClose(() => setWeeklyAppEditorOpen(false));
+    } catch (error) {
+      const message =
+        error instanceof Error && error.message
+          ? error.message
+          : "주간 허용 앱 시간표를 저장하지 못했습니다.";
+      setWeeklyAppEditorError(message);
+      setWeeklyAppError(message);
+      hapticWarning();
+    }
+  };
+
+  const removeWeeklyAppSlot = async (dayKey: WeeklyAppAllowanceDayKey, slotId: string) => {
+    hapticSelection();
+    const nextSchedule = {
+      ...weeklyAppAllowanceSchedule,
+      [dayKey]: (weeklyAppAllowanceSchedule[dayKey] || []).filter(slot => slot.id !== slotId)
+    };
+    try {
+      await persistWeeklyAppAllowance(nextSchedule);
+      setWeeklyAppError("");
+    } catch (error) {
+      const message =
+        error instanceof Error && error.message
+          ? error.message
+          : "주간 허용 앱 시간표를 저장하지 못했습니다.";
+      setWeeklyAppError(message);
+      hapticWarning();
+    }
+  };
+
+  const openStudyRoomTrackingModal = () => {
+    hapticSelection();
+    setStudyRoomTrackingModalOpen(true);
+  };
+
+  const closeStudyRoomTrackingModal = () => {
+    studyRoomTrackingModalReveal.beginClose(() => setStudyRoomTrackingModalOpen(false));
+  };
+
+  const openParentManagementModal = () => {
+    hapticSelection();
+    setParentManagementModalOpen(true);
+  };
+
+  const closeParentManagementModal = () => {
+    parentManagementModalReveal.beginClose(() => setParentManagementModalOpen(false));
+  };
+
   const closeScheduleEditor = () => {
     scheduleModalReveal.beginClose(() => setScheduleEditOpen(false));
   };
@@ -619,6 +1028,12 @@ export function StudentProfilePage(props: {
   }, [refreshSchedules]);
 
   useEffect(() => {
+    void refreshWeeklyAppAllowance().catch(() => {
+      // keep cached weekly app allowance visible
+    });
+  }, [refreshWeeklyAppAllowance]);
+
+  useEffect(() => {
     refreshLinkedParents().catch(() => {
       // keep stale linked parents visible
     });
@@ -666,6 +1081,25 @@ export function StudentProfilePage(props: {
     };
   }, [refreshSchedules]);
 
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    let initialModal = "";
+    try {
+      initialModal = String(
+        sessionStorage.getItem(DAECHI_STUDENT_PROFILE_INITIAL_MODAL_KEY) || ""
+      ).trim();
+      if (initialModal) {
+        sessionStorage.removeItem(DAECHI_STUDENT_PROFILE_INITIAL_MODAL_KEY);
+      }
+    } catch {
+      initialModal = "";
+    }
+    if (initialModal === "weekly-app") {
+      setWeeklyAppError("");
+      setWeeklyAppManagementModalOpen(true);
+    }
+  }, []);
+
   const openAccountEdit = () => {
     setAccountEmail((userEmail || "").trim());
     setAccountName(
@@ -676,6 +1110,16 @@ export function StudentProfilePage(props: {
     setAccountCurrentPw("");
     setAccountError("");
     setAccountEditOpen(true);
+  };
+
+  const openAlarmSettingsModal = () => {
+    hapticSelection();
+    setAlarmSettingsModalOpen(true);
+  };
+
+  const closeAlarmSettingsModal = () => {
+    setWakeAlarmSheetOpen(false);
+    alarmSettingsModalReveal.beginClose(() => setAlarmSettingsModalOpen(false));
   };
 
   const saveAccount = async () => {
@@ -854,6 +1298,11 @@ export function StudentProfilePage(props: {
     });
     return rooms[0] || null;
   }, [studyRoomTrackingSummary.rooms]);
+  const studyRoomTrackingSummaryText = useMemo(() => {
+    if (studyRoomTrackingLoading) return "확인 중";
+    if (!preferredStudyRoom) return "미설정";
+    return preferredStudyRoom.isWithinRadius ? "체크인됨" : "체크아웃됨";
+  }, [preferredStudyRoom, studyRoomTrackingLoading]);
   const modalRoot = typeof document === "undefined" ? null : document.body;
   const linkedParent = linkedParents[0] || null;
   const hasLinkedParent = linkedParents.length > 0;
@@ -924,414 +1373,67 @@ export function StudentProfilePage(props: {
           </div>
         </Card>
 
-        <Card className="coach-card coach-card--padded student-profile-schedule-card">
-          <SectionHeader
-            title="일정 관리"
-            right={
-              <button
-                type="button"
-                className="student-profile-schedule-add-trigger"
-                onClick={openScheduleEditor}
-              >
-                일정 추가
-              </button>
-            }
-          />
-          <div className="student-profile-schedule-stack">
-            <div className="student-profile-schedule-panel">
-              {scheduleItems.length === 0 ? (
-                <div className="student-profile-schedule-empty">
-                  아직 등록된 일정이 없어요.
-                </div>
-              ) : (
-                scheduleItems.map(item => (
-                  <div key={item.id} className="student-profile-schedule-item">
-                    <div className="student-profile-schedule-item__body">
-                      <div className="student-profile-schedule-item__title">
-                        {item.title}
-                      </div>
-                      <div className="student-profile-schedule-item__meta">
-                        {item.date} · {item.startTime}
-                        {item.endTime ? `-${item.endTime}` : ""}
-                        {item.isRecurring && item.recurrenceRule ? ` · ${item.recurrenceRule}` : ""}
-                      </div>
-                    </div>
-                    <button
-                      type="button"
-                      className="student-profile-schedule-remove"
-                      onClick={() => removeScheduleItem(item.id)}
-                    >
-                      삭제
-                    </button>
-                  </div>
-                ))
-              )}
-            </div>
-          </div>
-        </Card>
-
-        <Card className="coach-card coach-card--padded student-profile-alarm-card">
-          <SectionHeader title="알람 설정" />
-          <div className="student-profile-settings-list student-profile-alarm-list">
-            <div className="settings-item settings-item--stack student-profile-alarm-item">
-              <span className="student-profile-alarm-item__body">
-                <span className="student-profile-alarm-item__label">학습 일정 알림</span>
-                <span className="student-profile-alarm-item__copy">
-                  오늘 타임라인 공부 카드 시작 시간에 팝업과 로컬 알림으로 알려줍니다.
-                </span>
-              </span>
-              <button
-                type="button"
-                className={
-                  "student-profile-alarm-item__toggle student-profile-alarm-item__toggle-button" +
-                  (alarmSettings.scheduleReminders
-                    ? " student-profile-alarm-item__toggle--on"
-                    : " student-profile-alarm-item__toggle--off")
-                }
-                onClick={() => toggleAlarmSetting("scheduleReminders")}
-                aria-pressed={alarmSettings.scheduleReminders}
-              >
-                {alarmSettings.scheduleReminders ? "켜짐" : "꺼짐"}
-              </button>
-            </div>
-            <div className="settings-item settings-item--stack student-profile-alarm-item">
-              <span className="student-profile-alarm-item__body">
-                <span className="student-profile-alarm-item__label">관리자 연결 알림</span>
-                <span className="student-profile-alarm-item__copy">
-                  연결 요청 승인과 상태 변경을 놓치지 않도록 알려줍니다.
-                </span>
-              </span>
-              <button
-                type="button"
-                className={
-                  "student-profile-alarm-item__toggle student-profile-alarm-item__toggle-button" +
-                  (alarmSettings.parentLinkAlerts
-                    ? " student-profile-alarm-item__toggle--on"
-                    : " student-profile-alarm-item__toggle--off")
-                }
-                onClick={() => toggleAlarmSetting("parentLinkAlerts")}
-                aria-pressed={alarmSettings.parentLinkAlerts}
-              >
-                {alarmSettings.parentLinkAlerts ? "켜짐" : "꺼짐"}
-              </button>
-            </div>
-            <div className="settings-item settings-item--stack student-profile-alarm-item">
-              <span className="student-profile-alarm-item__body">
-                <span className="student-profile-alarm-item__label">독서실 체크인 알림</span>
-                <span className="student-profile-alarm-item__copy">
-                  위치 권한과 독서실 체크인, 체크아웃 상태를 프로필에서 확인합니다.
-                </span>
-              </span>
-              <button
-                type="button"
-                className={
-                  "student-profile-alarm-item__toggle student-profile-alarm-item__toggle-button" +
-                  (alarmSettings.studyRoomAlerts
-                    ? " student-profile-alarm-item__toggle--on"
-                    : " student-profile-alarm-item__toggle--off")
-                }
-                onClick={() => toggleAlarmSetting("studyRoomAlerts")}
-                aria-pressed={alarmSettings.studyRoomAlerts}
-              >
-                {alarmSettings.studyRoomAlerts ? "켜짐" : "꺼짐"}
-              </button>
-            </div>
-            <div className="settings-item settings-item--stack student-profile-alarm-item student-profile-alarm-item--detail">
-              <div className="student-profile-alarm-item__row">
-                <span className="student-profile-alarm-item__body">
-                  <span className="student-profile-alarm-item__label">기상 알람</span>
-                  <span className="student-profile-alarm-item__copy">
-                    평일 기준으로 아침 기상 알람 시간을 정해 둘 수 있어요.
-                  </span>
-                </span>
-                <button
-                  type="button"
-                  className={
-                    "student-profile-alarm-item__toggle student-profile-alarm-item__toggle-button" +
-                    (alarmSettings.wakeAlarmEnabled
-                      ? " student-profile-alarm-item__toggle--on"
-                      : " student-profile-alarm-item__toggle--off")
-                  }
-                  onClick={() => {
-                    if (alarmSettings.wakeAlarmEnabled && wakeAlarmSheetOpen) {
-                      setWakeAlarmSheetOpen(false);
-                    }
-                    toggleAlarmSetting("wakeAlarmEnabled");
-                  }}
-                  aria-pressed={alarmSettings.wakeAlarmEnabled}
-                >
-                  {alarmSettings.wakeAlarmEnabled ? "켜짐" : "꺼짐"}
-                </button>
-              </div>
-              <button
-                type="button"
-                className="student-profile-alarm-item__time-trigger"
-                onClick={() => {
-                  setWakeAlarmSheetOpen(true);
-                  hapticSelection();
-                }}
-                disabled={!alarmSettings.wakeAlarmEnabled}
-              >
-                <span className="student-profile-alarm-item__time-label">기상 시간</span>
-                <span className="student-profile-alarm-item__time-value">
-                  {alarmSettings.wakeAlarmTime}
-                </span>
-              </button>
-            </div>
-          </div>
-        </Card>
-
-        {meRole === "student" && (
-          <Card className="coach-card coach-card--padded student-study-room-tracking-card">
-            <SectionHeader title="독서실 근방 확인" />
-            <div className="student-study-room-tracking-card__stack">
-              <div className="student-study-room-tracking-card__summary student-profile-link-status student-profile-link-status--first">
-                <div className="student-study-room-tracking-card__status-row">
-                  <span className="student-profile-link-status__title">
-                    {preferredStudyRoom?.name || "등록된 독서실 없음"}
-                  </span>
-                  <span className="student-study-room-tracking-card__status-value">
-                    {studyRoomTrackingStatus.trackingEnabled ? "추적 중" : "대기"}
-                  </span>
-                </div>
-                {preferredStudyRoom ? (
-                  <span className="student-profile-link-status__hint">
-                    {preferredStudyRoom.currentDistanceMeters != null
-                      ? `현재 거리 ${Math.round(preferredStudyRoom.currentDistanceMeters)}m · ${preferredStudyRoom.isWithinRadius ? "체크인됨" : "체크아웃됨"}`
-                      : "아직 거리 확인 전입니다."}
-                  </span>
-                ) : (
-                  <span className="student-profile-link-status__hint">
-                    연결된 관리자가 독서실 위치를 먼저 설정해야 합니다.
-                  </span>
-                )}
-                {preferredStudyRoom ? (
-                  <span className="student-profile-link-status__hint">
-                    기준 반경 {preferredStudyRoom.radiusMeters}m
-                    {studyRoomTrackingSummary.rooms.length > 1
-                      ? ` · 외 ${studyRoomTrackingSummary.rooms.length - 1}곳`
-                      : ""}
-                    {studyRoomTrackingSummary.currentHeartbeatAt
-                      ? ` · ${formatTrackingDateTime(studyRoomTrackingSummary.currentHeartbeatAt)} 기준`
-                      : ""}
-                  </span>
-                ) : null}
-              </div>
-
-              {studyRoomTrackingMessage ? (
-                <p className="settings-hint student-study-room-tracking-card__message">
-                  {studyRoomTrackingMessage}
-                </p>
-              ) : null}
-            </div>
-          </Card>
-        )}
-
-        {meRole === "student" && (
-          <Card className="coach-card coach-card--padded student-profile-parent-link-card">
-            <SectionHeader title={linkedParent ? "연결된 관리자" : "관리자와 계정 연결"} />
-            {linkedParent && (
-              <div className="student-profile-link-status student-profile-link-status--first">
-                <div className="student-profile-schedule-stack">
-                  <div className="student-profile-schedule-panel">
-                    <div className="student-profile-schedule-item">
-                      <div className="student-profile-schedule-item__body">
-                        <div className="student-profile-schedule-item__title">{linkedParent.email}</div>
-                      </div>
-                      <button
-                        type="button"
-                        className="student-profile-schedule-remove"
-                        disabled={unlinkingParentId === linkedParent.id}
-                        onClick={async () => {
-                          if (!token) return;
-                          setUnlinkingParentId(linkedParent.id);
-                          try {
-                            const res = await fetch(`${apiBase}/api/link/unlink`, {
-                              method: "POST",
-                              headers: {
-                                "Content-Type": "application/json",
-                                Authorization: `Bearer ${token}`
-                              },
-                              body: JSON.stringify({ parentUserId: linkedParent.id })
-                            });
-                            const data = await res.json().catch(() => ({}));
-                            if (!res.ok) {
-                              setParentLinkFeedback(
-                                String(data?.error || "연결 끊기 요청에 실패했습니다.")
-                              );
-                              hapticWarning();
-                              return;
-                            }
-                            setParentLinkFeedback("관리자에게 연결 끊기 요청을 보냈습니다.");
-                            hapticSuccess();
-                          } catch {
-                            setParentLinkFeedback("네트워크 오류로 요청을 보내지 못했습니다.");
-                            hapticWarning();
-                          } finally {
-                            setUnlinkingParentId(null);
-                          }
-                        }}
-                      >
-                        {unlinkingParentId === linkedParent.id ? "요청 중…" : "연결 끊기 요청"}
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            )}
-            <div className="field" style={{ marginTop: 12 }}>
-              <label className="field-label" htmlFor="student-parent-email">
-                관리자 이메일
-              </label>
-              <input
-                id="student-parent-email"
-                className="field-input"
-                value={studentParentEmail}
-                onChange={e => setStudentParentEmail(e.target.value)}
-                disabled={parentLinkInputDisabled}
-              />
-            </div>
-            <button
-              type="button"
-              className="coach-primary-btn"
-              style={{ marginTop: 10 }}
-              disabled={parentLinkInputDisabled}
-              onClick={async () => {
-                if (!token) return;
-                if (hasLinkedParent) {
-                  setLinkedParentExistsModalOpen(true);
-                  hapticWarning();
-                  return;
-                }
-                const parentEmail = studentParentEmail.trim();
-                if (!parentEmail) {
-                  setParentLinkFeedback("관리자 이메일을 입력해 주세요.");
-                  hapticWarning();
-                  return;
-                }
-                try {
-                  const res = await fetch(`${apiBase}/api/student/request-parent`, {
-                    method: "POST",
-                    headers: {
-                      "Content-Type": "application/json",
-                      Authorization: `Bearer ${token}`
-                    },
-                    body: JSON.stringify({ parentEmail })
-                  });
-                  const data = await res.json().catch(() => ({}));
-                  if (!res.ok) {
-                    const msg = String(data?.error || "연결 요청에 실패했습니다.").trim();
-                    setParentLinkFeedback(msg);
-                    if (msg.includes("이미 진행 중") || msg.includes("이미 연결")) {
-                      await refreshStudentLinkRequests();
-                    }
-                    hapticWarning();
-                    return;
-                  }
-                  setStudentParentEmail("");
-                  await refreshStudentLinkRequests();
-                  await refreshLinkedParents();
-                  setParentLinkFeedback("관리자에게 연결 요청을 보냈어요.");
-                  hapticSuccess();
-                } catch {
-                  setParentLinkFeedback("네트워크 오류로 연결 요청을 보내지 못했습니다.");
-                  hapticWarning();
-                }
-              }}
-            >
-              연결 요청 보내기
-            </button>
-            {hasPendingParentLink ? (
-              <p className="settings-hint" style={{ marginTop: 10 }}>
-                진행 중인 관리자 연결 요청이 있어서 새 요청은 잠시 막아 두었습니다.
-              </p>
-            ) : null}
-            {parentLinkFeedback ? (
-              <p className="settings-hint" style={{ marginTop: 10 }}>
-                {parentLinkFeedback}
-              </p>
-            ) : null}
-            {studentWaitingOnParent.length > 0 && (
-              <div className="student-profile-link-status">
-                <span className="student-profile-link-status__title">관리자 승인 대기</span>
-                {studentWaitingOnParent.map(row => (
-                  <span key={row.id} className="student-profile-link-status__hint">
-                    {row.parent_email}
-                  </span>
-                ))}
-              </div>
-            )}
-            {studentWaitingOnMe.length > 0 && (
-              <div className="student-profile-link-status student-profile-link-status--requests">
-                <span className="student-profile-link-status__title">관리자 연결 요청</span>
-                {studentWaitingOnMe.map(row => (
-                  <div key={row.id} className="student-profile-link-request-row">
-                    <span className="student-profile-link-status__hint">{row.parent_email}</span>
-                    <div className="student-profile-link-request-row__actions">
-                      <button
-                        type="button"
-                        className="progress-footer-btn"
-                        disabled={hasLinkedParent}
-                        onClick={async () => {
-                          if (!token) return;
-                          const res = await fetch(`${apiBase}/api/student/link-confirm`, {
-                            method: "POST",
-                            headers: {
-                              "Content-Type": "application/json",
-                              Authorization: `Bearer ${token}`
-                            },
-                            body: JSON.stringify({ requestId: row.id })
-                          });
-                          if (!res.ok) {
-                            const data = await res.json().catch(() => ({}));
-                            setParentLinkFeedback(
-                              String(data?.error || "연결 승인에 실패했습니다.")
-                            );
-                            hapticWarning();
-                            return;
-                          }
-                          await refreshStudentLinkRequests();
-                          await refreshLinkedParents();
-                          setParentLinkFeedback("관리자 계정과 연결했어요.");
-                          hapticSuccess();
-                        }}
-                      >
-                        {hasLinkedParent ? "이미 관리자 연결됨" : "승인 — 이 관리자와 연결"}
-                      </button>
-                      <button
-                        type="button"
-                        className="progress-footer-btn"
-                        onClick={async () => {
-                          if (!token) return;
-                          await fetch(`${apiBase}/api/link/reject`, {
-                            method: "POST",
-                            headers: {
-                              "Content-Type": "application/json",
-                              Authorization: `Bearer ${token}`
-                            },
-                            body: JSON.stringify({ requestId: row.id })
-                          });
-                          await refreshStudentLinkRequests();
-                          await refreshLinkedParents();
-                          setParentLinkFeedback("연결 요청을 거절했어요.");
-                        }}
-                      >
-                        거절
-                      </button>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </Card>
-        )}
-
         <Card className="coach-card coach-card--padded student-profile-settings-card">
-          <SectionHeader title="계정 및 앱" />
+          <SectionHeader title="설정" />
           <div className="student-profile-settings-list">
             <button type="button" className="settings-item" onClick={openAccountEdit}>
               <span className="settings-label">이메일 · 이름 · 비밀번호</span>
               <span className="settings-value">수정</span>
+            </button>
+            <button
+              type="button"
+              className="settings-item"
+              onClick={openScheduleManagementModal}
+            >
+              <span className="settings-label">일정 관리</span>
+              <span className="settings-value">{scheduleSummary}</span>
+            </button>
+            <button
+              type="button"
+              className="settings-item"
+              onClick={openWeeklyAppManagementModal}
+            >
+              <span className="settings-label">일주일 허용 앱 관리</span>
+              <span className="settings-value">{weeklyAppSummary}</span>
+            </button>
+            <button
+              type="button"
+              className="settings-item"
+              onClick={openAlarmSettingsModal}
+            >
+              <span className="settings-label">알람 설정</span>
+              <span className="settings-value">{alarmSettingsSummary}</span>
+            </button>
+            {meRole === "student" ? (
+              <button
+                type="button"
+                className="settings-item"
+                onClick={openStudyRoomTrackingModal}
+              >
+                <span className="settings-label">독서실 체크인</span>
+                <span className="settings-value">{studyRoomTrackingSummaryText}</span>
+              </button>
+            ) : null}
+            {meRole === "student" ? (
+              <button
+                type="button"
+                className="settings-item"
+                onClick={openParentManagementModal}
+              >
+                <span className="settings-label">관리자 설정</span>
+                <span className="settings-value">{parentManagementSummary}</span>
+              </button>
+            ) : null}
+            <button
+              type="button"
+              className="settings-item"
+              onClick={() => {
+                hapticWarning();
+                onLogoutPress();
+              }}
+            >
+              <span className="settings-label">로그아웃</span>
+              <span className="settings-value">계정 전환</span>
             </button>
             <button
               type="button"
@@ -1343,17 +1445,6 @@ export function StudentProfilePage(props: {
             >
               <span className="settings-label">회원 탈퇴</span>
               <span className="settings-value">계정 삭제</span>
-            </button>
-            <button
-              type="button"
-              className="settings-item"
-              onClick={() => {
-                hapticWarning();
-                onLogoutPress();
-              }}
-            >
-              <span className="settings-label">로그아웃</span>
-              <span className="settings-value">계정 전환</span>
             </button>
           </div>
         </Card>
@@ -1442,6 +1533,623 @@ export function StudentProfilePage(props: {
           )
         : null}
 
+      {scheduleManagementModalOpen && modalRoot
+        ? createPortal(
+            <div
+              className={
+                "dday-modal student-profile-schedule-modal" +
+                (scheduleManagementModalReveal.revealed ? " dday-modal--open" : "")
+              }
+              onClick={closeScheduleManagementModal}
+            >
+              <div
+                className="dday-modal-inner student-profile-schedule-modal-inner"
+                onClick={e => e.stopPropagation()}
+              >
+                <div className="dday-modal-header">
+                  <span className="dday-modal-title">일정 관리</span>
+                </div>
+                <div className="dday-modal-body student-profile-schedule-modal-body">
+                  <div className="student-profile-schedule-stack">
+                    <div className="student-profile-schedule-panel">
+                      {scheduleItems.length === 0 ? (
+                        <div className="student-profile-schedule-empty">
+                          아직 등록된 일정이 없어요.
+                        </div>
+                      ) : (
+                        scheduleItems.map(item => (
+                          <div key={item.id} className="student-profile-schedule-item">
+                            <div className="student-profile-schedule-item__body">
+                              <div className="student-profile-schedule-item__title">
+                                {item.title}
+                              </div>
+                              <div className="student-profile-schedule-item__meta">
+                                {item.date} · {item.startTime}
+                                {item.endTime ? `-${item.endTime}` : ""}
+                                {item.isRecurring && item.recurrenceRule
+                                  ? ` · ${item.recurrenceRule}`
+                                  : ""}
+                              </div>
+                            </div>
+                            <button
+                              type="button"
+                              className="student-profile-schedule-remove"
+                              onClick={() => removeScheduleItem(item.id)}
+                            >
+                              삭제
+                            </button>
+                          </div>
+                        ))
+                      )}
+                    </div>
+                  </div>
+                </div>
+                <div className="dday-modal-footer">
+                  <button
+                    type="button"
+                    className="modal-secondary"
+                    onClick={closeScheduleManagementModal}
+                  >
+                    닫기
+                  </button>
+                  <button
+                    type="button"
+                    className="modal-primary"
+                    onClick={openScheduleEditorFromManagement}
+                  >
+                    일정 추가
+                  </button>
+                </div>
+              </div>
+            </div>,
+            modalRoot
+          )
+        : null}
+
+      {weeklyAppManagementModalOpen && modalRoot
+        ? createPortal(
+            <div
+              className={
+                "dday-modal student-profile-schedule-modal" +
+                (weeklyAppManagementModalReveal.revealed ? " dday-modal--open" : "")
+              }
+              onClick={closeWeeklyAppManagementModal}
+            >
+              <div
+                className="dday-modal-inner student-profile-schedule-modal-inner app-allow-plan-modal-inner"
+                onClick={e => e.stopPropagation()}
+              >
+                <div className="dday-modal-header">
+                  <span className="dday-modal-title">일주일 허용 앱 관리</span>
+                </div>
+                <div className="dday-modal-body student-profile-schedule-modal-body">
+                  {weeklyAppError ? (
+                    <p className="settings-hint student-profile-schedule-error">
+                      {weeklyAppError}
+                    </p>
+                  ) : null}
+                  <div className="student-weekly-app-day-strip" role="tablist" aria-label="요일 선택">
+                    {WEEKLY_APP_ALLOWANCE_DAYS.map(day => {
+                      const selected = day.key === selectedWeeklyAppDay;
+                      return (
+                        <button
+                          key={day.key}
+                          type="button"
+                          className={
+                            "student-weekly-app-day-chip" +
+                            (selected ? " student-weekly-app-day-chip--selected" : "")
+                          }
+                          onClick={() => setSelectedWeeklyAppDay(day.key)}
+                          role="tab"
+                          aria-selected={selected}
+                        >
+                          <span>{day.shortLabel}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                  {weeklyAppLoading ? (
+                    <p className="app-allow-plan-empty">주간 허용 앱 시간표를 불러오는 중이에요.</p>
+                  ) : selectedWeeklyAppDaySlots.length > 0 ? (
+                    <div className="app-allow-plan-slot-list student-weekly-app-slot-list">
+                      {selectedWeeklyAppDaySlots.map(slot => (
+                        <div key={slot.id} className="app-allow-plan-slot">
+                          <div className="app-allow-plan-slot__top">
+                            <div>
+                              <div className="app-allow-plan-slot__time">
+                                {slot.startTime} - {slot.endTime}
+                              </div>
+                              <div className="app-allow-plan-slot__title">
+                                {slot.allowedApps.length > 1
+                                  ? `허용 앱 ${slot.allowedApps.length}개`
+                                  : "대치루트만 허용"}
+                              </div>
+                            </div>
+                            <span className="app-allow-plan-slot__source">
+                              {slot.allowedApps.length}개 앱
+                            </span>
+                          </div>
+                          <div className="app-allow-plan-slot__apps">
+                            {slot.allowedApps.map(app => (
+                              <span
+                                key={`${slot.id}-${app.id}`}
+                                className={
+                                  "app-allow-plan-chip" +
+                                  (isDaechiRootWeeklyApp(app)
+                                    ? " app-allow-plan-chip--locked"
+                                    : "")
+                                }
+                              >
+                                {app.name}
+                              </span>
+                            ))}
+                          </div>
+                          <div className="student-weekly-app-slot-actions">
+                            <button
+                              type="button"
+                              className="modal-secondary app-allow-plan-slot__picker-toggle"
+                              onClick={() => openWeeklyAppEditor(selectedWeeklyAppDay, slot)}
+                              disabled={weeklyAppSaving}
+                            >
+                              수정
+                            </button>
+                            <button
+                              type="button"
+                              className="app-allow-plan-slot__delete"
+                              onClick={() => removeWeeklyAppSlot(selectedWeeklyAppDay, slot.id)}
+                              disabled={weeklyAppSaving}
+                            >
+                              삭제
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="app-allow-plan-empty">
+                      {WEEKLY_APP_ALLOWANCE_DAYS.find(day => day.key === selectedWeeklyAppDay)?.label}에
+                      등록된 허용 앱 시간대가 아직 없어요.
+                    </p>
+                  )}
+                </div>
+                <div className="dday-modal-footer">
+                  <button
+                    type="button"
+                    className="modal-secondary"
+                    onClick={closeWeeklyAppManagementModal}
+                  >
+                    닫기
+                  </button>
+                  <button
+                    type="button"
+                    className="modal-primary"
+                    onClick={openWeeklyAppEditorFromManagement}
+                    disabled={weeklyAppLoading || weeklyAppSaving}
+                  >
+                    시간대 추가
+                  </button>
+                </div>
+              </div>
+            </div>,
+            modalRoot
+          )
+        : null}
+
+      {weeklyAppEditorOpen && modalRoot
+        ? createPortal(
+            <div
+              className={
+                "dday-modal student-profile-schedule-modal" +
+                (weeklyAppEditorModalReveal.revealed ? " dday-modal--open" : "")
+              }
+              onClick={closeWeeklyAppEditor}
+            >
+              <div
+                className="dday-modal-inner student-profile-schedule-modal-inner app-allow-plan-modal-inner"
+                onClick={e => e.stopPropagation()}
+              >
+                <div className="dday-modal-header">
+                  <span className="dday-modal-title">
+                    {weeklyAppEditorSlotId ? "허용 앱 시간대 수정" : "허용 앱 시간대 추가"}
+                  </span>
+                </div>
+                <div className="dday-modal-body student-profile-schedule-modal-body">
+                  <div className="field">
+                    <label className="field-label">요일</label>
+                    <div className="student-weekly-app-day-strip student-weekly-app-day-strip--editor">
+                      {WEEKLY_APP_ALLOWANCE_DAYS.map(day => {
+                        const selected = day.key === weeklyAppEditorDay;
+                        return (
+                          <button
+                            key={day.key}
+                            type="button"
+                            className={
+                              "student-weekly-app-day-chip" +
+                              (selected ? " student-weekly-app-day-chip--selected" : "")
+                            }
+                            onClick={() => setWeeklyAppEditorDay(day.key)}
+                          >
+                            <span>{day.shortLabel}</span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                  <div className="field" style={{ marginTop: 10 }}>
+                    <label className="field-label">시간</label>
+                    <div className="student-profile-schedule-time-grid">
+                      <div className="student-profile-schedule-time-cell">
+                        <span className="add-plan-time-inline-label">시작</span>
+                        <TimePickerInline
+                          value={weeklyAppEditorStartTime}
+                          onChange={setWeeklyAppEditorStartTime}
+                          hapticSelection={hapticSelection}
+                        />
+                      </div>
+                      <div className="student-profile-schedule-time-cell">
+                        <span className="add-plan-time-inline-label">종료</span>
+                        <TimePickerInline
+                          value={weeklyAppEditorEndTime}
+                          onChange={setWeeklyAppEditorEndTime}
+                          hapticSelection={hapticSelection}
+                        />
+                      </div>
+                    </div>
+                  </div>
+                  <div className="field student-weekly-app-picker-field" style={{ marginTop: 10 }}>
+                    <label className="field-label">허용 앱</label>
+                    <div className="app-allow-plan-slot__picker student-weekly-app-picker">
+                      {weeklyAppAvailableApps.map(app => {
+                        const selected = weeklyAppEditorAllowedApps.some(
+                          item => item.id === app.id
+                        );
+                        const locked = isDaechiRootWeeklyApp(app);
+                        return (
+                          <button
+                            key={app.id}
+                            type="button"
+                            className={
+                              "app-allow-plan-chip app-allow-plan-chip--picker" +
+                              (selected ? " app-allow-plan-chip--picker-selected" : "") +
+                              (locked ? " app-allow-plan-chip--locked" : "")
+                            }
+                            onClick={() => toggleWeeklyAppEditorAllowedApp(app)}
+                            disabled={locked}
+                          >
+                            {app.name}
+                          </button>
+                        );
+                      })}
+                    </div>
+                    {weeklyAppAvailableApps.length <= 1 ? (
+                      <p className="settings-hint student-weekly-app-picker-hint">
+                        설치된 앱 목록을 아직 불러오지 못해 현재는 대치루트만 선택할 수 있어요.
+                      </p>
+                    ) : null}
+                  </div>
+                  {weeklyAppEditorError ? (
+                    <p className="settings-hint student-profile-schedule-error">
+                      {weeklyAppEditorError}
+                    </p>
+                  ) : null}
+                </div>
+                <div className="dday-modal-footer">
+                  <button
+                    type="button"
+                    className="modal-secondary"
+                    onClick={closeWeeklyAppEditor}
+                    disabled={weeklyAppSaving}
+                  >
+                    취소
+                  </button>
+                  <button
+                    type="button"
+                    className="modal-primary"
+                    onClick={() => void saveWeeklyAppSlot()}
+                    disabled={weeklyAppSaving}
+                  >
+                    {weeklyAppSaving ? "저장 중..." : "저장"}
+                  </button>
+                </div>
+              </div>
+            </div>,
+            modalRoot
+          )
+        : null}
+
+      {studyRoomTrackingModalOpen && modalRoot
+        ? createPortal(
+            <div
+              className={
+                "dday-modal" +
+                (studyRoomTrackingModalReveal.revealed ? " dday-modal--open" : "")
+              }
+              onClick={closeStudyRoomTrackingModal}
+            >
+              <div className="dday-modal-inner" onClick={e => e.stopPropagation()}>
+                <div className="dday-modal-header">
+                  <span className="dday-modal-title">독서실 체크인</span>
+                </div>
+                <div className="dday-modal-body">
+                  <div className="student-study-room-tracking-card__stack">
+                    <div className="student-study-room-tracking-card__summary student-profile-link-status student-profile-link-status--first">
+                      <div className="student-study-room-tracking-card__status-row">
+                        <span className="student-profile-link-status__title">
+                          {preferredStudyRoom?.name || "등록된 독서실 없음"}
+                        </span>
+                        <span className="student-study-room-tracking-card__status-value">
+                          {studyRoomTrackingStatus.trackingEnabled ? "추적 중" : "대기"}
+                        </span>
+                      </div>
+                      {preferredStudyRoom ? (
+                        <span className="student-profile-link-status__hint">
+                          {preferredStudyRoom.currentDistanceMeters != null
+                            ? `현재 거리 ${Math.round(preferredStudyRoom.currentDistanceMeters)}m · ${preferredStudyRoom.isWithinRadius ? "체크인됨" : "체크아웃됨"}`
+                            : "아직 거리 확인 전입니다."}
+                        </span>
+                      ) : (
+                        <span className="student-profile-link-status__hint">
+                          연결된 관리자가 독서실 위치를 먼저 설정해야 합니다.
+                        </span>
+                      )}
+                      {preferredStudyRoom ? (
+                        <span className="student-profile-link-status__hint">
+                          기준 반경 {preferredStudyRoom.radiusMeters}m
+                          {studyRoomTrackingSummary.rooms.length > 1
+                            ? ` · 외 ${studyRoomTrackingSummary.rooms.length - 1}곳`
+                            : ""}
+                          {studyRoomTrackingSummary.currentHeartbeatAt
+                            ? ` · ${formatTrackingDateTime(studyRoomTrackingSummary.currentHeartbeatAt)} 기준`
+                            : ""}
+                        </span>
+                      ) : null}
+                    </div>
+
+                    {studyRoomTrackingMessage ? (
+                      <p className="settings-hint student-study-room-tracking-card__message">
+                        {studyRoomTrackingMessage}
+                      </p>
+                    ) : null}
+                  </div>
+                </div>
+                <div className="dday-modal-footer">
+                  <button
+                    type="button"
+                    className="modal-primary"
+                    onClick={closeStudyRoomTrackingModal}
+                  >
+                    닫기
+                  </button>
+                </div>
+              </div>
+            </div>,
+            modalRoot
+          )
+        : null}
+
+      {parentManagementModalOpen && modalRoot
+        ? createPortal(
+            <div
+              className={
+                "dday-modal" +
+                (parentManagementModalReveal.revealed ? " dday-modal--open" : "")
+              }
+              onClick={closeParentManagementModal}
+            >
+              <div className="dday-modal-inner" onClick={e => e.stopPropagation()}>
+                <div className="dday-modal-header">
+                  <span className="dday-modal-title">관리자 설정</span>
+                </div>
+                <div className="dday-modal-body">
+                  {linkedParent && (
+                    <div className="student-profile-link-status student-profile-link-status--first">
+                      <div className="student-profile-schedule-stack">
+                        <div className="student-profile-schedule-panel">
+                          <div className="student-profile-schedule-item">
+                            <div className="student-profile-schedule-item__body">
+                              <div className="student-profile-schedule-item__title">{linkedParent.email}</div>
+                            </div>
+                            <button
+                              type="button"
+                              className="student-profile-schedule-remove"
+                              disabled={unlinkingParentId === linkedParent.id}
+                              onClick={async () => {
+                                if (!token) return;
+                                setUnlinkingParentId(linkedParent.id);
+                                try {
+                                  const res = await fetch(`${apiBase}/api/link/unlink`, {
+                                    method: "POST",
+                                    headers: {
+                                      "Content-Type": "application/json",
+                                      Authorization: `Bearer ${token}`
+                                    },
+                                    body: JSON.stringify({ parentUserId: linkedParent.id })
+                                  });
+                                  const data = await res.json().catch(() => ({}));
+                                  if (!res.ok) {
+                                    setParentLinkFeedback(
+                                      String(data?.error || "연결 끊기 요청에 실패했습니다.")
+                                    );
+                                    hapticWarning();
+                                    return;
+                                  }
+                                  setParentLinkFeedback("관리자에게 연결 끊기 요청을 보냈습니다.");
+                                  hapticSuccess();
+                                } catch {
+                                  setParentLinkFeedback("네트워크 오류로 요청을 보내지 못했습니다.");
+                                  hapticWarning();
+                                } finally {
+                                  setUnlinkingParentId(null);
+                                }
+                              }}
+                            >
+                              {unlinkingParentId === linkedParent.id ? "요청 중…" : "연결 끊기 요청"}
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                  <div className="field" style={{ marginTop: 12 }}>
+                    <label className="field-label" htmlFor="student-parent-email">
+                      관리자 이메일
+                    </label>
+                    <input
+                      id="student-parent-email"
+                      className="field-input"
+                      value={studentParentEmail}
+                      onChange={e => setStudentParentEmail(e.target.value)}
+                      disabled={parentLinkInputDisabled}
+                    />
+                  </div>
+                  <button
+                    type="button"
+                    className="coach-primary-btn"
+                    style={{ marginTop: 10 }}
+                    disabled={parentLinkInputDisabled}
+                    onClick={async () => {
+                      if (!token) return;
+                      if (hasLinkedParent) {
+                        setLinkedParentExistsModalOpen(true);
+                        hapticWarning();
+                        return;
+                      }
+                      const parentEmail = studentParentEmail.trim();
+                      if (!parentEmail) {
+                        setParentLinkFeedback("관리자 이메일을 입력해 주세요.");
+                        hapticWarning();
+                        return;
+                      }
+                      try {
+                        const res = await fetch(`${apiBase}/api/student/request-parent`, {
+                          method: "POST",
+                          headers: {
+                            "Content-Type": "application/json",
+                            Authorization: `Bearer ${token}`
+                          },
+                          body: JSON.stringify({ parentEmail })
+                        });
+                        const data = await res.json().catch(() => ({}));
+                        if (!res.ok) {
+                          const msg = String(data?.error || "연결 요청에 실패했습니다.").trim();
+                          setParentLinkFeedback(msg);
+                          if (msg.includes("이미 진행 중") || msg.includes("이미 연결")) {
+                            await refreshStudentLinkRequests();
+                          }
+                          hapticWarning();
+                          return;
+                        }
+                        setStudentParentEmail("");
+                        await refreshStudentLinkRequests();
+                        await refreshLinkedParents();
+                        setParentLinkFeedback("관리자에게 연결 요청을 보냈어요.");
+                        hapticSuccess();
+                      } catch {
+                        setParentLinkFeedback("네트워크 오류로 연결 요청을 보내지 못했습니다.");
+                        hapticWarning();
+                      }
+                    }}
+                  >
+                    연결 요청 보내기
+                  </button>
+                  {hasPendingParentLink ? (
+                    <p className="settings-hint" style={{ marginTop: 10 }}>
+                      진행 중인 관리자 연결 요청이 있어서 새 요청은 잠시 막아 두었습니다.
+                    </p>
+                  ) : null}
+                  {parentLinkFeedback ? (
+                    <p className="settings-hint" style={{ marginTop: 10 }}>
+                      {parentLinkFeedback}
+                    </p>
+                  ) : null}
+                  {studentWaitingOnParent.length > 0 && (
+                    <div className="student-profile-link-status">
+                      <span className="student-profile-link-status__title">관리자 승인 대기</span>
+                      {studentWaitingOnParent.map(row => (
+                        <span key={row.id} className="student-profile-link-status__hint">
+                          {row.parent_email}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                  {studentWaitingOnMe.length > 0 && (
+                    <div className="student-profile-link-status student-profile-link-status--requests">
+                      <span className="student-profile-link-status__title">관리자 연결 요청</span>
+                      {studentWaitingOnMe.map(row => (
+                        <div key={row.id} className="student-profile-link-request-row">
+                          <span className="student-profile-link-status__hint">{row.parent_email}</span>
+                          <div className="student-profile-link-request-row__actions">
+                            <button
+                              type="button"
+                              className="progress-footer-btn"
+                              disabled={hasLinkedParent}
+                              onClick={async () => {
+                                if (!token) return;
+                                const res = await fetch(`${apiBase}/api/student/link-confirm`, {
+                                  method: "POST",
+                                  headers: {
+                                    "Content-Type": "application/json",
+                                    Authorization: `Bearer ${token}`
+                                  },
+                                  body: JSON.stringify({ requestId: row.id })
+                                });
+                                if (!res.ok) {
+                                  const data = await res.json().catch(() => ({}));
+                                  setParentLinkFeedback(
+                                    String(data?.error || "연결 승인에 실패했습니다.")
+                                  );
+                                  hapticWarning();
+                                  return;
+                                }
+                                await refreshStudentLinkRequests();
+                                await refreshLinkedParents();
+                                setParentLinkFeedback("관리자 계정과 연결했어요.");
+                                hapticSuccess();
+                              }}
+                            >
+                              {hasLinkedParent ? "이미 관리자 연결됨" : "승인 — 이 관리자와 연결"}
+                            </button>
+                            <button
+                              type="button"
+                              className="progress-footer-btn"
+                              onClick={async () => {
+                                if (!token) return;
+                                await fetch(`${apiBase}/api/link/reject`, {
+                                  method: "POST",
+                                  headers: {
+                                    "Content-Type": "application/json",
+                                    Authorization: `Bearer ${token}`
+                                  },
+                                  body: JSON.stringify({ requestId: row.id })
+                                });
+                                await refreshStudentLinkRequests();
+                                await refreshLinkedParents();
+                                setParentLinkFeedback("연결 요청을 거절했어요.");
+                              }}
+                            >
+                              거절
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+                <div className="dday-modal-footer">
+                  <button
+                    type="button"
+                    className="modal-primary"
+                    onClick={closeParentManagementModal}
+                  >
+                    닫기
+                  </button>
+                </div>
+              </div>
+            </div>,
+            modalRoot
+          )
+        : null}
+
       {alarmSettings.wakeAlarmEnabled ? (
         <TimePickerSheet
           open={wakeAlarmSheetOpen}
@@ -1455,6 +2163,185 @@ export function StudentProfilePage(props: {
           hapticSelection={hapticSelection}
         />
       ) : null}
+
+      {alarmSettingsModalOpen && modalRoot
+        ? createPortal(
+            <div
+              className={
+                "dday-modal" +
+                (alarmSettingsModalReveal.revealed ? " dday-modal--open" : "")
+              }
+              onClick={closeAlarmSettingsModal}
+            >
+              <div className="dday-modal-inner" onClick={e => e.stopPropagation()}>
+                <div className="dday-modal-header">
+                  <span className="dday-modal-title">알림 및 알람</span>
+                </div>
+                <div className="dday-modal-body">
+                  <div className="student-profile-settings-list student-profile-alarm-list">
+                    <div className="settings-item settings-item--stack student-profile-alarm-item">
+                      <span className="student-profile-alarm-item__body">
+                        <span className="student-profile-alarm-item__label">학습 일정 알림</span>
+                        <span className="student-profile-alarm-item__copy">
+                          오늘 공부 시작 시간에 팝업과 기기 알림이 와요.
+                        </span>
+                      </span>
+                      <button
+                        type="button"
+                        className={
+                          "student-profile-alarm-item__toggle student-profile-alarm-item__toggle-button" +
+                          (alarmSettings.scheduleReminders
+                            ? " student-profile-alarm-item__toggle--on"
+                            : " student-profile-alarm-item__toggle--off")
+                        }
+                        onClick={() => toggleAlarmSetting("scheduleReminders")}
+                        aria-pressed={alarmSettings.scheduleReminders}
+                      >
+                        {alarmSettings.scheduleReminders ? "켜짐" : "꺼짐"}
+                      </button>
+                    </div>
+                    <div className="settings-item settings-item--stack student-profile-alarm-item">
+                      <span className="student-profile-alarm-item__body">
+                        <span className="student-profile-alarm-item__label">관리자 연결 알림</span>
+                        <span className="student-profile-alarm-item__copy">
+                          연결 요청, 승인, 거절, 해제 알림이 와요.
+                        </span>
+                      </span>
+                      <button
+                        type="button"
+                        className={
+                          "student-profile-alarm-item__toggle student-profile-alarm-item__toggle-button" +
+                          (alarmSettings.parentLinkAlerts
+                            ? " student-profile-alarm-item__toggle--on"
+                            : " student-profile-alarm-item__toggle--off")
+                        }
+                        onClick={() => toggleAlarmSetting("parentLinkAlerts")}
+                        aria-pressed={alarmSettings.parentLinkAlerts}
+                      >
+                        {alarmSettings.parentLinkAlerts ? "켜짐" : "꺼짐"}
+                      </button>
+                    </div>
+                    <div className="settings-item settings-item--stack student-profile-alarm-item">
+                      <span className="student-profile-alarm-item__body">
+                        <span className="student-profile-alarm-item__label">독서실 출입 알림</span>
+                        <span className="student-profile-alarm-item__copy">
+                          체크인과 체크아웃 때 알려줘요.
+                        </span>
+                      </span>
+                      <button
+                        type="button"
+                        className={
+                          "student-profile-alarm-item__toggle student-profile-alarm-item__toggle-button" +
+                          (alarmSettings.studyRoomAlerts
+                            ? " student-profile-alarm-item__toggle--on"
+                            : " student-profile-alarm-item__toggle--off")
+                        }
+                        onClick={() => toggleAlarmSetting("studyRoomAlerts")}
+                        aria-pressed={alarmSettings.studyRoomAlerts}
+                      >
+                        {alarmSettings.studyRoomAlerts ? "켜짐" : "꺼짐"}
+                      </button>
+                    </div>
+                    <div className="settings-item settings-item--stack student-profile-alarm-item">
+                      <span className="student-profile-alarm-item__body">
+                        <span className="student-profile-alarm-item__label">관리자 메시지 알림</span>
+                        <span className="student-profile-alarm-item__copy">
+                          관리자 채팅 새 메시지가 오면 알려줘요.
+                        </span>
+                      </span>
+                      <button
+                        type="button"
+                        className={
+                          "student-profile-alarm-item__toggle student-profile-alarm-item__toggle-button" +
+                          (alarmSettings.messageAlerts
+                            ? " student-profile-alarm-item__toggle--on"
+                            : " student-profile-alarm-item__toggle--off")
+                        }
+                        onClick={() => toggleAlarmSetting("messageAlerts")}
+                        aria-pressed={alarmSettings.messageAlerts}
+                      >
+                        {alarmSettings.messageAlerts ? "켜짐" : "꺼짐"}
+                      </button>
+                    </div>
+                    <div className="settings-item settings-item--stack student-profile-alarm-item">
+                      <span className="student-profile-alarm-item__body">
+                        <span className="student-profile-alarm-item__label">숙제 결과 알림</span>
+                        <span className="student-profile-alarm-item__copy">
+                          숙제 승인이나 수정 요청이 오면 알려줘요.
+                        </span>
+                      </span>
+                      <button
+                        type="button"
+                        className={
+                          "student-profile-alarm-item__toggle student-profile-alarm-item__toggle-button" +
+                          (alarmSettings.homeworkAlerts
+                            ? " student-profile-alarm-item__toggle--on"
+                            : " student-profile-alarm-item__toggle--off")
+                        }
+                        onClick={() => toggleAlarmSetting("homeworkAlerts")}
+                        aria-pressed={alarmSettings.homeworkAlerts}
+                      >
+                        {alarmSettings.homeworkAlerts ? "켜짐" : "꺼짐"}
+                      </button>
+                    </div>
+                    <div className="settings-item settings-item--stack student-profile-alarm-item student-profile-alarm-item--detail">
+                      <div className="student-profile-alarm-item__row">
+                        <span className="student-profile-alarm-item__body">
+                          <span className="student-profile-alarm-item__label">기상 알람</span>
+                          <span className="student-profile-alarm-item__copy">
+                            설정한 시간에 기기 알람이 울려요.
+                          </span>
+                        </span>
+                        <button
+                          type="button"
+                          className={
+                            "student-profile-alarm-item__toggle student-profile-alarm-item__toggle-button" +
+                            (alarmSettings.wakeAlarmEnabled
+                              ? " student-profile-alarm-item__toggle--on"
+                              : " student-profile-alarm-item__toggle--off")
+                          }
+                          onClick={() => {
+                            if (alarmSettings.wakeAlarmEnabled && wakeAlarmSheetOpen) {
+                              setWakeAlarmSheetOpen(false);
+                            }
+                            toggleAlarmSetting("wakeAlarmEnabled");
+                          }}
+                          aria-pressed={alarmSettings.wakeAlarmEnabled}
+                        >
+                          {alarmSettings.wakeAlarmEnabled ? "켜짐" : "꺼짐"}
+                        </button>
+                      </div>
+                      <button
+                        type="button"
+                        className="student-profile-alarm-item__time-trigger"
+                        onClick={() => {
+                          setWakeAlarmSheetOpen(true);
+                          hapticSelection();
+                        }}
+                        disabled={!alarmSettings.wakeAlarmEnabled}
+                      >
+                        <span className="student-profile-alarm-item__time-label">기상 시간</span>
+                        <span className="student-profile-alarm-item__time-value">
+                          {alarmSettings.wakeAlarmTime}
+                        </span>
+                      </button>
+                    </div>
+                  </div>
+                </div>
+                <div className="dday-modal-footer">
+                  <button
+                    type="button"
+                    className="modal-primary"
+                    onClick={closeAlarmSettingsModal}
+                  >
+                    닫기
+                  </button>
+                </div>
+              </div>
+            </div>,
+            modalRoot
+          )
+        : null}
 
       {linkedParentExistsModalOpen && modalRoot
         ? createPortal(
@@ -1470,9 +2357,6 @@ export function StudentProfilePage(props: {
                   <span className="dday-modal-title">연결 요청 불가</span>
                 </div>
                 <div className="dday-modal-body">
-                  <p className="settings-hint" style={{ margin: 0, lineHeight: 1.5 }}>
-                    이미 연결된 관리자가 있어서 새 연결 요청을 보낼 수 없습니다.
-                  </p>
                 </div>
                 <div className="dday-modal-footer">
                   <button

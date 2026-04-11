@@ -23,6 +23,9 @@ type ParentAlarmSettings = {
   reportAlerts: boolean;
   studentLinkAlerts: boolean;
   studyRoomAlerts: boolean;
+  messageAlerts: boolean;
+  homeworkAlerts: boolean;
+  requestAlerts: boolean;
 };
 
 const PARENT_PROFILE_LS_KEY = "daechi_parent_profile_custom";
@@ -30,7 +33,10 @@ const PARENT_PROFILE_LS_KEY = "daechi_parent_profile_custom";
 const DEFAULT_PARENT_ALARM_SETTINGS: ParentAlarmSettings = {
   reportAlerts: true,
   studentLinkAlerts: true,
-  studyRoomAlerts: true
+  studyRoomAlerts: true,
+  messageAlerts: true,
+  homeworkAlerts: true,
+  requestAlerts: true
 };
 const DEFAULT_PARENT_COACH_CUSTOMIZATION: ParentCoachCustomization = {
   persona: "다정하지만 기준이 분명한 학습 코치",
@@ -139,6 +145,7 @@ export function ParentProfilePage(props: {
   const [editOpen, setEditOpen] = useState(false);
   const [introInput, setIntroInput] = useState("");
   const [accountEditOpen, setAccountEditOpen] = useState(false);
+  const [alarmSettingsModalOpen, setAlarmSettingsModalOpen] = useState(false);
   const [accountEmail, setAccountEmail] = useState("");
   const [accountNewPw, setAccountNewPw] = useState("");
   const [accountNewPw2, setAccountNewPw2] = useState("");
@@ -157,7 +164,23 @@ export function ParentProfilePage(props: {
   const [parentLinkFeedback, setParentLinkFeedback] = useState("");
   const [unlinkingStudentId, setUnlinkingStudentId] = useState<number | null>(null);
 
+  const enabledAlarmCount = useMemo(() => {
+    let count = 0;
+    if (alarmSettings.reportAlerts) count += 1;
+    if (alarmSettings.studentLinkAlerts) count += 1;
+    if (alarmSettings.studyRoomAlerts) count += 1;
+    if (alarmSettings.messageAlerts) count += 1;
+    if (alarmSettings.homeworkAlerts) count += 1;
+    if (alarmSettings.requestAlerts) count += 1;
+    return count;
+  }, [alarmSettings]);
+
+  const alarmSettingsSummary = enabledAlarmCount
+    ? `${enabledAlarmCount}개 켜짐`
+    : "모두 꺼짐";
+
   const accountModalReveal = useModalReveal(accountEditOpen);
+  const alarmSettingsModalReveal = useModalReveal(alarmSettingsModalOpen);
   const profileEditModalReveal = useModalReveal(editOpen);
 
   useEffect(() => {
@@ -191,7 +214,19 @@ export function ParentProfilePage(props: {
           studyRoomAlerts:
             data.settings.studyRoomAlerts == null
               ? DEFAULT_PARENT_ALARM_SETTINGS.studyRoomAlerts
-              : Boolean(data.settings.studyRoomAlerts)
+              : Boolean(data.settings.studyRoomAlerts),
+          messageAlerts:
+            data.settings.messageAlerts == null
+              ? DEFAULT_PARENT_ALARM_SETTINGS.messageAlerts
+              : Boolean(data.settings.messageAlerts),
+          homeworkAlerts:
+            data.settings.homeworkAlerts == null
+              ? DEFAULT_PARENT_ALARM_SETTINGS.homeworkAlerts
+              : Boolean(data.settings.homeworkAlerts),
+          requestAlerts:
+            data.settings.requestAlerts == null
+              ? DEFAULT_PARENT_ALARM_SETTINGS.requestAlerts
+              : Boolean(data.settings.requestAlerts)
         };
         setAlarmSettings(next);
         writeParentAlarmSettings(alarmSettingsKey, next);
@@ -355,6 +390,14 @@ export function ParentProfilePage(props: {
     setAccountEditOpen(true);
   };
 
+  const openAlarmSettingsModal = () => {
+    setAlarmSettingsModalOpen(true);
+  };
+
+  const closeAlarmSettingsModal = () => {
+    alarmSettingsModalReveal.beginClose(() => setAlarmSettingsModalOpen(false));
+  };
+
   const saveAccount = async () => {
     setAccountError("");
     const email = accountEmail.trim().toLowerCase();
@@ -510,75 +553,6 @@ export function ParentProfilePage(props: {
                 }}
               >
                 프로필 편집
-              </button>
-            </div>
-          </div>
-        </Card>
-
-        <Card className="coach-card coach-card--padded student-profile-alarm-card">
-          <SectionHeader title="알람 설정" />
-          <div className="student-profile-settings-list student-profile-alarm-list">
-            <div className="settings-item settings-item--stack student-profile-alarm-item">
-              <span className="student-profile-alarm-item__body">
-                <span className="student-profile-alarm-item__label">리포트 알림</span>
-                <span className="student-profile-alarm-item__copy">
-                  학생 리포트와 학습 요약 업데이트를 빠르게 확인합니다.
-                </span>
-              </span>
-              <button
-                type="button"
-                className={
-                  "student-profile-alarm-item__toggle student-profile-alarm-item__toggle-button" +
-                  (alarmSettings.reportAlerts
-                    ? " student-profile-alarm-item__toggle--on"
-                    : " student-profile-alarm-item__toggle--off")
-                }
-                onClick={() => toggleAlarmSetting("reportAlerts")}
-                aria-pressed={alarmSettings.reportAlerts}
-              >
-                {alarmSettings.reportAlerts ? "켜짐" : "꺼짐"}
-              </button>
-            </div>
-            <div className="settings-item settings-item--stack student-profile-alarm-item">
-              <span className="student-profile-alarm-item__body">
-                <span className="student-profile-alarm-item__label">학생 연결 알림</span>
-                <span className="student-profile-alarm-item__copy">
-                  연결 요청 승인, 대기, 변경 상태를 프로필에서 관리합니다.
-                </span>
-              </span>
-              <button
-                type="button"
-                className={
-                  "student-profile-alarm-item__toggle student-profile-alarm-item__toggle-button" +
-                  (alarmSettings.studentLinkAlerts
-                    ? " student-profile-alarm-item__toggle--on"
-                    : " student-profile-alarm-item__toggle--off")
-                }
-                onClick={() => toggleAlarmSetting("studentLinkAlerts")}
-                aria-pressed={alarmSettings.studentLinkAlerts}
-              >
-                {alarmSettings.studentLinkAlerts ? "켜짐" : "꺼짐"}
-              </button>
-            </div>
-            <div className="settings-item settings-item--stack student-profile-alarm-item">
-              <span className="student-profile-alarm-item__body">
-                <span className="student-profile-alarm-item__label">독서실 체크인 알림</span>
-                <span className="student-profile-alarm-item__copy">
-                  학생이 독서실 근방에 체크인하거나 체크아웃한 흐름을 확인할 수 있어요.
-                </span>
-              </span>
-              <button
-                type="button"
-                className={
-                  "student-profile-alarm-item__toggle student-profile-alarm-item__toggle-button" +
-                  (alarmSettings.studyRoomAlerts
-                    ? " student-profile-alarm-item__toggle--on"
-                    : " student-profile-alarm-item__toggle--off")
-                }
-                onClick={() => toggleAlarmSetting("studyRoomAlerts")}
-                aria-pressed={alarmSettings.studyRoomAlerts}
-              >
-                {alarmSettings.studyRoomAlerts ? "켜짐" : "꺼짐"}
               </button>
             </div>
           </div>
@@ -883,7 +857,7 @@ export function ParentProfilePage(props: {
         </Card>
 
         <Card className="coach-card coach-card--padded student-profile-settings-card">
-          <SectionHeader title="계정 및 앱" />
+          <SectionHeader title="설정" />
           <div className="student-profile-settings-list">
             <button type="button" className="settings-item" onClick={openAccountEdit}>
               <span className="settings-label">이메일 · 비밀번호</span>
@@ -892,13 +866,10 @@ export function ParentProfilePage(props: {
             <button
               type="button"
               className="settings-item"
-              onClick={() => {
-                hapticWarning();
-                onWithdrawPress();
-              }}
+              onClick={openAlarmSettingsModal}
             >
-              <span className="settings-label">회원 탈퇴</span>
-              <span className="settings-value">계정 삭제</span>
+              <span className="settings-label">알람 설정</span>
+              <span className="settings-value">{alarmSettingsSummary}</span>
             </button>
             <button
               type="button"
@@ -910,6 +881,17 @@ export function ParentProfilePage(props: {
             >
               <span className="settings-label">로그아웃</span>
               <span className="settings-value">계정 전환</span>
+            </button>
+            <button
+              type="button"
+              className="settings-item"
+              onClick={() => {
+                hapticWarning();
+                onWithdrawPress();
+              }}
+            >
+              <span className="settings-label">회원 탈퇴</span>
+              <span className="settings-value">계정 삭제</span>
             </button>
           </div>
         </Card>
@@ -1002,6 +984,157 @@ export function ParentProfilePage(props: {
               disabled={accountSaving}
             >
               {accountSaving ? "저장 중…" : "저장"}
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <div
+        className={
+          "dday-modal" + (alarmSettingsModalReveal.revealed ? " dday-modal--open" : "")
+        }
+        onClick={closeAlarmSettingsModal}
+      >
+        <div className="dday-modal-inner" onClick={e => e.stopPropagation()}>
+          <div className="dday-modal-header">
+            <span className="dday-modal-title">알림 관리</span>
+          </div>
+          <div className="dday-modal-body">
+            <p className="settings-hint" style={{ margin: 0, lineHeight: 1.5 }}>
+              받고 싶은 알림만 켜 둘 수 있어요.
+            </p>
+            <div className="student-profile-settings-list student-profile-alarm-list">
+              <div className="settings-item settings-item--stack student-profile-alarm-item">
+                <span className="student-profile-alarm-item__body">
+                  <span className="student-profile-alarm-item__label">리포트 알림</span>
+                  <span className="student-profile-alarm-item__copy">
+                    일일 AI 리포트가 나오면 알려줘요.
+                  </span>
+                </span>
+                <button
+                  type="button"
+                  className={
+                    "student-profile-alarm-item__toggle student-profile-alarm-item__toggle-button" +
+                    (alarmSettings.reportAlerts
+                      ? " student-profile-alarm-item__toggle--on"
+                      : " student-profile-alarm-item__toggle--off")
+                  }
+                  onClick={() => toggleAlarmSetting("reportAlerts")}
+                  aria-pressed={alarmSettings.reportAlerts}
+                >
+                  {alarmSettings.reportAlerts ? "켜짐" : "꺼짐"}
+                </button>
+              </div>
+              <div className="settings-item settings-item--stack student-profile-alarm-item">
+                <span className="student-profile-alarm-item__body">
+                  <span className="student-profile-alarm-item__label">학생 연결 알림</span>
+                  <span className="student-profile-alarm-item__copy">
+                    연결 요청, 승인, 거절, 해제 알림이 와요.
+                  </span>
+                </span>
+                <button
+                  type="button"
+                  className={
+                    "student-profile-alarm-item__toggle student-profile-alarm-item__toggle-button" +
+                    (alarmSettings.studentLinkAlerts
+                      ? " student-profile-alarm-item__toggle--on"
+                      : " student-profile-alarm-item__toggle--off")
+                  }
+                  onClick={() => toggleAlarmSetting("studentLinkAlerts")}
+                  aria-pressed={alarmSettings.studentLinkAlerts}
+                >
+                  {alarmSettings.studentLinkAlerts ? "켜짐" : "꺼짐"}
+                </button>
+              </div>
+              <div className="settings-item settings-item--stack student-profile-alarm-item">
+                <span className="student-profile-alarm-item__body">
+                  <span className="student-profile-alarm-item__label">독서실 출입 알림</span>
+                  <span className="student-profile-alarm-item__copy">
+                    학생 체크인과 체크아웃 때 알려줘요.
+                  </span>
+                </span>
+                <button
+                  type="button"
+                  className={
+                    "student-profile-alarm-item__toggle student-profile-alarm-item__toggle-button" +
+                    (alarmSettings.studyRoomAlerts
+                      ? " student-profile-alarm-item__toggle--on"
+                      : " student-profile-alarm-item__toggle--off")
+                  }
+                  onClick={() => toggleAlarmSetting("studyRoomAlerts")}
+                  aria-pressed={alarmSettings.studyRoomAlerts}
+                >
+                  {alarmSettings.studyRoomAlerts ? "켜짐" : "꺼짐"}
+                </button>
+              </div>
+              <div className="settings-item settings-item--stack student-profile-alarm-item">
+                <span className="student-profile-alarm-item__body">
+                  <span className="student-profile-alarm-item__label">학생 메시지 알림</span>
+                  <span className="student-profile-alarm-item__copy">
+                    학생 채팅 새 메시지가 오면 알려줘요.
+                  </span>
+                </span>
+                <button
+                  type="button"
+                  className={
+                    "student-profile-alarm-item__toggle student-profile-alarm-item__toggle-button" +
+                    (alarmSettings.messageAlerts
+                      ? " student-profile-alarm-item__toggle--on"
+                      : " student-profile-alarm-item__toggle--off")
+                  }
+                  onClick={() => toggleAlarmSetting("messageAlerts")}
+                  aria-pressed={alarmSettings.messageAlerts}
+                >
+                  {alarmSettings.messageAlerts ? "켜짐" : "꺼짐"}
+                </button>
+              </div>
+              <div className="settings-item settings-item--stack student-profile-alarm-item">
+                <span className="student-profile-alarm-item__body">
+                  <span className="student-profile-alarm-item__label">숙제 제출 알림</span>
+                  <span className="student-profile-alarm-item__copy">
+                    학생이 숙제를 보내면 알려줘요.
+                  </span>
+                </span>
+                <button
+                  type="button"
+                  className={
+                    "student-profile-alarm-item__toggle student-profile-alarm-item__toggle-button" +
+                    (alarmSettings.homeworkAlerts
+                      ? " student-profile-alarm-item__toggle--on"
+                      : " student-profile-alarm-item__toggle--off")
+                  }
+                  onClick={() => toggleAlarmSetting("homeworkAlerts")}
+                  aria-pressed={alarmSettings.homeworkAlerts}
+                >
+                  {alarmSettings.homeworkAlerts ? "켜짐" : "꺼짐"}
+                </button>
+              </div>
+              <div className="settings-item settings-item--stack student-profile-alarm-item">
+                <span className="student-profile-alarm-item__body">
+                  <span className="student-profile-alarm-item__label">요청 알림</span>
+                  <span className="student-profile-alarm-item__copy">
+                    계획 수정이나 앱 허용 요청이 오면 알려줘요.
+                  </span>
+                </span>
+                <button
+                  type="button"
+                  className={
+                    "student-profile-alarm-item__toggle student-profile-alarm-item__toggle-button" +
+                    (alarmSettings.requestAlerts
+                      ? " student-profile-alarm-item__toggle--on"
+                      : " student-profile-alarm-item__toggle--off")
+                  }
+                  onClick={() => toggleAlarmSetting("requestAlerts")}
+                  aria-pressed={alarmSettings.requestAlerts}
+                >
+                  {alarmSettings.requestAlerts ? "켜짐" : "꺼짐"}
+                </button>
+              </div>
+            </div>
+          </div>
+          <div className="dday-modal-footer">
+            <button type="button" className="modal-primary" onClick={closeAlarmSettingsModal}>
+              닫기
             </button>
           </div>
         </div>

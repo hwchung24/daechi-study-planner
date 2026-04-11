@@ -8,6 +8,7 @@ type KeyboardDockInsetOptions = {
   scrollerRef?: RefObject<HTMLElement>;
   dockRef: RefObject<HTMLElement>;
   gap?: number;
+  enabled?: boolean;
 };
 
 const EDITABLE_SELECTOR = [
@@ -39,10 +40,10 @@ function isEditableElement(root: HTMLElement, node: EventTarget | null): node is
 }
 
 export function useKeyboardDockInset(options: KeyboardDockInsetOptions) {
-  const { rootRef, scrollerRef, dockRef, gap = 12 } = options;
+  const { rootRef, scrollerRef, dockRef, gap = 12, enabled = true } = options;
 
   useEffect(() => {
-    if (typeof window === "undefined") return;
+    if (typeof window === "undefined" || !enabled) return;
 
     const root = rootRef.current;
     const dock = dockRef.current;
@@ -159,5 +160,5 @@ export function useKeyboardDockInset(options: KeyboardDockInsetOptions) {
       shell?.classList.remove("app-shell--keyboard-dock-active");
       scrollerRef?.current?.classList.remove("keyboard-dock-scroller--active");
     };
-  }, [dockRef, gap, rootRef, scrollerRef]);
+  }, [dockRef, enabled, gap, rootRef, scrollerRef]);
 }

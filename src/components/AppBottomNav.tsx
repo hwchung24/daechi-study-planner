@@ -19,7 +19,7 @@ function NavIcon({ children }: { children: React.ReactNode }) {
 }
 
 type TabKey = "today" | "records" | "store" | "profile";
-type CoachStudentTabKey = "home" | "coach";
+type CoachStudentTabKey = "home" | "coach" | "analysis";
 type ParentTabKey = "report" | "profile";
 type CoachParentTabKey = "manage" | "aiReport" | "records" | "studentSettings";
 

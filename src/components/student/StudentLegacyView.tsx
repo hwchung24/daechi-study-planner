@@ -11,7 +11,6 @@ import { ChevronLeft, ChevronRight, Pencil } from "lucide-react";
 import { DatePickerScroll } from "../DatePickerScroll";
 import { TimePickerSheet } from "../TimePickerSheet";
 import { TabTransitionPanel } from "../PageTransition";
-import { AppAllowanceCoachCollab } from "./AppAllowanceCoachCollab";
 import {
   getDateKeySeoul,
   getWeekDaysIncludingTomorrowSeoul,
@@ -144,189 +143,6 @@ type StudyStoreApp = {
   installedAt?: string | null;
   removedAt?: string | null;
 };
-
-type AppAllowanceCandidate = {
-  id: string;
-  name: string;
-  category: string;
-  description?: string | null;
-  bundleId?: string | null;
-};
-
-type AppAllowanceSlot = {
-  localId: string;
-  title: string;
-  source: "schedule" | "plan" | "free";
-  startTime: string;
-  endTime: string;
-  reason: string;
-  allowedApps: AppAllowanceCandidate[];
-};
-
-type AppAllowancePlan = {
-  targetDate: string;
-  summary: string;
-  slots: AppAllowanceSlot[];
-  usedOpenAi: boolean;
-  model: string | null;
-  availableApps: AppAllowanceCandidate[];
-};
-
-const DAECHI_ROOT_APP_ID = "com.daechiroot.ios";
-const DAECHI_ROOT_APP_NAME = "대치루트";
-const DAECHI_ROOT_APP: AppAllowanceCandidate = {
-  id: DAECHI_ROOT_APP_ID,
-  name: DAECHI_ROOT_APP_NAME,
-  category: "필수 앱",
-  description: "대치루트 앱은 항상 허용됩니다.",
-  bundleId: DAECHI_ROOT_APP_ID
-};
-
-function isDaechiRootApp(app: AppAllowanceCandidate | null | undefined) {
-  const id = String(app?.id || "").trim().toLowerCase();
-  const bundleId = String(app?.bundleId || "").trim().toLowerCase();
-  const name = String(app?.name || "").trim();
-  return id === DAECHI_ROOT_APP_ID || bundleId === DAECHI_ROOT_APP_ID || name === DAECHI_ROOT_APP_NAME;
-}
-
-let appAllowanceSlotSequence = 0;
-
-function createAppAllowanceSlotId() {
-  appAllowanceSlotSequence += 1;
-  return `app-allowance-slot-${appAllowanceSlotSequence}`;
-}
-
-function hhmmToMinutesAllow24(value: string): number | null {
-  const trimmed = String(value || "").trim();
-  if (trimmed === "24:00") return 24 * 60;
-  const match = trimmed.match(/^(\d{2}):(\d{2})$/);
-  if (!match) return null;
-  const hour = Number(match[1]);
-  const minute = Number(match[2]);
-  if (hour < 0 || hour > 23 || minute < 0 || minute > 59) return null;
-  return hour * 60 + minute;
-}
-
-function minutesToHhmmAllow24(totalMinutes: number): string {
-  const clamped = Math.max(0, Math.min(24 * 60, Math.round(totalMinutes)));
-  if (clamped >= 24 * 60) return "24:00";
-  const hour = Math.floor(clamped / 60);
-  const minute = clamped % 60;
-  return `${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}`;
-}
-
-function getEditableTimeValue(value: string): string {
-  return String(value || "").trim() === "24:00" ? "23:59" : String(value || "").trim();
-}
-
-function sanitizeTimeInput(value: string): string | null {
-  const trimmed = String(value || "").trim();
-  return /^\d{2}:\d{2}$/.test(trimmed) ? trimmed : null;
-}
-
-function sortAppAllowanceSlots(slots: AppAllowanceSlot[]): AppAllowanceSlot[] {
-  return [...slots].sort((a, b) => {
-    const aMin = hhmmToMinutesAllow24(a.startTime) ?? Number.MAX_SAFE_INTEGER;
-    const bMin = hhmmToMinutesAllow24(b.startTime) ?? Number.MAX_SAFE_INTEGER;
-    if (aMin !== bMin) return aMin - bMin;
-    const aEnd = hhmmToMinutesAllow24(a.endTime) ?? Number.MAX_SAFE_INTEGER;
-    const bEnd = hhmmToMinutesAllow24(b.endTime) ?? Number.MAX_SAFE_INTEGER;
-    return aEnd - bEnd;
-  });
-}
-
-function normalizeAppAllowanceCandidates(rows: AppAllowanceCandidate[]): AppAllowanceCandidate[] {
-  const seen = new Set<string>();
-  const next = (rows || []).filter(app => {
-    const id = String(app?.id || "").trim();
-    const name = String(app?.name || "").trim();
-    if (!id || !name) return false;
-    const key = `${id}::${name.toLowerCase()}`;
-    if (seen.has(key)) return false;
-    seen.add(key);
-    return true;
-  });
-  if (!next.some(isDaechiRootApp)) {
-    next.unshift({ ...DAECHI_ROOT_APP });
-  }
-  return next;
-}
-
-function ensureDaechiRootAllowedApps(rows: AppAllowanceCandidate[]): AppAllowanceCandidate[] {
-  const normalized = normalizeAppAllowanceCandidates(rows);
-  const root = normalized.find(isDaechiRootApp) || { ...DAECHI_ROOT_APP };
-  const others = normalized.filter(app => !isDaechiRootApp(app));
-  return [root, ...others];
-}
-
-function ensureDaechiRootAllowedSlots(slots: Array<Omit<AppAllowanceSlot, "localId"> | AppAllowanceSlot>) {
-  return (slots || []).map(slot => ({
-    ...slot,
-    allowedApps: ensureDaechiRootAllowedApps(
-      Array.isArray(slot.allowedApps) ? slot.allowedApps : []
-    )
-  }));
-}
-
-function hydrateAppAllowancePlan(raw: {
-  targetDate?: string;
-  summary?: string;
-  slots?: Array<Omit<AppAllowanceSlot, "localId">>;
-  usedOpenAi?: boolean;
-  model?: string | null;
-  availableApps?: AppAllowanceCandidate[];
-}): AppAllowancePlan {
-  const availableApps = normalizeAppAllowanceCandidates(
-    Array.isArray(raw.availableApps) ? raw.availableApps : []
-  );
-  const slots = sortAppAllowanceSlots(
-    ensureDaechiRootAllowedSlots(Array.isArray(raw.slots) ? raw.slots : []).map(slot => ({
-      localId: createAppAllowanceSlotId(),
-      title: String(slot.title || "").trim() || "시간표",
-      source:
-        slot.source === "schedule"
-          ? "schedule"
-          : slot.source === "free"
-            ? "free"
-            : "plan",
-      startTime: String(slot.startTime || "").trim(),
-      endTime: String(slot.endTime || "").trim(),
-      reason: String(slot.reason || "").trim(),
-      allowedApps: ensureDaechiRootAllowedApps(
-        Array.isArray(slot.allowedApps) ? slot.allowedApps : []
-      )
-    }))
-  );
-  return {
-    targetDate: String(raw.targetDate || ""),
-    summary: String(raw.summary || ""),
-    slots,
-    usedOpenAi: Boolean(raw.usedOpenAi),
-    model:
-      typeof raw.model === "string" || raw.model === null ? raw.model ?? null : null,
-    availableApps
-  };
-}
-
-function createDraftAppAllowanceSlot(existingSlots: AppAllowanceSlot[]): AppAllowanceSlot {
-  const sorted = sortAppAllowanceSlots(existingSlots);
-  const lastEnd = hhmmToMinutesAllow24(sorted[sorted.length - 1]?.endTime || "") ?? 18 * 60;
-  let start = Math.min(lastEnd, 23 * 60);
-  let end = Math.min(start + 60, 24 * 60);
-  if (end <= start) {
-    start = Math.max(0, Math.min(start - 60, 23 * 60));
-    end = Math.min(start + 60, 24 * 60);
-  }
-  return {
-    localId: createAppAllowanceSlotId(),
-    title: "직접 조정 시간대",
-    source: "free",
-    startTime: minutesToHhmmAllow24(start),
-    endTime: minutesToHhmmAllow24(end),
-    reason: "학생이 직접 조정한 시간대입니다.",
-    allowedApps: ensureDaechiRootAllowedApps([])
-  };
-}
 
 /** scroll-snap + scrollIntoView 조합에서 월요일로 붙는 문제 방지 — 날짜 키로 카드 찾아 가로 중앙 정렬 */
 function centerRecordsStripOnDateKey(
@@ -468,7 +284,6 @@ export function StudentLegacyView(props: {
   const [commitmentDoneSaving, setCommitmentDoneSaving] = useState(false);
   const [todayLogSaving, setTodayLogSaving] = useState(false);
   const [todayLogMessage, setTodayLogMessage] = useState("");
-  const [appAllowanceRequesting, setAppAllowanceRequesting] = useState(false);
   const coachLifeDayHydratedRef = useRef<string>("");
   /** coach/state 지연 응답이 토글 직후 상태를 덮어쓰지 않도록 중단 */
   const todayCoachFetchAbortRef = useRef<AbortController | null>(null);
@@ -487,20 +302,9 @@ export function StudentLegacyView(props: {
         bookId: number;
         field: "start" | "end";
       }
-    | {
-        kind: "app-allowance";
-        slotId: string;
-        field: "startTime" | "endTime";
-      }
     | null
   >(null);
   const [storeDetailApp, setStoreDetailApp] = useState<StudyStoreApp | null>(
-    null
-  );
-  const [appAllowancePlan, setAppAllowancePlan] = useState<AppAllowancePlan | null>(
-    null
-  );
-  const [appAllowancePickerSlotId, setAppAllowancePickerSlotId] = useState<string | null>(
     null
   );
   const hasCommitmentFromYesterday = commitmentFromYesterday.trim().length > 0;
@@ -513,7 +317,6 @@ export function StudentLegacyView(props: {
   const ddayModalReveal = useModalReveal(ddayEditOpen);
   const coachPlanHintReveal = useModalReveal(coachPlanHintOpen);
   const storeDetailReveal = useModalReveal(storeDetailApp != null);
-  const appAllowanceReveal = useModalReveal(appAllowancePlan != null);
 
   const tryOpenCoachTomorrowPlan = useCallback(
     (kind: "study" | "life") => {
@@ -561,228 +364,13 @@ export function StudentLegacyView(props: {
   }, [tab]);
 
   useEffect(() => {
-    if (!storeDetailApp && !appAllowancePlan) return;
+    if (!storeDetailApp) return;
     const prev = document.body.style.overflow;
     document.body.style.overflow = "hidden";
     return () => {
       document.body.style.overflow = prev;
     };
-  }, [storeDetailApp, appAllowancePlan]);
-
-  useEffect(() => {
-    if (appAllowancePlan) return;
-    setAppAllowancePickerSlotId(null);
-  }, [appAllowancePlan]);
-
-  const buildTomorrowPlanDraftPayload = useCallback(() => {
-    return progressBooks
-      .map(book => ({
-        bookId: book.id,
-        bookName: book.name,
-        plannedRange: tomorrowPlan[book.id]?.text || "",
-        startTime: tomorrowPlan[book.id]?.start || "",
-        endTime: tomorrowPlan[book.id]?.end || ""
-      }))
-      .filter(
-        item =>
-          item.bookName.trim() ||
-          item.plannedRange.trim() ||
-          item.startTime.trim() ||
-          item.endTime.trim()
-      );
-  }, [progressBooks, tomorrowPlan]);
-
-  const requestAppAllowancePlan = useCallback(async () => {
-    if (!authToken) return null;
-    try {
-      const res = await fetch(`${apiBase}/api/student/coach/app-timetable`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${authToken}`
-        },
-        body: JSON.stringify({
-          planDraft: buildTomorrowPlanDraftPayload(),
-          serial: resolvePreferredSerial() || undefined
-        })
-      });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) return null;
-      return hydrateAppAllowancePlan({
-        targetDate: String((data as { targetDate?: string }).targetDate || ""),
-        summary: String((data as { summary?: string }).summary || ""),
-        slots: Array.isArray(
-          (data as { slots?: Array<Omit<AppAllowanceSlot, "localId">> }).slots
-        )
-          ? ((data as { slots?: Array<Omit<AppAllowanceSlot, "localId">> }).slots || [])
-          : [],
-        usedOpenAi: Boolean((data as { usedOpenAi?: boolean }).usedOpenAi),
-        model:
-          typeof (data as { model?: string | null }).model === "string" ||
-          (data as { model?: string | null }).model === null
-            ? ((data as { model?: string | null }).model ?? null)
-            : null,
-        availableApps: Array.isArray(
-          (data as { availableApps?: AppAllowanceCandidate[] }).availableApps
-        )
-          ? ((data as { availableApps?: AppAllowanceCandidate[] }).availableApps || [])
-          : []
-      });
-    } catch {
-      return null;
-    }
-  }, [apiBase, authToken, buildTomorrowPlanDraftPayload]);
-
-  const requestParentAppAllowanceReview = useCallback(async () => {
-    if (!authToken || !appAllowancePlan || appAllowanceRequesting) return;
-    setAppAllowanceRequesting(true);
-    setTodayLogMessage("");
-    try {
-      const res = await fetch(`${apiBase}/api/student/coach/app-timetable-request`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${authToken}`
-        },
-        body: JSON.stringify({
-          targetDate: appAllowancePlan.targetDate,
-          summary: appAllowancePlan.summary,
-          slots: appAllowancePlan.slots.map(slot => ({
-            title: slot.title,
-            startTime: slot.startTime,
-            endTime: slot.endTime,
-            source: slot.source,
-            allowedAppNames: slot.allowedApps.map(app => app.name)
-          }))
-        })
-      });
-      const data = (await res.json().catch(() => ({}))) as {
-        error?: string;
-        code?: string;
-      };
-      if (!res.ok) {
-        hapticWarning();
-        setTodayLogMessage(
-          String(data.error || "").trim() ||
-            (data.code === "NO_LINKED_PARENT"
-              ? "연결된 관리자 계정이 없어 요청을 보낼 수 없습니다."
-              : "관리자에게 요청을 보내지 못했습니다.")
-        );
-        return;
-      }
-      hapticSuccess();
-      setTodayLogMessage("학부모 페이지 알림으로 내일 앱 허용 시간표 요청을 보냈습니다.");
-        setTodayLogMessage("관리자 페이지 알림으로 내일 앱 허용 시간표 요청을 보냈습니다.");
-      appAllowanceReveal.beginClose(() => setAppAllowancePlan(null));
-    } catch {
-      hapticWarning();
-      setTodayLogMessage("네트워크 오류로 요청을 보내지 못했습니다.");
-    } finally {
-      setAppAllowanceRequesting(false);
-    }
-  }, [
-    apiBase,
-    appAllowancePlan,
-    appAllowanceRequesting,
-    appAllowanceReveal,
-    authToken,
-    hapticSuccess,
-    hapticWarning
-  ]);
-
-  const availableAppAllowanceApps = useMemo(() => {
-    const planApps = appAllowancePlan?.availableApps || [];
-    if (planApps.length > 0) return planApps;
-    return normalizeAppAllowanceCandidates(
-      storeApps
-        .filter(app => app.installed)
-        .map(app => ({
-          id: app.id,
-          name: app.name,
-          category: app.category,
-          description: app.description,
-          bundleId: null
-        }))
-    );
-  }, [appAllowancePlan, storeApps]);
-
-  const updateAppAllowanceSlots = useCallback(
-    (updater: (slots: AppAllowanceSlot[]) => AppAllowanceSlot[]) => {
-      setAppAllowancePlan(prev => {
-        if (!prev) return prev;
-        return {
-          ...prev,
-          slots: sortAppAllowanceSlots(updater(prev.slots))
-        };
-      });
-    },
-    []
-  );
-
-  const updateAppAllowanceTime = useCallback(
-    (slotId: string, field: "startTime" | "endTime", value: string) => {
-      const nextValue = sanitizeTimeInput(value);
-      if (!nextValue) return;
-      let invalidRange = false;
-      updateAppAllowanceSlots(slots =>
-        slots.map(slot => {
-          if (slot.localId !== slotId) return slot;
-          const candidate = { ...slot, [field]: nextValue };
-          const startMin = hhmmToMinutesAllow24(candidate.startTime);
-          const endMin = hhmmToMinutesAllow24(candidate.endTime);
-          if (startMin == null || endMin == null || endMin <= startMin) {
-            invalidRange = true;
-            return slot;
-          }
-          return candidate;
-        })
-      );
-      if (invalidRange) {
-        hapticWarning();
-        setTodayLogMessage("시간대 종료 시간은 시작 시간보다 늦어야 합니다.");
-      }
-    },
-    [hapticWarning, updateAppAllowanceSlots]
-  );
-
-  const addAppAllowanceSlot = useCallback(() => {
-    hapticSelection();
-    setTodayLogMessage("");
-    updateAppAllowanceSlots(slots => [...slots, createDraftAppAllowanceSlot(slots)]);
-  }, [hapticSelection, updateAppAllowanceSlots]);
-
-  const removeAppAllowanceSlot = useCallback(
-    (slotId: string) => {
-      hapticSelection();
-      setAppAllowancePickerSlotId(current => (current === slotId ? null : current));
-      updateAppAllowanceSlots(slots => slots.filter(slot => slot.localId !== slotId));
-    },
-    [hapticSelection, updateAppAllowanceSlots]
-  );
-
-  const toggleAppAllowanceAllowedApp = useCallback(
-    (slotId: string, app: AppAllowanceCandidate) => {
-      if (isDaechiRootApp(app)) {
-        return;
-      }
-      hapticSelection();
-      updateAppAllowanceSlots(slots =>
-        slots.map(slot => {
-          if (slot.localId !== slotId) return slot;
-          const exists = slot.allowedApps.some(item => item.id === app.id);
-          return {
-            ...slot,
-            allowedApps: ensureDaechiRootAllowedApps(
-              exists
-                ? slot.allowedApps.filter(item => item.id !== app.id)
-                : [...slot.allowedApps, app]
-            )
-          };
-        })
-      );
-    },
-    [hapticSelection, updateAppAllowanceSlots]
-  );
+  }, [storeDetailApp]);
 
   const updateDdayLabelFromDate = (dateStr: string | null) => {
     if (!dateStr) {
@@ -1153,34 +741,6 @@ export function StudentLegacyView(props: {
         localStorage.setItem(DAECHI_COACH_LOG_SAVED_STORAGE_KEY, String(Date.now()));
       } catch {
         // ignore
-      }
-      if (kind === "study") {
-        setAppAllowancePlan(
-          hydrateAppAllowancePlan({
-            targetDate: getDateKeySeoul(1),
-            summary: "학생 일정과 내일 계획을 바탕으로 앱 허용 시간표를 생성 중이에요.",
-            slots: [],
-            usedOpenAi: false,
-            model: null,
-            availableApps: []
-          })
-        );
-        const generatedPlan = await requestAppAllowancePlan();
-        if (generatedPlan) {
-          setAppAllowancePlan(generatedPlan);
-        } else {
-          setAppAllowancePlan(
-            hydrateAppAllowancePlan({
-              targetDate: getDateKeySeoul(1),
-              summary:
-                "시간표를 자동 생성하지 못했어요. 그래도 내일 허용 앱 팝업은 열어 두었어요.",
-              slots: [],
-              usedOpenAi: false,
-              model: null,
-              availableApps: []
-            })
-          );
-        }
       }
     } catch {
       hapticWarning();
@@ -2173,290 +1733,30 @@ export function StudentLegacyView(props: {
 
       </TabTransitionPanel>
 
-      {appAllowancePlan
-        ? createPortal(
-            <div
-              className={
-                "dday-modal" +
-                (appAllowanceReveal.revealed ? " dday-modal--open" : "")
-              }
-              role="presentation"
-            >
-              <div
-                className="dday-modal-inner app-allow-plan-modal-inner"
-                role="dialog"
-                aria-modal="true"
-                aria-labelledby="app-allow-plan-title"
-                onClick={e => e.stopPropagation()}
-              >
-                <div className="dday-modal-header app-allow-plan-header">
-                  <div>
-                    <span className="dday-modal-title" id="app-allow-plan-title">
-                      내일 앱 허용 시간표
-                    </span>
-                    {appAllowancePlan.targetDate ? (
-                      <p className="app-allow-plan-date">{appAllowancePlan.targetDate}</p>
-                    ) : null}
-                  </div>
-                  <span className="app-allow-plan-badge">
-                    {appAllowancePlan.usedOpenAi ? "GPT 추천" : "기본 추천"}
-                  </span>
-                </div>
-                <div className="dday-modal-body">
-                  <p className="app-allow-plan-summary">
-                    {appAllowancePlan.summary ||
-                      "내일 일정과 계획을 기준으로 앱 허용 후보를 정리했어요."}
-                  </p>
-                  <AppAllowanceCoachCollab
-                    apiBase={apiBase}
-                    authToken={authToken}
-                    plan={appAllowancePlan}
-                    onReplacePlan={next => {
-                      setAppAllowancePickerSlotId(null);
-                      setAppAllowancePlan(prev =>
-                        prev
-                          ? hydrateAppAllowancePlan({
-                              targetDate: prev.targetDate,
-                              summary: next.summary,
-                              slots: next.slots,
-                              usedOpenAi: next.usedOpenAi,
-                              model: next.model,
-                              availableApps: next.availableApps
-                            })
-                          : prev
-                      );
-                    }}
-                  />
-                  <div className="app-allow-plan-toolbar">
-                    <button
-                      type="button"
-                      className="modal-secondary app-allow-plan-toolbar__button"
-                      onClick={addAppAllowanceSlot}
-                    >
-                      시간대 추가
-                    </button>
-                  </div>
-                  {appAllowancePlan.slots.length > 0 ? (
-                    <div className="app-allow-plan-slot-list">
-                      {appAllowancePlan.slots.map(slot => (
-                        <section
-                          key={slot.localId}
-                          className="app-allow-plan-slot"
-                        >
-                          <div className="app-allow-plan-slot__top">
-                            <div>
-                              <div className="app-allow-plan-slot__time">
-                                {slot.startTime} - {slot.endTime}
-                              </div>
-                              <div className="app-allow-plan-slot__title">{slot.title}</div>
-                            </div>
-                            <span className="app-allow-plan-slot__source">
-                              {slot.source === "schedule"
-                                ? "일정"
-                                : slot.source === "plan"
-                                  ? "계획"
-                                  : "빈 시간"}
-                            </span>
-                          </div>
-                          <div className="app-allow-plan-slot__edit-row">
-                            <label className="app-allow-plan-slot__time-field">
-                              <span className="app-allow-plan-slot__time-label">시작</span>
-                              <input
-                                type="time"
-                                step={60}
-                                className="app-allow-plan-slot__time-input"
-                                value={getEditableTimeValue(slot.startTime)}
-                                onChange={e =>
-                                  updateAppAllowanceTime(
-                                    slot.localId,
-                                    "startTime",
-                                    e.target.value
-                                  )
-                                }
-                              />
-                            </label>
-                            <label className="app-allow-plan-slot__time-field">
-                              <span className="app-allow-plan-slot__time-label">종료</span>
-                              <input
-                                type="time"
-                                step={60}
-                                className="app-allow-plan-slot__time-input"
-                                value={getEditableTimeValue(slot.endTime)}
-                                onChange={e =>
-                                  updateAppAllowanceTime(
-                                    slot.localId,
-                                    "endTime",
-                                    e.target.value
-                                  )
-                                }
-                              />
-                            </label>
-                            <button
-                              type="button"
-                              className="app-allow-plan-slot__delete"
-                              onClick={() => removeAppAllowanceSlot(slot.localId)}
-                            >
-                              삭제
-                            </button>
-                          </div>
-                          {slot.reason ? (
-                            <p className="app-allow-plan-slot__reason">{slot.reason}</p>
-                          ) : null}
-                          <div className="app-allow-plan-slot__apps">
-                            {slot.allowedApps.length > 0 ? (
-                              slot.allowedApps.map(app => (
-                                <button
-                                  key={app.id}
-                                  type="button"
-                                  className={
-                                    "app-allow-plan-chip app-allow-plan-chip--selected" +
-                                    (isDaechiRootApp(app)
-                                      ? " app-allow-plan-chip--locked"
-                                      : "")
-                                  }
-                                  onClick={() =>
-                                    toggleAppAllowanceAllowedApp(slot.localId, app)
-                                  }
-                                  disabled={isDaechiRootApp(app)}
-                                >
-                                  {app.name}
-                                  <span className="app-allow-plan-chip__remove">
-                                    {isDaechiRootApp(app) ? "고정" : "x"}
-                                  </span>
-                                </button>
-                              ))
-                            ) : (
-                              <span className="app-allow-plan-chip app-allow-plan-chip--empty">
-                                허용 앱 없음
-                              </span>
-                            )}
-                          </div>
-                          <div className="app-allow-plan-slot__actions">
-                            <button
-                              type="button"
-                              className="modal-secondary app-allow-plan-slot__picker-toggle"
-                              onClick={() =>
-                                setAppAllowancePickerSlotId(current =>
-                                  current === slot.localId ? null : slot.localId
-                                )
-                              }
-                            >
-                              {appAllowancePickerSlotId === slot.localId
-                                ? "허용 앱 접기"
-                                : "허용 앱 편집"}
-                            </button>
-                          </div>
-                          {appAllowancePickerSlotId === slot.localId ? (
-                            <div className="app-allow-plan-slot__picker">
-                              {availableAppAllowanceApps.length > 0 ? (
-                                availableAppAllowanceApps.map(app => {
-                                  const selected = slot.allowedApps.some(
-                                    item => item.id === app.id
-                                  );
-                                  return (
-                                    <button
-                                      key={`${slot.localId}-${app.id}`}
-                                      type="button"
-                                      className={
-                                        "app-allow-plan-chip app-allow-plan-chip--picker" +
-                                        (selected
-                                          ? " app-allow-plan-chip--picker-selected"
-                                          : "")
-                                      }
-                                      onClick={() =>
-                                        toggleAppAllowanceAllowedApp(slot.localId, app)
-                                      }
-                                      disabled={isDaechiRootApp(app)}
-                                    >
-                                      {app.name}
-                                    </button>
-                                  );
-                                })
-                              ) : (
-                                <p className="app-allow-plan-slot__picker-empty">
-                                  불러온 설치 앱이 없어 허용 앱을 추가할 수 없습니다.
-                                </p>
-                              )}
-                            </div>
-                          ) : null}
-                        </section>
-                      ))}
-                    </div>
-                  ) : (
-                    <p className="app-allow-plan-empty">
-                      내일 일정이나 계획 시간이 더 정리되면 시간대별 허용 앱을 더 정확히 추천할 수 있어요.
-                    </p>
-                  )}
-                  {appAllowancePlan.usedOpenAi && appAllowancePlan.model ? (
-                    <p className="app-allow-plan-model">생성 모델: {appAllowancePlan.model}</p>
-                  ) : null}
-                </div>
-                <div className="dday-modal-footer">
-                  <button
-                    type="button"
-                    className="modal-secondary"
-                    onClick={() => {
-                      setAppAllowancePickerSlotId(null);
-                      appAllowanceReveal.beginClose(() => setAppAllowancePlan(null));
-                    }}
-                  >
-                    닫기
-                  </button>
-                  <button
-                    type="button"
-                    className="modal-primary"
-                    onClick={() => void requestParentAppAllowanceReview()}
-                    disabled={appAllowanceRequesting}
-                  >
-                    {appAllowanceRequesting ? "요청 중..." : "요청하기"}
-                  </button>
-                </div>
-              </div>
-            </div>,
-            document.body
-          )
-        : null}
-
       {timePicker !== null && (
         <TimePickerSheet
           open
           title={
-            timePicker.kind === "tomorrow-plan"
-              ? timePicker.field === "start"
-                ? "시작 시간"
-                : "종료 시간"
-              : timePicker.field === "startTime"
-                ? "허용 시작 시간"
-                : "허용 종료 시간"
+            timePicker.field === "start"
+              ? "시작 시간"
+              : "종료 시간"
           }
-          value={
-            timePicker.kind === "tomorrow-plan"
-              ? tomorrowPlan[timePicker.bookId]?.[timePicker.field] || ""
-              : getEditableTimeValue(
-                  appAllowancePlan?.slots.find(slot => slot.localId === timePicker.slotId)?.[
-                    timePicker.field
-                  ] || ""
-                )
-          }
+          value={tomorrowPlan[timePicker.bookId]?.[timePicker.field] || ""}
           onClose={() => setTimePicker(null)}
           onConfirm={hhmm => {
-            if (timePicker.kind === "tomorrow-plan") {
-              const { bookId, field } = timePicker;
-              setTomorrowPlan(prev => {
-                const cur = prev[bookId];
-                return {
-                  ...prev,
-                  [bookId]: {
-                    text: cur?.text ?? "",
-                    start: cur?.start,
-                    end: cur?.end,
-                    [field]: hhmm
-                  }
-                };
-              });
-            } else {
-              updateAppAllowanceTime(timePicker.slotId, timePicker.field, hhmm);
-            }
+            const { bookId, field } = timePicker;
+            setTomorrowPlan(prev => {
+              const cur = prev[bookId];
+              return {
+                ...prev,
+                [bookId]: {
+                  text: cur?.text ?? "",
+                  start: cur?.start,
+                  end: cur?.end,
+                  [field]: hhmm
+                }
+              };
+            });
             setTimePicker(null);
             hapticSuccess();
           }}

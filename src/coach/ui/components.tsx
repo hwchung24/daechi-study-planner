@@ -94,6 +94,7 @@ export function MetricCard(props: {
   value: string;
   hint?: string;
   tone?: "neutral" | "good" | "warn";
+  icon?: React.ReactNode;
 }) {
   const toneCls =
     props.tone === "good"
@@ -103,7 +104,10 @@ export function MetricCard(props: {
         : "coach-metric";
   return (
     <div className={toneCls}>
-      <div className="coach-metric__title">{props.title}</div>
+      <div className="coach-metric__title-row">
+        {props.icon ? <span className="coach-metric__icon">{props.icon}</span> : null}
+        <div className="coach-metric__title">{props.title}</div>
+      </div>
       <div className="coach-metric__value">{props.value}</div>
       {props.hint && <div className="coach-metric__hint">{props.hint}</div>}
     </div>

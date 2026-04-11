@@ -100,6 +100,10 @@ export type CoachMessage = {
   role: "user" | "coach";
   createdAt: number;
   text: string;
+  cta?: {
+    label: string;
+    action: "open-analysis-report";
+  };
   structured?:
     | {
         cause: string;

@@ -76,6 +76,8 @@ async function getMe(userId) {
                  COALESCE(scp.alarm_schedule_reminders, true) AS "scheduleReminders",
                  COALESCE(scp.alarm_parent_link_alerts, true) AS "parentLinkAlerts",
                  COALESCE(scp.alarm_study_room_alerts, true) AS "studyRoomAlerts",
+                 COALESCE(scp.alarm_message_alerts, true) AS "messageAlerts",
+                 COALESCE(scp.alarm_homework_alerts, true) AS "homeworkAlerts",
                  COALESCE(scp.wake_alarm_enabled, false) AS "wakeAlarmEnabled",
                  COALESCE(scp.wake_alarm_time, '06:30') AS "wakeAlarmTime",
             COALESCE(scp.initial_profile_completed, false) AS initial_profile_completed
@@ -92,6 +94,8 @@ async function getStudentAlarmSettings(userId) {
     `SELECT COALESCE(alarm_schedule_reminders, true) AS "scheduleReminders",
             COALESCE(alarm_parent_link_alerts, true) AS "parentLinkAlerts",
             COALESCE(alarm_study_room_alerts, true) AS "studyRoomAlerts",
+          COALESCE(alarm_message_alerts, true) AS "messageAlerts",
+          COALESCE(alarm_homework_alerts, true) AS "homeworkAlerts",
             COALESCE(wake_alarm_enabled, false) AS "wakeAlarmEnabled",
             COALESCE(wake_alarm_time, '06:30') AS "wakeAlarmTime"
      FROM student_coach_profiles
@@ -104,6 +108,8 @@ async function getStudentAlarmSettings(userId) {
       scheduleReminders: true,
       parentLinkAlerts: true,
       studyRoomAlerts: true,
+      messageAlerts: true,
+      homeworkAlerts: true,
       wakeAlarmEnabled: false,
       wakeAlarmTime: "06:30"
     }
@@ -161,7 +167,13 @@ async function getParentAlarmSettings(userId) {
     studentLinkAlerts:
       raw.studentLinkAlerts == null ? true : Boolean(raw.studentLinkAlerts),
     studyRoomAlerts:
-      raw.studyRoomAlerts == null ? true : Boolean(raw.studyRoomAlerts)
+      raw.studyRoomAlerts == null ? true : Boolean(raw.studyRoomAlerts),
+    messageAlerts:
+      raw.messageAlerts == null ? true : Boolean(raw.messageAlerts),
+    homeworkAlerts:
+      raw.homeworkAlerts == null ? true : Boolean(raw.homeworkAlerts),
+    requestAlerts:
+      raw.requestAlerts == null ? true : Boolean(raw.requestAlerts)
   };
 }
 
@@ -172,7 +184,13 @@ async function upsertParentAlarmSettings(userId, input = {}) {
     studentLinkAlerts:
       input.studentLinkAlerts == null ? true : Boolean(input.studentLinkAlerts),
     studyRoomAlerts:
-      input.studyRoomAlerts == null ? true : Boolean(input.studyRoomAlerts)
+      input.studyRoomAlerts == null ? true : Boolean(input.studyRoomAlerts),
+    messageAlerts:
+      input.messageAlerts == null ? true : Boolean(input.messageAlerts),
+    homeworkAlerts:
+      input.homeworkAlerts == null ? true : Boolean(input.homeworkAlerts),
+    requestAlerts:
+      input.requestAlerts == null ? true : Boolean(input.requestAlerts)
   };
   const res = await query(
     `INSERT INTO parents (user_id, notification_prefs)
@@ -194,7 +212,19 @@ async function upsertParentAlarmSettings(userId, input = {}) {
     studyRoomAlerts:
       res.rows[0]?.notification_prefs?.studyRoomAlerts == null
         ? true
-        : Boolean(res.rows[0].notification_prefs.studyRoomAlerts)
+        : Boolean(res.rows[0].notification_prefs.studyRoomAlerts),
+    messageAlerts:
+      res.rows[0]?.notification_prefs?.messageAlerts == null
+        ? true
+        : Boolean(res.rows[0].notification_prefs.messageAlerts),
+    homeworkAlerts:
+      res.rows[0]?.notification_prefs?.homeworkAlerts == null
+        ? true
+        : Boolean(res.rows[0].notification_prefs.homeworkAlerts),
+    requestAlerts:
+      res.rows[0]?.notification_prefs?.requestAlerts == null
+        ? true
+        : Boolean(res.rows[0].notification_prefs.requestAlerts)
   };
 }
 
@@ -1413,6 +1443,186 @@ async function listStudyBooks(userId) {
   return res.rows;
 }
 
+const WEEKLY_APP_ALLOWANCE_DAY_KEYS = new Set([
+  "mon",
+  "tue",
+  "wed",
+  "thu",
+  "fri",
+  "sat",
+  "sun"
+]);
+
+const DAECHI_ROOT_WEEKLY_APP = {
+  id: "com.daechiroot.ios",
+  name: "대치루트",
+  category: "필수 앱",
+  description: "대치루트 앱은 항상 허용됩니다.",
+  bundleId: "com.daechiroot.ios"
+};
+
+function normalizeWeeklyAllowanceTime(value, options = {}) {
+  const trimmed = String(value || "").trim().slice(0, 5);
+  if (options.allow24 && trimmed === "24:00") return trimmed;
+  return /^\d{2}:\d{2}$/.test(trimmed) ? trimmed : null;
+}
+
+function weeklyAllowanceTimeToMinutes(value) {
+  const trimmed = String(value || "").trim();
+  if (trimmed === "24:00") return 24 * 60;
+  const match = trimmed.match(/^(\d{2}):(\d{2})$/);
+  if (!match) return null;
+  const hour = Number(match[1]);
+  const minute = Number(match[2]);
+  if (hour < 0 || hour > 23 || minute < 0 || minute > 59) return null;
+  return hour * 60 + minute;
+}
+
+function isDaechiRootWeeklyApp(app) {
+  const id = String(app?.id || "").trim().toLowerCase();
+  const bundleId = String(app?.bundleId || "").trim().toLowerCase();
+  const name = String(app?.name || "").trim();
+  return id === "com.daechiroot.ios" || bundleId === "com.daechiroot.ios" || name === "대치루트";
+}
+
+function normalizeWeeklyAllowanceApps(rows) {
+  const seen = new Set();
+  const items = (Array.isArray(rows) ? rows : [])
+    .map(app => ({
+      id: String(app?.id || app?.app_key || app?.bundleId || "").trim().slice(0, 200),
+      name: String(app?.name || "").trim().slice(0, 120),
+      category: String(app?.category || "").trim().slice(0, 80) || "기기 앱",
+      description:
+        app?.description != null && String(app.description).trim() !== ""
+          ? String(app.description).trim().slice(0, 300)
+          : null,
+      bundleId:
+        app?.bundleId != null && String(app.bundleId).trim() !== ""
+          ? String(app.bundleId).trim().slice(0, 200)
+          : null
+    }))
+    .filter(app => {
+      if (!app.id || !app.name) return false;
+      const key = `${app.id}::${app.name.toLowerCase()}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+  if (!items.some(isDaechiRootWeeklyApp)) {
+    items.unshift({ ...DAECHI_ROOT_WEEKLY_APP });
+  }
+  const root = items.find(isDaechiRootWeeklyApp) || { ...DAECHI_ROOT_WEEKLY_APP };
+  const others = items.filter(app => !isDaechiRootWeeklyApp(app));
+  return [root, ...others];
+}
+
+function normalizeWeeklyAppAllowanceSlotInput(input) {
+  const weekdayKey = String(input?.dayKey || input?.weekdayKey || "")
+    .trim()
+    .toLowerCase();
+  const startTime = normalizeWeeklyAllowanceTime(input?.startTime, { allow24: false });
+  const endTime = normalizeWeeklyAllowanceTime(input?.endTime, { allow24: true });
+  if (!WEEKLY_APP_ALLOWANCE_DAY_KEYS.has(weekdayKey)) return null;
+  if (!startTime || !endTime) return null;
+  const startMinutes = weeklyAllowanceTimeToMinutes(startTime);
+  const endMinutes = weeklyAllowanceTimeToMinutes(endTime);
+  if (startMinutes == null || endMinutes == null || endMinutes <= startMinutes) return null;
+  return {
+    weekdayKey,
+    startTime,
+    endTime,
+    allowedApps: normalizeWeeklyAllowanceApps(input?.allowedApps)
+  };
+}
+
+function sortWeeklyAppAllowanceSlotRows(rows) {
+  return [...rows].sort((left, right) => {
+    const leftStart = weeklyAllowanceTimeToMinutes(left.startTime);
+    const rightStart = weeklyAllowanceTimeToMinutes(right.startTime);
+    if (leftStart !== rightStart) {
+      return (leftStart ?? Number.MAX_SAFE_INTEGER) - (rightStart ?? Number.MAX_SAFE_INTEGER);
+    }
+    const leftEnd = weeklyAllowanceTimeToMinutes(left.endTime);
+    const rightEnd = weeklyAllowanceTimeToMinutes(right.endTime);
+    return (leftEnd ?? Number.MAX_SAFE_INTEGER) - (rightEnd ?? Number.MAX_SAFE_INTEGER);
+  });
+}
+
+function validateWeeklyAppAllowanceSlots(rows) {
+  const grouped = new Map();
+  for (const row of rows) {
+    const key = row.weekdayKey;
+    const bucket = grouped.get(key) || [];
+    bucket.push(row);
+    grouped.set(key, bucket);
+  }
+  for (const [, bucket] of grouped) {
+    const sorted = sortWeeklyAppAllowanceSlotRows(bucket);
+    for (let index = 1; index < sorted.length; index += 1) {
+      const previousEnd = weeklyAllowanceTimeToMinutes(sorted[index - 1].endTime);
+      const currentStart = weeklyAllowanceTimeToMinutes(sorted[index].startTime);
+      if (previousEnd != null && currentStart != null && currentStart < previousEnd) {
+        return false;
+      }
+    }
+  }
+  return true;
+}
+
+async function listStudentWeeklyAppAllowanceSlots(userId) {
+  const res = await query(
+    `SELECT id, weekday_key, start_time, end_time, allowed_apps, created_at, updated_at
+     FROM student_weekly_app_allowance_slots
+     WHERE user_id = $1
+     ORDER BY weekday_key ASC, start_time ASC, created_at ASC`,
+    [userId]
+  );
+  return res.rows.map(row => ({
+    ...row,
+    allowed_apps: normalizeWeeklyAllowanceApps(row.allowed_apps)
+  }));
+}
+
+async function replaceStudentWeeklyAppAllowanceSlots(userId, slots) {
+  const normalized = (Array.isArray(slots) ? slots : [])
+    .map(normalizeWeeklyAppAllowanceSlotInput)
+    .filter(Boolean);
+  if (!validateWeeklyAppAllowanceSlots(normalized)) {
+    throw new Error("WEEKLY_APP_ALLOWANCE_OVERLAP");
+  }
+
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    await client.query(
+      `DELETE FROM student_weekly_app_allowance_slots WHERE user_id = $1`,
+      [userId]
+    );
+    for (const slot of normalized) {
+      await client.query(
+        `INSERT INTO student_weekly_app_allowance_slots
+         (user_id, weekday_key, start_time, end_time, allowed_apps)
+         VALUES ($1, $2, $3, $4, $5::jsonb)`,
+        [
+          userId,
+          slot.weekdayKey,
+          slot.startTime,
+          slot.endTime,
+          JSON.stringify(slot.allowedApps)
+        ]
+      );
+    }
+    await client.query("COMMIT");
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
+  } finally {
+    client.release();
+  }
+
+  return listStudentWeeklyAppAllowanceSlots(userId);
+}
+
 async function listStudentProfileSchedules(userId) {
   const res = await query(
     `SELECT id, title, schedule_date, start_time, end_time, is_recurring,
@@ -2118,8 +2328,8 @@ async function upsertStudentMdmGroup(userId, assignmentGroupId, assignmentGroupN
 async function upsertStudentCoachProfile(userId, input = {}) {
   const res = await query(
     `INSERT INTO student_coach_profiles
-      (user_id, name, school_level, grade, goal, goal_university, target_grade, current_concern, weakness, target_subjects, weak_subjects, sleep_time, wake_time, alarm_schedule_reminders, alarm_parent_link_alerts, alarm_study_room_alerts, wake_alarm_enabled, wake_alarm_time, initial_profile_completed, updated_at)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10::text[], $11::text[], $12, $13, $14, $15, $16, $17, $18, $19, now())
+      (user_id, name, school_level, grade, goal, goal_university, target_grade, current_concern, weakness, target_subjects, weak_subjects, sleep_time, wake_time, alarm_schedule_reminders, alarm_parent_link_alerts, alarm_study_room_alerts, alarm_message_alerts, alarm_homework_alerts, wake_alarm_enabled, wake_alarm_time, initial_profile_completed, updated_at)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10::text[], $11::text[], $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, now())
      ON CONFLICT (user_id)
      DO UPDATE SET
        name = COALESCE(EXCLUDED.name, student_coach_profiles.name),
@@ -2137,6 +2347,8 @@ async function upsertStudentCoachProfile(userId, input = {}) {
        alarm_schedule_reminders = COALESCE(EXCLUDED.alarm_schedule_reminders, student_coach_profiles.alarm_schedule_reminders),
        alarm_parent_link_alerts = COALESCE(EXCLUDED.alarm_parent_link_alerts, student_coach_profiles.alarm_parent_link_alerts),
        alarm_study_room_alerts = COALESCE(EXCLUDED.alarm_study_room_alerts, student_coach_profiles.alarm_study_room_alerts),
+      alarm_message_alerts = COALESCE(EXCLUDED.alarm_message_alerts, student_coach_profiles.alarm_message_alerts),
+      alarm_homework_alerts = COALESCE(EXCLUDED.alarm_homework_alerts, student_coach_profiles.alarm_homework_alerts),
        wake_alarm_enabled = COALESCE(EXCLUDED.wake_alarm_enabled, student_coach_profiles.wake_alarm_enabled),
        wake_alarm_time = COALESCE(EXCLUDED.wake_alarm_time, student_coach_profiles.wake_alarm_time),
        initial_profile_completed = COALESCE(
@@ -2167,6 +2379,12 @@ async function upsertStudentCoachProfile(userId, input = {}) {
         : null,
       Object.prototype.hasOwnProperty.call(input, "studyRoomAlerts")
         ? Boolean(input.studyRoomAlerts)
+        : null,
+      Object.prototype.hasOwnProperty.call(input, "messageAlerts")
+        ? Boolean(input.messageAlerts)
+        : null,
+      Object.prototype.hasOwnProperty.call(input, "homeworkAlerts")
+        ? Boolean(input.homeworkAlerts)
         : null,
       Object.prototype.hasOwnProperty.call(input, "wakeAlarmEnabled")
         ? Boolean(input.wakeAlarmEnabled)
@@ -3087,6 +3305,8 @@ module.exports = {
   upsertStudyPlans,
   getWeekData,
   getStudyPlansForDate,
+  listStudentWeeklyAppAllowanceSlots,
+  replaceStudentWeeklyAppAllowanceSlots,
   listStudentProfileSchedules,
   createStudentProfileSchedule,
   updateStudentProfileSchedule,

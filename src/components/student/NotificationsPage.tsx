@@ -14,6 +14,21 @@ export type ParentNotificationAction = {
   targetDate?: string;
   summary?: string;
   slotSummary?: string;
+  slots?: Array<{
+    dayKey?: "mon" | "tue" | "wed" | "thu" | "fri" | "sat" | "sun";
+    title?: string;
+    source?: "schedule" | "plan" | "free";
+    startTime?: string;
+    endTime?: string;
+    reason?: string;
+    allowedApps?: Array<{
+      id?: string;
+      name?: string;
+      category?: string;
+      description?: string | null;
+      bundleId?: string | null;
+    }>;
+  }>;
 } | {
   type: "link_unlink_request";
   requestId: number;
@@ -52,7 +67,34 @@ function parseNotificationAction(body?: string | null): {
             parsed.targetDate != null ? String(parsed.targetDate).trim() : undefined,
           summary: parsed.summary != null ? String(parsed.summary).trim() : undefined,
           slotSummary:
-            parsed.slotSummary != null ? String(parsed.slotSummary).trim() : undefined
+            parsed.slotSummary != null ? String(parsed.slotSummary).trim() : undefined,
+          slots: Array.isArray(parsed.slots)
+            ? parsed.slots.map(slot => ({
+                title: slot?.title != null ? String(slot.title).trim() : undefined,
+                source:
+                  slot?.source === "schedule"
+                    ? "schedule"
+                    : slot?.source === "free"
+                      ? "free"
+                      : "plan",
+                startTime:
+                  slot?.startTime != null ? String(slot.startTime).trim() : undefined,
+                endTime: slot?.endTime != null ? String(slot.endTime).trim() : undefined,
+                reason: slot?.reason != null ? String(slot.reason).trim() : undefined,
+                allowedApps: Array.isArray(slot?.allowedApps)
+                  ? slot.allowedApps.map(app => ({
+                      id: app?.id != null ? String(app.id).trim() : undefined,
+                      name: app?.name != null ? String(app.name).trim() : undefined,
+                      category:
+                        app?.category != null ? String(app.category).trim() : undefined,
+                      description:
+                        app?.description != null ? String(app.description).trim() : null,
+                      bundleId:
+                        app?.bundleId != null ? String(app.bundleId).trim() : null
+                    }))
+                  : undefined
+              }))
+            : undefined
         }
       };
     }
@@ -62,6 +104,17 @@ function parseNotificationAction(body?: string | null): {
       (parsed.initiatorRole === "parent" || parsed.initiatorRole === "student")
     ) {
       return {
+                dayKey:
+                  slot?.dayKey === "tue" ||
+                  slot?.dayKey === "wed" ||
+                  slot?.dayKey === "thu" ||
+                  slot?.dayKey === "fri" ||
+                  slot?.dayKey === "sat" ||
+                  slot?.dayKey === "sun"
+                    ? slot.dayKey
+                    : slot?.dayKey === "mon"
+                      ? "mon"
+                      : undefined,
         visibleBody: visibleBody || null,
         action: {
           type: "link_unlink_request",

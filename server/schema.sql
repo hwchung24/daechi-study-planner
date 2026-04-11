@@ -343,6 +343,8 @@ CREATE TABLE IF NOT EXISTS student_coach_profiles (
   alarm_schedule_reminders BOOLEAN NOT NULL DEFAULT true,
   alarm_parent_link_alerts BOOLEAN NOT NULL DEFAULT true,
   alarm_study_room_alerts BOOLEAN NOT NULL DEFAULT true,
+  alarm_message_alerts BOOLEAN NOT NULL DEFAULT true,
+  alarm_homework_alerts BOOLEAN NOT NULL DEFAULT true,
   wake_alarm_enabled BOOLEAN NOT NULL DEFAULT false,
   wake_alarm_time TEXT NOT NULL DEFAULT '06:30',
   initial_profile_completed BOOLEAN NOT NULL DEFAULT false,
@@ -373,6 +375,12 @@ ADD COLUMN IF NOT EXISTS alarm_parent_link_alerts BOOLEAN NOT NULL DEFAULT true;
 
 ALTER TABLE student_coach_profiles
 ADD COLUMN IF NOT EXISTS alarm_study_room_alerts BOOLEAN NOT NULL DEFAULT true;
+
+ALTER TABLE student_coach_profiles
+ADD COLUMN IF NOT EXISTS alarm_message_alerts BOOLEAN NOT NULL DEFAULT true;
+
+ALTER TABLE student_coach_profiles
+ADD COLUMN IF NOT EXISTS alarm_homework_alerts BOOLEAN NOT NULL DEFAULT true;
 
 ALTER TABLE student_coach_profiles
 ADD COLUMN IF NOT EXISTS wake_alarm_enabled BOOLEAN NOT NULL DEFAULT false;
@@ -468,6 +476,20 @@ CREATE INDEX IF NOT EXISTS idx_student_profile_schedules_user_date
 
 ALTER TABLE student_profile_schedules
 ADD COLUMN IF NOT EXISTS excluded_dates TEXT[] NOT NULL DEFAULT '{}'::text[];
+
+CREATE TABLE IF NOT EXISTS student_weekly_app_allowance_slots (
+  id BIGSERIAL PRIMARY KEY,
+  user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  weekday_key TEXT NOT NULL CHECK (weekday_key IN ('mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun')),
+  start_time TEXT NOT NULL,
+  end_time TEXT NOT NULL,
+  allowed_apps JSONB NOT NULL DEFAULT '[]'::jsonb,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_student_weekly_app_allowance_user_day
+  ON student_weekly_app_allowance_slots (user_id, weekday_key ASC, start_time ASC, created_at ASC);
 
 -- 타임라인 블록에 책·계획 구간 (기존 DB는 migrate 시 컬럼 추가)
 ALTER TABLE study_blocks ADD COLUMN IF NOT EXISTS book_id BIGINT REFERENCES study_books(id) ON DELETE SET NULL;

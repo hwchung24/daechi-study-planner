@@ -106,6 +106,8 @@ const {
   recordStudentStudyRoomHeartbeat,
   listRecentStudyRoomVisitSessionsForStudent,
   listRecentStudyRoomVisitSessionsForParent,
+  listStudentWeeklyAppAllowanceSlots,
+  replaceStudentWeeklyAppAllowanceSlots,
   deleteUser
 } = require("./db");
 const {
@@ -340,7 +342,15 @@ function buildLegacyGoalSummary(goalUniversity, targetGrade) {
   return parts.join(" / ");
 }
 
-function buildCoachSnapshot(profile, logs = []) {
+function formatMinutesAsHourLabel(minutes) {
+  const value = Number(minutes);
+  if (!Number.isFinite(value) || value <= 0) return "0시간";
+  const hours = value / 60;
+  if (hours >= 10) return `${Math.round(hours)}시간`;
+  return `${hours.toFixed(1).replace(/\.0$/, "")}시간`;
+}
+
+function buildCoachSnapshot(profile, logs = [], studyRoomSummary = null, weekStart = null) {
   const recent = [...logs].slice(0, 7);
   const sleep = avg(recent.map(r => Number(r.sleep_hours)));
   const conc = avg(recent.map(r => Number(r.concentration_score)));
@@ -370,6 +380,22 @@ function buildCoachSnapshot(profile, logs = []) {
   if (plan > 0 && plan < 60) nextActions[1] = "실행률이 낮은 과목 1개만 먼저 시작하기";
   if (stress >= 3.8) nextActions[2] = "오늘 목표를 ‘완료’보다 ‘시작’으로 재설정하기";
 
+  const metrics = {
+    sleepHours: sleep || null,
+    concentration: conc || null,
+    stress: stress || null,
+    steps: steps || null,
+    planCompletionRate: plan || null,
+    studyMinutes: study || null,
+    mealsRegularity: meals || null
+  };
+  const analysis = buildStudentCoachAnalysis(
+    metrics,
+    nextActions,
+    buildWeekRhythmPayloadFromLogs(logs, weekStart),
+    studyRoomSummary
+  );
+
   return {
     profile: {
       name: profile?.name || "학생",
@@ -385,17 +411,10 @@ function buildCoachSnapshot(profile, logs = []) {
       targetSubjects: profile?.target_subjects || [],
       weakSubjects: profile?.weak_subjects || []
     },
-    heroNarrative: hero,
-    metrics: {
-      sleepHours: sleep || null,
-      concentration: conc || null,
-      stress: stress || null,
-      steps: steps || null,
-      planCompletionRate: plan || null,
-      studyMinutes: study || null,
-      mealsRegularity: meals || null
-    },
-    nextActions
+    heroNarrative: analysis?.headline || hero,
+    metrics,
+    nextActions,
+    analysis
   };
 }
 
@@ -573,6 +592,278 @@ function buildWeekRhythmPayloadFromLogs(logRows, weekMondayIso = null) {
   });
 }
 
+function buildRecentSevenDateKeys(startIso = null) {
+  if (startIso && isIsoDate(startIso)) return getWeekKeysFromMonday(startIso);
+  const todayKey = formatYmdSeoulFromInstant(new Date());
+  const startKey = addDaysToSeoulDateKey(todayKey, -6);
+  return getWeekKeysFromMonday(startKey);
+}
+
+function getDayRangeStartMs(dateKey) {
+  return new Date(`${dateKey}T00:00:00+09:00`).getTime();
+}
+
+function buildStudyRoomSummary(liveSummary, visits, startIso = null) {
+  const dateKeys = buildRecentSevenDateKeys(startIso);
+  const dayRows = dateKeys.map(date => ({ date, minutes: 0, visitCount: 0 }));
+  const rangeStartMs = getDayRangeStartMs(dateKeys[0]);
+  const rangeEndMs = getDayRangeStartMs(
+    addDaysToSeoulDateKey(dateKeys[dateKeys.length - 1], 1)
+  );
+  const uniqueVisitIds = new Set();
+
+  for (const visit of Array.isArray(visits) ? visits : []) {
+    const enteredMs = parseIsoMs(visit?.enteredAt);
+    const endedMs =
+      parseIsoMs(visit?.exitedAt) || parseIsoMs(visit?.lastSeenAt) || Date.now();
+    if (enteredMs == null || endedMs == null || endedMs <= enteredMs) continue;
+    const overlapStart = Math.max(enteredMs, rangeStartMs);
+    const overlapEnd = Math.min(endedMs, rangeEndMs);
+    if (overlapEnd <= overlapStart) continue;
+    uniqueVisitIds.add(Number(visit?.id || uniqueVisitIds.size + 1));
+    for (const row of dayRows) {
+      const dayStart = getDayRangeStartMs(row.date);
+      const dayEnd = dayStart + 86400000;
+      const sliceStart = Math.max(overlapStart, dayStart);
+      const sliceEnd = Math.min(overlapEnd, dayEnd);
+      if (sliceEnd <= sliceStart) continue;
+      row.minutes += (sliceEnd - sliceStart) / 60000;
+      row.visitCount += 1;
+    }
+  }
+
+  const totalMinutes = dayRows.reduce((sum, row) => sum + row.minutes, 0);
+  const activeDays = dayRows.filter(row => row.minutes >= 15).length;
+  const visitCount = uniqueVisitIds.size;
+  const currentRoom = Array.isArray(liveSummary?.rooms)
+    ? liveSummary.rooms.find(room => room?.isWithinRadius)
+    : null;
+  const latestVisit = Array.isArray(visits) && visits.length > 0 ? visits[0] : null;
+  let consistencyLabel = "기록 없음";
+  if (currentRoom) consistencyLabel = "체류 중";
+  else if (totalMinutes >= 600 && activeDays >= 3) consistencyLabel = "안정적";
+  else if (totalMinutes >= 240 && activeDays >= 2) consistencyLabel = "유지 중";
+  else if (totalMinutes > 0) consistencyLabel = "가끔 방문";
+  else if (Array.isArray(liveSummary?.rooms) && liveSummary.rooms.length > 0)
+    consistencyLabel = "미체류";
+
+  let consistencyHint = "등록된 독서실 체류 데이터가 아직 충분하지 않아요.";
+  if (currentRoom) {
+    consistencyHint = `${String(currentRoom.name || "독서실").trim() || "독서실"}에 현재 체크인되어 있어요.`;
+  } else if (totalMinutes >= 600 && activeDays >= 3) {
+    consistencyHint = `최근 7일 동안 ${activeDays}일 방문하며 학습 환경 루틴이 비교적 안정적이에요.`;
+  } else if (totalMinutes >= 240 && activeDays >= 2) {
+    consistencyHint = `최근 ${activeDays}일은 독서실 체류가 이어졌어요. 들어가자마자 시작 루틴만 고정하면 좋아요.`;
+  } else if (totalMinutes > 0) {
+    consistencyHint = "독서실 방문은 있었지만 아직 규칙성이 강하지는 않아요.";
+  }
+
+  return {
+    weeklyMinutes: Math.round(totalMinutes),
+    activeDays,
+    visitCount,
+    averageVisitMinutes:
+      visitCount > 0 ? Math.round(totalMinutes / Math.max(visitCount, 1)) : null,
+    currentStatus: currentRoom
+      ? "checked-in"
+      : Array.isArray(liveSummary?.rooms) && liveSummary.rooms.length > 0
+        ? "idle"
+        : "unavailable",
+    currentRoomName:
+      (currentRoom?.name && String(currentRoom.name).trim()) ||
+      (latestVisit?.studyRoomName && String(latestVisit.studyRoomName).trim()) ||
+      null,
+    currentHeartbeatAt: liveSummary?.currentHeartbeatAt || null,
+    consistencyLabel,
+    consistencyHint,
+    series: dayRows.map(row => ({
+      date: row.date,
+      minutes: Math.round(row.minutes),
+      visitCount: row.visitCount
+    }))
+  };
+}
+
+function buildAnalysisMetric(key, title, value, hint, tone = "neutral") {
+  return { key, title, value, hint, tone };
+}
+
+function buildStudentCoachAnalysis(metrics, nextActions, rhythmWeek, studyRoomSummary) {
+  const recordedDays = Array.isArray(rhythmWeek)
+    ? rhythmWeek.filter(hasAnyRhythmMetric).length
+    : 0;
+  const totalStudyMinutes = (Array.isArray(rhythmWeek) ? rhythmWeek : []).reduce(
+    (sum, row) =>
+      sum +
+      (row?.studyMinutes != null && Number.isFinite(Number(row.studyMinutes))
+        ? Number(row.studyMinutes)
+        : 0),
+    0
+  );
+  const sleep =
+    metrics?.sleepHours != null && Number.isFinite(Number(metrics.sleepHours))
+      ? Number(metrics.sleepHours)
+      : null;
+  const concentration =
+    metrics?.concentration != null && Number.isFinite(Number(metrics.concentration))
+      ? Number(metrics.concentration)
+      : null;
+  const concentrationPercent =
+    concentration == null ? null : Math.round((concentration / 5) * 100);
+  const stress =
+    metrics?.stress != null && Number.isFinite(Number(metrics.stress))
+      ? Number(metrics.stress)
+      : null;
+  const plan =
+    metrics?.planCompletionRate != null && Number.isFinite(Number(metrics.planCompletionRate))
+      ? Number(metrics.planCompletionRate)
+      : null;
+  const studyRoomMinutes =
+    studyRoomSummary?.weeklyMinutes != null &&
+    Number.isFinite(Number(studyRoomSummary.weeklyMinutes))
+      ? Number(studyRoomSummary.weeklyMinutes)
+      : 0;
+  const studyRoomActiveDays =
+    studyRoomSummary?.activeDays != null &&
+    Number.isFinite(Number(studyRoomSummary.activeDays))
+      ? Number(studyRoomSummary.activeDays)
+      : 0;
+
+  let statusLabel = "리듬 점검";
+  let headline = "이번 주 흐름을 한 번 더 정리하면 더 좋아질 구간이 보여요.";
+  let body =
+    "핵심 지표를 1~2개만 집중해서 보면 현재 상태를 더 빠르게 읽을 수 있어요.";
+  let recommendedAction = nextActions?.[0] || "첫 블록은 25분만 시작하기";
+  let focusMetricKey = "studyMinutes";
+
+  if (
+    studyRoomMinutes >= 240 &&
+    totalStudyMinutes > 0 &&
+    totalStudyMinutes < studyRoomMinutes * 0.45
+  ) {
+    statusLabel = "실행 연결 필요";
+    headline = "독서실 체류는 꾸준한데 기록된 공부시간이 아직 따라오지 않아요.";
+    body = `최근 7일 독서실 체류 ${formatMinutesAsHourLabel(studyRoomMinutes)}, 기록 공부 ${formatMinutesAsHourLabel(totalStudyMinutes)}예요. 환경은 잡혀 있으니 들어가자마자 시작 루틴을 고정하는 쪽이 맞아요.`;
+    recommendedAction = "독서실 도착 직후 20분 루틴부터 시작하기";
+    focusMetricKey = "studyRoomMinutes";
+  } else if (stress != null && stress >= 3.8) {
+    statusLabel = "부하 높음";
+    headline = "스트레스가 높아져서 실행 진입 장벽이 커진 상태예요.";
+    body =
+      "이번 주에는 계획을 늘리는 것보다, 바로 시작할 수 있는 쉬운 첫 블록을 만드는 게 효과적이에요.";
+    recommendedAction = "오늘 목표를 완료보다 시작 중심으로 다시 줄이기";
+    focusMetricKey = "concentration";
+  } else if (
+    sleep != null &&
+    sleep < 6.2 &&
+    concentrationPercent != null &&
+    concentrationPercent < 65
+  ) {
+    statusLabel = "회복 우선";
+    headline = "수면 회복이 먼저 잡혀야 집중 흐름도 같이 올라올 가능성이 커요.";
+    body = `최근 평균 수면 ${sleep.toFixed(1)}시간, 집중 ${concentrationPercent}% 수준이에요. 오늘은 공부량보다 회복과 시작 리듬 정렬이 먼저예요.`;
+    recommendedAction = "취침 시간을 20분만 당기기";
+    focusMetricKey = "sleepHours";
+  } else if (plan != null && plan < 60) {
+    statusLabel = "실행 흔들림";
+    headline = "계획 대비 실행률이 낮아서 목표보다 시작 마찰을 줄여야 하는 구간이에요.";
+    body = `최근 계획 완료율 ${Math.round(plan)}%예요. 해야 할 일을 줄이고 먼저 끝낼 수 있는 과제 하나를 고정하는 게 맞아요.`;
+    recommendedAction = "실행률이 낮은 과목 1개만 먼저 시작하기";
+    focusMetricKey = "planCompletionRate";
+  } else if (studyRoomMinutes >= 360 || totalStudyMinutes >= 420) {
+    statusLabel = "루틴 안정";
+    headline = "이번 주 학습 루틴은 비교적 안정적으로 유지되고 있어요.";
+    body =
+      studyRoomMinutes > 0
+        ? `독서실 체류 ${formatMinutesAsHourLabel(studyRoomMinutes)}, 기록 공부 ${formatMinutesAsHourLabel(totalStudyMinutes)}로 학습 환경과 실행이 같이 유지되고 있어요.`
+        : `최근 7일 기록 공부 ${formatMinutesAsHourLabel(totalStudyMinutes)}로 학습 루틴이 크게 흐트러지지 않았어요.`;
+    recommendedAction = "내일도 같은 시작 시간으로 첫 블록을 이어가기";
+    focusMetricKey =
+      studyRoomMinutes > totalStudyMinutes ? "studyRoomMinutes" : "studyMinutes";
+  }
+
+  const highlightMetrics = [];
+  if (sleep != null) {
+    highlightMetrics.push(
+      buildAnalysisMetric(
+        "sleepHours",
+        "수면",
+        `${sleep.toFixed(1)}시간`,
+        sleep >= 6.5 ? "회복 리듬이 유지되고 있어요" : "수면이 짧아 집중 회복이 늦을 수 있어요",
+        sleep >= 6.5 ? "good" : "warn"
+      )
+    );
+  }
+  if (concentrationPercent != null) {
+    highlightMetrics.push(
+      buildAnalysisMetric(
+        "concentration",
+        "집중",
+        `${concentrationPercent}%`,
+        concentrationPercent >= 70
+          ? "집중 흐름이 비교적 안정적이에요"
+          : "시작 마찰을 줄이면 더 좋아질 수 있어요",
+        concentrationPercent >= 70 ? "good" : "warn"
+      )
+    );
+  }
+  if (studyRoomMinutes > 0) {
+    highlightMetrics.push(
+      buildAnalysisMetric(
+        "studyRoomMinutes",
+        "독서실 체류",
+        formatMinutesAsHourLabel(studyRoomMinutes),
+        `${studyRoomActiveDays}일 방문 · ${studyRoomSummary?.consistencyLabel || "환경 기록"}`,
+        studyRoomActiveDays >= 3 ? "good" : "neutral"
+      )
+    );
+  } else if (plan != null) {
+    highlightMetrics.push(
+      buildAnalysisMetric(
+        "planCompletionRate",
+        "계획 완료",
+        `${Math.round(plan)}%`,
+        plan >= 65 ? "실행률이 유지되고 있어요" : "해야 할 일을 더 줄이는 편이 좋아요",
+        plan >= 65 ? "good" : "warn"
+      )
+    );
+  }
+
+  return {
+    statusLabel,
+    headline,
+    body,
+    recommendedAction,
+    focusMetricKey,
+    pills: [
+      { label: "기록", value: `${recordedDays}일` },
+      studyRoomMinutes > 0
+        ? {
+            label: "독서실",
+            value: `${studyRoomActiveDays}일 · ${formatMinutesAsHourLabel(studyRoomMinutes)}`
+          }
+        : { label: "계획", value: plan != null ? `${Math.round(plan)}%` : "기록 대기" }
+    ],
+    highlightMetrics: highlightMetrics.slice(0, 3)
+  };
+}
+
+function deriveInsightParts(explanation, recommendation) {
+  const normalizedExplanation = String(explanation || "").trim();
+  const normalizedRecommendation = String(recommendation || "").trim();
+  const sentences = normalizedExplanation
+    .split(/(?<=[.!?])\s+/)
+    .map(line => line.trim())
+    .filter(Boolean);
+  const headline = (sentences[0] || normalizedExplanation || "핵심 흐름을 확인해 보세요.").slice(0, 120);
+  const evidence = (sentences.slice(1).join(" ") || normalizedExplanation || headline).slice(0, 220);
+  return {
+    headline,
+    evidence,
+    action: (normalizedRecommendation || "하루 한 가지 작은 루틴부터 조정해 보세요.").slice(0, 180)
+  };
+}
+
 function normalizePatternSeverity(s) {
   const t = String(s || "").trim();
   if (t === "높음" || t === "보통" || t === "낮음") return t;
@@ -588,13 +879,20 @@ function sanitizeAiPatterns(raw) {
       const explanation = String(p?.explanation || "").trim().slice(0, 500);
       const recommendation = String(p?.recommendation || "").trim().slice(0, 500);
       if (!title || !explanation) return null;
+      const insightParts = deriveInsightParts(
+        String(p?.headline || explanation),
+        String(p?.action || recommendation)
+      );
       return {
         key: `ai_pat_${i}`,
         title,
         severity: normalizePatternSeverity(p?.severity),
         explanation,
         recommendation:
-          recommendation || "하루 한 가지 작은 루틴부터 조정해 보세요."
+          recommendation || "하루 한 가지 작은 루틴부터 조정해 보세요.",
+        headline: String(p?.headline || insightParts.headline).trim().slice(0, 120),
+        evidence: String(p?.evidence || insightParts.evidence).trim().slice(0, 220),
+        action: String(p?.action || insightParts.action).trim().slice(0, 180)
       };
     })
     .filter(Boolean);
@@ -622,7 +920,7 @@ function shortDateLabel(isoDate) {
   return /^\d{4}-\d{2}-\d{2}$/.test(s) ? s.slice(5) : s;
 }
 
-function buildRhythmFallbackPattern(rhythmWeek, recordedDays) {
+function buildRhythmFallbackPattern(rhythmWeek, recordedDays, studyRoomSummary = null) {
   if (recordedDays < 2) {
     return {
       key: "ai_pat_0",
@@ -631,7 +929,10 @@ function buildRhythmFallbackPattern(rhythmWeek, recordedDays) {
       explanation:
         "이번 주에 입력된 날이 적어요. 오늘 공부 탭에서 하루 기록을 쌓으면 그래프·AI 분석이 정확해져요.",
       recommendation:
-        "수면·스트레스·집중·공부 시간·목표 달성률을 같은 날에 저장해 두면 한 주 흐름을 보기 좋아요."
+        "수면·스트레스·집중·공부 시간·목표 달성률을 같은 날에 저장해 두면 한 주 흐름을 보기 좋아요.",
+      headline: "이번 주 기록이 아직 적어서 AI가 패턴을 좁혀 보기 어려워요.",
+      evidence: "하루 기록만 더 쌓여도 수면, 집중, 공부 시간의 연결을 훨씬 정확하게 읽을 수 있어요.",
+      action: "오늘 공부 탭에서 같은 날 기준으로 핵심 지표를 함께 저장해 주세요."
     };
   }
 
@@ -644,7 +945,32 @@ function buildRhythmFallbackPattern(rhythmWeek, recordedDays) {
       explanation:
         "이틀 이상 기록은 있지만 지표가 서로 다른 날에 흩어져 있어 직접 비교가 어려워요.",
       recommendation:
-        "같은 날에 수면·스트레스·집중·공부 시간·목표 달성률을 함께 기록해 주세요."
+        "같은 날에 수면·스트레스·집중·공부 시간·목표 달성률을 함께 기록해 주세요.",
+      headline: "기록은 쌓였지만 같은 날 기준 비교가 아직 어렵습니다.",
+      evidence: "수면과 공부시간이 다른 날짜에 나뉘어 있으면 변화 방향을 한 번에 읽기 어려워요.",
+      action: "핵심 지표를 같은 날 한 번에 기록해 주세요."
+    };
+  }
+
+  const totalStudyMinutes = rows.reduce(
+    (sum, row) => sum + (row.studyMinutes != null ? Number(row.studyMinutes) : 0),
+    0
+  );
+  const studyRoomMinutes =
+    studyRoomSummary?.weeklyMinutes != null &&
+    Number.isFinite(Number(studyRoomSummary.weeklyMinutes))
+      ? Number(studyRoomSummary.weeklyMinutes)
+      : 0;
+  if (studyRoomMinutes >= 240 && totalStudyMinutes > 0 && totalStudyMinutes < studyRoomMinutes * 0.45) {
+    return {
+      key: "ai_pat_0",
+      title: "환경 대비 실행이 약해요",
+      severity: "보통",
+      explanation: `최근 7일 독서실 체류는 ${formatMinutesAsHourLabel(studyRoomMinutes)}인데 기록된 공부시간은 ${formatMinutesAsHourLabel(totalStudyMinutes)}예요. 학습 환경은 확보됐지만 실제 시작 루틴 연결이 약한 흐름입니다.`,
+      recommendation: "독서실에 도착한 직후 바로 시작할 20분 루틴을 하나만 고정해 보세요.",
+      headline: "독서실 체류에 비해 실제 공부시간 기록이 적어요.",
+      evidence: `환경은 이미 잡혀 있어요. 최근 체류 ${formatMinutesAsHourLabel(studyRoomMinutes)}, 기록 공부 ${formatMinutesAsHourLabel(totalStudyMinutes)}입니다.`,
+      action: "독서실 도착 직후 첫 20분 루틴을 고정해 보세요."
     };
   }
 
@@ -700,12 +1026,19 @@ function buildRhythmFallbackPattern(rhythmWeek, recordedDays) {
     recommendation = "내일 목표 개수를 1~2개 줄여 완료 경험을 먼저 만들고, 달성률이 회복되면 다시 늘려 보세요.";
   }
 
-  return {
+  const fallback = {
     key: "ai_pat_0",
     title: "이틀 기록 기반 변화 신호",
     severity: negative.length >= 2 ? "높음" : negative.length === 1 ? "보통" : "낮음",
     explanation: `${compareLabel} 기준으로 ${summaryParts.join(". ")}.`,
     recommendation
+  };
+  const insightParts = deriveInsightParts(fallback.explanation, fallback.recommendation);
+  return {
+    ...fallback,
+    headline: insightParts.headline,
+    evidence: insightParts.evidence,
+    action: insightParts.action
   };
 }
 
@@ -739,7 +1072,7 @@ function parsePatternsJsonFromAssistantText(text) {
 async function openAiPatternCompletion(payload) {
   const userContent = JSON.stringify(payload);
   const systemContent =
-    "너는 한국 중·고등학생 학습 코치다. 입력 JSON의 weekRhythm 배열에서 최근 7일의 다섯 지표(sleepHours, stressScore, concentrationPercent, studyMinutes, planCompletionRate)만 근거로 2~6개의 패턴을 진단한다. null은 해당 날 미기록이며 억지 추정은 금지한다. 의학·정신질환 진단, 자해 조장, 시험 부정행위는 금지. 반드시 아래 형태의 JSON만 출력하고 다른 글자는 쓰지 마라: {\"patterns\":[{\"title\":\"짧은 제목\",\"severity\":\"낮음\"|\"보통\"|\"높음\",\"explanation\":\"2~4문장\",\"recommendation\":\"실행 팁 1~2문장\"}]}. 기록이 거의 없으면 patterns는 1개로 짧게 안내한다.";
+    "너는 한국 중·고등학생 학습 코치다. 입력 JSON의 weekRhythm 배열에서 최근 7일의 다섯 지표(sleepHours, stressScore, concentrationPercent, studyMinutes, planCompletionRate)를 핵심 근거로 2~6개의 패턴을 진단한다. studyRoomSummary가 있으면 독서실 체류시간·방문일수는 보조 근거로 사용할 수 있다. null은 해당 날 미기록이며 억지 추정은 금지한다. 의학·정신질환 진단, 자해 조장, 시험 부정행위는 금지. 반드시 아래 형태의 JSON만 출력하고 다른 글자는 쓰지 마라: {\"patterns\":[{\"title\":\"짧은 제목\",\"severity\":\"낮음\"|\"보통\"|\"높음\",\"explanation\":\"2~4문장\",\"recommendation\":\"실행 팁 1~2문장\"}]}. 기록이 거의 없으면 patterns는 1개로 짧게 안내한다.";
   const messages = [
     { role: "system", content: systemContent },
     { role: "user", content: userContent }
@@ -813,6 +1146,10 @@ function normalizeStudentAlarmSettingsInput(input = {}) {
       input.parentLinkAlerts == null ? true : Boolean(input.parentLinkAlerts),
     studyRoomAlerts:
       input.studyRoomAlerts == null ? true : Boolean(input.studyRoomAlerts),
+    messageAlerts:
+      input.messageAlerts == null ? true : Boolean(input.messageAlerts),
+    homeworkAlerts:
+      input.homeworkAlerts == null ? true : Boolean(input.homeworkAlerts),
     wakeAlarmEnabled:
       input.wakeAlarmEnabled == null ? false : Boolean(input.wakeAlarmEnabled),
     wakeAlarmTime
@@ -826,7 +1163,13 @@ function normalizeParentAlarmSettingsInput(input = {}) {
     studentLinkAlerts:
       input.studentLinkAlerts == null ? true : Boolean(input.studentLinkAlerts),
     studyRoomAlerts:
-      input.studyRoomAlerts == null ? true : Boolean(input.studyRoomAlerts)
+      input.studyRoomAlerts == null ? true : Boolean(input.studyRoomAlerts),
+    messageAlerts:
+      input.messageAlerts == null ? true : Boolean(input.messageAlerts),
+    homeworkAlerts:
+      input.homeworkAlerts == null ? true : Boolean(input.homeworkAlerts),
+    requestAlerts:
+      input.requestAlerts == null ? true : Boolean(input.requestAlerts)
   };
 }
 
@@ -882,6 +1225,42 @@ async function sendParentPushNotificationForLinkedParents(
     body: extractVisibleNotificationBody(body),
     data
   });
+}
+
+async function createParentNotificationForLinkedParentsAlarmWithPush(
+  studentUserId,
+  alarmKey,
+  title,
+  body,
+  data = undefined
+) {
+  const parentUserIds = await listLinkedParentUserIdsForStudent(studentUserId);
+  if (!parentUserIds.length) return 0;
+
+  const pushTargetUserIds = [];
+  let createdCount = 0;
+
+  for (const parentUserId of parentUserIds) {
+    const notification = await createParentNotificationForAlarm(
+      parentUserId,
+      alarmKey,
+      title,
+      body
+    ).catch(() => null);
+    if (!notification) continue;
+    createdCount += 1;
+    pushTargetUserIds.push(parentUserId);
+  }
+
+  if (pushTargetUserIds.length) {
+    await sendPushToUsers(pushTargetUserIds, {
+      title,
+      body: extractVisibleNotificationBody(body),
+      data
+    }).catch(() => {});
+  }
+
+  return createdCount;
 }
 
 async function createParentNotificationForAlarmWithPush(
@@ -1140,6 +1519,94 @@ function serializeStudentProfileSchedule(row) {
     createdAt: row.created_at || null,
     updatedAt: row.updated_at || null
   };
+}
+
+const WEEKLY_APP_ALLOWANCE_DAY_KEYS = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"];
+
+function serializeStudentWeeklyAppAllowanceSlot(row) {
+  if (!row) return null;
+  return {
+    id: String(row.id),
+    dayKey: String(row.weekday_key || "").trim().toLowerCase(),
+    startTime: String(row.start_time || "").slice(0, 5),
+    endTime: String(row.end_time || "").slice(0, 5),
+    allowedApps: ensureDaechiRootAppAllowed(row.allowed_apps)
+  };
+}
+
+function buildStudentWeeklyAppAllowanceResponse(rows) {
+  const schedule = {
+    mon: [],
+    tue: [],
+    wed: [],
+    thu: [],
+    fri: [],
+    sat: [],
+    sun: []
+  };
+  for (const row of Array.isArray(rows) ? rows : []) {
+    const serialized = serializeStudentWeeklyAppAllowanceSlot(row);
+    if (!serialized || !WEEKLY_APP_ALLOWANCE_DAY_KEYS.includes(serialized.dayKey)) {
+      continue;
+    }
+    schedule[serialized.dayKey].push(serialized);
+  }
+  return schedule;
+}
+
+function isoDateToWeeklyAllowanceDayKey(value) {
+  const trimmed = String(value || "").trim().slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) return null;
+  const date = new Date(`${trimmed}T12:00:00+09:00`);
+  if (Number.isNaN(date.getTime())) return null;
+  const day = date.getDay();
+  return ["sun", "mon", "tue", "wed", "thu", "fri", "sat"][day] || null;
+}
+
+function normalizeRequestedAppAllowanceSlots(rows) {
+  return (Array.isArray(rows) ? rows : [])
+    .map(slot => {
+      const rawDayKey = String(slot?.dayKey || "")
+        .trim()
+        .toLowerCase();
+      const dayKey = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"].includes(rawDayKey)
+        ? rawDayKey
+        : null;
+      const title = String(slot?.title || "").trim().slice(0, 80);
+      const source =
+        slot?.source === "schedule"
+          ? "schedule"
+          : slot?.source === "free"
+            ? "free"
+            : "plan";
+      const startTime = String(slot?.startTime || "").trim().slice(0, 5);
+      const endTime = String(slot?.endTime || "").trim().slice(0, 5);
+      const reason = String(slot?.reason || "").trim().slice(0, 220);
+      const allowedApps = ensureDaechiRootAppAllowed(
+        Array.isArray(slot?.allowedApps)
+          ? slot.allowedApps
+          : Array.isArray(slot?.allowedAppIds) || Array.isArray(slot?.allowedAppNames)
+            ? (Array.isArray(slot?.allowedAppIds) ? slot.allowedAppIds : []).map((id, index) => ({
+                id: String(id || "").trim(),
+                name: String((Array.isArray(slot?.allowedAppNames) ? slot.allowedAppNames[index] : "") || "").trim(),
+                category: "기기 앱"
+              }))
+            : []
+      );
+      if (!/^\d{2}:\d{2}$/.test(startTime) || !/^(\d{2}:\d{2}|24:00)$/.test(endTime)) {
+        return null;
+      }
+      return {
+        dayKey,
+        title,
+        source,
+        startTime,
+        endTime,
+        reason,
+        allowedApps
+      };
+    })
+    .filter(Boolean);
 }
 
 function normalizeScheduleDraft(raw) {
@@ -1893,6 +2360,155 @@ function normalizeAppAllowanceResponse(raw, installedApps) {
   return {
     summary: String(raw.summary || "").trim().slice(0, 240),
     slots: ensureDaechiRootAppOnSlots(fullDaySlots)
+  };
+}
+
+function normalizeWeeklyAppRequestResponse(raw, installedApps) {
+  if (!raw || typeof raw !== "object") return null;
+  const installedById = new Map((installedApps || []).map(app => [app.id, app]));
+  const installedByName = new Map(
+    (installedApps || []).map(app => [String(app.name || "").trim().toLowerCase(), app])
+  );
+  const validDayKeys = new Set(["mon", "tue", "wed", "thu", "fri", "sat", "sun"]);
+  const slots = Array.isArray(raw.slots)
+    ? raw.slots
+        .map(slot => {
+          const dayKey = String(slot?.dayKey || "")
+            .trim()
+            .toLowerCase();
+          const startTime = String(slot?.startTime || "").trim().slice(0, 5);
+          const endTime = String(slot?.endTime || "").trim().slice(0, 5);
+          const startMin = hhmmToMinutes(startTime);
+          const endMin = endTime === "24:00" ? 24 * 60 : hhmmToMinutes(endTime);
+          if (!validDayKeys.has(dayKey)) return null;
+          if (startMin == null || endMin == null || endMin <= startMin) return null;
+          const picked = [];
+          const rawIds = Array.isArray(slot?.allowedAppIds) ? slot.allowedAppIds : [];
+          const rawNames = Array.isArray(slot?.allowedAppNames) ? slot.allowedAppNames : [];
+          for (const candidate of rawIds) {
+            const app = installedById.get(String(candidate || "").trim());
+            if (app && !picked.some(item => item.id === app.id)) picked.push(app);
+          }
+          for (const candidate of rawNames) {
+            const app = installedByName.get(String(candidate || "").trim().toLowerCase());
+            if (app && !picked.some(item => item.id === app.id)) picked.push(app);
+          }
+          return {
+            dayKey,
+            title: String(slot?.title || "").trim().slice(0, 120) || "허용 앱 요청",
+            source: slot?.source === "schedule" ? "schedule" : slot?.source === "free" ? "free" : "plan",
+            startTime,
+            endTime,
+            reason: String(slot?.reason || "").trim().slice(0, 180),
+            allowedApps: ensureDaechiRootAppAllowed(picked)
+          };
+        })
+        .filter(Boolean)
+    : [];
+  return {
+    summary: String(raw.summary || "").trim().slice(0, 240),
+    slots
+  };
+}
+
+function buildWeeklyAppRequestSlotSummary(slots) {
+  const dayLabels = {
+    mon: "월",
+    tue: "화",
+    wed: "수",
+    thu: "목",
+    fri: "금",
+    sat: "토",
+    sun: "일"
+  };
+  return (Array.isArray(slots) ? slots : [])
+    .slice(0, 4)
+    .map(slot => {
+      const day = dayLabels[String(slot?.dayKey || "").trim().toLowerCase()] || "요일";
+      const start = String(slot?.startTime || "").trim().slice(0, 5);
+      const end = String(slot?.endTime || "").trim().slice(0, 5);
+      const names = Array.isArray(slot?.allowedApps)
+        ? slot.allowedApps
+            .map(app => String(app?.name || "").trim())
+            .filter(Boolean)
+            .slice(0, 2)
+            .join(", ")
+        : "";
+      const title = String(slot?.title || "").trim().slice(0, 20);
+      const core = `${day} ${start}-${end}`.trim();
+      if (names) return `${core} ${names}`;
+      if (title) return `${core} ${title}`;
+      return core;
+    })
+    .filter(Boolean)
+    .join(", ");
+}
+
+async function buildWeeklyAppRequestAssistantReply({
+  message,
+  history,
+  installedApps,
+  schedules,
+  studyPlans
+}) {
+  if (!openai) {
+    return {
+      reply:
+        "원하는 요일, 시간, 허용할 앱 이름을 같이 적어 주세요. 예: 월요일 18:00-20:00 유튜브, 사전 허용",
+      summary: "",
+      slots: [],
+      usedOpenAi: false,
+      model: null
+    };
+  }
+
+  const promptPayload = {
+    userMessage: sanitizePromptText(message, 1200),
+    history: sanitizeCoachHistoryForPrompt(history, 10),
+    installedApps,
+    schedules: serializeScheduleRowsForPrompt(schedules),
+    studyPlans: (Array.isArray(studyPlans) ? studyPlans : []).map(item => ({
+      bookName: String(item.bookName || "").trim(),
+      plannedRange: String(item.plannedRange || "").trim(),
+      startTime: String(item.startTime || "").trim(),
+      endTime: String(item.endTime || "").trim()
+    }))
+  };
+
+  const response = await openai.chat.completions.create({
+    model: OPENAI_MODEL,
+    temperature: 0.25,
+    max_tokens: 900,
+    response_format: { type: "json_object" },
+    messages: [
+      {
+        role: "system",
+        content:
+          "너는 학생이 관리자에게 보낼 주간 허용 앱 요청을 정리해 주는 AI 코치다. installedApps, schedules, studyPlans는 참고 정보이며, 학생이 명시하지 않은 요일·시간·앱을 임의로 만들면 안 된다. 반드시 JSON 객체만 출력한다. 형식은 {\"reply\":\"학생에게 보여줄 짧은 한국어 답변\",\"summary\":\"관리자에게 보여줄 한두 문장 요약\",\"slots\":[{\"dayKey\":\"mon|tue|wed|thu|fri|sat|sun\",\"title\":\"요청 제목\",\"source\":\"plan\"|\"schedule\"|\"free\",\"startTime\":\"HH:MM\",\"endTime\":\"HH:MM\",\"reason\":\"짧은 근거\",\"allowedAppIds\":[\"com.daechiroot.ios\"]}]} 이다. 허용 앱은 installedApps에 있는 것만 allowedAppIds로 넣을 수 있다. 대치루트 앱(id=com.daechiroot.ios)은 모든 슬롯에 반드시 포함한다. 요청이 불충분하면 slots는 빈 배열로 두고 reply에서 필요한 정보를 짧게 다시 물어본다."
+      },
+      {
+        role: "user",
+        content: safeJsonForPrompt(promptPayload, 16000)
+      }
+    ]
+  });
+
+  const rawText = String(response.choices?.[0]?.message?.content || "").trim();
+  const parsed = parseJsonObjectFromAssistantText(rawText) || {};
+  const normalized = normalizeWeeklyAppRequestResponse(parsed, installedApps) || {
+    summary: "",
+    slots: []
+  };
+  return {
+    reply:
+      sanitizePromptText(parsed.reply, 1200) ||
+      (normalized.slots.length > 0
+        ? "요청하신 허용 앱 내용을 관리자에게 전달할 수 있게 정리했어요."
+        : "원하는 요일, 시간, 허용 앱을 조금 더 구체적으로 알려 주세요."),
+    summary: normalized.summary,
+    slots: normalized.slots,
+    usedOpenAi: true,
+    model: OPENAI_MODEL
   };
 }
 
@@ -2662,6 +3278,58 @@ app.delete("/api/student/profile-schedules/:id", authMiddleware, async (req, res
   }
 });
 
+app.get("/api/student/weekly-app-allowance", authMiddleware, async (req, res) => {
+  try {
+    const me = await getMe(req.userId);
+    if (!me || me.role !== "student") {
+      return res.status(403).json({ error: "학생만 접근할 수 있습니다." });
+    }
+    const rows = await listStudentWeeklyAppAllowanceSlots(req.userId);
+    res.json({ schedule: buildStudentWeeklyAppAllowanceResponse(rows) });
+  } catch (e) {
+    console.error("/api/student/weekly-app-allowance GET error", e);
+    res.status(500).json({ error: "주간 허용 앱 시간표를 불러오지 못했습니다." });
+  }
+});
+
+app.put("/api/student/weekly-app-allowance", authMiddleware, async (req, res) => {
+  try {
+    const me = await getMe(req.userId);
+    if (!me || me.role !== "student") {
+      return res.status(403).json({ error: "학생만 접근할 수 있습니다." });
+    }
+    const body = req.body || {};
+    const rawSchedule = body.schedule && typeof body.schedule === "object" ? body.schedule : {};
+    const slots = WEEKLY_APP_ALLOWANCE_DAY_KEYS.flatMap(dayKey => {
+      const daySlots = Array.isArray(rawSchedule[dayKey]) ? rawSchedule[dayKey] : [];
+      return daySlots.map(slot => ({
+        dayKey,
+        startTime: slot?.startTime,
+        endTime: slot?.endTime,
+        allowedApps: Array.isArray(slot?.allowedApps) ? slot.allowedApps : []
+      }));
+    });
+    let rows;
+    try {
+      rows = await replaceStudentWeeklyAppAllowanceSlots(req.userId, slots);
+    } catch (error) {
+      if (error instanceof Error && error.message === "WEEKLY_APP_ALLOWANCE_OVERLAP") {
+        return res.status(409).json({
+          error: "같은 요일 안에서 시간이 겹치지 않게 설정해 주세요."
+        });
+      }
+      throw error;
+    }
+    res.json({
+      ok: true,
+      schedule: buildStudentWeeklyAppAllowanceResponse(rows)
+    });
+  } catch (e) {
+    console.error("/api/student/weekly-app-allowance PUT error", e);
+    res.status(500).json({ error: "주간 허용 앱 시간표를 저장하지 못했습니다." });
+  }
+});
+
 app.post("/api/student/books", authMiddleware, async (req, res) => {
   try {
     const me = await getMe(req.userId);
@@ -2795,6 +3463,14 @@ app.post("/api/student/alarm-settings", authMiddleware, async (req, res) => {
           saved?.alarm_study_room_alerts == null
             ? settingsInput.studyRoomAlerts
             : Boolean(saved.alarm_study_room_alerts),
+        messageAlerts:
+          saved?.alarm_message_alerts == null
+            ? settingsInput.messageAlerts
+            : Boolean(saved.alarm_message_alerts),
+        homeworkAlerts:
+          saved?.alarm_homework_alerts == null
+            ? settingsInput.homeworkAlerts
+            : Boolean(saved.alarm_homework_alerts),
         wakeAlarmEnabled:
           saved?.wake_alarm_enabled == null
             ? settingsInput.wakeAlarmEnabled
@@ -3559,8 +4235,9 @@ app.post("/api/student/admin-channel/messages", authMiddleware, async (req, res)
       "student",
       message
     );
-    await createParentNotificationForLinkedParentsWithPush(
+    await createParentNotificationForLinkedParentsAlarmWithPush(
       req.userId,
+      "messageAlerts",
       "새 학생 메시지",
       "학생이 관리자 1:1 채널에 새 메시지를 보냈습니다."
     ).catch(() => {});
@@ -3603,8 +4280,9 @@ app.post(
       } catch (messageError) {
         console.error("student homework submission chat mirror error", messageError);
       }
-      await createParentNotificationForLinkedParentsWithPush(
+      await createParentNotificationForLinkedParentsAlarmWithPush(
         req.userId,
+        "homeworkAlerts",
         "새 숙제 제출",
         "학생이 새 숙제를 제출했습니다. 관리자 코치 채팅 탭에서 검토할 수 있습니다."
       ).catch(() => {});
@@ -3738,13 +4416,9 @@ app.post("/api/parent/admin-channel/messages", authMiddleware, async (req, res) 
       "parent",
       message
     );
-    await createStudentNotification(
+    await createStudentNotificationForAlarm(
       studentId,
-      "새 관리자 메시지",
-      "관리자 1:1 채널에 새 메시지가 도착했습니다."
-    ).catch(() => {});
-    await sendStudentPushNotification(
-      studentId,
+      "messageAlerts",
       "새 관리자 메시지",
       "관리자 1:1 채널에 새 메시지가 도착했습니다."
     ).catch(() => {});
@@ -3786,8 +4460,9 @@ app.patch(
       if (!updated) {
         return res.status(404).json({ error: "제출 내역을 찾을 수 없습니다." });
       }
-      await createStudentNotification(
+      await createStudentNotificationForAlarm(
         studentId,
+        "homeworkAlerts",
         "숙제 검토 완료",
         reviewStatus === "approved"
           ? "제출한 숙제가 승인되었습니다."
@@ -3795,15 +4470,6 @@ app.patch(
             ? "숙제에 수정 요청이 도착했습니다."
             : "숙제 검토 상태가 갱신되었습니다."
       ).catch(() => {});
-          await sendStudentPushNotification(
-            studentId,
-            "숙제 검토 완료",
-            reviewStatus === "approved"
-              ? "제출한 숙제가 승인되었습니다."
-              : reviewStatus === "needs_revision"
-            ? "숙제에 수정 요청이 도착했습니다."
-            : "숙제 검토 상태가 갱신되었습니다."
-          ).catch(() => {});
       res.json({ ok: true, submission: updated });
     } catch (e) {
       console.error("/api/parent/homework-submissions/:submissionId/review error", e);
@@ -3965,8 +4631,9 @@ app.post("/api/student/plan-add-request", authMiddleware, async (req, res) => {
     if (!row) {
       return res.status(500).json({ error: "요청을 저장하지 못했습니다." });
     }
-    await createParentNotificationForLinkedParentsWithPush(
+    await createParentNotificationForLinkedParentsAlarmWithPush(
       req.userId,
+      "requestAlerts",
       "오늘 계획 수정 요청",
       `${String(me.email || "학생")}(이)가 ${d} ${st}-${et} ${name}${plannedRange ? ` · ${String(plannedRange).trim()}` : ""} 계획 수정을 요청했어요.`
     );
@@ -4761,15 +5428,29 @@ app.get("/api/student/coach/state", authMiddleware, async (req, res) => {
     if (!me || me.role !== "student") {
       return res.status(403).json({ error: "권한이 없습니다." });
     }
-    const profile = await getStudentCoachProfile(req.userId);
     const weekStart = String(req.query.weekStart || "").trim();
-    const logs =
+    const [profile, logs, liveStudyRoomSummary, recentVisits] = await Promise.all([
+      getStudentCoachProfile(req.userId),
       weekStart && isIsoDate(weekStart)
-        ? await listStudentCoachLogsInWeekRange(req.userId, weekStart)
-        : await listRecentStudentCoachLogs(req.userId, 21);
-    const snapshot = buildCoachSnapshot(profile, logs);
+        ? listStudentCoachLogsInWeekRange(req.userId, weekStart)
+        : listRecentStudentCoachLogs(req.userId, 21),
+      getMergedStudyRoomTrackingSummary(req.userId),
+      listRecentStudyRoomVisitSessionsForStudent(req.userId, 24)
+    ]);
+    const studyRoom = buildStudyRoomSummary(
+      liveStudyRoomSummary,
+      recentVisits,
+      weekStart && isIsoDate(weekStart) ? weekStart : null
+    );
+    const snapshot = buildCoachSnapshot(
+      profile,
+      logs,
+      studyRoom,
+      weekStart && isIsoDate(weekStart) ? weekStart : null
+    );
     res.json({
       snapshot,
+      studyRoom,
       logs: logs.map(r => ({
         date: formatPgLogDate(r.log_date),
         sleepHours: r.sleep_hours,
@@ -4798,12 +5479,20 @@ app.get("/api/student/coach/pattern-insights", authMiddleware, async (req, res) 
       return res.status(403).json({ error: "권한이 없습니다." });
     }
     const weekStart = String(req.query.weekStart || "").trim();
-    const logs =
+    const [logs, liveStudyRoomSummary, recentVisits] = await Promise.all([
       weekStart && isIsoDate(weekStart)
-        ? await listStudentCoachLogsInWeekRange(req.userId, weekStart)
-        : await listRecentStudentCoachLogs(req.userId, 21);
+        ? listStudentCoachLogsInWeekRange(req.userId, weekStart)
+        : listRecentStudentCoachLogs(req.userId, 21),
+      getMergedStudyRoomTrackingSummary(req.userId),
+      listRecentStudyRoomVisitSessionsForStudent(req.userId, 24)
+    ]);
     const rhythmWeek = buildWeekRhythmPayloadFromLogs(
       logs,
+      weekStart && isIsoDate(weekStart) ? weekStart : null
+    );
+    const studyRoomSummary = buildStudyRoomSummary(
+      liveStudyRoomSummary,
+      recentVisits,
       weekStart && isIsoDate(weekStart) ? weekStart : null
     );
     const recordedDays = rhythmWeek.filter(
@@ -4817,8 +5506,11 @@ app.get("/api/student/coach/pattern-insights", authMiddleware, async (req, res) 
 
     if (!openai) {
       return res.json({
-        patterns: [],
+        patterns: [
+          buildRhythmFallbackPattern(rhythmWeek, recordedDays, studyRoomSummary)
+        ],
         usedOpenAi: false,
+        studyRoomSummary,
         rhythmWeek,
         recordedDayCount: recordedDays
       });
@@ -4840,7 +5532,16 @@ app.get("/api/student/coach/pattern-insights", authMiddleware, async (req, res) 
         concentrationPercent: "대략 0~100 환산",
         studyMinutes: "분",
         planCompletionRate: "0~100"
-      }
+      },
+      studyRoomSummary:
+        studyRoomSummary?.weeklyMinutes > 0
+          ? {
+              weeklyMinutes: studyRoomSummary.weeklyMinutes,
+              activeDays: studyRoomSummary.activeDays,
+              visitCount: studyRoomSummary.visitCount,
+              consistencyLabel: studyRoomSummary.consistencyLabel
+            }
+          : null
     };
 
     const { parsed, rawText } = await openAiPatternCompletion(payload);
@@ -4859,12 +5560,15 @@ app.get("/api/student/coach/pattern-insights", authMiddleware, async (req, res) 
       patterns = patterns.filter(p => !looksLikeInsufficientPattern(p));
     }
     if (patterns.length === 0) {
-      patterns = [buildRhythmFallbackPattern(rhythmWeek, recordedDays)];
+      patterns = [
+        buildRhythmFallbackPattern(rhythmWeek, recordedDays, studyRoomSummary)
+      ];
     }
     res.json({
       patterns,
       usedOpenAi: true,
       model: OPENAI_MODEL,
+      studyRoomSummary,
       rhythmWeek,
       recordedDayCount: recordedDays
     });
@@ -5232,6 +5936,98 @@ app.post("/api/student/coach/app-timetable/message", authMiddleware, async (req,
   }
 });
 
+app.post("/api/student/coach/weekly-app-request/message", authMiddleware, async (req, res) => {
+  try {
+    const me = await getMe(req.userId);
+    if (!me || me.role !== "student") {
+      return res.status(403).json({ error: "권한이 없습니다." });
+    }
+
+    const body = req.body || {};
+    const message = String(body.message || "").trim().slice(0, 1200);
+    if (!message) {
+      return res.status(400).json({ error: "message가 필요합니다." });
+    }
+
+    const serialFromBody = String(body.serial || "").trim();
+    if (isLikelySerial(serialFromBody)) {
+      await linkDeviceToUserBySerial(req.userId, serialFromBody).catch(() => {
+        // ignore
+      });
+    }
+    await attachDeviceByCookieIfPresent(req, req.userId).catch(() => {
+      // ignore
+    });
+
+    const [scheduleRows, books, linkedSerial] = await Promise.all([
+      listStudentProfileSchedules(req.userId),
+      listStudyBooks(req.userId),
+      getActiveDeviceSerialForUser(req.userId)
+    ]);
+
+    let installedApps = [];
+    if (linkedSerial) {
+      const device = await findDeviceBySerial(linkedSerial).catch(() => null);
+      if (device?.id) {
+        const simpleMdmApps = await listInstalledAppsForDevice(Number(device.id)).catch(
+          () => []
+        );
+        installedApps = normalizeInstalledAppsForPrompt(simpleMdmApps);
+      }
+    }
+
+    const currentDate = formatYmdSeoulFromInstant(new Date());
+    const weekDates = Array.from({ length: 7 }, (_, index) => addDaysToSeoulDateKey(currentDate, index));
+    const studyPlanMap = new Map();
+    await Promise.all(
+      weekDates.map(async dateKey => {
+        const data = await getStudyPlansForDate(req.userId, dateKey).catch(() => null);
+        studyPlanMap.set(
+          dateKey,
+          (Array.isArray(data?.plans) ? data.plans : []).map(item => ({
+            bookId: Number(item.book_id || 0) || null,
+            bookName: String(item.book_name || "").trim(),
+            plannedRange: String(item.planned_range || "").trim(),
+            startTime: String(item.start_time || "").trim().slice(0, 5),
+            endTime: String(item.end_time || "").trim().slice(0, 5)
+          }))
+        );
+      })
+    );
+
+    const studyPlans = weekDates.flatMap(dateKey => {
+      const weekday = getKoreanWeekdayNameFromIsoDate(dateKey);
+      return (studyPlanMap.get(dateKey) || []).map(item => ({
+        ...item,
+        dateKey,
+        weekday,
+        label: `${weekday} ${item.startTime || "시간미정"}${item.endTime ? `-${item.endTime}` : ""} ${item.bookName || item.plannedRange || "공부 계획"}`
+      }));
+    });
+
+    const result = await buildWeeklyAppRequestAssistantReply({
+      message,
+      history: Array.isArray(body.history) ? body.history : [],
+      installedApps,
+      schedules: scheduleRows,
+      studyPlans
+    });
+
+    res.json({
+      ok: true,
+      reply: result.reply,
+      summary: result.summary,
+      slots: result.slots,
+      availableApps: installedApps,
+      usedOpenAi: result.usedOpenAi,
+      model: result.model
+    });
+  } catch (e) {
+    console.error("/api/student/coach/weekly-app-request/message error", e);
+    res.status(500).json({ error: "허용 앱 요청 정리에 실패했습니다." });
+  }
+});
+
 app.post("/api/student/coach/app-timetable-request", authMiddleware, async (req, res) => {
   try {
     const me = await getMe(req.userId);
@@ -5248,35 +6044,21 @@ app.post("/api/student/coach/app-timetable-request", authMiddleware, async (req,
       });
     }
 
-    const requestedDate = String((req.body || {}).targetDate || "")
-      .trim()
-      .slice(0, 10);
-    const targetDate = /^\d{4}-\d{2}-\d{2}$/.test(requestedDate)
-      ? requestedDate
-      : addDaysToSeoulDateKey(formatYmdSeoulFromInstant(new Date()), 1);
     const summary = String((req.body || {}).summary || "")
       .trim()
       .replace(/\s+/g, " ")
       .slice(0, 180);
-    const slotSummary = Array.isArray((req.body || {}).slots)
-      ? req.body.slots
-          .slice(0, 3)
-          .map(slot => {
-            const start = String(slot?.startTime || "").trim().slice(0, 5);
-            const end = String(slot?.endTime || "").trim().slice(0, 5);
-            const title = String(slot?.title || "")
-              .trim()
-              .replace(/\s+/g, " ")
-              .slice(0, 40);
-            if (!start || !end) return title || null;
-            return title ? `${start}-${end} ${title}` : `${start}-${end}`;
-          })
-          .filter(Boolean)
-          .join(", ")
-      : "";
+    const normalizedSlots = normalizeRequestedAppAllowanceSlots((req.body || {}).slots).slice(
+      0,
+      24
+    );
+    if (normalizedSlots.length === 0) {
+      return res.status(400).json({ error: "요청할 허용 앱 시간이 없습니다." });
+    }
+    const slotSummary = buildWeeklyAppRequestSlotSummary(normalizedSlots);
 
     const bodyParts = [
-      `${String(me.email || "학생")}(이)가 ${targetDate} 앱 허용 시간표 확인을 요청했어요.`
+      `${String(me.email || "학생")}(이)가 허용 앱 요청 확인을 보냈어요.`
     ];
     if (summary) bodyParts.push(summary);
     if (slotSummary) bodyParts.push(`추천 시간대: ${slotSummary}`);
@@ -5286,16 +6068,32 @@ app.post("/api/student/coach/app-timetable-request", authMiddleware, async (req,
       {
         type: "parent_app_timetable_request",
         studentEmail: String(me.email || "").trim().toLowerCase(),
-        targetDate,
+        targetDate: "",
         summary,
-        slotSummary
+        slotSummary,
+        slots: normalizedSlots.map(slot => ({
+          dayKey: slot.dayKey,
+          title: slot.title,
+          source: slot.source,
+          startTime: slot.startTime,
+          endTime: slot.endTime,
+          reason: slot.reason,
+          allowedApps: slot.allowedApps.map(app => ({
+            id: app.id,
+            name: app.name,
+            category: app.category,
+            description: app.description ?? null,
+            bundleId: app.bundleId ?? null
+          }))
+        }))
       },
       visibleBody
     );
 
-    await createParentNotificationForLinkedParentsWithPush(
+    await createParentNotificationForLinkedParentsAlarmWithPush(
       req.userId,
-      "내일 앱 허용 시간표 요청",
+      "requestAlerts",
+      "허용 앱 요청",
       actionBody
     );
 
@@ -5303,6 +6101,99 @@ app.post("/api/student/coach/app-timetable-request", authMiddleware, async (req,
   } catch (e) {
     console.error("/api/student/coach/app-timetable-request error", e);
     res.status(500).json({ error: "요청을 보내지 못했습니다." });
+  }
+});
+
+app.post("/api/parent/app-timetable-request/approve", authMiddleware, async (req, res) => {
+  try {
+    const me = await getMe(req.userId);
+    if (!me || me.role !== "parent") {
+      return res.status(403).json({ error: "관리자만 승인할 수 있습니다." });
+    }
+
+    const studentEmail = String((req.body || {}).studentEmail || "")
+      .trim()
+      .toLowerCase();
+    const targetDate = String((req.body || {}).targetDate || "")
+      .trim()
+      .slice(0, 10);
+    const fallbackDayKey = isoDateToWeeklyAllowanceDayKey(targetDate);
+    if (!studentEmail) {
+      return res.status(400).json({ error: "학생 정보가 올바르지 않습니다." });
+    }
+
+    const studentUser = await findUserByEmail(studentEmail);
+    if (!studentUser || studentUser.role !== "student") {
+      return res.status(404).json({ error: "학생 계정을 찾을 수 없습니다." });
+    }
+
+    const linked = await parentHasStudent(req.userId, Number(studentUser.id));
+    if (!linked) {
+      return res.status(403).json({ error: "연결된 학생만 승인할 수 있습니다." });
+    }
+
+    const requestedSlots = normalizeRequestedAppAllowanceSlots((req.body || {}).slots);
+    if (requestedSlots.length === 0) {
+      return res.status(400).json({ error: "반영할 허용 앱 시간표가 없습니다." });
+    }
+
+    const slotsWithDayKey = requestedSlots
+      .map(slot => {
+        const explicitDayKey = String(slot.dayKey || "")
+          .trim()
+          .toLowerCase();
+        const dayKey = /^[a-z]{3}$/.test(explicitDayKey) ? explicitDayKey : fallbackDayKey;
+        if (!dayKey) return null;
+        return {
+          dayKey,
+          startTime: slot.startTime,
+          endTime: slot.endTime,
+          allowedApps: slot.allowedApps
+        };
+      })
+      .filter(Boolean);
+    if (slotsWithDayKey.length === 0) {
+      return res.status(400).json({ error: "반영할 요일 정보가 없습니다." });
+    }
+
+    const currentRows = await listStudentWeeklyAppAllowanceSlots(studentUser.id);
+    const replacedDayKeys = new Set(slotsWithDayKey.map(slot => slot.dayKey));
+    const mergedSlots = [
+      ...currentRows
+        .filter(row => !replacedDayKeys.has(String(row.weekday_key || "").trim().toLowerCase()))
+        .map(row => ({
+          dayKey: String(row.weekday_key || "").trim().toLowerCase(),
+          startTime: String(row.start_time || "").slice(0, 5),
+          endTime: String(row.end_time || "").slice(0, 5),
+          allowedApps: ensureDaechiRootAppAllowed(row.allowed_apps)
+        })),
+      ...slotsWithDayKey
+    ];
+
+    let rows;
+    try {
+      rows = await replaceStudentWeeklyAppAllowanceSlots(studentUser.id, mergedSlots);
+    } catch (error) {
+      if (error instanceof Error && error.message === "WEEKLY_APP_ALLOWANCE_OVERLAP") {
+        return res.status(409).json({ error: "승인한 시간표가 기존 시간표와 겹칩니다." });
+      }
+      throw error;
+    }
+
+    await createStudentNotification(
+      studentUser.id,
+      "허용 앱 시간표 승인 완료",
+      `${String(me.email || "관리자").trim() || "관리자"} 님이 ${targetDate} 허용 앱 시간표를 승인해 주었어요.`
+    ).catch(() => {});
+
+    res.json({
+      ok: true,
+      dayKeys: Array.from(replacedDayKeys),
+      schedule: buildStudentWeeklyAppAllowanceResponse(rows)
+    });
+  } catch (e) {
+    console.error("/api/parent/app-timetable-request/approve error", e);
+    res.status(500).json({ error: "허용 앱 시간표 반영에 실패했습니다." });
   }
 });
 

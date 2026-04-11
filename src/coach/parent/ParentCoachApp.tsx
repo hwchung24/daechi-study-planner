@@ -1,4 +1,12 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
+import {
+  Brain,
+  ClipboardList,
+  Lightbulb,
+  ShieldAlert,
+  Sparkles,
+  TrendingUp
+} from "lucide-react";
 import { TabTransitionPanel } from "../../components/PageTransition";
 import { Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { TimePickerSheet } from "../../components/TimePickerSheet";
@@ -12,10 +20,18 @@ import { Card, EmptyState, GradientHeroCard, MetricCard, RiskBadge, SectionHeade
 import { formatMinutes } from "../utils/format";
 import type { ParentStudentRow } from "../../types/parent";
 import type { StudyRoomVisitSession } from "../../types/studyRoomTracking";
+import {
+  buildParentCoachPatternsCacheKey,
+  buildParentCoachStateCacheKey,
+  readLocalCache,
+  readStoredUserCacheScope,
+  writeLocalCache
+} from "../../lib/viewCache";
 
 export type ParentTabKey = "manage" | "aiReport" | "records" | "studentSettings";
 
 const STUDY_ROOM_VISITS_REFRESH_INTERVAL_MS = 30000;
+const PARENT_COACH_CACHE_TTL_MS = 2 * 60 * 1000;
 
 type ParentAiDaily = {
   summary_text: string;
@@ -95,6 +111,34 @@ type ParentCoachAnalysisState = {
   };
   logs?: ParentCoachAnalysisLog[];
 };
+
+function normalizeCachedParentCoachAnalysisState(
+  raw: unknown
+): ParentCoachAnalysisState | null {
+  if (!raw || typeof raw !== "object") return null;
+  const data = raw as ParentCoachAnalysisState & { logs?: unknown[] };
+  return {
+    ...data,
+    logs: Array.isArray(data.logs)
+      ? data.logs
+          .map(normalizeParentCoachAnalysisLog)
+          .filter((row): row is ParentCoachAnalysisLog => row != null)
+      : []
+  };
+}
+
+function normalizeCachedParentPatterns(raw: unknown): ParentAiPatternRow[] {
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .filter((item): item is ParentAiPatternRow => {
+      if (!item || typeof item !== "object") return false;
+      const row = item as Record<string, unknown>;
+      return ["key", "title", "severity", "explanation", "recommendation"].every(
+        field => typeof row[field] === "string"
+      );
+    })
+    .map(item => ({ ...item }));
+}
 
 type ParentAiPatternRow = {
   key: string;
@@ -375,7 +419,10 @@ function PatternCard(props: {
       </div>
       <div className="coach-pattern__body">{props.explanation}</div>
       <div className="coach-pattern__rec">
-        <span className="coach-pattern__rec-label">추천</span>
+        <span className="coach-pattern__rec-label coach-pattern__rec-label--icon">
+          <Lightbulb className="coach-analysis-icon coach-analysis-icon--eyebrow" aria-hidden />
+          <span>추천</span>
+        </span>
         <span className="coach-pattern__rec-text">{props.recommendation}</span>
       </div>
     </Card>
@@ -811,10 +858,44 @@ function AiReportTab(props: {
     () => deriveGuide(props.parentReport, props.parentAiDaily),
     [props.parentAiDaily, props.parentReport]
   );
-  const [analysisState, setAnalysisState] = useState<ParentCoachAnalysisState | null>(null);
+  const recentWeekStart = getDateKeySeoul(-6);
+  const parentCoachCacheScope = readStoredUserCacheScope();
+  const parentCoachStateCacheKey = buildParentCoachStateCacheKey(
+    parentCoachCacheScope,
+    props.parentStudentId,
+    recentWeekStart
+  );
+  const parentCoachPatternsCacheKey = buildParentCoachPatternsCacheKey(
+    parentCoachCacheScope,
+    props.parentStudentId,
+    recentWeekStart
+  );
+  const [analysisState, setAnalysisState] = useState<ParentCoachAnalysisState | null>(() =>
+    normalizeCachedParentCoachAnalysisState(
+      readLocalCache<unknown>(
+        buildParentCoachStateCacheKey(
+          readStoredUserCacheScope(),
+          props.parentStudentId,
+          getDateKeySeoul(-6)
+        ),
+        PARENT_COACH_CACHE_TTL_MS
+      )?.value
+    )
+  );
   const [analysisLoading, setAnalysisLoading] = useState(false);
   const [analysisError, setAnalysisError] = useState<string | null>(null);
-  const [aiPatterns, setAiPatterns] = useState<ParentAiPatternRow[]>([]);
+  const [aiPatterns, setAiPatterns] = useState<ParentAiPatternRow[]>(() =>
+    normalizeCachedParentPatterns(
+      readLocalCache<unknown>(
+        buildParentCoachPatternsCacheKey(
+          readStoredUserCacheScope(),
+          props.parentStudentId,
+          getDateKeySeoul(-6)
+        ),
+        PARENT_COACH_CACHE_TTL_MS
+      )?.value
+    )
+  );
   const [patternsLoading, setPatternsLoading] = useState(false);
   const [patternsError, setPatternsError] = useState<string | null>(null);
   const [patternsUsedOpenAi, setPatternsUsedOpenAi] = useState(false);
@@ -822,6 +903,27 @@ function AiReportTab(props: {
   const focusDistribution = props.parentReport?.stats?.focusDistribution;
   const stableFocus = (focusDistribution?.best || 0) + (focusDistribution?.good || 0);
   const consecutiveAbsentDays = props.parentReport?.stats?.consecutiveAbsentDays || 0;
+
+  useEffect(() => {
+    if (!props.authToken || !props.parentStudentId) return;
+    const cachedAnalysis = normalizeCachedParentCoachAnalysisState(
+      readLocalCache<unknown>(parentCoachStateCacheKey, PARENT_COACH_CACHE_TTL_MS)?.value
+    );
+    if (cachedAnalysis) {
+      setAnalysisState(cachedAnalysis);
+    }
+    const cachedPatterns = normalizeCachedParentPatterns(
+      readLocalCache<unknown>(parentCoachPatternsCacheKey, PARENT_COACH_CACHE_TTL_MS)?.value
+    );
+    if (cachedPatterns.length > 0) {
+      setAiPatterns(cachedPatterns);
+    }
+  }, [
+    parentCoachPatternsCacheKey,
+    parentCoachStateCacheKey,
+    props.authToken,
+    props.parentStudentId
+  ]);
 
   useEffect(() => {
     if (!props.authToken || !props.parentStudentId) {
@@ -834,7 +936,7 @@ function AiReportTab(props: {
     const ac = new AbortController();
     setAnalysisLoading(true);
     setAnalysisError(null);
-    const weekStart = encodeURIComponent(getDateKeySeoul(-6));
+    const weekStart = encodeURIComponent(recentWeekStart);
     void fetch(
       `${props.apiBase}/api/parent/coach/state?studentId=${encodeURIComponent(String(props.parentStudentId))}&weekStart=${weekStart}`,
       {
@@ -852,18 +954,19 @@ function AiReportTab(props: {
           throw new Error(String(data.error || "학생 AI 분석을 불러오지 못했습니다."));
         }
         if (cancelled) return;
-        setAnalysisState({
+        const nextState = {
           ...data,
           logs: Array.isArray(data.logs)
             ? data.logs
                 .map(normalizeParentCoachAnalysisLog)
                 .filter((row): row is ParentCoachAnalysisLog => row != null)
             : []
-        });
+        };
+        setAnalysisState(nextState);
+        writeLocalCache(parentCoachStateCacheKey, nextState);
       })
       .catch((error: unknown) => {
         if (cancelled || (error instanceof DOMException && error.name === "AbortError")) return;
-        setAnalysisState(null);
         setAnalysisError(
           error instanceof Error && error.message
             ? error.message
@@ -878,7 +981,7 @@ function AiReportTab(props: {
       cancelled = true;
       ac.abort();
     };
-  }, [props.apiBase, props.authToken, props.parentStudentId]);
+  }, [parentCoachStateCacheKey, props.apiBase, props.authToken, props.parentStudentId, recentWeekStart]);
 
   useEffect(() => {
     if (!props.authToken || !props.parentStudentId) {
@@ -892,7 +995,7 @@ function AiReportTab(props: {
     const ac = new AbortController();
     setPatternsLoading(true);
     setPatternsError(null);
-    const weekStart = encodeURIComponent(getDateKeySeoul(-6));
+    const weekStart = encodeURIComponent(recentWeekStart);
     void fetch(
       `${props.apiBase}/api/parent/coach/pattern-insights?studentId=${encodeURIComponent(String(props.parentStudentId))}&weekStart=${weekStart}`,
       {
@@ -912,11 +1015,12 @@ function AiReportTab(props: {
         }
         if (cancelled) return;
         setPatternsUsedOpenAi(Boolean(data.usedOpenAi));
-        setAiPatterns(Array.isArray(data.patterns) ? data.patterns : []);
+        const nextPatterns = Array.isArray(data.patterns) ? data.patterns : [];
+        setAiPatterns(nextPatterns);
+        writeLocalCache(parentCoachPatternsCacheKey, nextPatterns);
       })
       .catch((error: unknown) => {
         if (cancelled || (error instanceof DOMException && error.name === "AbortError")) return;
-        setAiPatterns([]);
         setPatternsUsedOpenAi(false);
         setPatternsError(
           error instanceof Error && error.message
@@ -932,7 +1036,13 @@ function AiReportTab(props: {
       cancelled = true;
       ac.abort();
     };
-  }, [props.apiBase, props.authToken, props.parentStudentId]);
+  }, [
+    parentCoachPatternsCacheKey,
+    props.apiBase,
+    props.authToken,
+    props.parentStudentId,
+    recentWeekStart
+  ]);
 
   const rhythmChartData = useMemo(
     () => buildRhythmChartRowsFromLogs(analysisState?.logs),
@@ -1008,7 +1118,10 @@ function AiReportTab(props: {
 
       <Card className="coach-card coach-card--padded coach-home-insight-card">
         <div className="coach-home-insight-card__top">
-          <span className="coach-home-insight-card__eyebrow">학생 AI 분석</span>
+          <span className="coach-home-insight-card__eyebrow coach-home-insight-card__eyebrow--icon">
+            <Sparkles className="coach-analysis-icon coach-analysis-icon--eyebrow" aria-hidden />
+            <span>학생 AI 분석</span>
+          </span>
           <RiskBadge level={coachRiskLevel} />
         </div>
         <div className="coach-home-insight-card__title">
@@ -1028,7 +1141,19 @@ function AiReportTab(props: {
 
       <div className="coach-grid">
         {metrics.map(m => (
-          <MetricCard key={m.title} title={m.title} value={m.value} hint={m.hint} />
+          <MetricCard
+            key={m.title}
+            title={m.title}
+            value={m.value}
+            hint={m.hint}
+            icon={
+              m.title === "개입 필요도" ? (
+                <ShieldAlert className="coach-analysis-icon" aria-hidden />
+              ) : (
+                <ClipboardList className="coach-analysis-icon" aria-hidden />
+              )
+            }
+          />
         ))}
       </div>
 
@@ -1054,12 +1179,22 @@ function AiReportTab(props: {
               <div
                 className="coach-rhythm-scroll__title"
                 style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 6,
                   fontSize: "var(--font-size-medium)",
                   fontWeight: "var(--font-weight-semibold)",
                   marginBottom: 6
                 }}
               >
-                {chart.title}
+                {chart.dataKey === "concentration" ? (
+                  <Brain className="coach-analysis-icon coach-analysis-icon--summary" aria-hidden />
+                ) : chart.dataKey === "studyMinutes" ? (
+                  <ClipboardList className="coach-analysis-icon coach-analysis-icon--summary" aria-hidden />
+                ) : (
+                  <TrendingUp className="coach-analysis-icon coach-analysis-icon--summary" aria-hidden />
+                )}
+                <span>{chart.title}</span>
               </div>
               <div className="coach-chart" style={{ color: "var(--text-strong)", marginTop: 0 }}>
                 <CoachRhythmSparkline
@@ -1075,10 +1210,13 @@ function AiReportTab(props: {
       </Card>
 
       <div className="coach-stack">
-        <SectionHeader title="감지된 기록 패턴" />
+        <SectionHeader
+          title="감지된 기록 패턴"
+          right={<Sparkles className="coach-analysis-icon coach-analysis-icon--summary" aria-hidden />}
+        />
         {patternsLoading ? (
           <p className="coach-muted" style={{ padding: "10px 4px 0", fontSize: "var(--font-size-medium)" }}>
-            패턴을 분석하는 중입니다.
+            {aiPatterns.length > 0 ? "최신 패턴으로 동기화하는 중입니다." : "패턴을 분석하는 중입니다."}
           </p>
         ) : patternsError ? (
           <p className="coach-muted" style={{ padding: "10px 4px 0", fontSize: "var(--font-size-medium)" }}>
@@ -1109,7 +1247,10 @@ function AiReportTab(props: {
       </div>
 
       <Card className="coach-card coach-card--padded" style={{ marginTop: 12 }}>
-        <SectionHeader title="AI 관리자 가이드" />
+        <SectionHeader
+          title="AI 관리자 가이드"
+          right={<Lightbulb className="coach-analysis-icon coach-analysis-icon--summary" aria-hidden />}
+        />
         <div className="coach-guide-lines">
           {guide.guidanceLines.slice(0, 3).map((l, i) => (
             <div key={i} className="coach-guide-line">

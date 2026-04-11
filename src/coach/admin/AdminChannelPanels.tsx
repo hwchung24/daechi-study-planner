@@ -168,30 +168,27 @@ function AdminChatShell(props: {
   const chatScrollRef = useRef<HTMLDivElement | null>(null);
   const inputDockRef = useRef<HTMLDivElement | null>(null);
   const composerInputRef = useRef<HTMLInputElement | null>(null);
-  const [composerOpen, setComposerOpen] = useState(false);
 
   const handleSend = async () => {
     const message = props.draft.trim();
     if (!message || props.sending) return;
     await props.onSend(message);
-    setComposerOpen(false);
   };
 
   useEffect(() => {
-    if (!composerOpen) return;
     const frame = window.requestAnimationFrame(() => {
       composerInputRef.current?.focus();
     });
     return () => {
       window.cancelAnimationFrame(frame);
     };
-  }, [composerOpen]);
+  }, []);
 
   useEffect(() => {
     const el = chatScrollRef.current;
     if (!el) return;
     el.scrollTo({ top: el.scrollHeight, behavior: "auto" });
-  }, [props.messages, props.trailingContent, composerOpen]);
+  }, [props.messages, props.trailingContent]);
 
   const content = (
     <>
@@ -203,19 +200,8 @@ function AdminChatShell(props: {
       )}
       <div
         ref={rootRef}
-        className={
-          "coach-chat-embedded keyboard-dock-root coach-admin-chat-shell" +
-          (composerOpen ? " coach-chat-composer-open" : "")
-        }
+        className="coach-chat-embedded keyboard-dock-root coach-admin-chat-shell"
       >
-        {composerOpen && (
-          <button
-            type="button"
-            className="coach-chat-composer-backdrop"
-            aria-label="입력 닫기"
-            onClick={() => setComposerOpen(false)}
-          />
-        )}
         <div ref={chatScrollRef} className="coach-admin-chat-scroll">
           <ChatMessages
             messages={props.messages}
@@ -226,63 +212,39 @@ function AdminChatShell(props: {
           />
         </div>
         <div ref={inputDockRef} className="coach-chat-bottom-rail keyboard-dock coach-admin-chat-shell__rail">
-          {!composerOpen && props.starterContent ? (
+          {props.starterContent ? (
             <div className="coach-chat-starters" aria-label="추천 작업">
               {props.starterContent}
             </div>
           ) : null}
-          {!composerOpen ? (
-            <button
-              type="button"
-              className="coach-chat-trigger"
-              onClick={() => setComposerOpen(true)}
-              aria-label="메시지 입력"
-            >
-              <span className={props.draft.trim() ? "coach-chat-trigger__text" : "coach-chat-trigger__placeholder"}>
-                {props.draft.trim() || props.triggerPlaceholder || "메시지를 입력해 보세요"}
-              </span>
-              <span className="coach-chat-trigger__icon" aria-hidden>
-                <SendHorizontal size={15} strokeWidth={2.2} />
-              </span>
-            </button>
-          ) : (
-            <div className="coach-chat-composer" onMouseDown={event => event.stopPropagation()}>
-              <div className="coach-chat-input coach-chat-input--composer">
-                <input
-                  ref={composerInputRef}
-                  className="coach-chat-text"
-                  value={props.draft}
-                  enterKeyHint="send"
-                  onBlur={() => {
-                    window.requestAnimationFrame(() => {
-                      if (document.activeElement !== composerInputRef.current) {
-                        setComposerOpen(false);
-                      }
-                    });
-                  }}
-                  onChange={event => props.setDraft(event.target.value)}
-                  onFocus={() => setComposerOpen(true)}
-                  onKeyDown={event => {
-                    if (event.key === "Enter") {
-                      event.preventDefault();
-                      void handleSend();
-                    }
-                  }}
-                />
-                <button
-                  type="button"
-                  className="coach-primary-btn coach-primary-btn--sm"
-                  onMouseDown={event => event.preventDefault()}
-                  onClick={() => void handleSend()}
-                  disabled={props.sending || !props.draft.trim()}
-                  aria-label="메시지 보내기"
-                  title="보내기"
-                >
-                  <SendHorizontal size={15} strokeWidth={2.2} aria-hidden />
-                </button>
-              </div>
+          <div className="coach-chat-composer" onMouseDown={event => event.stopPropagation()}>
+            <div className="coach-chat-input coach-chat-input--composer">
+              <input
+                ref={composerInputRef}
+                className="coach-chat-text"
+                value={props.draft}
+                enterKeyHint="send"
+                onChange={event => props.setDraft(event.target.value)}
+                onKeyDown={event => {
+                  if (event.key === "Enter") {
+                    event.preventDefault();
+                    void handleSend();
+                  }
+                }}
+              />
+              <button
+                type="button"
+                className="coach-primary-btn coach-primary-btn--sm"
+                onMouseDown={event => event.preventDefault()}
+                onClick={() => void handleSend()}
+                disabled={props.sending || !props.draft.trim()}
+                aria-label="메시지 보내기"
+                title="보내기"
+              >
+                <SendHorizontal size={15} strokeWidth={2.2} aria-hidden />
+              </button>
             </div>
-          )}
+          </div>
         </div>
       </div>
     </>

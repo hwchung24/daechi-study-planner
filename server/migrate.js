@@ -243,6 +243,22 @@ async function main() {
   try {
     await pool.query(`
       ALTER TABLE student_coach_profiles
+      ADD COLUMN IF NOT EXISTS alarm_message_alerts BOOLEAN NOT NULL DEFAULT true;
+    `);
+  } catch {
+    // ignore
+  }
+  try {
+    await pool.query(`
+      ALTER TABLE student_coach_profiles
+      ADD COLUMN IF NOT EXISTS alarm_homework_alerts BOOLEAN NOT NULL DEFAULT true;
+    `);
+  } catch {
+    // ignore
+  }
+  try {
+    await pool.query(`
+      ALTER TABLE student_coach_profiles
       ADD COLUMN IF NOT EXISTS wake_alarm_enabled BOOLEAN NOT NULL DEFAULT false;
     `);
   } catch {

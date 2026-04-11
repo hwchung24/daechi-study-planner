@@ -1,50 +1,3 @@
-import { setAppPath } from "../../lib/appNavigation";
-
-// 일정 관리 버튼을 AI 코치 첫 메시지 버튼 그룹에 동적으로 추가합니다.
-function initializeCoachScheduleButton() {
-  if (typeof window === "undefined" || typeof document === "undefined") return;
-  const BUTTON_CLASS = "coach-schedule-action-button";
-
-  const createScheduleButton = () => {
-    const button = document.createElement("button");
-    button.type = "button";
-    button.className = `coach-secondary-btn ${BUTTON_CLASS}`;
-    button.textContent = "일정 관리";
-    button.addEventListener("click", () => {
-      setAppPath("#/profile");
-    });
-    return button;
-  };
-
-  const attachButton = () => {
-    const candidates = Array.from(
-      document.querySelectorAll("button.coach-secondary-btn, button.coach-primary-btn")
-    );
-    for (const candidate of candidates) {
-      const parent = candidate.parentElement;
-      if (!parent || parent.querySelector(`.${BUTTON_CLASS}`)) continue;
-      const groupButtons = parent.querySelectorAll("button.coach-secondary-btn, button.coach-primary-btn");
-      if (groupButtons.length !== 2) continue;
-      parent.appendChild(createScheduleButton());
-      return true;
-    }
-    return false;
-  };
-
-  const observer = new MutationObserver(() => {
-    if (attachButton()) {
-      observer.disconnect();
-    }
-  });
-
-  observer.observe(document.body, { childList: true, subtree: true });
-  attachButton();
-}
-
-initializeCoachScheduleButton();
-/* SCHEDULE BUTTON INJECTION START */
-// Added 일정 관리 button for AI 코치 첫 메시지
-/* SCHEDULE BUTTON INJECTION END */
 import { Capacitor } from "@capacitor/core";
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { motion } from "framer-motion";
@@ -52,7 +5,7 @@ import { SendHorizontal } from "lucide-react";
 import { CoachAvatar } from "../CoachAvatar";
 import { API_BASE } from "../../lib/apiBase";
 import { DAECHI_COACH_TOMORROW_STARTER_KEY } from "../../lib/coachEvents";
-import { useKeyboardDockInset } from "../../lib/useKeyboardDockInset";
+import { resolvePreferredSerial } from "../../lib/hashRouteUtils";
 import type { ProgressBook, ProgressPlan, StudyBlock } from "../../types/planner";
 
 export type CoachTomorrowPlanCollabProps = {
@@ -68,9 +21,195 @@ export type CoachTomorrowPlanCollabProps = {
   draftTomorrowPractice: string;
   /** 기록 탭「오늘 학습 시간」(분) — 없으면 null */
   todayStudyMinutes: number | null;
+  onOpenScheduleManager: () => void;
   onApplyAndReturnToRecords: (next: ProgressPlan) => Promise<boolean>;
   onApplyTomorrowPracticeAndGoRecords: (text: string) => Promise<boolean>;
 };
+
+type CollabFocus = "study" | "life" | "appAllowance";
+
+type AppAllowanceCandidate = {
+  id: string;
+  name: string;
+  category: string;
+  description?: string | null;
+  bundleId?: string | null;
+};
+
+type AppAllowanceSlot = {
+  localId: string;
+  dayKey: "mon" | "tue" | "wed" | "thu" | "fri" | "sat" | "sun";
+  title: string;
+  source: "schedule" | "plan" | "free";
+  startTime: string;
+  endTime: string;
+  reason: string;
+  allowedApps: AppAllowanceCandidate[];
+};
+
+type AppAllowancePlan = {
+  summary: string;
+  slots: AppAllowanceSlot[];
+  usedOpenAi: boolean;
+  model: string | null;
+  availableApps: AppAllowanceCandidate[];
+};
+
+const DAECHI_ROOT_APP_ID = "com.daechiroot.ios";
+const DAECHI_ROOT_APP: AppAllowanceCandidate = {
+  id: DAECHI_ROOT_APP_ID,
+  name: "대치루트",
+  category: "필수 앱",
+  description: "대치루트 앱은 항상 허용됩니다.",
+  bundleId: DAECHI_ROOT_APP_ID
+};
+
+const WEEKDAY_LABELS: Record<AppAllowanceSlot["dayKey"], string> = {
+  mon: "월",
+  tue: "화",
+  wed: "수",
+  thu: "목",
+  fri: "금",
+  sat: "토",
+  sun: "일"
+};
+
+let appAllowanceSlotSequence = 0;
+
+function createAppAllowanceSlotId() {
+  appAllowanceSlotSequence += 1;
+  return `coach-app-allowance-slot-${appAllowanceSlotSequence}`;
+}
+
+function isDaechiRootApp(app: AppAllowanceCandidate | null | undefined) {
+  const id = String(app?.id || "").trim().toLowerCase();
+  const bundleId = String(app?.bundleId || "").trim().toLowerCase();
+  const name = String(app?.name || "").trim();
+  return id === DAECHI_ROOT_APP_ID || bundleId === DAECHI_ROOT_APP_ID || name === "대치루트";
+}
+
+function normalizeAppAllowanceCandidates(rows: AppAllowanceCandidate[]): AppAllowanceCandidate[] {
+  const seen = new Set<string>();
+  const next = (Array.isArray(rows) ? rows : [])
+    .map(app => ({
+      id: String(app?.id || "").trim(),
+      name: String(app?.name || "").trim(),
+      category: String(app?.category || "").trim() || "기기 앱",
+      description:
+        app?.description != null && String(app.description).trim() !== ""
+          ? String(app.description).trim()
+          : null,
+      bundleId:
+        app?.bundleId != null && String(app.bundleId).trim() !== ""
+          ? String(app.bundleId).trim()
+          : null
+    }))
+    .filter(app => {
+      if (!app.id || !app.name) return false;
+      if (seen.has(app.id)) return false;
+      seen.add(app.id);
+      return true;
+    });
+  if (!next.some(isDaechiRootApp)) {
+    next.unshift({ ...DAECHI_ROOT_APP });
+  }
+  const root = next.find(isDaechiRootApp) || { ...DAECHI_ROOT_APP };
+  const others = next.filter(app => !isDaechiRootApp(app));
+  return [root, ...others];
+}
+
+function hydrateAppAllowancePlan(raw: {
+  summary?: string;
+  slots?: Array<Omit<AppAllowanceSlot, "localId">>;
+  usedOpenAi?: boolean;
+  model?: string | null;
+  availableApps?: AppAllowanceCandidate[];
+}): AppAllowancePlan {
+  return {
+    summary: String(raw.summary || "").trim(),
+    slots: (Array.isArray(raw.slots) ? raw.slots : []).map(slot => ({
+      localId: createAppAllowanceSlotId(),
+      dayKey:
+        slot.dayKey === "tue" ||
+        slot.dayKey === "wed" ||
+        slot.dayKey === "thu" ||
+        slot.dayKey === "fri" ||
+        slot.dayKey === "sat" ||
+        slot.dayKey === "sun"
+          ? slot.dayKey
+          : "mon",
+      title: String(slot.title || "").trim() || "시간표",
+      source:
+        slot.source === "schedule"
+          ? "schedule"
+          : slot.source === "free"
+            ? "free"
+            : "plan",
+      startTime: String(slot.startTime || "").trim(),
+      endTime: String(slot.endTime || "").trim(),
+      reason: String(slot.reason || "").trim(),
+      allowedApps: normalizeAppAllowanceCandidates(
+        Array.isArray(slot.allowedApps) ? slot.allowedApps : []
+      )
+    })),
+    usedOpenAi: Boolean(raw.usedOpenAi),
+    model:
+      typeof raw.model === "string" || raw.model === null ? raw.model ?? null : null,
+    availableApps: normalizeAppAllowanceCandidates(
+      Array.isArray(raw.availableApps) ? raw.availableApps : []
+    )
+  };
+}
+
+function serializeAppAllowancePlan(plan: AppAllowancePlan) {
+  return {
+    summary: plan.summary,
+    availableApps: plan.availableApps.map(app => ({
+      id: app.id,
+      name: app.name,
+      category: app.category,
+      description: app.description ?? null,
+      bundleId: app.bundleId ?? null
+    })),
+    slots: plan.slots.map(slot => ({
+      dayKey: slot.dayKey,
+      title: slot.title,
+      source: slot.source,
+      startTime: slot.startTime,
+      endTime: slot.endTime,
+      reason: slot.reason,
+      allowedAppIds: slot.allowedApps.map(app => app.id),
+      allowedAppNames: slot.allowedApps.map(app => app.name)
+    }))
+  };
+}
+
+function buildAppAllowanceAssistantOpening(plan: AppAllowancePlan) {
+  if (plan.slots.length === 0) {
+    return plan.summary || "원하는 요일, 시간, 허용할 앱 이름을 같이 알려 주세요.";
+  }
+  const preview = plan.slots
+    .slice(0, 3)
+    .map(slot => {
+      const dayLabel = WEEKDAY_LABELS[slot.dayKey] || slot.dayKey;
+      const appNames = slot.allowedApps
+        .map(app => app.name)
+        .filter(Boolean)
+        .slice(0, 2)
+        .join(", ");
+      return `${dayLabel} ${slot.startTime}-${slot.endTime}${appNames ? ` ${appNames}` : ""}`;
+    })
+    .join(", ");
+  return [
+    plan.summary || "관리자에게 전달할 허용 앱 요청 내용을 정리했어요.",
+    "",
+    preview ? `정리된 요청: ${preview}` : "",
+    "",
+    "수정할 내용이 있으면 요일, 시간, 앱 이름을 다시 말씀해 주세요."
+  ]
+    .filter(Boolean)
+    .join("\n");
+}
 
 const IS_NATIVE_PLATFORM = Capacitor.isNativePlatform();
 const NATIVE_KEYBOARD_DISMISS_EVENT = "daechi:native-keyboard-input-dismiss";
@@ -251,6 +390,7 @@ function openingLifePracticeText(ctx: ReturnType<typeof buildCollabContext>): st
 const STUDY_PLAN_STARTER_LABEL = "학습 계획 짜기";
 /** 생활 = 기록 탭「내일 실천할 한 가지」문장 협업 */
 const LIFE_PLAN_STARTER_LABEL = "내일 실천 짜기";
+const APP_ALLOWANCE_STARTER_LABEL = "허용 앱 관리";
 
 const TOMORROW_PLAN_STARTERS: { label: string; message: string }[] = [
   {
@@ -262,6 +402,11 @@ const TOMORROW_PLAN_STARTERS: { label: string; message: string }[] = [
     label: LIFE_PLAN_STARTER_LABEL,
     message:
       "기록 탭의「내일 실천할 한 가지」에 넣을 문장을 같이 정하고 싶어요. 오늘 생활 좋았던 점과 나빴던 점과 연결해 실행 가능한 한 가지만 제안해 주세요."
+  },
+  {
+    label: APP_ALLOWANCE_STARTER_LABEL,
+    message:
+      "허용 앱을 관리하고 싶어요. 제가 원하는 요일, 시간, 앱을 말하면 관리자에게 요청할 수 있게 정리해 주세요."
   }
 ];
 
@@ -278,6 +423,7 @@ export function CoachTomorrowPlanCollab(props: CoachTomorrowPlanCollabProps) {
     todayMemo,
     draftTomorrowPractice,
     todayStudyMinutes,
+    onOpenScheduleManager,
     onApplyAndReturnToRecords,
     onApplyTomorrowPracticeAndGoRecords
   } = props;
@@ -290,9 +436,10 @@ export function CoachTomorrowPlanCollab(props: CoachTomorrowPlanCollabProps) {
 
   const [messages, setMessages] = useState<ChatTurn[]>([]);
 
-  const collabFocus = useMemo((): "study" | "life" => {
+  const collabFocus = useMemo((): CollabFocus => {
     const u = messages.find(m => m.role === "user");
     if (u?.content === LIFE_PLAN_STARTER_LABEL) return "life";
+    if (u?.content === APP_ALLOWANCE_STARTER_LABEL) return "appAllowance";
     return "study";
   }, [messages]);
 
@@ -327,19 +474,13 @@ export function CoachTomorrowPlanCollab(props: CoachTomorrowPlanCollabProps) {
   const [draft, setDraft] = useState("");
   const [typing, setTyping] = useState(false);
   const [applyBusy, setApplyBusy] = useState(false);
+  const [appAllowanceRequesting, setAppAllowanceRequesting] = useState(false);
+  const [appAllowancePlan, setAppAllowancePlan] = useState<AppAllowancePlan | null>(null);
   const [banner, setBanner] = useState<string | null>(null);
-  const [composerOpen, setComposerOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement | null>(null);
   const chatScrollRef = useRef<HTMLDivElement | null>(null);
   const footerRef = useRef<HTMLDivElement | null>(null);
   const composerInputRef = useRef<HTMLInputElement | null>(null);
-
-  useKeyboardDockInset({
-    rootRef,
-    scrollerRef: chatScrollRef,
-    dockRef: footerRef,
-    gap: 4
-  });
 
   const scrollChatToBottom = (behavior: ScrollBehavior = "auto") => {
     const element = chatScrollRef.current;
@@ -348,6 +489,102 @@ export function CoachTomorrowPlanCollab(props: CoachTomorrowPlanCollabProps) {
       top: element.scrollHeight,
       behavior: behavior === "smooth" ? "auto" : behavior
     });
+  };
+
+  const requestAppAllowanceAdjustment = async (message: string, history: ChatTurn[]) => {
+    if (!apiToken) {
+      throw new Error("로그인이 필요합니다.");
+    }
+    const res = await fetch(`${API_BASE}/api/student/coach/weekly-app-request/message`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${apiToken}`
+      },
+      body: JSON.stringify({
+        message,
+        history: chatTurnsForApi(history),
+        serial: resolvePreferredSerial() || undefined
+      })
+    });
+    const data = (await res.json().catch(() => ({}))) as {
+      error?: string;
+      reply?: string;
+      summary?: string;
+      slots?: Array<Omit<AppAllowanceSlot, "localId">>;
+      usedOpenAi?: boolean;
+      model?: string | null;
+      availableApps?: AppAllowanceCandidate[];
+    };
+    if (!res.ok) {
+      throw new Error(String(data.error || "허용 앱 요청을 정리하지 못했습니다."));
+    }
+    return {
+      reply:
+        String(data.reply || "").trim() || "말씀하신 내용을 관리자 요청 형태로 정리했어요.",
+      plan: hydrateAppAllowancePlan({
+        summary: String(data.summary || "").trim(),
+        slots: Array.isArray(data.slots) ? data.slots : [],
+        usedOpenAi: Boolean(data.usedOpenAi),
+        model: typeof data.model === "string" || data.model === null ? data.model ?? null : null,
+        availableApps: Array.isArray(data.availableApps) ? data.availableApps : []
+      })
+    };
+  };
+
+  const requestParentAppAllowanceReview = async () => {
+    if (!apiToken || !appAllowancePlan || appAllowanceRequesting) return;
+    setBanner(null);
+    setAppAllowanceRequesting(true);
+    try {
+      const res = await fetch(`${API_BASE}/api/student/coach/app-timetable-request`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${apiToken}`
+        },
+        body: JSON.stringify({
+          summary: appAllowancePlan.summary,
+          slots: appAllowancePlan.slots.map(slot => ({
+            dayKey: slot.dayKey,
+            title: slot.title,
+            startTime: slot.startTime,
+            endTime: slot.endTime,
+            source: slot.source,
+            reason: slot.reason,
+            allowedApps: slot.allowedApps.map(app => ({
+              id: app.id,
+              name: app.name,
+              category: app.category,
+              description: app.description ?? null,
+              bundleId: app.bundleId ?? null
+            })),
+            allowedAppNames: slot.allowedApps.map(app => app.name)
+          }))
+        })
+      });
+      const data = (await res.json().catch(() => ({}))) as {
+        error?: string;
+        code?: string;
+      };
+      if (!res.ok) {
+        throw new Error(
+          String(data.error || "").trim() ||
+            (data.code === "NO_LINKED_PARENT"
+              ? "연결된 관리자 계정이 없어 요청을 보낼 수 없습니다."
+              : "관리자에게 요청을 보내지 못했습니다.")
+        );
+      }
+      setBanner("관리자 페이지 알림으로 허용 앱 요청을 보냈습니다.");
+    } catch (error) {
+      setBanner(
+        error instanceof Error && error.message
+          ? error.message
+          : "네트워크 오류로 요청을 보내지 못했습니다."
+      );
+    } finally {
+      setAppAllowanceRequesting(false);
+    }
   };
 
   const sendMessage = async (
@@ -366,12 +603,41 @@ export function CoachTomorrowPlanCollab(props: CoachTomorrowPlanCollabProps) {
         : { role: "user", content: displayText, apiContent: apiText };
     setMessages([...before, userMsg]);
     setTyping(true);
-    const focusForThisSend: "study" | "life" =
+    const focusForThisSend: CollabFocus =
       opts?.displayAs === LIFE_PLAN_STARTER_LABEL
         ? "life"
+        : opts?.displayAs === APP_ALLOWANCE_STARTER_LABEL
+          ? "appAllowance"
         : opts?.displayAs === STUDY_PLAN_STARTER_LABEL
           ? "study"
           : collabFocus;
+    if (focusForThisSend === "appAllowance") {
+      try {
+        const adjusted = await requestAppAllowanceAdjustment(apiText, before);
+        const nextPlan = adjusted.plan;
+        const assistantContent =
+          adjusted.reply ||
+          buildAppAllowanceAssistantOpening(nextPlan) ||
+          "원하는 요일, 시간, 허용 앱을 더 자세히 알려 주세요.";
+        setAppAllowancePlan(nextPlan);
+        setMessages([...before, userMsg, { role: "assistant", content: assistantContent }]);
+      } catch (e) {
+        const netHint =
+          e instanceof TypeError && isLikelyNetworkTypeError(e)
+            ? `서버에 연결할 수 없습니다. 터미널에서 백엔드(node server, 보통 포트 3000)를 켠 뒤 다시 시도해 주세요.${
+                API_BASE ? ` (API: ${API_BASE})` : ""
+              }`
+            : null;
+        setBanner(netHint || (e instanceof Error ? e.message : "전송에 실패했습니다."));
+        setMessages(before);
+      } finally {
+        setTyping(false);
+      }
+      requestAnimationFrame(() => {
+        scrollChatToBottom("auto");
+      });
+      return;
+    }
     const ctxForApi = buildCollabContext({
       blocks,
       progressBooks,
@@ -440,25 +706,6 @@ export function CoachTomorrowPlanCollab(props: CoachTomorrowPlanCollabProps) {
   const autoTomorrowStarterDoneRef = useRef(false);
 
   useEffect(() => {
-    if (!composerOpen) {
-      return;
-    }
-
-    if (IS_NATIVE_PLATFORM) {
-      composerInputRef.current?.focus();
-      return;
-    }
-
-    const frame = window.requestAnimationFrame(() => {
-      composerInputRef.current?.focus();
-    });
-
-    return () => {
-      window.cancelAnimationFrame(frame);
-    };
-  }, [composerOpen]);
-
-  useEffect(() => {
     if (!IS_NATIVE_PLATFORM) {
       return;
     }
@@ -468,8 +715,6 @@ export function CoachTomorrowPlanCollab(props: CoachTomorrowPlanCollabProps) {
       if (detail?.source !== composerInputRef.current) {
         return;
       }
-
-      setComposerOpen(false);
     };
 
     const handleNativeSubmit = (event: Event) => {
@@ -494,22 +739,7 @@ export function CoachTomorrowPlanCollab(props: CoachTomorrowPlanCollabProps) {
       if (composerInputRef.current?.dataset.nativeKeyboardSource === "true") {
         return;
       }
-      if (document.activeElement !== composerInputRef.current) {
-        setComposerOpen(false);
-      }
     });
-  };
-
-  const closeComposer = () => {
-    composerInputRef.current?.blur();
-    setComposerOpen(false);
-  };
-
-  const openComposer = () => {
-    setComposerOpen(true);
-    if (IS_NATIVE_PLATFORM) {
-      composerInputRef.current?.focus();
-    }
   };
 
   useEffect(() => {
@@ -522,14 +752,19 @@ export function CoachTomorrowPlanCollab(props: CoachTomorrowPlanCollabProps) {
     } catch {
       return;
     }
-    if (kind !== "study" && kind !== "life") return;
+    if (kind !== "study" && kind !== "life" && kind !== "app-allowance") return;
     autoTomorrowStarterDoneRef.current = true;
     try {
       sessionStorage.removeItem(DAECHI_COACH_TOMORROW_STARTER_KEY);
     } catch {
       // ignore
     }
-    const starter = TOMORROW_PLAN_STARTERS[kind === "study" ? 0 : 1];
+    const starter =
+      kind === "study"
+        ? TOMORROW_PLAN_STARTERS[0]
+        : kind === "life"
+          ? TOMORROW_PLAN_STARTERS[1]
+          : TOMORROW_PLAN_STARTERS[2];
     void sendMessageRef.current(starter.message, {
       clearDraft: true,
       displayAs: starter.label
@@ -541,6 +776,8 @@ export function CoachTomorrowPlanCollab(props: CoachTomorrowPlanCollabProps) {
   const startedFromStarter = Boolean(
     firstUserMessage && STARTER_LABEL_SET.has(firstUserMessage.content)
   );
+  const startedFromAppAllowance = firstUserMessage?.content === APP_ALLOWANCE_STARTER_LABEL;
+  const startedFromPlanOrLifeStarter = Boolean(startedFromStarter && !startedFromAppAllowance);
 
   const applyToRecords = async () => {
     if (!apiToken || applyBusy) return;
@@ -603,21 +840,7 @@ export function CoachTomorrowPlanCollab(props: CoachTomorrowPlanCollabProps) {
   };
 
   return (
-    <div
-      ref={rootRef}
-      className={
-        "coach-tomorrow-collab keyboard-dock-root" +
-        (composerOpen && !IS_NATIVE_PLATFORM ? " coach-chat-composer-open" : "")
-      }
-    >
-      {composerOpen && !IS_NATIVE_PLATFORM && (
-        <button
-          type="button"
-          className="coach-chat-composer-backdrop"
-          aria-label="입력 닫기"
-          onClick={closeComposer}
-        />
-      )}
+    <div ref={rootRef} className="coach-tomorrow-collab keyboard-dock-root">
       {banner && (
         <p className="coach-tomorrow-collab__banner" role="alert">
           {banner}
@@ -644,7 +867,7 @@ export function CoachTomorrowPlanCollab(props: CoachTomorrowPlanCollabProps) {
                   {line || "\u00A0"}
                 </div>
               ))}
-              {m.role === "assistant" && startedFromStarter && (
+              {m.role === "assistant" && startedFromPlanOrLifeStarter && (
                 <div className="coach-tomorrow-collab__apply-in-bubble">
                   <button
                     type="button"
@@ -656,6 +879,23 @@ export function CoachTomorrowPlanCollab(props: CoachTomorrowPlanCollabProps) {
                   </button>
                 </div>
               )}
+              {m.role === "assistant" && startedFromAppAllowance && appAllowancePlan ? (
+                <div className="coach-tomorrow-collab__apply-in-bubble">
+                  <button
+                    type="button"
+                    className="coach-primary-btn coach-tomorrow-collab__apply-bubble-btn"
+                    disabled={
+                      !apiToken ||
+                      typing ||
+                      appAllowanceRequesting ||
+                      appAllowancePlan.slots.length === 0
+                    }
+                    onClick={() => void requestParentAppAllowanceReview()}
+                  >
+                    {appAllowanceRequesting ? "요청 중…" : "관리자에게 요청하기"}
+                  </button>
+                </div>
+              ) : null}
             </motion.div>
           </div>
         ))}
@@ -691,6 +931,13 @@ export function CoachTomorrowPlanCollab(props: CoachTomorrowPlanCollabProps) {
                     {s.label}
                   </button>
                 ))}
+                <button
+                  type="button"
+                  className="coach-tomorrow-collab__coach-pick"
+                  onClick={onOpenScheduleManager}
+                >
+                  일정 관리
+                </button>
               </div>
             </motion.div>
           </div>
@@ -711,95 +958,38 @@ export function CoachTomorrowPlanCollab(props: CoachTomorrowPlanCollabProps) {
       </div>
 
       <div ref={footerRef} className="coach-tomorrow-collab__footer coach-chat-bottom-rail keyboard-dock">
-        {!composerOpen ? (
-          <button
-            type="button"
-            className="coach-chat-trigger"
-            onClick={openComposer}
-            aria-label="내일 계획 메시지 입력"
-            disabled={!apiToken || typing}
-          >
-            <span className={draft.trim() ? "coach-chat-trigger__text" : "coach-chat-trigger__placeholder"}>
-              {draft.trim() || "내일 하고 싶은 것, 고민을 적어 주세요…"}
-            </span>
-            <span className="coach-chat-trigger__icon" aria-hidden>
-              <SendHorizontal size={15} strokeWidth={2.2} />
-            </span>
-          </button>
-        ) : !IS_NATIVE_PLATFORM ? (
-          <div
-            className={
-              "coach-chat-composer" +
-              (IS_NATIVE_PLATFORM ? " coach-chat-composer--native-bridge" : "")
-            }
-            onMouseDown={e => e.stopPropagation()}
-          >
-            <div className="coach-chat-input coach-chat-input--composer coach-tomorrow-collab__input">
-              <input
-                ref={composerInputRef}
-                className="coach-chat-text"
-                placeholder="내일 하고 싶은 것, 고민을 적어 주세요…"
-                value={draft}
-                enterKeyHint="send"
-                data-native-keyboard-submit="custom"
-                onBlur={handleComposerBlur}
-                onChange={e => setDraft(e.target.value)}
-                onFocus={() => setComposerOpen(true)}
-                onKeyDown={e => {
-                  if (e.key === "Enter") {
-                    void sendMessage(draft);
-                    setComposerOpen(false);
-                  }
-                }}
-                disabled={!apiToken || typing}
-              />
-              {!IS_NATIVE_PLATFORM && (
-                <button
-                  type="button"
-                  className="coach-primary-btn coach-primary-btn--sm"
-                  onMouseDown={e => e.preventDefault()}
-                  onClick={() => {
-                    void sendMessage(draft);
-                    setComposerOpen(false);
-                  }}
-                  disabled={!apiToken || typing}
-                  aria-label="보내기"
-                >
-                  <SendHorizontal size={15} strokeWidth={2.2} aria-hidden />
-                </button>
-              )}
-            </div>
+        <div className="coach-chat-composer" onMouseDown={e => e.stopPropagation()}>
+          <div className="coach-chat-input coach-chat-input--composer coach-tomorrow-collab__input">
+            <input
+              ref={composerInputRef}
+              className="coach-chat-text"
+              placeholder="내일 하고 싶은 것, 고민을 적어 주세요…"
+              value={draft}
+              enterKeyHint="send"
+              data-native-keyboard-submit="custom"
+              onBlur={handleComposerBlur}
+              onChange={e => setDraft(e.target.value)}
+              onKeyDown={e => {
+                if (e.key === "Enter") {
+                  void sendMessage(draft);
+                }
+              }}
+              disabled={!apiToken || typing}
+            />
+            <button
+              type="button"
+              className="coach-primary-btn coach-primary-btn--sm"
+              onMouseDown={e => e.preventDefault()}
+              onClick={() => {
+                void sendMessage(draft);
+              }}
+              disabled={!apiToken || typing}
+              aria-label="보내기"
+            >
+              <SendHorizontal size={15} strokeWidth={2.2} aria-hidden />
+            </button>
           </div>
-        ) : null}
-
-        {IS_NATIVE_PLATFORM && (
-          <div
-            className="coach-chat-composer coach-chat-composer--native-bridge"
-            onMouseDown={e => e.stopPropagation()}
-            aria-hidden="true"
-          >
-            <div className="coach-chat-input coach-chat-input--composer coach-tomorrow-collab__input">
-              <input
-                ref={composerInputRef}
-                className="coach-chat-text"
-                placeholder="내일 하고 싶은 것, 고민을 적어 주세요…"
-                value={draft}
-                enterKeyHint="send"
-                data-native-keyboard-submit="custom"
-                onBlur={handleComposerBlur}
-                onChange={e => setDraft(e.target.value)}
-                onFocus={() => setComposerOpen(true)}
-                onKeyDown={e => {
-                  if (e.key === "Enter") {
-                    void sendMessage(draft);
-                    setComposerOpen(false);
-                  }
-                }}
-                disabled={!apiToken || typing}
-              />
-            </div>
-          </div>
-        )}
+        </div>
       </div>
     </div>
   );

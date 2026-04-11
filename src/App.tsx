@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { Capacitor } from "@capacitor/core";
 import { AppConfig } from "@capacitor-community/mdm-appconfig";
 import { LocalNotifications } from "@capacitor/local-notifications";
-import { Bell, BellDot } from "lucide-react";
+import { Bell, BellDot, ChevronLeft } from "lucide-react";
 import SplashScreen from "./SplashScreen";
 import { AuthScreen } from "./components/AuthScreen";
 import { AppBottomNav } from "./components/AppBottomNav";
@@ -50,6 +50,7 @@ import {
 } from "./lib/appNavigation";
 import {
   getDateKey,
+  getDateKeySeoul,
   getWeekStartKey,
   getWeekStartKeySeoul,
   seoulDateKeyFromApiValue
@@ -57,6 +58,14 @@ import {
 import { MODAL_TRANSITION_MS } from "./lib/uiTiming";
 import { useModalReveal } from "./lib/useModalReveal";
 import { API_BASE } from "./lib/apiBase";
+import {
+  buildStoreAppsCacheKey,
+  buildStudentCoachStateCacheKey,
+  normalizeLocalCacheScope,
+  readLocalCache,
+  readStoredUserCacheScope,
+  writeLocalCache
+} from "./lib/viewCache";
 import {
   DAECHI_COACH_LOG_SAVED_EVENT,
   DAECHI_COACH_LOG_SAVED_STORAGE_KEY
@@ -113,6 +122,21 @@ type ParentAppTimetableRequestDetail = {
   targetDate: string;
   summary: string;
   slotSummary: string;
+  slots: Array<{
+    dayKey?: "mon" | "tue" | "wed" | "thu" | "fri" | "sat" | "sun";
+    title?: string;
+    source?: "schedule" | "plan" | "free";
+    startTime?: string;
+    endTime?: string;
+    reason?: string;
+    allowedApps?: Array<{
+      id?: string;
+      name?: string;
+      category?: string;
+      description?: string | null;
+      bundleId?: string | null;
+    }>;
+  }>;
 };
 
 type ActiveStudyReminder = {
@@ -131,6 +155,7 @@ const STUDY_REMINDER_NOTIFICATION_IDS_STORAGE_PREFIX =
   "daechi_study_reminder_notification_ids:";
 const STUDY_REMINDER_SHOWN_STORAGE_PREFIX = "daechi_study_reminder_shown:";
 const IOS_PUSH_BUNDLE_ID = "com.daechiroot.ios";
+const STORE_APPS_CACHE_TTL_MS = 10 * 60 * 1000;
 
 type CachedMeState = {
   role: string | null;
@@ -516,6 +541,10 @@ const App: React.FC = () => {
   const [showNotificationsModal, setShowNotificationsModal] = useState(false);
   const [parentAppTimetableRequestDetail, setParentAppTimetableRequestDetail] =
     useState<ParentAppTimetableRequestDetail | null>(null);
+  const [parentAppTimetableRequestBusy, setParentAppTimetableRequestBusy] =
+    useState(false);
+  const [parentAppTimetableRequestError, setParentAppTimetableRequestError] =
+    useState("");
   const [parentStudentsLoaded, setParentStudentsLoaded] = useState(false);
   const [showParentStudentRequiredModal, setShowParentStudentRequiredModal] =
     useState(false);
@@ -537,6 +566,7 @@ const App: React.FC = () => {
     useState<ActiveStudyReminder | null>(null);
   const studyReminderScheduleSignatureRef = useRef("");
   const lastStudyReminderScopeRef = useRef<string | null>(null);
+  const initialLocationPermissionPromptedRef = useRef(false);
   const autoLocationPermissionScopeRef = useRef<string | null>(null);
   const autoTrackingBootstrapScopeRef = useRef<string | null>(null);
   const autoPushRegistrationScopeRef = useRef<string | null>(null);
@@ -671,6 +701,7 @@ const App: React.FC = () => {
       const targetDate = String(action.targetDate || "").trim();
       const summary = String(action.summary || "").trim();
       const slotSummary = String(action.slotSummary || "").trim();
+      const slots = Array.isArray(action.slots) ? action.slots : [];
 
       if (studentEmail) {
         const matchedStudent = parentStudents.find(
@@ -685,11 +716,13 @@ const App: React.FC = () => {
         setAppPath("#/parent/ai-report");
       notificationsModalReveal.beginClose(() => {
         setShowNotificationsModal(false);
+        setParentAppTimetableRequestError("");
         setParentAppTimetableRequestDetail({
           studentEmail,
           targetDate,
           summary,
-          slotSummary
+          slotSummary,
+          slots
         });
       });
     },
@@ -713,8 +746,7 @@ const App: React.FC = () => {
     "scroll" | "chat"
   >(() =>
     typeof window !== "undefined" &&
-    parseCoachStudentTabFromHash() === "coach" &&
-    readCoachPanelParamFromHash() === "chat"
+    parseCoachStudentTabFromHash() === "coach"
       ? "chat"
       : "scroll"
   );
@@ -748,7 +780,12 @@ const App: React.FC = () => {
     StudentLinkRow[]
   >([]);
   const [studentParentEmail, setStudentParentEmail] = useState("");
-  const [storeApps, setStoreApps] = useState<StudyStoreApp[]>([]);
+  const [storeApps, setStoreApps] = useState<StudyStoreApp[]>(() =>
+    readLocalCache<StudyStoreApp[]>(
+      buildStoreAppsCacheKey(readStoredUserCacheScope()),
+      STORE_APPS_CACHE_TTL_MS
+    )?.value ?? []
+  );
   const [storeLoading, setStoreLoading] = useState(false);
   const [storeSavingId, setStoreSavingId] = useState<string | null>(null);
   const [storeError, setStoreError] = useState("");
@@ -762,6 +799,10 @@ const App: React.FC = () => {
     useState(0);
   const [parentLockStatus, setParentLockStatus] =
     useState<ParentLockStatus | null>(null);
+  const storeAppsCacheKey = useMemo(
+    () => buildStoreAppsCacheKey(normalizeLocalCacheScope(userEmail || readStoredUserCacheScope())),
+    [userEmail]
+  );
 
   useEffect(() => {
     try {
@@ -839,9 +880,13 @@ const App: React.FC = () => {
       setTab(studentTab);
       setParentTab(parseParentTabFromHash(path));
       const coachFromHash = parseCoachStudentTabFromHash(path);
+      if (coachFromHash === "coach" && readCoachPanelParamFromHash(path) === "analysis") {
+        replaceAppPath("#/student/analysis");
+        return;
+      }
       setCoachStudentTab(coachFromHash);
       setCoachStudentCoachLayout(
-        coachFromHash === "coach" && readCoachPanelParamFromHash(path) === "chat"
+        coachFromHash === "coach"
           ? "chat"
           : "scroll"
       );
@@ -975,6 +1020,8 @@ const App: React.FC = () => {
             scheduleReminders: Boolean(data.scheduleReminders),
             parentLinkAlerts: Boolean(data.parentLinkAlerts),
             studyRoomAlerts: Boolean(data.studyRoomAlerts),
+            messageAlerts: Boolean(data.messageAlerts),
+            homeworkAlerts: Boolean(data.homeworkAlerts),
             wakeAlarmEnabled: Boolean(data.wakeAlarmEnabled),
             wakeAlarmTime:
               /^\d{2}:\d{2}$/.test(String(data.wakeAlarmTime || ""))
@@ -1160,6 +1207,32 @@ const App: React.FC = () => {
       cancelled = true;
     };
   }, [authToken, meRoleResolved, route, userEmail]);
+
+  useEffect(() => {
+    if (!Capacitor.isNativePlatform()) return;
+    if (initialLocationPermissionPromptedRef.current) return;
+
+    initialLocationPermissionPromptedRef.current = true;
+
+    let cancelled = false;
+    const requestInitialLocationPermission = async () => {
+      try {
+        const status = await getNativeStudyRoomTrackingStatus();
+        if (cancelled || hasAuthorizedStudyRoomTrackingPermission(status.authorizationStatus)) {
+          return;
+        }
+        await requestNativeStudyRoomTrackingPermissions();
+      } catch {
+        // ignore initial native permission prompt failures
+      }
+    };
+
+    void requestInitialLocationPermission();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     if (!Capacitor.isNativePlatform()) return;
@@ -1507,7 +1580,7 @@ const App: React.FC = () => {
   useEffect(() => {
     if (!authToken || meRole !== "student") return;
     const dayKey = getDateKey(0);
-    const weekStart = getWeekStartKeySeoul(0);
+    const weekStart = getDateKeySeoul(-6);
     let cancelled = false;
     (async () => {
       try {
@@ -1529,6 +1602,13 @@ const App: React.FC = () => {
             studyMinutes?: number | null;
           }>;
         };
+        writeLocalCache(
+          buildStudentCoachStateCacheKey(
+            normalizeLocalCacheScope(userEmail || readStoredUserCacheScope()),
+            weekStart
+          ),
+          data
+        );
         const row = (data.logs || []).find(
           l => seoulDateKeyFromApiValue(l.date) === dayKey
         );
@@ -1745,28 +1825,62 @@ const App: React.FC = () => {
 
   // 학생: 학습 앱스토어 목록 + 설치 상태
   useEffect(() => {
+    let cancelled = false;
     const run = async () => {
-      if (!authToken || meRole !== "student" || tab !== "store") return;
-      setStoreLoading(true);
+      if (!authToken || meRole !== "student") {
+        setStoreLoading(false);
+        setStoreError("");
+        return;
+      }
+      const cached = readLocalCache<StudyStoreApp[]>(
+        storeAppsCacheKey,
+        STORE_APPS_CACHE_TTL_MS
+      );
+      const cachedApps = Array.isArray(cached?.value) ? cached.value : [];
+      if (cachedApps.length > 0) {
+        setStoreApps(cachedApps);
+      }
+      const shouldFetch = tab === "store" || !cached?.isFresh || cachedApps.length === 0;
+      if (!shouldFetch) {
+        setStoreLoading(false);
+        setStoreError("");
+        return;
+      }
+      const showLoading = tab === "store" && cachedApps.length === 0;
+      if (showLoading) {
+        setStoreLoading(true);
+      }
       setStoreError("");
       try {
         const res = await fetch(`${API_BASE}/api/student/store-apps`, {
           headers: { Authorization: `Bearer ${authToken}` }
         });
         const data = await res.json().catch(() => ({}));
+        if (cancelled) return;
         if (!res.ok) {
-          setStoreError(data.error || "앱 목록을 불러오지 못했습니다.");
+          if (cachedApps.length === 0 || tab === "store") {
+            setStoreError(data.error || "앱 목록을 불러오지 못했습니다.");
+          }
           return;
         }
-        setStoreApps(Array.isArray(data.apps) ? data.apps : []);
+        const nextApps = Array.isArray(data.apps) ? data.apps : [];
+        setStoreApps(nextApps);
+        writeLocalCache(storeAppsCacheKey, nextApps);
       } catch {
-        setStoreError("앱 목록을 불러오지 못했습니다.");
+        if (!cancelled && (cachedApps.length === 0 || tab === "store")) {
+          setStoreError("앱 목록을 불러오지 못했습니다.");
+        }
       } finally {
-        setStoreLoading(false);
+        if (!cancelled) {
+          setStoreLoading(false);
+        }
       }
     };
-    run();
-  }, [authToken, meRole, tab]);
+    void run();
+    return () => {
+      cancelled = true;
+    };
+  }, [authToken, meRole, storeAppsCacheKey, tab]);
 
   // 학부모 페이지: 학생별 주간 리포트 로딩
   useEffect(() => {
@@ -2478,6 +2592,7 @@ const App: React.FC = () => {
     !parentView &&
     !profileLoadFailed;
   const coachStudentMode = showStudentShell && coachStudentTab !== null;
+  const isStudentAnalysisPage = coachStudentMode && coachStudentTab === "analysis";
 
   const coachParentMode =
     !roleLoading &&
@@ -2540,7 +2655,9 @@ const App: React.FC = () => {
         : "관리자"
       : showStudentShell
         ? coachStudentMode
-          ? "AI 코치"
+          ? isStudentAnalysisPage
+            ? "학습 분석"
+            : "AI 코치"
           : tab === "profile"
             ? "프로필"
             : tab === "today"
@@ -2739,12 +2856,28 @@ const App: React.FC = () => {
       >
         <header className="app-header">
           <div className="header-top">
+            {isStudentAnalysisPage ? (
+              <button
+                type="button"
+                className="header-icon-btn header-icon-btn--back"
+                aria-label="AI 코치로 돌아가기"
+                onClick={() => {
+                  hapticSelection();
+                  setCoachStudentTab("coach");
+                  setCoachStudentCoachLayout("chat");
+                  setAppPath("#/student/coach");
+                }}
+              >
+                <ChevronLeft size={20} strokeWidth={2.4} aria-hidden />
+              </button>
+            ) : null}
             <div className="header-title-group">
               <div className="header-title-row">
                 <h1 className="header-title">{headerTitle}</h1>
               </div>
             </div>
-            {(showStudentShell && !parentView) || (parentView && meRole === "parent") ? (
+            {((showStudentShell && !parentView) || (parentView && meRole === "parent")) &&
+            !isStudentAnalysisPage ? (
               <div className="header-actions">
                 <button
                   type="button"
@@ -2916,6 +3049,7 @@ const App: React.FC = () => {
                 apiBase={API_BASE}
                 userEmail={userEmail}
                 meRole={meRole}
+                storeApps={storeApps}
                 studentParentEmail={studentParentEmail}
                 setStudentParentEmail={setStudentParentEmail}
                 studentWaitingOnParent={studentWaitingOnParent}
@@ -2982,65 +3116,71 @@ const App: React.FC = () => {
           </PageTransition>
         </main>
 
-        <AppBottomNav
-          showStudentShell={showStudentShell}
-          roleLoading={roleLoading}
-          parentView={parentView}
-          meRole={meRole}
-          tab={tab}
-          parentTab={parentTab}
-          coachStudentTab={coachStudentTab}
-          coachParentTab={coachParentTab}
-          onStudentNavClick={nextTab => {
-              hapticSelection();
-            setCoachStudentTab(null);
-            setCoachStudentCoachLayout("scroll");
-            setTab(nextTab);
-            setAppPath(
-              nextTab === "today"
-                ? "#/today"
-                : nextTab === "records"
-                  ? "#/records"
-                  : nextTab === "store"
-                    ? "#/store"
-                    : "#/profile"
-            );
-          }}
-          onCoachStudentNavClick={nextTab => {
-              hapticSelection();
-            setCoachStudentTab(nextTab);
-            setCoachStudentCoachLayout("scroll");
-            setAppPath(
-              nextTab === "coach" ? "#/student/coach" : "#/student/home"
-            );
-          }}
-          onParentNavClick={nextTab => {
-            hapticSelection();
-            setParentTab(nextTab);
-            setAppPath(
-              nextTab === "profile"
-                  ? "#/parent/profile"
-                  : "#/parent"
-            );
-          }}
-          onCoachParentNavClick={nextTab => {
-            if (parentStudentsLoaded && parentStudents.length === 0) {
-              redirectParentToProfileForStudentLink();
-              return;
-            }
-            hapticSelection();
-            setCoachParentTab(nextTab);
-            setAppPath(
-              nextTab === "manage"
-                ? "#/parent/manage"
-                : nextTab === "aiReport"
-                  ? "#/parent/ai-report"
+        {!isStudentAnalysisPage && (
+          <AppBottomNav
+            showStudentShell={showStudentShell}
+            roleLoading={roleLoading}
+            parentView={parentView}
+            meRole={meRole}
+            tab={tab}
+            parentTab={parentTab}
+            coachStudentTab={coachStudentTab}
+            coachParentTab={coachParentTab}
+            onStudentNavClick={nextTab => {
+                hapticSelection();
+              setCoachStudentTab(null);
+              setCoachStudentCoachLayout("scroll");
+              setTab(nextTab);
+              setAppPath(
+                nextTab === "today"
+                  ? "#/today"
                   : nextTab === "records"
-                    ? "#/parent/records"
-                    : "#/parent/student-settings"
-            );
-          }}
-        />
+                    ? "#/records"
+                    : nextTab === "store"
+                      ? "#/store"
+                      : "#/profile"
+              );
+            }}
+            onCoachStudentNavClick={nextTab => {
+                hapticSelection();
+              setCoachStudentTab(nextTab);
+              setCoachStudentCoachLayout(nextTab === "coach" ? "chat" : "scroll");
+              setAppPath(
+                nextTab === "coach"
+                  ? "#/student/coach"
+                  : nextTab === "analysis"
+                    ? "#/student/analysis"
+                    : "#/student/home"
+              );
+            }}
+            onParentNavClick={nextTab => {
+              hapticSelection();
+              setParentTab(nextTab);
+              setAppPath(
+                nextTab === "profile"
+                    ? "#/parent/profile"
+                    : "#/parent"
+              );
+            }}
+            onCoachParentNavClick={nextTab => {
+              if (parentStudentsLoaded && parentStudents.length === 0) {
+                redirectParentToProfileForStudentLink();
+                return;
+              }
+              hapticSelection();
+              setCoachParentTab(nextTab);
+              setAppPath(
+                nextTab === "manage"
+                  ? "#/parent/manage"
+                  : nextTab === "aiReport"
+                    ? "#/parent/ai-report"
+                    : nextTab === "records"
+                      ? "#/parent/records"
+                      : "#/parent/student-settings"
+              );
+            }}
+          />
+        )}
 
         {showAddModal && (
           <div
@@ -3605,7 +3745,7 @@ const App: React.FC = () => {
             >
               <div className="dday-modal-header">
                 <span className="dday-modal-title" id="parent-app-request-title">
-                  앱 허용 시간표 요청
+                  허용 앱 요청
                 </span>
               </div>
               <div className="dday-modal-body parent-app-request-modal__body">
@@ -3617,9 +3757,9 @@ const App: React.FC = () => {
                     </span>
                   </div>
                   <div className="parent-app-request-modal__meta-row">
-                    <span className="parent-app-request-modal__label">대상 날짜</span>
+                    <span className="parent-app-request-modal__label">요청 범위</span>
                     <span className="parent-app-request-modal__value">
-                      {parentAppTimetableRequestDetail.targetDate || "내일"}
+                      {parentAppTimetableRequestDetail.targetDate || "요일별 요청"}
                     </span>
                   </div>
                 </div>
@@ -3633,15 +3773,20 @@ const App: React.FC = () => {
                 ) : null}
                 {parentAppTimetableRequestDetail.slotSummary ? (
                   <div className="parent-app-request-modal__card">
-                    <div className="parent-app-request-modal__card-title">추천 시간대</div>
+                    <div className="parent-app-request-modal__card-title">요청 시간대</div>
                     <p className="parent-app-request-modal__card-copy">
                       {parentAppTimetableRequestDetail.slotSummary}
                     </p>
                   </div>
                 ) : null}
                 <p className="parent-app-request-modal__hint">
-                  학부모 리포트 탭으로 이동된 상태입니다. 이 요청을 기준으로 학생 일정과 계획을 검토하시면 됩니다.
+                  승인하면 요청된 요일의 학생 허용 앱 시간표에 바로 반영됩니다.
                 </p>
+                {parentAppTimetableRequestError ? (
+                  <p className="settings-hint" style={{ margin: 0, color: "#8d2c22" }}>
+                    {parentAppTimetableRequestError}
+                  </p>
+                ) : null}
               </div>
               <div className="dday-modal-footer">
                 <button
@@ -3658,15 +3803,48 @@ const App: React.FC = () => {
                 <button
                   type="button"
                   className="modal-primary"
-                  onClick={() => {
-                    setCoachParentTab("aiReport");
-                    setAppPath("#/parent/ai-report");
-                    parentAppTimetableRequestReveal.beginClose(() =>
-                      setParentAppTimetableRequestDetail(null)
-                    );
+                  disabled={parentAppTimetableRequestBusy}
+                  onClick={async () => {
+                    if (!parentAppTimetableRequestDetail || !authToken) return;
+                    setParentAppTimetableRequestError("");
+                    setParentAppTimetableRequestBusy(true);
+                    try {
+                      const res = await fetch(
+                        `${API_BASE}/api/parent/app-timetable-request/approve`,
+                        {
+                          method: "POST",
+                          headers: {
+                            "Content-Type": "application/json",
+                            Authorization: `Bearer ${authToken}`
+                          },
+                          body: JSON.stringify({
+                            studentEmail: parentAppTimetableRequestDetail.studentEmail,
+                            targetDate: parentAppTimetableRequestDetail.targetDate,
+                            slots: parentAppTimetableRequestDetail.slots
+                          })
+                        }
+                      );
+                      const data = await res.json().catch(() => ({}));
+                      if (!res.ok) {
+                        throw new Error(
+                          String(data?.error || "허용 앱 시간표 승인에 실패했습니다.")
+                        );
+                      }
+                      parentAppTimetableRequestReveal.beginClose(() =>
+                        setParentAppTimetableRequestDetail(null)
+                      );
+                    } catch (error) {
+                      setParentAppTimetableRequestError(
+                        error instanceof Error && error.message
+                          ? error.message
+                          : "허용 앱 시간표 승인에 실패했습니다."
+                      );
+                    } finally {
+                      setParentAppTimetableRequestBusy(false);
+                    }
                   }}
                 >
-                  AI 리포트 보기
+                  {parentAppTimetableRequestBusy ? "반영 중…" : "승인하고 반영"}
                 </button>
               </div>
             </div>

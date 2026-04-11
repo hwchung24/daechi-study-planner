@@ -4,8 +4,20 @@ type Props = {
   onComplete: () => void;
 };
 
-/** CSS splash-screen-fade 길이(2.15s) + 여유 */
-const SPLASH_FALLBACK_MS = 2800;
+const SPLASH_SEEN_STORAGE_KEY = "daechi_splash_seen";
+const FIRST_SPLASH_MS = 980;
+const RETURNING_SPLASH_MS = 260;
+
+function resolveSplashDurationMs(): number {
+  if (typeof window === "undefined") return FIRST_SPLASH_MS;
+  try {
+    return localStorage.getItem(SPLASH_SEEN_STORAGE_KEY) === "1"
+      ? RETURNING_SPLASH_MS
+      : FIRST_SPLASH_MS;
+  } catch {
+    return FIRST_SPLASH_MS;
+  }
+}
 
 /**
  * 앱 최초 실행 시 브랜드 로고를 보여 주는 런치/스플래시 화면.
@@ -13,6 +25,7 @@ const SPLASH_FALLBACK_MS = 2800;
  */
 const SplashScreen: React.FC<Props> = ({ onComplete }) => {
   const finished = useRef(false);
+  const durationMsRef = useRef(resolveSplashDurationMs());
 
   const finish = () => {
     if (finished.current) return;
@@ -21,7 +34,12 @@ const SplashScreen: React.FC<Props> = ({ onComplete }) => {
   };
 
   useEffect(() => {
-    const t = setTimeout(finish, SPLASH_FALLBACK_MS);
+    try {
+      localStorage.setItem(SPLASH_SEEN_STORAGE_KEY, "1");
+    } catch {
+      // ignore
+    }
+    const t = setTimeout(finish, durationMsRef.current + 180);
     return () => clearTimeout(t);
   }, []);
 
@@ -38,6 +56,7 @@ const SplashScreen: React.FC<Props> = ({ onComplete }) => {
       role="presentation"
       aria-hidden="true"
       onAnimationEnd={handleAnimationEnd}
+      style={{ ["--splash-duration-ms" as string]: `${durationMsRef.current}ms` }}
     >
       <div className="splash-screen__inner">
         <img

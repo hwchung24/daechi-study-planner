@@ -20,6 +20,7 @@ export function parseCoachStudentTabFromHash(path = getAppPath()) {
   if (!h.startsWith("#/student/")) return null;
   const subPath = h.slice("#/student/".length).split("?")[0];
   const seg = (subPath || "home").replace(/^\/+/, "");
+  if (seg === "analysis") return "analysis" as const;
   if (seg === "coach" || seg === "chat") return "coach" as const;
   return "home" as const;
 }
