@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { TabTransitionPanel } from "../../components/PageTransition";
 import { Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { TimePickerSheet } from "../../components/TimePickerSheet";
@@ -14,6 +14,8 @@ import type { ParentStudentRow } from "../../types/parent";
 import type { StudyRoomVisitSession } from "../../types/studyRoomTracking";
 
 export type ParentTabKey = "manage" | "aiReport" | "records" | "studentSettings";
+
+const STUDY_ROOM_VISITS_REFRESH_INTERVAL_MS = 30000;
 
 type ParentAiDaily = {
   summary_text: string;
@@ -112,6 +114,15 @@ type ParentRhythmChartRow = {
 };
 
 type ParentRhythmMetricKey = Exclude<keyof ParentRhythmChartRow, "date">;
+
+type ParentStudyRoomLiveStatus = {
+  currentDistanceMeters: number | null;
+  currentWithinRadius: boolean | null;
+  currentHeartbeatAt: string | null;
+  currentAccuracyMeters: number | null;
+  currentRadiusMeters: number | null;
+  studyRoomName: string | null;
+};
 
 type ParentWeeklyReport = {
   days?: ParentWeekDay[];
@@ -646,7 +657,7 @@ function formatStudyRoomVisitPeriod(visit: StudyRoomVisitSession) {
   const enteredAt = formatStudyRoomVisitDateTime(visit.enteredAt);
   const exitedAt = visit.exitedAt
     ? formatStudyRoomVisitDateTime(visit.exitedAt)
-    : "현재 근방 체류 중";
+    : "현재 체크인 상태";
   return `${enteredAt} - ${exitedAt}`;
 }
 
@@ -1151,17 +1162,35 @@ function RecordsTab(props: {
   const logs = Array.isArray(props.parentReport?.logs) ? props.parentReport.logs : [];
   const [studyRoomVisits, setStudyRoomVisits] = useState<StudyRoomVisitSession[]>([]);
   const [studyRoomVisitsLoading, setStudyRoomVisitsLoading] = useState(false);
+  const [studyRoomLiveStatus, setStudyRoomLiveStatus] = useState<ParentStudyRoomLiveStatus>({
+    currentDistanceMeters: null,
+    currentWithinRadius: null,
+    currentHeartbeatAt: null,
+    currentAccuracyMeters: null,
+    currentRadiusMeters: null,
+    studyRoomName: null
+  });
 
-  useEffect(() => {
-    if (!props.authToken || !props.selectedStudent?.studyRoom) {
-      setStudyRoomVisits([]);
-      setStudyRoomVisitsLoading(false);
-      return;
-    }
+  const refreshStudyRoomVisits = useCallback(
+    async (options?: { silent?: boolean }) => {
+      if (!props.authToken || !props.selectedStudent?.studyRoom) {
+        setStudyRoomVisits([]);
+        setStudyRoomVisitsLoading(false);
+        setStudyRoomLiveStatus({
+          currentDistanceMeters: null,
+          currentWithinRadius: null,
+          currentHeartbeatAt: null,
+          currentAccuracyMeters: null,
+          currentRadiusMeters: null,
+          studyRoomName: null
+        });
+        return;
+      }
 
-    let cancelled = false;
-    setStudyRoomVisitsLoading(true);
-    void (async () => {
+      if (!options?.silent) {
+        setStudyRoomVisitsLoading(true);
+      }
+
       try {
         const res = await fetch(
           `${props.apiBase}/api/parent/students/${encodeURIComponent(String(props.selectedStudent.id))}/study-room-visits?limit=6`,
@@ -1174,21 +1203,81 @@ function RecordsTab(props: {
         );
         const data = (await res.json().catch(() => ({}))) as {
           visits?: StudyRoomVisitSession[];
+          currentDistanceMeters?: number | null;
+          currentWithinRadius?: boolean | null;
+          currentHeartbeatAt?: string | null;
+          currentAccuracyMeters?: number | null;
+          currentRadiusMeters?: number | null;
+          studyRoomName?: string | null;
         };
-        if (cancelled) return;
         setStudyRoomVisits(Array.isArray(data.visits) ? data.visits : []);
+        setStudyRoomLiveStatus({
+          currentDistanceMeters:
+            data.currentDistanceMeters != null && Number.isFinite(Number(data.currentDistanceMeters))
+              ? Number(data.currentDistanceMeters)
+              : null,
+          currentWithinRadius:
+            typeof data.currentWithinRadius === "boolean" ? data.currentWithinRadius : null,
+          currentHeartbeatAt:
+            data.currentHeartbeatAt != null ? String(data.currentHeartbeatAt) : null,
+          currentAccuracyMeters:
+            data.currentAccuracyMeters != null && Number.isFinite(Number(data.currentAccuracyMeters))
+              ? Number(data.currentAccuracyMeters)
+              : null,
+          currentRadiusMeters:
+            data.currentRadiusMeters != null && Number.isFinite(Number(data.currentRadiusMeters))
+              ? Number(data.currentRadiusMeters)
+              : null,
+          studyRoomName: data.studyRoomName != null ? String(data.studyRoomName) : null
+        });
       } catch {
-        if (cancelled) return;
         setStudyRoomVisits([]);
+        setStudyRoomLiveStatus({
+          currentDistanceMeters: null,
+          currentWithinRadius: null,
+          currentHeartbeatAt: null,
+          currentAccuracyMeters: null,
+          currentRadiusMeters: null,
+          studyRoomName: null
+        });
       } finally {
-        if (!cancelled) setStudyRoomVisitsLoading(false);
+        if (!options?.silent) {
+          setStudyRoomVisitsLoading(false);
+        }
       }
-    })();
+    },
+    [props.apiBase, props.authToken, props.selectedStudent?.id, props.selectedStudent?.studyRoom]
+  );
+
+  useEffect(() => {
+    void refreshStudyRoomVisits();
+  }, [refreshStudyRoomVisits]);
+
+  useEffect(() => {
+    if (!props.authToken || !props.selectedStudent?.studyRoom) {
+      return;
+    }
+
+    const run = () => {
+      if (typeof document !== "undefined" && document.visibilityState !== "visible") {
+        return;
+      }
+      void refreshStudyRoomVisits({ silent: true });
+    };
+
+    const timerId = window.setInterval(run, STUDY_ROOM_VISITS_REFRESH_INTERVAL_MS);
+    const onVisibilityChange = () => {
+      if (document.visibilityState !== "visible") return;
+      run();
+    };
+
+    document.addEventListener("visibilitychange", onVisibilityChange);
 
     return () => {
-      cancelled = true;
+      window.clearInterval(timerId);
+      document.removeEventListener("visibilitychange", onVisibilityChange);
     };
-  }, [props.apiBase, props.authToken, props.selectedStudent?.id, props.selectedStudent?.studyRoom]);
+  }, [props.authToken, props.selectedStudent?.studyRoom, refreshStudyRoomVisits]);
 
   const daysByDate = useMemo(
     () =>
@@ -1478,14 +1567,24 @@ function RecordsTab(props: {
 
           <Card className="coach-card coach-card--padded" style={{ marginTop: 12 }}>
             <SectionHeader
-              title="독서실 체류 기록"
+              title="독서실 체크인 기록"
               subtitle={
                 props.selectedStudent.studyRoom
-                  ? "최근 독서실 근방 체류 흐름을 확인합니다."
+                  ? "최근 독서실 체크인과 체크아웃 흐름을 확인합니다."
                   : "독서실 설정이 아직 없습니다."
               }
             />
             <div style={{ marginTop: 12 }}>
+              {props.selectedStudent.studyRoom ? (
+                <div className="parent-study-room-item__visit-empty" style={{ marginBottom: 10 }}>
+                  {studyRoomLiveStatus.currentDistanceMeters != null
+                    ? `현재 거리 ${Math.round(studyRoomLiveStatus.currentDistanceMeters)}m · ${studyRoomLiveStatus.currentWithinRadius ? "체크인됨" : "체크아웃됨"}`
+                    : "아직 실시간 거리 정보가 없습니다."}
+                  {studyRoomLiveStatus.currentHeartbeatAt
+                    ? ` · 기준 ${formatStudyRoomVisitDateTime(studyRoomLiveStatus.currentHeartbeatAt)}`
+                    : ""}
+                </div>
+              ) : null}
               {!props.selectedStudent.studyRoom ? (
                 <EmptyState
                   title="등록된 독서실이 없습니다."
@@ -1494,7 +1593,7 @@ function RecordsTab(props: {
               ) : studyRoomVisitsLoading && studyRoomVisits.length === 0 ? (
                 <div className="parent-study-room-item__visit-empty">불러오는 중...</div>
               ) : studyRoomVisits.length === 0 ? (
-                <div className="parent-study-room-item__visit-empty">체류 기록 없음</div>
+                <div className="parent-study-room-item__visit-empty">체크인 기록 없음</div>
               ) : (
                 <div className="parent-study-room-item__visit-list">
                   {studyRoomVisits.map(visit => (
@@ -1502,7 +1601,7 @@ function RecordsTab(props: {
                       <div className="parent-study-room-item__visit-row">
                         <span className="parent-study-room-item__visit-name">{visit.studyRoomName}</span>
                         <span className="parent-study-room-item__visit-pill">
-                          {visit.exitedAt ? "체류 완료" : "체류 중"}
+                          {visit.exitedAt ? "체크아웃" : "체크인"}
                         </span>
                       </div>
                       <div className="parent-study-room-item__visit-meta">

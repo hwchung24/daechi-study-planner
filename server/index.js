@@ -20,6 +20,9 @@ const {
   createStudyBook,
   softDeleteStudyBook,
   getMe,
+  getStudentAlarmSettings,
+  getParentAlarmSettings,
+  upsertParentAlarmSettings,
   getUserByIdForAuth,
   updateUserEmail,
   updateUserPasswordHash,
@@ -89,13 +92,17 @@ const {
   markStudentNotificationsReadAll,
   createStudentNotification,
   createParentNotification,
+  createParentNotificationForAlarm,
   countUnreadParentNotifications,
   listParentNotifications,
   markParentNotificationsReadAll,
   createParentNotificationForLinkedParents,
+  upsertUserPushToken,
+  deactivateUserPushToken,
   upsertParentStudentStudyRoom,
   deleteParentStudentStudyRoom,
   listStudyRoomConfigurationsForStudent,
+  listCurrentStudyRoomDistancesForStudent,
   recordStudentStudyRoomHeartbeat,
   listRecentStudyRoomVisitSessionsForStudent,
   listRecentStudyRoomVisitSessionsForParent,
@@ -108,6 +115,7 @@ const {
 const { startDailyAiReportCron } = require("./dailyReportCron");
 const { startPlannerLockCron } = require("./plannerLockCron");
 const { runOnePair } = require("./aiReportService");
+const { sendPushToUser, sendPushToUsers } = require("./pushService");
 const {
   getStudentLockStatus,
   assertStudentCanEditDate,
@@ -151,8 +159,10 @@ const NAVER_SEARCH_CLIENT_SECRET = String(process.env.NAVER_SEARCH_CLIENT_SECRET
 let dbConnected = false;
 let cronStarted = false;
 let schemaApplied = false;
+const SIMPLEMDM_LOCATION_REFRESH_COOLDOWN_MS = 5 * 60 * 1000;
 const UPLOADS_ROOT = path.join(__dirname, "uploads");
 const HOMEWORK_UPLOADS_DIR = path.join(UPLOADS_ROOT, "homework");
+const simpleMdmLocationRefreshAtByDeviceId = new Map();
 
 fs.mkdirSync(HOMEWORK_UPLOADS_DIR, { recursive: true });
 
@@ -162,6 +172,100 @@ function resolveHomeworkUploadPath(fileUrl) {
   const fileName = path.basename(raw);
   if (!fileName) return null;
   return path.join(HOMEWORK_UPLOADS_DIR, fileName);
+}
+
+function haversineMeters(lat1, lng1, lat2, lng2) {
+  const toRad = value => (Number(value) * Math.PI) / 180;
+  const earthRadiusMeters = 6371000;
+  const dLat = toRad(Number(lat2) - Number(lat1));
+  const dLng = toRad(Number(lng2) - Number(lng1));
+  const a =
+    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLng / 2) * Math.sin(dLng / 2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  return earthRadiusMeters * c;
+}
+
+function parseIsoMs(value) {
+  if (!value) return null;
+  const ms = new Date(String(value)).getTime();
+  return Number.isFinite(ms) ? ms : null;
+}
+
+function coerceFiniteNumber(value) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function applyLocationToStudyRoomSummary(liveSummary, location) {
+  return {
+    ...liveSummary,
+    currentHeartbeatAt: location.updatedAt,
+    currentAccuracyMeters: location.accuracy,
+    rooms: (Array.isArray(liveSummary.rooms) ? liveSummary.rooms : []).map(room => {
+      const currentDistanceMeters = haversineMeters(
+        location.latitude,
+        location.longitude,
+        room.latitude,
+        room.longitude
+      );
+      return {
+        ...room,
+        currentDistanceMeters,
+        isWithinRadius: currentDistanceMeters <= Number(room.radiusMeters || 0)
+      };
+    })
+  };
+}
+
+async function getMergedStudyRoomTrackingSummary(studentUserId) {
+  const liveSummary = await listCurrentStudyRoomDistancesForStudent(studentUserId);
+  if (!isSimpleMdmConfigured()) {
+    return liveSummary;
+  }
+
+  const linkedSerial = await getActiveDeviceSerialForUser(studentUserId);
+  if (!linkedSerial) {
+    return liveSummary;
+  }
+
+  const device = await findDeviceBySerial(linkedSerial).catch(() => null);
+  const attrs = device?.attributes || null;
+  const latitude = coerceFiniteNumber(attrs?.location_latitude);
+  const longitude = coerceFiniteNumber(attrs?.location_longitude);
+  const updatedAt = attrs?.location_updated_at ? new Date(String(attrs.location_updated_at)).toISOString() : null;
+  const accuracy = coerceFiniteNumber(attrs?.location_accuracy);
+
+  const appLocationMs = parseIsoMs(liveSummary.currentHeartbeatAt);
+  const mdmLocationMs = parseIsoMs(updatedAt);
+  const shouldUseSimpleMdmLocation =
+    latitude != null &&
+    longitude != null &&
+    mdmLocationMs != null &&
+    (appLocationMs == null || mdmLocationMs > appLocationMs);
+
+  const appLocationIsStale = appLocationMs == null || Date.now() - appLocationMs > SIMPLEMDM_LOCATION_REFRESH_COOLDOWN_MS;
+  const deviceId = Number(device?.id || 0);
+  if (deviceId > 0 && appLocationIsStale) {
+    const lastRefreshAt = simpleMdmLocationRefreshAtByDeviceId.get(deviceId) || 0;
+    if (Date.now() - lastRefreshAt > SIMPLEMDM_LOCATION_REFRESH_COOLDOWN_MS) {
+      simpleMdmLocationRefreshAtByDeviceId.set(deviceId, Date.now());
+      void refreshDevice(deviceId).catch(() => {
+        // ignore best-effort SimpleMDM refresh failures
+      });
+    }
+  }
+
+  if (!shouldUseSimpleMdmLocation) {
+    return liveSummary;
+  }
+
+  return applyLocationToStudyRoomSummary(liveSummary, {
+    latitude,
+    longitude,
+    accuracy,
+    updatedAt
+  });
 }
 
 async function removeHomeworkUpload(fileUrl) {
@@ -696,6 +800,129 @@ function sanitizeStringArray(value, maxItems = 12, maxLen = 30) {
     .filter(Boolean)
     .slice(0, maxItems)
     .map(v => v.slice(0, maxLen));
+}
+
+function normalizeStudentAlarmSettingsInput(input = {}) {
+  const wakeAlarmTime = /^\d{2}:\d{2}$/.test(String(input.wakeAlarmTime || ""))
+    ? String(input.wakeAlarmTime)
+    : "06:30";
+  return {
+    scheduleReminders:
+      input.scheduleReminders == null ? true : Boolean(input.scheduleReminders),
+    parentLinkAlerts:
+      input.parentLinkAlerts == null ? true : Boolean(input.parentLinkAlerts),
+    studyRoomAlerts:
+      input.studyRoomAlerts == null ? true : Boolean(input.studyRoomAlerts),
+    wakeAlarmEnabled:
+      input.wakeAlarmEnabled == null ? false : Boolean(input.wakeAlarmEnabled),
+    wakeAlarmTime
+  };
+}
+
+function normalizeParentAlarmSettingsInput(input = {}) {
+  return {
+    reportAlerts:
+      input.reportAlerts == null ? true : Boolean(input.reportAlerts),
+    studentLinkAlerts:
+      input.studentLinkAlerts == null ? true : Boolean(input.studentLinkAlerts),
+    studyRoomAlerts:
+      input.studyRoomAlerts == null ? true : Boolean(input.studyRoomAlerts)
+  };
+}
+
+async function createStudentNotificationForAlarm(userId, alarmKey, title, body) {
+  try {
+    const settings = await getStudentAlarmSettings(userId);
+    if (!settings || settings[alarmKey] !== true) {
+      return null;
+    }
+    const notification = await createStudentNotification(userId, title, body);
+    await sendStudentPushNotification(userId, title, body).catch(() => {});
+    return notification;
+  } catch {
+    return null;
+  }
+}
+
+function extractVisibleNotificationBody(body) {
+  const raw = String(body || "").trim();
+  if (!raw.startsWith(NOTIFICATION_ACTION_PREFIX)) {
+    return raw;
+  }
+  const divider = raw.indexOf("\n\n");
+  return divider >= 0 ? raw.slice(divider + 2).trim() : "";
+}
+
+async function sendStudentPushNotification(userId, title, body, data = undefined) {
+  return sendPushToUser(userId, {
+    title,
+    body: extractVisibleNotificationBody(body),
+    data
+  });
+}
+
+async function sendParentPushNotification(userId, title, body, data = undefined) {
+  return sendPushToUser(userId, {
+    title,
+    body: extractVisibleNotificationBody(body),
+    data
+  });
+}
+
+async function sendParentPushNotificationForLinkedParents(
+  studentUserId,
+  title,
+  body,
+  data = undefined
+) {
+  const parentUserIds = await listLinkedParentUserIdsForStudent(studentUserId);
+  if (!parentUserIds.length) return [];
+  return sendPushToUsers(parentUserIds, {
+    title,
+    body: extractVisibleNotificationBody(body),
+    data
+  });
+}
+
+async function createParentNotificationForAlarmWithPush(
+  userId,
+  alarmKey,
+  title,
+  body,
+  data = undefined
+) {
+  const notification = await createParentNotificationForAlarm(
+    userId,
+    alarmKey,
+    title,
+    body
+  );
+  if (notification) {
+    await sendParentPushNotification(userId, title, body, data).catch(() => {});
+  }
+  return notification;
+}
+
+async function createParentNotificationForLinkedParentsWithPush(
+  studentUserId,
+  title,
+  body,
+  data = undefined
+) {
+  const created = await createParentNotificationForLinkedParents(
+    studentUserId,
+    title,
+    body
+  );
+  if (created > 0) {
+    await sendParentPushNotificationForLinkedParents(
+      studentUserId,
+      title,
+      body,
+      data
+    ).catch(() => {});
+  }
+  return created;
 }
 
 function sanitizePromptText(value, maxLen = 4000) {
@@ -2545,6 +2772,126 @@ app.get("/api/me", authMiddleware, async (req, res) => {
   }
 });
 
+app.post("/api/student/alarm-settings", authMiddleware, async (req, res) => {
+  try {
+    const me = await getMe(req.userId);
+    if (!me || me.role !== "student") {
+      return res.status(403).json({ error: "권한이 없습니다." });
+    }
+    const settingsInput = normalizeStudentAlarmSettingsInput(req.body || {});
+    const saved = await upsertStudentCoachProfile(req.userId, settingsInput);
+    res.json({
+      ok: true,
+      settings: {
+        scheduleReminders:
+          saved?.alarm_schedule_reminders == null
+            ? settingsInput.scheduleReminders
+            : Boolean(saved.alarm_schedule_reminders),
+        parentLinkAlerts:
+          saved?.alarm_parent_link_alerts == null
+            ? settingsInput.parentLinkAlerts
+            : Boolean(saved.alarm_parent_link_alerts),
+        studyRoomAlerts:
+          saved?.alarm_study_room_alerts == null
+            ? settingsInput.studyRoomAlerts
+            : Boolean(saved.alarm_study_room_alerts),
+        wakeAlarmEnabled:
+          saved?.wake_alarm_enabled == null
+            ? settingsInput.wakeAlarmEnabled
+            : Boolean(saved.wake_alarm_enabled),
+        wakeAlarmTime:
+          /^\d{2}:\d{2}$/.test(String(saved?.wake_alarm_time || ""))
+            ? String(saved.wake_alarm_time)
+            : settingsInput.wakeAlarmTime
+      }
+    });
+  } catch (e) {
+    console.error("/api/student/alarm-settings POST error", e);
+    res.status(500).json({ error: "알람 설정을 저장하지 못했습니다." });
+  }
+});
+
+app.get("/api/parent/alarm-settings", authMiddleware, async (req, res) => {
+  try {
+    const me = await getMe(req.userId);
+    if (!me || me.role !== "parent") {
+      return res.status(403).json({ error: "권한이 없습니다." });
+    }
+    const settings = await getParentAlarmSettings(req.userId);
+    res.json({ ok: true, settings });
+  } catch (e) {
+    console.error("/api/parent/alarm-settings GET error", e);
+    res.status(500).json({ error: "알람 설정을 불러오지 못했습니다." });
+  }
+});
+
+app.post("/api/parent/alarm-settings", authMiddleware, async (req, res) => {
+  try {
+    const me = await getMe(req.userId);
+    if (!me || me.role !== "parent") {
+      return res.status(403).json({ error: "권한이 없습니다." });
+    }
+    const settingsInput = normalizeParentAlarmSettingsInput(req.body || {});
+    const settings = await upsertParentAlarmSettings(req.userId, settingsInput);
+    res.json({ ok: true, settings });
+  } catch (e) {
+    console.error("/api/parent/alarm-settings POST error", e);
+    res.status(500).json({ error: "알람 설정을 저장하지 못했습니다." });
+  }
+});
+
+app.post("/api/push/register-token", authMiddleware, async (req, res) => {
+  try {
+    const me = await getMe(req.userId);
+    if (!me) {
+      return res.status(404).json({ error: "사용자를 찾을 수 없습니다." });
+    }
+    const platform = String((req.body || {}).platform || "ios").trim().toLowerCase();
+    const deviceToken = String((req.body || {}).deviceToken || "").replace(/\s+/g, "").trim();
+    const bundleId = String((req.body || {}).bundleId || "").trim() || null;
+    if (platform !== "ios") {
+      return res.status(400).json({ error: "현재는 iOS 푸시만 지원합니다." });
+    }
+    if (!/^[0-9a-fA-F]{32,256}$/.test(deviceToken)) {
+      return res.status(400).json({ error: "deviceToken 형식이 올바르지 않습니다." });
+    }
+    const tokenRow = await upsertUserPushToken(req.userId, {
+      platform,
+      deviceToken,
+      bundleId
+    });
+    res.json({ ok: true, token: tokenRow });
+  } catch (e) {
+    console.error("/api/push/register-token POST error", e);
+    res.status(500).json({ error: "푸시 토큰을 저장하지 못했습니다." });
+  }
+});
+
+app.post("/api/push/unregister-token", authMiddleware, async (req, res) => {
+  try {
+    const me = await getMe(req.userId);
+    if (!me) {
+      return res.status(404).json({ error: "사용자를 찾을 수 없습니다." });
+    }
+    const platform = String((req.body || {}).platform || "ios").trim().toLowerCase();
+    const deviceToken = String((req.body || {}).deviceToken || "").replace(/\s+/g, "").trim();
+    if (platform !== "ios") {
+      return res.status(400).json({ error: "현재는 iOS 푸시만 지원합니다." });
+    }
+    if (!deviceToken) {
+      return res.status(400).json({ error: "deviceToken이 필요합니다." });
+    }
+    const ok = await deactivateUserPushToken(req.userId, {
+      platform,
+      deviceToken
+    });
+    res.json({ ok });
+  } catch (e) {
+    console.error("/api/push/unregister-token POST error", e);
+    res.status(500).json({ error: "푸시 토큰을 해제하지 못했습니다." });
+  }
+});
+
 async function handleAccountUpdate(req, res) {
   try {
     const body = req.body || {};
@@ -2946,8 +3293,20 @@ app.get("/api/parent/students/:studentId/study-room-visits", authMiddleware, asy
     if (!has) {
       return res.status(403).json({ error: "연결된 학생만 조회할 수 있습니다." });
     }
-    const visits = await listRecentStudyRoomVisitSessionsForParent(req.userId, studentId, limit);
-    res.json({ visits });
+    const [visits, liveSummary] = await Promise.all([
+      listRecentStudyRoomVisitSessionsForParent(req.userId, studentId, limit),
+      getMergedStudyRoomTrackingSummary(studentId)
+    ]);
+    const currentRoom = liveSummary.rooms.find(room => room.parentUserId === req.userId) || null;
+    res.json({
+      visits,
+      currentDistanceMeters: currentRoom?.currentDistanceMeters ?? null,
+      currentWithinRadius: currentRoom?.isWithinRadius ?? null,
+      currentHeartbeatAt: liveSummary.currentHeartbeatAt,
+      currentAccuracyMeters: liveSummary.currentAccuracyMeters,
+      currentRadiusMeters: currentRoom?.radiusMeters ?? null,
+      studyRoomName: currentRoom?.name || null
+    });
   } catch (e) {
     console.error("/api/parent/students/:studentId/study-room-visits GET error", e);
     res.status(500).json({ error: "체류 기록을 불러오지 못했습니다." });
@@ -2968,6 +3327,14 @@ app.post("/api/parent/link-request", authMiddleware, async (req, res) => {
     const result = await parentRequestLink(req.userId, studentEmail);
     if (!result.ok) {
       return res.status(400).json({ error: result.error || "연결 요청에 실패했습니다." });
+    }
+    if (Number.isFinite(Number(result.studentUserId)) && Number(result.studentUserId) > 0) {
+      await createStudentNotificationForAlarm(
+        Number(result.studentUserId),
+        "parentLinkAlerts",
+        "관리자 연결 요청 도착",
+        `${String(me.email || "관리자").trim() || "관리자"} 님이 계정 연결을 요청했습니다. 프로필의 관리자 연결 영역에서 승인할 수 있습니다.`
+      );
     }
     res.json({ ok: true, requestId: result.requestId });
   } catch (e) {
@@ -3005,6 +3372,14 @@ app.post("/api/parent/link-confirm", authMiddleware, async (req, res) => {
     const result = await parentConfirmLinkRequest(req.userId, requestId);
     if (!result.ok) {
       return res.status(400).json({ error: result.error || "승인에 실패했습니다." });
+    }
+    if (Number.isFinite(Number(result.studentUserId)) && Number(result.studentUserId) > 0) {
+      await createStudentNotificationForAlarm(
+        Number(result.studentUserId),
+        "parentLinkAlerts",
+        "관리자 연결 승인 완료",
+        `${String(me.email || "관리자").trim() || "관리자"} 님이 연결 요청을 승인했습니다. 이제 계정이 연결되었습니다.`
+      );
     }
     res.json({ ok: true });
   } catch (e) {
@@ -3096,6 +3471,14 @@ app.post("/api/student/request-parent", authMiddleware, async (req, res) => {
     if (!result.ok) {
       return res.status(400).json({ error: result.error || "연결 요청에 실패했습니다." });
     }
+    if (Number.isFinite(Number(result.parentUserId)) && Number(result.parentUserId) > 0) {
+      await createParentNotificationForAlarmWithPush(
+        Number(result.parentUserId),
+        "studentLinkAlerts",
+        "학생 연결 요청 도착",
+        `${String(me.email || "학생").trim() || "학생"} 님이 계정 연결을 요청했습니다. 프로필에서 확인할 수 있습니다.`
+      ).catch(() => {});
+    }
     res.json({ ok: true, requestId: result.requestId });
   } catch (e) {
     console.error("/api/student/request-parent error", e);
@@ -3176,7 +3559,7 @@ app.post("/api/student/admin-channel/messages", authMiddleware, async (req, res)
       "student",
       message
     );
-    await createParentNotificationForLinkedParents(
+    await createParentNotificationForLinkedParentsWithPush(
       req.userId,
       "새 학생 메시지",
       "학생이 관리자 1:1 채널에 새 메시지를 보냈습니다."
@@ -3220,7 +3603,7 @@ app.post(
       } catch (messageError) {
         console.error("student homework submission chat mirror error", messageError);
       }
-      await createParentNotificationForLinkedParents(
+      await createParentNotificationForLinkedParentsWithPush(
         req.userId,
         "새 숙제 제출",
         "학생이 새 숙제를 제출했습니다. 관리자 코치 채팅 탭에서 검토할 수 있습니다."
@@ -3360,6 +3743,11 @@ app.post("/api/parent/admin-channel/messages", authMiddleware, async (req, res) 
       "새 관리자 메시지",
       "관리자 1:1 채널에 새 메시지가 도착했습니다."
     ).catch(() => {});
+    await sendStudentPushNotification(
+      studentId,
+      "새 관리자 메시지",
+      "관리자 1:1 채널에 새 메시지가 도착했습니다."
+    ).catch(() => {});
     res.json({ ok: true, message: saved });
   } catch (e) {
     console.error("/api/parent/admin-channel/messages error", e);
@@ -3407,6 +3795,15 @@ app.patch(
             ? "숙제에 수정 요청이 도착했습니다."
             : "숙제 검토 상태가 갱신되었습니다."
       ).catch(() => {});
+          await sendStudentPushNotification(
+            studentId,
+            "숙제 검토 완료",
+            reviewStatus === "approved"
+              ? "제출한 숙제가 승인되었습니다."
+              : reviewStatus === "needs_revision"
+            ? "숙제에 수정 요청이 도착했습니다."
+            : "숙제 검토 상태가 갱신되었습니다."
+          ).catch(() => {});
       res.json({ ok: true, submission: updated });
     } catch (e) {
       console.error("/api/parent/homework-submissions/:submissionId/review error", e);
@@ -3421,23 +3818,14 @@ app.get("/api/student/study-room-tracking", authMiddleware, async (req, res) => 
     if (!me || me.role !== "student") {
       return res.status(403).json({ error: "권한이 없습니다." });
     }
-    const rooms = await listStudyRoomConfigurationsForStudent(req.userId);
-    const recentVisits = await listRecentStudyRoomVisitSessionsForStudent(req.userId, 10);
+    const [liveSummary, recentVisits] = await Promise.all([
+      getMergedStudyRoomTrackingSummary(req.userId),
+      listRecentStudyRoomVisitSessionsForStudent(req.userId, 10)
+    ]);
     res.json({
-      rooms: rooms.map(row => ({
-        id: Number(row.id),
-        parentUserId: Number(row.parent_user_id),
-        parentEmail: String(row.parent_email || "").trim(),
-        name: String(row.name || "독서실").trim() || "독서실",
-        address: row.address != null ? String(row.address) : null,
-        latitude: Number(row.latitude),
-        longitude: Number(row.longitude),
-        radiusMeters:
-          row.radius_meters != null && Number.isFinite(Number(row.radius_meters))
-            ? Number(row.radius_meters)
-            : 120,
-        updatedAt: row.updated_at ? new Date(row.updated_at).toISOString() : null
-      })),
+      rooms: liveSummary.rooms,
+      currentHeartbeatAt: liveSummary.currentHeartbeatAt,
+      currentAccuracyMeters: liveSummary.currentAccuracyMeters,
       recentVisits
     });
   } catch (e) {
@@ -3459,6 +3847,32 @@ app.post("/api/student/location/heartbeat", authMiddleware, async (req, res) => 
       accuracy,
       timestamp
     });
+    if (Array.isArray(summary?.transitions) && summary.transitions.length > 0) {
+      for (const transition of summary.transitions) {
+        const title =
+          transition.type === "entered"
+            ? "독서실 체크인 알림"
+            : "독서실 체크아웃 알림";
+        const body =
+          transition.type === "entered"
+            ? `${String(transition.studyRoomName || "독서실").trim() || "독서실"} 근방에 체크인했습니다.`
+            : `${String(transition.studyRoomName || "독서실").trim() || "독서실"} 근방에서 체크아웃했습니다.`;
+        await createStudentNotificationForAlarm(
+          req.userId,
+          "studyRoomAlerts",
+          title,
+          body
+        );
+        if (Number.isFinite(Number(transition.parentUserId)) && Number(transition.parentUserId) > 0) {
+          await createParentNotificationForAlarmWithPush(
+            Number(transition.parentUserId),
+            "studyRoomAlerts",
+            title,
+            body
+          ).catch(() => {});
+        }
+      }
+    }
     res.json({ ok: true, summary });
   } catch (e) {
     const msg = e instanceof Error ? e.message : "";
@@ -3487,6 +3901,14 @@ app.post("/api/student/link-confirm", authMiddleware, async (req, res) => {
     const result = await studentConfirmLinkRequest(req.userId, requestId);
     if (!result.ok) {
       return res.status(400).json({ error: result.error || "승인에 실패했습니다." });
+    }
+    if (Number.isFinite(Number(result.parentUserId)) && Number(result.parentUserId) > 0) {
+      await createParentNotificationForAlarmWithPush(
+        Number(result.parentUserId),
+        "studentLinkAlerts",
+        "학생 연결 승인 완료",
+        `${String(me.email || "학생").trim() || "학생"} 님이 연결 요청을 승인했습니다. 이제 계정이 연결되었습니다.`
+      ).catch(() => {});
     }
     res.json({ ok: true });
   } catch (e) {
@@ -3543,7 +3965,7 @@ app.post("/api/student/plan-add-request", authMiddleware, async (req, res) => {
     if (!row) {
       return res.status(500).json({ error: "요청을 저장하지 못했습니다." });
     }
-    await createParentNotificationForLinkedParents(
+    await createParentNotificationForLinkedParentsWithPush(
       req.userId,
       "오늘 계획 수정 요청",
       `${String(me.email || "학생")}(이)가 ${d} ${st}-${et} ${name}${plannedRange ? ` · ${String(plannedRange).trim()}` : ""} 계획 수정을 요청했어요.`
@@ -3558,6 +3980,10 @@ app.post("/api/student/plan-add-request", authMiddleware, async (req, res) => {
 // 양쪽 모두: 대기 중 요청 거절
 app.post("/api/link/reject", authMiddleware, async (req, res) => {
   try {
+    const me = await getMe(req.userId);
+    if (!me || (me.role !== "parent" && me.role !== "student")) {
+      return res.status(403).json({ error: "권한이 없습니다." });
+    }
     const requestId = Number((req.body || {}).requestId || 0);
     if (!requestId) {
       return res.status(400).json({ error: "requestId가 필요합니다." });
@@ -3565,6 +3991,32 @@ app.post("/api/link/reject", authMiddleware, async (req, res) => {
     const result = await rejectLinkRequest(req.userId, requestId);
     if (!result.ok) {
       return res.status(400).json({ error: result.error || "거절에 실패했습니다." });
+    }
+    if (
+      me.role === "parent" &&
+      result.initiatedBy === "student" &&
+      Number.isFinite(Number(result.studentUserId)) &&
+      Number(result.studentUserId) > 0
+    ) {
+      await createStudentNotificationForAlarm(
+        Number(result.studentUserId),
+        "parentLinkAlerts",
+        "관리자 연결 요청 거절됨",
+        `${String(me.email || "관리자").trim() || "관리자"} 님이 연결 요청을 거절했습니다.`
+      );
+    }
+    if (
+      me.role === "student" &&
+      result.initiatedBy === "parent" &&
+      Number.isFinite(Number(result.parentUserId)) &&
+      Number(result.parentUserId) > 0
+    ) {
+      await createParentNotificationForAlarmWithPush(
+        Number(result.parentUserId),
+        "studentLinkAlerts",
+        "학생 연결 요청 거절됨",
+        `${String(me.email || "학생").trim() || "학생"} 님이 연결 요청을 거절했습니다.`
+      ).catch(() => {});
     }
     res.json({ ok: true });
   } catch (e) {
@@ -3604,8 +4056,9 @@ app.post("/api/link/unlink", authMiddleware, async (req, res) => {
       const studentId = Number(body.studentId || 0);
       const student = Number.isFinite(studentId) ? await getUserByIdForAuth(studentId) : null;
       if (student) {
-        await createStudentNotification(
+        await createStudentNotificationForAlarm(
           studentId,
+          "parentLinkAlerts",
           "관리자 연결 끊기 요청",
           embedNotificationAction(
             {
@@ -3621,8 +4074,9 @@ app.post("/api/link/unlink", authMiddleware, async (req, res) => {
     } else {
       const parentUserId = Number(body.parentUserId || 0);
       if (Number.isFinite(parentUserId) && parentUserId > 0) {
-        await createParentNotification(
+        await createParentNotificationForAlarmWithPush(
           parentUserId,
+          "studentLinkAlerts",
           "학생 연결 끊기 요청",
           embedNotificationAction(
             {
@@ -3664,14 +4118,16 @@ app.post("/api/link/unlink-confirm", authMiddleware, async (req, res) => {
     }
 
     if (me.role === "parent") {
-      await createStudentNotification(
+      await createStudentNotificationForAlarm(
         Number(result.studentUserId),
+        "parentLinkAlerts",
         "연결 해제 완료",
         "관리자가 연결 끊기 요청을 확인해 계정 연결이 해제되었습니다."
       ).catch(() => {});
     } else {
-      await createParentNotification(
+      await createParentNotificationForAlarmWithPush(
         Number(result.parentUserId),
+        "studentLinkAlerts",
         "연결 해제 완료",
         "학생이 연결 끊기 요청을 확인해 계정 연결이 해제되었습니다."
       ).catch(() => {});
@@ -3704,14 +4160,16 @@ app.post("/api/link/unlink-reject", authMiddleware, async (req, res) => {
     }
 
     if (me.role === "parent") {
-      await createStudentNotification(
+      await createStudentNotificationForAlarm(
         Number(result.studentUserId),
+        "parentLinkAlerts",
         "연결 끊기 요청 거절됨",
         "관리자가 연결 끊기 요청을 거절했습니다. 연결은 그대로 유지됩니다."
       ).catch(() => {});
     } else {
-      await createParentNotification(
+      await createParentNotificationForAlarmWithPush(
         Number(result.parentUserId),
+        "studentLinkAlerts",
         "연결 끊기 요청 거절됨",
         "학생이 연결 끊기 요청을 거절했습니다. 연결은 그대로 유지됩니다."
       ).catch(() => {});
@@ -3969,7 +4427,7 @@ app.post("/api/parent/ai-daily-report/refresh", authMiddleware, async (req, res)
     if (!has) {
       return res.status(403).json({ error: "연결된 학생이 아닙니다." });
     }
-    const result = await runOnePair(req.userId, studentId);
+    const result = await runOnePair(req.userId, studentId, { notifyParent: false });
     const row = await getLatestParentAiReport(req.userId, studentId);
     res.json({ ok: true, result, report: row });
   } catch (e) {
@@ -4835,7 +5293,7 @@ app.post("/api/student/coach/app-timetable-request", authMiddleware, async (req,
       visibleBody
     );
 
-    await createParentNotificationForLinkedParents(
+    await createParentNotificationForLinkedParentsWithPush(
       req.userId,
       "내일 앱 허용 시간표 요청",
       actionBody

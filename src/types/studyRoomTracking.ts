@@ -13,6 +13,8 @@ export type StudyRoomVisitSession = {
 };
 
 export type StudentStudyRoomSummary = {
+  currentHeartbeatAt: string | null;
+  currentAccuracyMeters: number | null;
   rooms: Array<{
     id: number;
     parentUserId: number;
@@ -22,7 +24,9 @@ export type StudentStudyRoomSummary = {
     latitude: number;
     longitude: number;
     radiusMeters: number;
-    updatedAt: string;
+    updatedAt: string | null;
+    currentDistanceMeters: number | null;
+    isWithinRadius: boolean | null;
   }>;
   recentVisits: StudyRoomVisitSession[];
 };

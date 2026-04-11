@@ -1429,7 +1429,14 @@ body.app-keyboard-open .app-main {
 
 .student-study-room-tracking-card__stack {
   margin-top: 12px;
+  padding-top: 14px;
   border-top: var(--border-width) solid var(--border-neutral);
+}
+
+.student-study-room-tracking-card .student-profile-link-status--first {
+  margin-top: 0;
+  padding-top: 0;
+  border-top: none;
 }
 
 .student-study-room-tracking-card__status-row {
@@ -1450,32 +1457,8 @@ body.app-keyboard-open .app-main {
   margin-top: 10px;
 }
 
-.student-study-room-tracking-card__message,
-.student-study-room-tracking-card__error {
+.student-study-room-tracking-card__message {
   margin-top: 10px;
-}
-
-.student-study-room-tracking-card__visits {
-  gap: 8px;
-}
-
-.student-study-room-tracking-card__controls {
-  gap: 10px;
-}
-
-.student-study-room-tracking-card__visit-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-}
-
-.student-study-room-tracking-card__visit-state {
-  display: inline-flex;
-  align-items: center;
-  color: var(--text-sub);
-  font-size: var(--font-size-small);
-  font-weight: var(--font-weight-semibold);
 }
 
 .study-room-modal .dday-modal-inner {
@@ -1755,6 +1738,8 @@ body.app-keyboard-open .app-main {
 
 .student-profile-link-status--first {
   margin-top: 12px;
+  padding-top: 0;
+  border-top: none;
 }
 
 .student-profile-link-status__title {

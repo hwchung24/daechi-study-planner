@@ -59,6 +59,14 @@ function readParentAlarmSettings(key: string) {
   }
 }
 
+function writeParentAlarmSettings(key: string, value: ParentAlarmSettings) {
+  try {
+    localStorage.setItem(key, JSON.stringify(value));
+  } catch {
+    // ignore
+  }
+}
+
 function clampControlIntensity(value: number) {
   return Math.min(5, Math.max(1, Math.round(value || 3)));
 }
@@ -157,6 +165,46 @@ export function ParentProfilePage(props: {
   }, [alarmSettingsKey]);
 
   useEffect(() => {
+    if (!token) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const res = await fetch(`${apiBase}/api/parent/alarm-settings`, {
+          headers: {
+            Authorization: `Bearer ${token}`
+          },
+          cache: "no-store"
+        });
+        const data = (await res.json().catch(() => ({}))) as {
+          settings?: Partial<ParentAlarmSettings>;
+        };
+        if (!res.ok || cancelled || !data.settings) return;
+        const next: ParentAlarmSettings = {
+          reportAlerts:
+            data.settings.reportAlerts == null
+              ? DEFAULT_PARENT_ALARM_SETTINGS.reportAlerts
+              : Boolean(data.settings.reportAlerts),
+          studentLinkAlerts:
+            data.settings.studentLinkAlerts == null
+              ? DEFAULT_PARENT_ALARM_SETTINGS.studentLinkAlerts
+              : Boolean(data.settings.studentLinkAlerts),
+          studyRoomAlerts:
+            data.settings.studyRoomAlerts == null
+              ? DEFAULT_PARENT_ALARM_SETTINGS.studyRoomAlerts
+              : Boolean(data.settings.studyRoomAlerts)
+        };
+        setAlarmSettings(next);
+        writeParentAlarmSettings(alarmSettingsKey, next);
+      } catch {
+        // keep cached value
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [alarmSettingsKey, apiBase, token]);
+
+  useEffect(() => {
     if (!token) {
       setCoachCustomization(DEFAULT_PARENT_COACH_CUSTOMIZATION);
       setCoachCustomizationLoading(false);
@@ -229,17 +277,33 @@ export function ParentProfilePage(props: {
     }
   };
 
+  const persistAlarmSettings = useCallback(
+    async (next: ParentAlarmSettings) => {
+      if (!token) return;
+      try {
+        await fetch(`${apiBase}/api/parent/alarm-settings`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`
+          },
+          body: JSON.stringify(next)
+        });
+      } catch {
+        // keep local state even if remote sync fails
+      }
+    },
+    [apiBase, token]
+  );
+
   const toggleAlarmSetting = (key: keyof ParentAlarmSettings) => {
     setAlarmSettings(prev => {
       const next = {
         ...prev,
         [key]: !prev[key]
       };
-      try {
-        localStorage.setItem(alarmSettingsKey, JSON.stringify(next));
-      } catch {
-        // ignore
-      }
+      writeParentAlarmSettings(alarmSettingsKey, next);
+      void persistAlarmSettings(next);
       return next;
     });
   };
@@ -498,9 +562,9 @@ export function ParentProfilePage(props: {
             </div>
             <div className="settings-item settings-item--stack student-profile-alarm-item">
               <span className="student-profile-alarm-item__body">
-                <span className="student-profile-alarm-item__label">독서실 상태 알림</span>
+                <span className="student-profile-alarm-item__label">독서실 체크인 알림</span>
                 <span className="student-profile-alarm-item__copy">
-                  학생 관리에서 설정한 독서실 위치와 최근 체류 상태 변화를 챙길 수 있어요.
+                  학생이 독서실 근방에 체크인하거나 체크아웃한 흐름을 확인할 수 있어요.
                 </span>
               </span>
               <button
@@ -647,10 +711,9 @@ export function ParentProfilePage(props: {
         </Card>
 
         <Card className="coach-card coach-card--padded student-profile-parent-link-card">
-          <SectionHeader title="학생과 계정 연결" />
+          <SectionHeader title={parentStudents.length > 0 ? "연결된 학생" : "학생과 계정 연결"} />
           {parentStudents.length > 0 && (
-            <div className="student-profile-link-status" style={{ marginTop: 12 }}>
-              <span className="student-profile-link-status__title">연결된 학생</span>
+            <div className="student-profile-link-status student-profile-link-status--first">
               <div className="student-profile-schedule-stack">
                 <div className="student-profile-schedule-panel">
                   {parentStudents.map(student => (

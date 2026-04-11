@@ -9,6 +9,7 @@ private struct StudyRoomTrackingConfig: Codable {
 
 @objc final class StudyRoomTrackingManager: NSObject, CLLocationManagerDelegate {
     static let shared = StudyRoomTrackingManager()
+    private let heartbeatIntervalSeconds: TimeInterval = 30
 
     private let locationManager = CLLocationManager()
     private let configKey = "daechi.studyRoomTracking.config"
@@ -124,7 +125,8 @@ private struct StudyRoomTrackingConfig: Codable {
         guard let config = loadConfig(), let location = locations.last else {
             return
         }
-        if let lastSentAt = lastSentAt, Date().timeIntervalSince(lastSentAt) < 60 {
+        if let lastSentAt = lastSentAt,
+           Date().timeIntervalSince(lastSentAt) < heartbeatIntervalSeconds {
             return
         }
         lastSentAt = Date()

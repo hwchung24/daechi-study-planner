@@ -65,9 +65,20 @@ import {
   buildStudentAlarmSettingsCacheKey,
   readStudentAlarmSettings,
   STUDENT_ALARM_SETTINGS_UPDATED_EVENT,
+  writeStudentAlarmSettings,
   type StudentAlarmSettings
 } from "./lib/studentAlarmSettings";
-import { stopNativeStudyRoomTracking } from "./lib/nativeStudyRoomTracking";
+import {
+  getNativeStudyRoomTrackingStatus,
+  requestNativeStudyRoomTrackingPermissions,
+  startNativeStudyRoomTracking,
+  stopNativeStudyRoomTracking
+} from "./lib/nativeStudyRoomTracking";
+import {
+  getNativePushStatus,
+  registerNativePushNotifications,
+  requestNativePushPermissions
+} from "./lib/nativePushNotifications";
 import type { ParentLockStatus, StudentLockStatus } from "./types/lockStatus";
 import type { ProgressBook, ProgressPlan, StudyBlock } from "./types/planner";
 
@@ -119,6 +130,7 @@ const ME_CACHE_KEY = "daechi_me_cache";
 const STUDY_REMINDER_NOTIFICATION_IDS_STORAGE_PREFIX =
   "daechi_study_reminder_notification_ids:";
 const STUDY_REMINDER_SHOWN_STORAGE_PREFIX = "daechi_study_reminder_shown:";
+const IOS_PUSH_BUNDLE_ID = "com.daechiroot.ios";
 
 type CachedMeState = {
   role: string | null;
@@ -357,6 +369,15 @@ function buildStudyReminderBody(block: StudyBlock) {
     : `${block.start} ${block.subject} 공부를 시작할 시간입니다.`;
 }
 
+function hasAuthorizedStudyRoomTrackingPermission(status: string | null | undefined) {
+  const normalized = String(status || "").trim().toLowerCase();
+  return (
+    normalized === "authorized" ||
+    normalized === "authorized_when_in_use" ||
+    normalized === "authorized_always"
+  );
+}
+
 /**
  * GET /api/student/plans-by-date 의 plans → ProgressPlan.
  * DB의 book_id와 현재 책 목록 id가 다를 수 있음(삭제 후 같은 이름으로 재추가 등)이라
@@ -516,6 +537,9 @@ const App: React.FC = () => {
     useState<ActiveStudyReminder | null>(null);
   const studyReminderScheduleSignatureRef = useRef("");
   const lastStudyReminderScopeRef = useRef<string | null>(null);
+  const autoLocationPermissionScopeRef = useRef<string | null>(null);
+  const autoTrackingBootstrapScopeRef = useRef<string | null>(null);
+  const autoPushRegistrationScopeRef = useRef<string | null>(null);
 
   useEffect(() => {
     if (!networkBanner?.message) return;
@@ -943,6 +967,25 @@ const App: React.FC = () => {
           }
         }
         if (nextRole === "student") {
+          const nextEmail =
+            data.email != null && String(data.email).trim() !== ""
+              ? String(data.email).trim()
+              : userEmail;
+          const nextAlarmSettings: StudentAlarmSettings = {
+            scheduleReminders: Boolean(data.scheduleReminders),
+            parentLinkAlerts: Boolean(data.parentLinkAlerts),
+            studyRoomAlerts: Boolean(data.studyRoomAlerts),
+            wakeAlarmEnabled: Boolean(data.wakeAlarmEnabled),
+            wakeAlarmTime:
+              /^\d{2}:\d{2}$/.test(String(data.wakeAlarmTime || ""))
+                ? String(data.wakeAlarmTime)
+                : "06:30"
+          };
+          writeStudentAlarmSettings(
+            buildStudentAlarmSettingsCacheKey(nextEmail),
+            nextAlarmSettings
+          );
+          setStudentAlarmSettings(nextAlarmSettings);
           const initialCompleted = Boolean(data.initial_profile_completed);
           setStudentInitialProfileCompleted(initialCompleted);
           setStudentSetupGrade(
@@ -1054,6 +1097,143 @@ const App: React.FC = () => {
   ]);
 
   useEffect(() => {
+    if (Capacitor.getPlatform() !== "ios") return;
+    if (!authToken || route === "auth" || !meRoleResolved || !userEmail) {
+      autoPushRegistrationScopeRef.current = null;
+      return;
+    }
+
+    const scope = `${String(userEmail).trim().toLowerCase()}::${authToken}`;
+    if (autoPushRegistrationScopeRef.current === scope) {
+      return;
+    }
+    autoPushRegistrationScopeRef.current = scope;
+
+    let cancelled = false;
+    const ensurePushRegistrationReady = async () => {
+      try {
+        let status = await getNativePushStatus();
+        if (cancelled) return;
+
+        if (
+          status.permissionStatus !== "authorized" &&
+          status.permissionStatus !== "provisional" &&
+          status.permissionStatus !== "ephemeral"
+        ) {
+          status = await requestNativePushPermissions();
+          if (cancelled) return;
+        }
+
+        if (
+          status.permissionStatus !== "authorized" &&
+          status.permissionStatus !== "provisional" &&
+          status.permissionStatus !== "ephemeral"
+        ) {
+          return;
+        }
+
+        status = await registerNativePushNotifications();
+        if (cancelled || !status.deviceToken) return;
+
+        await fetch(`${API_BASE}/api/push/register-token`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${authToken}`
+          },
+          body: JSON.stringify({
+            platform: "ios",
+            deviceToken: status.deviceToken,
+            bundleId: IOS_PUSH_BUNDLE_ID
+          })
+        }).catch(() => {
+          // ignore token registration failures; retry on next auth scope
+        });
+      } catch {
+        // ignore native push bootstrap failures
+      }
+    };
+
+    void ensurePushRegistrationReady();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [authToken, meRoleResolved, route, userEmail]);
+
+  useEffect(() => {
+    if (!Capacitor.isNativePlatform()) return;
+    if (!authToken || route === "auth" || !meRoleResolved || meRole !== "student") {
+      autoLocationPermissionScopeRef.current = null;
+      autoTrackingBootstrapScopeRef.current = null;
+      return;
+    }
+
+    const permissionScope = `${String(userEmail || "student").trim().toLowerCase()}::${authToken}`;
+    if (
+      autoLocationPermissionScopeRef.current === permissionScope &&
+      autoTrackingBootstrapScopeRef.current === permissionScope
+    ) {
+      return;
+    }
+
+    autoLocationPermissionScopeRef.current = permissionScope;
+    autoTrackingBootstrapScopeRef.current = permissionScope;
+
+    let cancelled = false;
+    const ensureLocationTrackingReady = async () => {
+      try {
+        let status = await getNativeStudyRoomTrackingStatus();
+        if (cancelled) {
+          return;
+        }
+
+        if (!hasAuthorizedStudyRoomTrackingPermission(status.authorizationStatus)) {
+          await requestNativeStudyRoomTrackingPermissions();
+          if (cancelled) {
+            return;
+          }
+          status = await getNativeStudyRoomTrackingStatus();
+          if (cancelled || !hasAuthorizedStudyRoomTrackingPermission(status.authorizationStatus)) {
+            return;
+          }
+        }
+
+        if (status.trackingEnabled) {
+          return;
+        }
+
+        const res = await fetch(`${API_BASE}/api/student/study-room-tracking`, {
+          cache: "no-store",
+          headers: { Authorization: `Bearer ${authToken}` }
+        });
+        if (cancelled || !res.ok) {
+          return;
+        }
+        const data = (await res.json().catch(() => ({}))) as {
+          rooms?: Array<unknown>;
+        };
+        if (cancelled || !Array.isArray(data.rooms) || data.rooms.length === 0) {
+          return;
+        }
+
+        await startNativeStudyRoomTracking({
+          apiBase: API_BASE,
+          authToken
+        });
+      } catch {
+        // ignore automatic location bootstrap failures
+      }
+    };
+
+    void ensureLocationTrackingReady();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [authToken, meRole, meRoleResolved, route, userEmail]);
+
+  useEffect(() => {
     if (!authToken || meRole !== "student") return;
     const run = async () => {
       try {
@@ -1120,7 +1300,7 @@ const App: React.FC = () => {
       return;
     }
     let cancelled = false;
-    (async () => {
+    const run = async () => {
       try {
         const res = await fetch(
           `${API_BASE}/api/student/notifications/summary`,
@@ -1138,9 +1318,14 @@ const App: React.FC = () => {
       } catch {
         if (!cancelled) setStudentNotificationUnreadCount(0);
       }
-    })();
+    };
+    void run();
+    const timerId = window.setInterval(() => {
+      void run();
+    }, 25000);
     return () => {
       cancelled = true;
+      window.clearInterval(timerId);
     };
   }, [authToken, meRole, meFetchNonce, tab]);
 
@@ -1546,7 +1731,16 @@ const App: React.FC = () => {
         // ignore
       }
     };
-    run();
+    void run();
+    if (!authToken || meRole !== "student") {
+      return;
+    }
+    const timerId = window.setInterval(() => {
+      void run();
+    }, 25000);
+    return () => {
+      window.clearInterval(timerId);
+    };
   }, [authToken, meRole, tab]);
 
   // 학생: 학습 앱스토어 목록 + 설치 상태

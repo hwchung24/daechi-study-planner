@@ -2,8 +2,10 @@ const OpenAI = require("openai");
 const {
   getWeekData,
   listAllParentStudentPairs,
-  upsertParentAiReport
+  upsertParentAiReport,
+  createParentNotificationForAlarm
 } = require("./db");
+const { sendPushToUser } = require("./pushService");
 const {
   computeWeeklyStats,
   buildWeeklySummaryLines,
@@ -101,7 +103,7 @@ async function generateAiReportText(studentUserId, weekStart, weekEnd) {
 /**
  * 한 부모–자녀 쌍에 대해 '어제' 기준 리포트 생성 후 저장
  */
-async function runOnePair(parentUserId, studentUserId) {
+async function runOnePair(parentUserId, studentUserId, options = {}) {
   const reportDate = getKstYesterdayYmd();
   const { weekStart, weekEnd } = rolling7RangeEnding(reportDate);
   const summaryText = await generateAiReportText(studentUserId, weekStart, weekEnd);
@@ -112,6 +114,20 @@ async function runOnePair(parentUserId, studentUserId) {
     summaryText,
     MODEL
   );
+  if (options.notifyParent !== false) {
+    const notification = await createParentNotificationForAlarm(
+      parentUserId,
+      "reportAlerts",
+      "일일 AI 리포트 도착",
+      `${reportDate} 기준 새로운 일일 AI 리포트가 도착했습니다.`
+    ).catch(() => {});
+    if (notification) {
+      await sendPushToUser(parentUserId, {
+        title: "일일 AI 리포트 도착",
+        body: `${reportDate} 기준 새로운 일일 AI 리포트가 도착했습니다.`
+      }).catch(() => {});
+    }
+  }
   return { reportDate, weekStart, weekEnd };
 }
 

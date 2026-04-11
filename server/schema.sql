@@ -340,6 +340,11 @@ CREATE TABLE IF NOT EXISTS student_coach_profiles (
   weak_subjects TEXT[] NOT NULL DEFAULT '{}'::text[],
   sleep_time TEXT,
   wake_time TEXT,
+  alarm_schedule_reminders BOOLEAN NOT NULL DEFAULT true,
+  alarm_parent_link_alerts BOOLEAN NOT NULL DEFAULT true,
+  alarm_study_room_alerts BOOLEAN NOT NULL DEFAULT true,
+  wake_alarm_enabled BOOLEAN NOT NULL DEFAULT false,
+  wake_alarm_time TEXT NOT NULL DEFAULT '06:30',
   initial_profile_completed BOOLEAN NOT NULL DEFAULT false,
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
@@ -359,6 +364,21 @@ ADD COLUMN IF NOT EXISTS current_concern TEXT;
 
 ALTER TABLE student_coach_profiles
 ADD COLUMN IF NOT EXISTS weakness TEXT;
+
+ALTER TABLE student_coach_profiles
+ADD COLUMN IF NOT EXISTS alarm_schedule_reminders BOOLEAN NOT NULL DEFAULT true;
+
+ALTER TABLE student_coach_profiles
+ADD COLUMN IF NOT EXISTS alarm_parent_link_alerts BOOLEAN NOT NULL DEFAULT true;
+
+ALTER TABLE student_coach_profiles
+ADD COLUMN IF NOT EXISTS alarm_study_room_alerts BOOLEAN NOT NULL DEFAULT true;
+
+ALTER TABLE student_coach_profiles
+ADD COLUMN IF NOT EXISTS wake_alarm_enabled BOOLEAN NOT NULL DEFAULT false;
+
+ALTER TABLE student_coach_profiles
+ADD COLUMN IF NOT EXISTS wake_alarm_time TEXT NOT NULL DEFAULT '06:30';
 
 CREATE TABLE IF NOT EXISTS student_coach_logs (
   id BIGSERIAL PRIMARY KEY,
@@ -545,4 +565,36 @@ CREATE INDEX IF NOT EXISTS idx_pssrv_student_entered
 
 CREATE INDEX IF NOT EXISTS idx_pssrv_parent_student_entered
   ON parent_student_study_room_visit_sessions (parent_user_id, student_user_id, entered_at DESC);
+
+CREATE TABLE IF NOT EXISTS student_last_known_locations (
+  student_user_id BIGINT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+  latitude DOUBLE PRECISION NOT NULL,
+  longitude DOUBLE PRECISION NOT NULL,
+  accuracy DOUBLE PRECISION,
+  occurred_at TIMESTAMPTZ NOT NULL,
+  received_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_skl_occurred_at
+  ON student_last_known_locations (occurred_at DESC);
+
+CREATE TABLE IF NOT EXISTS user_push_tokens (
+  id BIGSERIAL PRIMARY KEY,
+  user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  platform TEXT NOT NULL CHECK (platform IN ('ios')),
+  device_token TEXT NOT NULL,
+  bundle_id TEXT,
+  active BOOLEAN NOT NULL DEFAULT true,
+  last_registered_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  last_sent_at TIMESTAMPTZ,
+  last_error TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  UNIQUE (platform, device_token)
+);
+
+CREATE INDEX IF NOT EXISTS idx_upt_user_active
+  ON user_push_tokens (user_id, updated_at DESC)
+  WHERE active = true;
 

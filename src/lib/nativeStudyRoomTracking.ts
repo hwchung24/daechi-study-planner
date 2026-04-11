@@ -45,6 +45,7 @@ let webWatchId: number | null = null;
 let webApiBase = "";
 let webAuthToken = "";
 let webLastSentAt = 0;
+const HEARTBEAT_INTERVAL_MS = 30_000;
 
 function isNativeIos() {
   return Capacitor.getPlatform() === "ios";
@@ -57,7 +58,7 @@ function buildHeartbeatUrl(apiBase: string) {
 async function sendWebHeartbeat(position: GeolocationPosition) {
   if (!webApiBase || !webAuthToken) return;
   const now = Date.now();
-  if (now - webLastSentAt < 60_000) return;
+  if (now - webLastSentAt < HEARTBEAT_INTERVAL_MS) return;
   webLastSentAt = now;
   try {
     const res = await fetch(buildHeartbeatUrl(webApiBase), {

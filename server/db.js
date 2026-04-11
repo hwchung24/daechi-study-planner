@@ -73,6 +73,11 @@ async function getMe(userId) {
             scp.target_grade,
             scp.current_concern,
             scp.weakness,
+                 COALESCE(scp.alarm_schedule_reminders, true) AS "scheduleReminders",
+                 COALESCE(scp.alarm_parent_link_alerts, true) AS "parentLinkAlerts",
+                 COALESCE(scp.alarm_study_room_alerts, true) AS "studyRoomAlerts",
+                 COALESCE(scp.wake_alarm_enabled, false) AS "wakeAlarmEnabled",
+                 COALESCE(scp.wake_alarm_time, '06:30') AS "wakeAlarmTime",
             COALESCE(scp.initial_profile_completed, false) AS initial_profile_completed
      FROM users u
      LEFT JOIN student_coach_profiles scp ON scp.user_id = u.id
@@ -80,6 +85,29 @@ async function getMe(userId) {
     [userId]
   );
   return res.rows[0] || null;
+}
+
+async function getStudentAlarmSettings(userId) {
+  const res = await query(
+    `SELECT COALESCE(alarm_schedule_reminders, true) AS "scheduleReminders",
+            COALESCE(alarm_parent_link_alerts, true) AS "parentLinkAlerts",
+            COALESCE(alarm_study_room_alerts, true) AS "studyRoomAlerts",
+            COALESCE(wake_alarm_enabled, false) AS "wakeAlarmEnabled",
+            COALESCE(wake_alarm_time, '06:30') AS "wakeAlarmTime"
+     FROM student_coach_profiles
+     WHERE user_id = $1
+     LIMIT 1`,
+    [userId]
+  );
+  return (
+    res.rows[0] || {
+      scheduleReminders: true,
+      parentLinkAlerts: true,
+      studyRoomAlerts: true,
+      wakeAlarmEnabled: false,
+      wakeAlarmTime: "06:30"
+    }
+  );
 }
 
 async function getUserByIdForAuth(userId) {
@@ -116,6 +144,58 @@ async function getParentIdByUserId(parentUserId) {
     parentUserId
   ]);
   return res.rows[0] || null;
+}
+
+async function getParentAlarmSettings(userId) {
+  const res = await query(
+    `SELECT notification_prefs
+     FROM parents
+     WHERE user_id = $1
+     LIMIT 1`,
+    [userId]
+  );
+  const raw = res.rows[0]?.notification_prefs || {};
+  return {
+    reportAlerts:
+      raw.reportAlerts == null ? true : Boolean(raw.reportAlerts),
+    studentLinkAlerts:
+      raw.studentLinkAlerts == null ? true : Boolean(raw.studentLinkAlerts),
+    studyRoomAlerts:
+      raw.studyRoomAlerts == null ? true : Boolean(raw.studyRoomAlerts)
+  };
+}
+
+async function upsertParentAlarmSettings(userId, input = {}) {
+  const normalized = {
+    reportAlerts:
+      input.reportAlerts == null ? true : Boolean(input.reportAlerts),
+    studentLinkAlerts:
+      input.studentLinkAlerts == null ? true : Boolean(input.studentLinkAlerts),
+    studyRoomAlerts:
+      input.studyRoomAlerts == null ? true : Boolean(input.studyRoomAlerts)
+  };
+  const res = await query(
+    `INSERT INTO parents (user_id, notification_prefs)
+     VALUES ($1, $2::jsonb)
+     ON CONFLICT (user_id)
+     DO UPDATE SET notification_prefs = EXCLUDED.notification_prefs
+     RETURNING notification_prefs`,
+    [userId, JSON.stringify(normalized)]
+  );
+  return {
+    reportAlerts:
+      res.rows[0]?.notification_prefs?.reportAlerts == null
+        ? true
+        : Boolean(res.rows[0].notification_prefs.reportAlerts),
+    studentLinkAlerts:
+      res.rows[0]?.notification_prefs?.studentLinkAlerts == null
+        ? true
+        : Boolean(res.rows[0].notification_prefs.studentLinkAlerts),
+    studyRoomAlerts:
+      res.rows[0]?.notification_prefs?.studyRoomAlerts == null
+        ? true
+        : Boolean(res.rows[0].notification_prefs.studyRoomAlerts)
+  };
 }
 
 async function listParentStudents(parentUserId) {
@@ -235,6 +315,103 @@ async function listStudyRoomConfigurationsForStudent(studentUserId) {
   return res.rows;
 }
 
+async function getLatestStudentLocation(studentUserId) {
+  const res = await query(
+    `SELECT student_user_id,
+            latitude,
+            longitude,
+            accuracy,
+            occurred_at,
+            received_at,
+            updated_at
+     FROM student_last_known_locations
+     WHERE student_user_id = $1`,
+    [studentUserId]
+  );
+  return res.rows[0] || null;
+}
+
+async function upsertLatestStudentLocation(studentUserId, input = {}) {
+  const latitude = Number(input.latitude);
+  const longitude = Number(input.longitude);
+  const accuracy =
+    input.accuracy != null && Number.isFinite(Number(input.accuracy))
+      ? Number(input.accuracy)
+      : null;
+  const occurredAt = input.occurredAt instanceof Date ? input.occurredAt : new Date(input.occurredAt);
+
+  const res = await query(
+    `INSERT INTO student_last_known_locations
+      (student_user_id, latitude, longitude, accuracy, occurred_at, received_at, updated_at)
+     VALUES ($1, $2, $3, $4, $5, now(), now())
+     ON CONFLICT (student_user_id)
+     DO UPDATE SET
+       latitude = EXCLUDED.latitude,
+       longitude = EXCLUDED.longitude,
+       accuracy = EXCLUDED.accuracy,
+       occurred_at = EXCLUDED.occurred_at,
+       received_at = now(),
+       updated_at = now()
+     WHERE student_last_known_locations.occurred_at IS NULL
+        OR EXCLUDED.occurred_at >= student_last_known_locations.occurred_at
+     RETURNING student_user_id,
+               latitude,
+               longitude,
+               accuracy,
+               occurred_at,
+               received_at,
+               updated_at`,
+    [studentUserId, latitude, longitude, accuracy, occurredAt.toISOString()]
+  );
+
+  if (res.rows[0]) return res.rows[0];
+  return getLatestStudentLocation(studentUserId);
+}
+
+async function listCurrentStudyRoomDistancesForStudent(studentUserId) {
+  const [latestLocation, studyRooms] = await Promise.all([
+    getLatestStudentLocation(studentUserId),
+    listStudyRoomConfigurationsForStudent(studentUserId)
+  ]);
+
+  return {
+    currentHeartbeatAt: latestLocation?.occurred_at
+      ? new Date(latestLocation.occurred_at).toISOString()
+      : null,
+    currentAccuracyMeters:
+      latestLocation?.accuracy != null && Number.isFinite(Number(latestLocation.accuracy))
+        ? Number(latestLocation.accuracy)
+        : null,
+    rooms: studyRooms.map(row => {
+      const radiusMeters =
+        row.radius_meters != null && Number.isFinite(Number(row.radius_meters))
+          ? Number(row.radius_meters)
+          : 120;
+      const currentDistanceMeters = latestLocation
+        ? haversineMeters(
+            Number(latestLocation.latitude),
+            Number(latestLocation.longitude),
+            Number(row.latitude),
+            Number(row.longitude)
+          )
+        : null;
+      return {
+        id: Number(row.id),
+        parentUserId: Number(row.parent_user_id),
+        parentEmail: String(row.parent_email || "").trim(),
+        name: String(row.name || "독서실").trim() || "독서실",
+        address: row.address != null ? String(row.address) : null,
+        latitude: Number(row.latitude),
+        longitude: Number(row.longitude),
+        radiusMeters,
+        updatedAt: row.updated_at ? new Date(row.updated_at).toISOString() : null,
+        currentDistanceMeters,
+        isWithinRadius: currentDistanceMeters == null ? null : currentDistanceMeters <= radiusMeters
+      };
+    })
+  };
+}
+
 function serializeStudyRoomVisitSession(row) {
   if (!row) return null;
   return {
@@ -269,6 +446,12 @@ async function recordStudentStudyRoomHeartbeat(studentUserId, input = {}) {
   if (Number.isNaN(occurredAt.getTime())) {
     throw new Error("invalid_timestamp");
   }
+  await upsertLatestStudentLocation(studentUserId, {
+    latitude,
+    longitude,
+    accuracy: input.accuracy,
+    occurredAt
+  });
   const studyRooms = await listStudyRoomConfigurationsForStudent(studentUserId);
   const activeRes = await query(
     `SELECT *
@@ -283,6 +466,7 @@ async function recordStudentStudyRoomHeartbeat(studentUserId, input = {}) {
     ])
   );
   const nearbyRooms = [];
+  const transitions = [];
   for (const room of studyRooms) {
     const distanceMeters = haversineMeters(
       latitude,
@@ -315,6 +499,14 @@ async function recordStudentStudyRoomHeartbeat(studentUserId, input = {}) {
            VALUES ($1, $2, $3, $4, $4, $5, now())`,
           [room.parent_user_id, studentUserId, room.id, occurredAt.toISOString(), distanceMeters]
         );
+        transitions.push({
+          type: "entered",
+          parentUserId: Number(room.parent_user_id),
+          studyRoomId: Number(room.id),
+          studyRoomName: String(room.name || "독서실").trim() || "독서실",
+          distanceMeters,
+          occurredAt: occurredAt.toISOString()
+        });
       }
       continue;
     }
@@ -328,11 +520,20 @@ async function recordStudentStudyRoomHeartbeat(studentUserId, input = {}) {
          WHERE id = $1`,
         [active.id, occurredAt.toISOString(), distanceMeters]
       );
+      transitions.push({
+        type: "exited",
+        parentUserId: Number(room.parent_user_id),
+        studyRoomId: Number(room.id),
+        studyRoomName: String(room.name || "독서실").trim() || "독서실",
+        distanceMeters,
+        occurredAt: occurredAt.toISOString()
+      });
     }
   }
   return {
     studyRoomCount: studyRooms.length,
-    nearbyStudyRoomCount: nearbyRooms.length
+    nearbyStudyRoomCount: nearbyRooms.length,
+    transitions
   };
 }
 
@@ -576,7 +777,11 @@ async function parentRequestLink(parentUserId, studentEmail) {
        RETURNING id`,
       [parentUserId, student.id]
     );
-    return { ok: true, requestId: ins.rows[0].id };
+    return {
+      ok: true,
+      requestId: ins.rows[0].id,
+      studentUserId: Number(student.id)
+    };
   });
 }
 
@@ -615,7 +820,12 @@ async function studentRequestParent(studentUserId, parentEmail) {
        RETURNING id`,
       [parentUser.id, studentUserId]
     );
-    return { ok: true, requestId: ins.rows[0].id };
+    return {
+      ok: true,
+      requestId: ins.rows[0].id,
+      parentUserId: Number(parentUser.id),
+      studentUserId: Number(studentUserId)
+    };
   });
 }
 
@@ -709,7 +919,11 @@ async function studentConfirmLinkRequest(studentUserId, requestId) {
       row.student_user_id,
       requestId
     );
-    return { ok: true };
+    return {
+      ok: true,
+      parentUserId: Number(row.parent_user_id),
+      studentUserId: Number(row.student_user_id)
+    };
   });
 }
 
@@ -753,7 +967,11 @@ async function parentConfirmLinkRequest(parentUserId, requestId) {
       row.student_user_id,
       requestId
     );
-    return { ok: true };
+    return {
+      ok: true,
+      parentUserId: Number(row.parent_user_id),
+      studentUserId: Number(row.student_user_id)
+    };
   });
 }
 
@@ -773,7 +991,12 @@ async function rejectLinkRequest(userId, requestId) {
      WHERE id = $1`,
     [requestId]
   );
-  return { ok: true };
+  return {
+    ok: true,
+    parentUserId: Number(row.parent_user_id),
+    studentUserId: Number(row.student_user_id),
+    initiatedBy: String(row.initiated_by || "")
+  };
 }
 
 async function unlinkParentStudentWithClient(client, parentUserId, studentUserId) {
@@ -1895,8 +2118,8 @@ async function upsertStudentMdmGroup(userId, assignmentGroupId, assignmentGroupN
 async function upsertStudentCoachProfile(userId, input = {}) {
   const res = await query(
     `INSERT INTO student_coach_profiles
-      (user_id, name, school_level, grade, goal, goal_university, target_grade, current_concern, weakness, target_subjects, weak_subjects, sleep_time, wake_time, initial_profile_completed, updated_at)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10::text[], $11::text[], $12, $13, $14, now())
+      (user_id, name, school_level, grade, goal, goal_university, target_grade, current_concern, weakness, target_subjects, weak_subjects, sleep_time, wake_time, alarm_schedule_reminders, alarm_parent_link_alerts, alarm_study_room_alerts, wake_alarm_enabled, wake_alarm_time, initial_profile_completed, updated_at)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10::text[], $11::text[], $12, $13, $14, $15, $16, $17, $18, $19, now())
      ON CONFLICT (user_id)
      DO UPDATE SET
        name = COALESCE(EXCLUDED.name, student_coach_profiles.name),
@@ -1911,6 +2134,11 @@ async function upsertStudentCoachProfile(userId, input = {}) {
        weak_subjects = COALESCE(EXCLUDED.weak_subjects, student_coach_profiles.weak_subjects),
        sleep_time = COALESCE(EXCLUDED.sleep_time, student_coach_profiles.sleep_time),
        wake_time = COALESCE(EXCLUDED.wake_time, student_coach_profiles.wake_time),
+       alarm_schedule_reminders = COALESCE(EXCLUDED.alarm_schedule_reminders, student_coach_profiles.alarm_schedule_reminders),
+       alarm_parent_link_alerts = COALESCE(EXCLUDED.alarm_parent_link_alerts, student_coach_profiles.alarm_parent_link_alerts),
+       alarm_study_room_alerts = COALESCE(EXCLUDED.alarm_study_room_alerts, student_coach_profiles.alarm_study_room_alerts),
+       wake_alarm_enabled = COALESCE(EXCLUDED.wake_alarm_enabled, student_coach_profiles.wake_alarm_enabled),
+       wake_alarm_time = COALESCE(EXCLUDED.wake_alarm_time, student_coach_profiles.wake_alarm_time),
        initial_profile_completed = COALESCE(
          EXCLUDED.initial_profile_completed,
          student_coach_profiles.initial_profile_completed
@@ -1931,6 +2159,19 @@ async function upsertStudentCoachProfile(userId, input = {}) {
       Array.isArray(input.weakSubjects) ? input.weakSubjects : null,
       input.sleepTime || null,
       input.wakeTime || null,
+      Object.prototype.hasOwnProperty.call(input, "scheduleReminders")
+        ? Boolean(input.scheduleReminders)
+        : null,
+      Object.prototype.hasOwnProperty.call(input, "parentLinkAlerts")
+        ? Boolean(input.parentLinkAlerts)
+        : null,
+      Object.prototype.hasOwnProperty.call(input, "studyRoomAlerts")
+        ? Boolean(input.studyRoomAlerts)
+        : null,
+      Object.prototype.hasOwnProperty.call(input, "wakeAlarmEnabled")
+        ? Boolean(input.wakeAlarmEnabled)
+        : null,
+      input.wakeAlarmTime || null,
       Object.prototype.hasOwnProperty.call(input, "initialProfileCompleted")
         ? Boolean(input.initialProfileCompleted)
         : null
@@ -2619,6 +2860,14 @@ async function createParentNotification(userId, title, body) {
   return res.rows[0] || null;
 }
 
+async function createParentNotificationForAlarm(userId, alarmKey, title, body) {
+  const settings = await getParentAlarmSettings(userId);
+  if (!settings || settings[alarmKey] !== true) {
+    return null;
+  }
+  return createParentNotification(userId, title, body);
+}
+
 async function countUnreadParentNotifications(userId) {
   try {
     const r = await query(
@@ -2667,6 +2916,78 @@ async function createParentNotificationForLinkedParents(studentUserId, title, bo
   return parentUserIds.length;
 }
 
+async function upsertUserPushToken(userId, input = {}) {
+  const platform = String(input.platform || "ios").trim().toLowerCase();
+  const deviceToken = String(input.deviceToken || "").trim();
+  const bundleId = input.bundleId != null ? String(input.bundleId).trim() : null;
+  const res = await query(
+    `INSERT INTO user_push_tokens
+      (user_id, platform, device_token, bundle_id, active, last_registered_at, updated_at, last_error)
+     VALUES ($1, $2, $3, $4, true, now(), now(), NULL)
+     ON CONFLICT (platform, device_token)
+     DO UPDATE SET
+       user_id = EXCLUDED.user_id,
+       bundle_id = EXCLUDED.bundle_id,
+       active = true,
+       last_registered_at = now(),
+       updated_at = now(),
+       last_error = NULL
+     RETURNING id, user_id, platform, device_token, bundle_id, active, last_registered_at, updated_at, last_error`,
+    [userId, platform, deviceToken, bundleId]
+  );
+  return res.rows[0] || null;
+}
+
+async function deactivateUserPushToken(userId, input = {}) {
+  const platform = String(input.platform || "ios").trim().toLowerCase();
+  const deviceToken = String(input.deviceToken || "").trim();
+  const res = await query(
+    `UPDATE user_push_tokens
+     SET active = false,
+         updated_at = now()
+     WHERE user_id = $1 AND platform = $2 AND device_token = $3
+     RETURNING id`,
+    [userId, platform, deviceToken]
+  );
+  return (res.rowCount || 0) > 0;
+}
+
+async function listActiveUserPushTokens(userId, platform = null) {
+  const normalizedPlatform = platform != null ? String(platform).trim().toLowerCase() : null;
+  const res = await query(
+    `SELECT id, user_id, platform, device_token, bundle_id, active, last_registered_at, last_sent_at, last_error, created_at, updated_at
+     FROM user_push_tokens
+     WHERE user_id = $1
+       AND active = true
+       AND ($2::text IS NULL OR platform = $2)
+     ORDER BY updated_at DESC`,
+    [userId, normalizedPlatform]
+  );
+  return res.rows;
+}
+
+async function markUserPushTokenSent(tokenId) {
+  await query(
+    `UPDATE user_push_tokens
+     SET last_sent_at = now(),
+         last_error = NULL,
+         updated_at = now()
+     WHERE id = $1`,
+    [tokenId]
+  );
+}
+
+async function markUserPushTokenError(tokenId, errorText, deactivate = false) {
+  await query(
+    `UPDATE user_push_tokens
+     SET last_error = $2,
+         active = CASE WHEN $3::boolean THEN false ELSE active END,
+         updated_at = now()
+     WHERE id = $1`,
+    [tokenId, errorText != null ? String(errorText).slice(0, 500) : null, Boolean(deactivate)]
+  );
+}
+
 module.exports = {
   pool,
   query,
@@ -2674,6 +2995,9 @@ module.exports = {
   findUserByEmail,
   createUser,
   getMe,
+  getStudentAlarmSettings,
+  getParentAlarmSettings,
+  upsertParentAlarmSettings,
   getUserByIdForAuth,
   updateUserEmail,
   updateUserPasswordHash,
@@ -2741,13 +3065,20 @@ module.exports = {
   markStudentNotificationsReadAll,
   createStudentNotification,
   createParentNotification,
+  createParentNotificationForAlarm,
   countUnreadParentNotifications,
   listParentNotifications,
   markParentNotificationsReadAll,
   createParentNotificationForLinkedParents,
+  upsertUserPushToken,
+  deactivateUserPushToken,
+  listActiveUserPushTokens,
+  markUserPushTokenSent,
+  markUserPushTokenError,
   upsertParentStudentStudyRoom,
   deleteParentStudentStudyRoom,
   listStudyRoomConfigurationsForStudent,
+  listCurrentStudyRoomDistancesForStudent,
   recordStudentStudyRoomHeartbeat,
   listRecentStudyRoomVisitSessionsForStudent,
   listRecentStudyRoomVisitSessionsForParent,
