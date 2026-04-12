@@ -2576,6 +2576,118 @@ async function setStudentMdmKioskProfileSyncError(userId, errorMessage) {
   return res.rows[0] || null;
 }
 
+async function getStudentRecordKioskSession(userId) {
+  const res = await query(
+    `SELECT user_id,
+            active,
+            study_saved,
+            life_saved,
+            started_at,
+            last_completed_at,
+            updated_at
+     FROM student_record_kiosk_sessions
+     WHERE user_id = $1
+     LIMIT 1`,
+    [userId]
+  );
+  return res.rows[0] || null;
+}
+
+async function startStudentRecordKioskSession(userId) {
+  const res = await query(
+    `INSERT INTO student_record_kiosk_sessions
+      (
+        user_id,
+        active,
+        study_saved,
+        life_saved,
+        started_at,
+        last_completed_at,
+        updated_at
+      )
+     VALUES ($1, true, false, false, now(), NULL, now())
+     ON CONFLICT (user_id)
+     DO UPDATE SET
+       active = true,
+       study_saved = false,
+       life_saved = false,
+       started_at = now(),
+       updated_at = now()
+     RETURNING user_id,
+               active,
+               study_saved,
+               life_saved,
+               started_at,
+               last_completed_at,
+               updated_at`,
+    [userId]
+  );
+  return res.rows[0] || null;
+}
+
+async function markStudentRecordKioskSaved(userId, kind) {
+  const normalizedKind = String(kind || "").trim().toLowerCase();
+  const markStudy = normalizedKind === "study";
+  const markLife = normalizedKind === "life";
+  if (!markStudy && !markLife) {
+    throw new Error("invalid_save_kind");
+  }
+  const res = await query(
+    `INSERT INTO student_record_kiosk_sessions
+      (
+        user_id,
+        active,
+        study_saved,
+        life_saved,
+        started_at,
+        updated_at
+      )
+     VALUES ($1, true, $2, $3, now(), now())
+     ON CONFLICT (user_id)
+     DO UPDATE SET
+       active = true,
+       study_saved = CASE
+         WHEN $2::boolean THEN true
+         ELSE student_record_kiosk_sessions.study_saved
+       END,
+       life_saved = CASE
+         WHEN $3::boolean THEN true
+         ELSE student_record_kiosk_sessions.life_saved
+       END,
+       updated_at = now()
+     RETURNING user_id,
+               active,
+               study_saved,
+               life_saved,
+               started_at,
+               last_completed_at,
+               updated_at`,
+    [userId, markStudy, markLife]
+  );
+  return res.rows[0] || null;
+}
+
+async function completeStudentRecordKioskSession(userId) {
+  const res = await query(
+    `UPDATE student_record_kiosk_sessions
+     SET active = false,
+         study_saved = false,
+         life_saved = false,
+         last_completed_at = now(),
+         updated_at = now()
+     WHERE user_id = $1
+     RETURNING user_id,
+               active,
+               study_saved,
+               life_saved,
+               started_at,
+               last_completed_at,
+               updated_at`,
+    [userId]
+  );
+  return res.rows[0] || null;
+}
+
 async function setStudentMdmAppAllowanceProfileSyncError(userId, errorMessage) {
   const res = await query(
     `INSERT INTO student_mdm_app_allowance_profiles
@@ -3560,6 +3672,10 @@ module.exports = {
   upsertStudentMdmKioskProfileState,
   deleteStudentMdmKioskProfileState,
   setStudentMdmKioskProfileSyncError,
+  getStudentRecordKioskSession,
+  startStudentRecordKioskSession,
+  markStudentRecordKioskSaved,
+  completeStudentRecordKioskSession,
   setStudentMdmAppAllowanceProfileSyncError,
   listStudentIdsForWeeklyAppAllowanceEnforcement,
   upsertStudentCoachProfile,

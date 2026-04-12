@@ -365,6 +365,20 @@ CREATE TABLE IF NOT EXISTS student_mdm_kiosk_profiles (
 CREATE INDEX IF NOT EXISTS idx_student_mdm_kiosk_profiles_updated
   ON student_mdm_kiosk_profiles (updated_at DESC);
 
+CREATE TABLE IF NOT EXISTS student_record_kiosk_sessions (
+  user_id BIGINT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+  active BOOLEAN NOT NULL DEFAULT false,
+  study_saved BOOLEAN NOT NULL DEFAULT false,
+  life_saved BOOLEAN NOT NULL DEFAULT false,
+  started_at TIMESTAMPTZ,
+  last_completed_at TIMESTAMPTZ,
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_student_record_kiosk_sessions_active
+  ON student_record_kiosk_sessions (active, updated_at DESC);
+
 -- 16. Student AI coach profile / memory
 CREATE TABLE IF NOT EXISTS student_coach_profiles (
   user_id BIGINT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,

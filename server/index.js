@@ -68,6 +68,10 @@ const {
   clearStudentMdmAppAllowanceOverride,
   getStudentMdmAppAllowanceProfileState,
   getStudentMdmKioskProfileState,
+  getStudentRecordKioskSession,
+  startStudentRecordKioskSession,
+  markStudentRecordKioskSaved,
+  completeStudentRecordKioskSession,
   upsertStudentCoachProfile,
   getStudentCoachProfile,
   insertStudentCoachLog,
@@ -5699,6 +5703,100 @@ app.post("/api/parent/kiosk-mode/bulk-disable", authMiddleware, async (req, res)
   } catch (e) {
     console.error("/api/parent/kiosk-mode/bulk-disable error", e);
     res.status(500).json({ error: "키오스크 모드 해제에 실패했습니다." });
+  }
+});
+
+app.get("/api/student/kiosk-mode/records-session", authMiddleware, async (req, res) => {
+  try {
+    const me = await getMe(req.userId);
+    if (!me || me.role !== "student") {
+      return res.status(403).json({ error: "권한이 없습니다." });
+    }
+    const session = await getStudentRecordKioskSession(req.userId);
+    res.json({
+      ok: true,
+      session: session || {
+        user_id: req.userId,
+        active: false,
+        study_saved: false,
+        life_saved: false,
+        started_at: null,
+        last_completed_at: null,
+        updated_at: null
+      }
+    });
+  } catch (e) {
+    console.error("/api/student/kiosk-mode/records-session GET error", e);
+    res.status(500).json({ error: "키오스크 세션 상태 조회에 실패했습니다." });
+  }
+});
+
+app.post("/api/student/kiosk-mode/records-session/start", authMiddleware, async (req, res) => {
+  try {
+    const me = await getMe(req.userId);
+    if (!me || me.role !== "student") {
+      return res.status(403).json({ error: "권한이 없습니다." });
+    }
+    const session = await startStudentRecordKioskSession(req.userId);
+    const sync = await enableStudentKioskMode(req.userId, {
+      reason: "student_records_session_start"
+    });
+    const kioskWarning = sync?.ok
+      ? null
+      : sync?.error || "키오스크 모드 적용 중 경고가 발생했습니다.";
+    res.json({
+      ok: true,
+      session,
+      kiosk: {
+        applied: Boolean(sync?.ok),
+        queued: Boolean(sync?.queued),
+        reason: sync?.reason || "student_records_session_start",
+        warning: kioskWarning
+      }
+    });
+  } catch (e) {
+    console.error("/api/student/kiosk-mode/records-session/start POST error", e);
+    res.status(500).json({ error: "기록 키오스크 세션 시작에 실패했습니다." });
+  }
+});
+
+app.post("/api/student/kiosk-mode/records-session/saved", authMiddleware, async (req, res) => {
+  try {
+    const me = await getMe(req.userId);
+    if (!me || me.role !== "student") {
+      return res.status(403).json({ error: "권한이 없습니다." });
+    }
+    const kind = String((req.body || {}).kind || "").trim().toLowerCase();
+    if (kind !== "study" && kind !== "life") {
+      return res.status(400).json({ error: "저장 종류(kind)는 study 또는 life여야 합니다." });
+    }
+    let session = await markStudentRecordKioskSaved(req.userId, kind);
+    let released = false;
+    let kiosk = {
+      released: false,
+      warning: null
+    };
+
+    if (session?.active && session.study_saved && session.life_saved) {
+      await completeStudentRecordKioskSession(req.userId);
+      session = await getStudentRecordKioskSession(req.userId);
+      released = true;
+      const sync = await disableStudentKioskMode(req.userId);
+      kiosk = {
+        released: Boolean(sync?.ok),
+        warning: sync?.ok ? null : sync?.error || "키오스크 모드 해제 중 경고가 발생했습니다."
+      };
+    }
+
+    res.json({
+      ok: true,
+      released,
+      session,
+      kiosk
+    });
+  } catch (e) {
+    console.error("/api/student/kiosk-mode/records-session/saved POST error", e);
+    res.status(500).json({ error: "기록 저장 상태 반영에 실패했습니다." });
   }
 });
 
