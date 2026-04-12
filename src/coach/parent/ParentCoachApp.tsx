@@ -1838,6 +1838,7 @@ function StudentSettingsTab(props: {
   const [studyRoomMessage, setStudyRoomMessage] = useState("");
   const [plannerTimeSheetOpen, setPlannerTimeSheetOpen] = useState(false);
   const [bulkDaechiRootLockSaving, setBulkDaechiRootLockSaving] = useState(false);
+  const [bulkKioskSaving, setBulkKioskSaving] = useState(false);
 
   useEffect(() => {
     setStudyRoomMessage("");
@@ -2022,6 +2023,52 @@ function StudentSettingsTab(props: {
     }
   };
 
+  const toggleBulkKioskMode = async (nextEnabled: boolean) => {
+    if (!props.authToken || props.parentStudents.length === 0) return;
+    setBulkKioskSaving(true);
+    props.setParentPlannerMessage("");
+    try {
+      const res = await fetch(
+        `${props.apiBase}/api/parent/kiosk-mode/${nextEnabled ? "bulk-enable" : "bulk-disable"}`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${props.authToken}`
+          }
+        }
+      );
+      const data = (await res.json().catch(() => ({}))) as {
+        error?: string;
+        message?: string;
+        summary?: { total?: number; success?: number; failed?: number };
+      };
+      if (!res.ok) {
+        props.setParentPlannerMessage(
+          data.error || (nextEnabled ? "키오스크 모드 적용에 실패했습니다." : "키오스크 모드 해제에 실패했습니다.")
+        );
+        props.hapticWarning();
+        return;
+      }
+      props.setParentPlannerMessage(
+        data.message ||
+          (nextEnabled
+            ? "관리 학생 기기를 대치루트 키오스크 모드로 전환했습니다."
+            : "관리 학생 기기의 키오스크 모드를 해제했습니다.")
+      );
+      if ((data.summary?.failed || 0) > 0) {
+        props.hapticWarning();
+      } else {
+        props.hapticSuccess();
+      }
+    } catch {
+      props.setParentPlannerMessage("키오스크 모드 제어 중 오류가 발생했습니다.");
+      props.hapticWarning();
+    } finally {
+      setBulkKioskSaving(false);
+    }
+  };
+
   return (
     <div className="coach-page">
       <StudentSelectorCard
@@ -2094,6 +2141,36 @@ function StudentSettingsTab(props: {
                   {props.parentPlannerTime}
                 </span>
               </button>
+            </div>
+            <div className="student-profile-link-status student-profile-link-status--first">
+              <span className="student-profile-link-status__title">테스트용 키오스크 모드</span>
+              <span className="student-profile-link-status__hint">
+                관리 학생 전체를 대치루트 앱 전면 고정 상태로 전환합니다. 해제하면 기존 허용 앱 제한 흐름으로 돌아갑니다.
+              </span>
+              <div className="student-profile-link-request-row" style={{ marginTop: 8 }}>
+                <div className="student-profile-link-request-row__actions">
+                  <button
+                    type="button"
+                    className="student-profile-link-action-btn"
+                    disabled={bulkKioskSaving}
+                    onClick={() => {
+                      void toggleBulkKioskMode(true);
+                    }}
+                  >
+                    {bulkKioskSaving ? "처리 중..." : "키오스크 켜기"}
+                  </button>
+                  <button
+                    type="button"
+                    className="student-profile-link-action-btn student-profile-link-action-btn--danger"
+                    disabled={bulkKioskSaving}
+                    onClick={() => {
+                      void toggleBulkKioskMode(false);
+                    }}
+                  >
+                    키오스크 끄기
+                  </button>
+                </div>
+              </div>
             </div>
             <div className="student-profile-link-status student-profile-link-status--first">
               <span className="student-profile-link-status__title">테스트용 일괄 잠금</span>

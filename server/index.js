@@ -67,6 +67,7 @@ const {
   setStudentMdmAppAllowanceOverride,
   clearStudentMdmAppAllowanceOverride,
   getStudentMdmAppAllowanceProfileState,
+  getStudentMdmKioskProfileState,
   upsertStudentCoachProfile,
   getStudentCoachProfile,
   insertStudentCoachLog,
@@ -127,6 +128,10 @@ const {
   reconcileAllStudentWeeklyAppAllowances,
   removeStudentWeeklyAppAllowanceRestriction
 } = require("./weeklyAppAllowanceEnforcement");
+const {
+  enableStudentKioskMode,
+  disableStudentKioskMode
+} = require("./kioskModeService");
 const {
   getStudentLockStatus,
   assertStudentCanEditDate,
@@ -5568,6 +5573,132 @@ app.post("/api/parent/app-allowance/bulk-daechiroot-unlock", authMiddleware, asy
   } catch (e) {
     console.error("/api/parent/app-allowance/bulk-daechiroot-unlock error", e);
     res.status(500).json({ error: "일괄 해제에 실패했습니다." });
+  }
+});
+
+app.post("/api/parent/kiosk-mode/bulk-enable", authMiddleware, async (req, res) => {
+  try {
+    const me = await getMe(req.userId);
+    if (!me || me.role !== "parent") {
+      return res.status(403).json({ error: "권한이 없습니다." });
+    }
+    const students = await listParentStudents(req.userId);
+    if (!students.length) {
+      return res.status(400).json({ error: "관리 중인 학생이 없습니다." });
+    }
+
+    const results = [];
+    for (const student of students) {
+      try {
+        const sync = await enableStudentKioskMode(student.id, {
+          reason: "parent_bulk_kiosk_enable"
+        });
+        if (!sync.ok) {
+          throw new Error(sync.error || "SimpleMDM 동기화에 실패했습니다.");
+        }
+        results.push({
+          studentId: student.id,
+          email: student.email,
+          ok: true,
+          queued: Boolean(sync.queued)
+        });
+      } catch (error) {
+        results.push({
+          studentId: student.id,
+          email: student.email,
+          ok: false,
+          error:
+            error instanceof Error && error.message
+              ? error.message
+              : "키오스크 모드 적용에 실패했습니다."
+        });
+      }
+    }
+
+    const successCount = results.filter(item => item.ok).length;
+    const failed = results.filter(item => !item.ok);
+    const message =
+      failed.length > 0
+        ? `관리 학생 ${successCount}명에 대치루트 키오스크 모드를 적용했고 ${failed.length}명은 실패했습니다.`
+        : `관리 학생 ${successCount}명에 대치루트 키오스크 모드를 적용했습니다.`;
+
+    res.json({
+      ok: failed.length === 0,
+      summary: {
+        total: results.length,
+        success: successCount,
+        failed: failed.length
+      },
+      message,
+      results
+    });
+  } catch (e) {
+    console.error("/api/parent/kiosk-mode/bulk-enable error", e);
+    res.status(500).json({ error: "키오스크 모드 적용에 실패했습니다." });
+  }
+});
+
+app.post("/api/parent/kiosk-mode/bulk-disable", authMiddleware, async (req, res) => {
+  try {
+    const me = await getMe(req.userId);
+    if (!me || me.role !== "parent") {
+      return res.status(403).json({ error: "권한이 없습니다." });
+    }
+    const students = await listParentStudents(req.userId);
+    if (!students.length) {
+      return res.status(400).json({ error: "관리 중인 학생이 없습니다." });
+    }
+
+    const results = [];
+    for (const student of students) {
+      try {
+        const before = await getStudentMdmKioskProfileState(student.id);
+        const sync = await disableStudentKioskMode(student.id);
+        if (!sync.ok) {
+          throw new Error(sync.error || "SimpleMDM 동기화에 실패했습니다.");
+        }
+        results.push({
+          studentId: student.id,
+          email: student.email,
+          ok: true,
+          removed: Boolean(sync.removed),
+          hadProfile: Boolean(before?.profile_id)
+        });
+      } catch (error) {
+        results.push({
+          studentId: student.id,
+          email: student.email,
+          ok: false,
+          error:
+            error instanceof Error && error.message
+              ? error.message
+              : "키오스크 모드 해제에 실패했습니다."
+        });
+      }
+    }
+
+    const successCount = results.filter(item => item.ok).length;
+    const failed = results.filter(item => !item.ok);
+    const removed = results.filter(item => item.ok && item.removed).length;
+    const message =
+      failed.length > 0
+        ? `관리 학생 ${successCount}명의 키오스크 모드를 해제했고 ${failed.length}명은 실패했습니다.`
+        : `관리 학생 ${successCount}명의 키오스크 모드를 해제했습니다. 프로필 제거 ${removed}명입니다.`;
+
+    res.json({
+      ok: failed.length === 0,
+      summary: {
+        total: results.length,
+        success: successCount,
+        failed: failed.length,
+        removed
+      },
+      message,
+      results
+    });
+  } catch (e) {
+    console.error("/api/parent/kiosk-mode/bulk-disable error", e);
+    res.status(500).json({ error: "키오스크 모드 해제에 실패했습니다." });
   }
 });
 

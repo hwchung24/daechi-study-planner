@@ -2481,6 +2481,101 @@ async function deleteStudentMdmAppAllowanceProfileState(userId) {
   return res.rowCount > 0;
 }
 
+async function getStudentMdmKioskProfileState(userId) {
+  const res = await query(
+    `SELECT profile_id,
+            profile_name,
+            profile_identifier,
+            locked_bundle_id,
+            last_synced_at,
+            last_error,
+            updated_at
+     FROM student_mdm_kiosk_profiles
+     WHERE user_id = $1
+       AND provider = 'simplemdm'
+     LIMIT 1`,
+    [userId]
+  );
+  return res.rows[0] || null;
+}
+
+async function upsertStudentMdmKioskProfileState(userId, input = {}) {
+  const res = await query(
+    `INSERT INTO student_mdm_kiosk_profiles
+      (
+        user_id,
+        provider,
+        profile_id,
+        profile_name,
+        profile_identifier,
+        locked_bundle_id,
+        last_synced_at,
+        last_error,
+        updated_at
+      )
+     VALUES ($1, 'simplemdm', $2, $3, $4, $5, $6, $7, now())
+     ON CONFLICT (user_id)
+     DO UPDATE SET
+       provider = 'simplemdm',
+       profile_id = EXCLUDED.profile_id,
+       profile_name = EXCLUDED.profile_name,
+       profile_identifier = EXCLUDED.profile_identifier,
+       locked_bundle_id = EXCLUDED.locked_bundle_id,
+       last_synced_at = EXCLUDED.last_synced_at,
+       last_error = EXCLUDED.last_error,
+       updated_at = now()
+     RETURNING profile_id,
+               profile_name,
+               profile_identifier,
+               locked_bundle_id,
+               last_synced_at,
+               last_error,
+               updated_at`,
+    [
+      userId,
+      input.profileId != null ? Number(input.profileId) : null,
+      input.profileName != null ? String(input.profileName) : null,
+      input.profileIdentifier != null ? String(input.profileIdentifier) : null,
+      input.lockedBundleId != null ? String(input.lockedBundleId) : null,
+      input.lastSyncedAt != null ? input.lastSyncedAt : null,
+      input.lastError != null ? String(input.lastError) : null
+    ]
+  );
+  return res.rows[0] || null;
+}
+
+async function deleteStudentMdmKioskProfileState(userId) {
+  const res = await query(
+    `DELETE FROM student_mdm_kiosk_profiles
+     WHERE user_id = $1
+       AND provider = 'simplemdm'`,
+    [userId]
+  );
+  return res.rowCount > 0;
+}
+
+async function setStudentMdmKioskProfileSyncError(userId, errorMessage) {
+  const res = await query(
+    `INSERT INTO student_mdm_kiosk_profiles
+      (user_id, provider, last_error, updated_at)
+     VALUES ($1, 'simplemdm', $2, now())
+     ON CONFLICT (user_id)
+     DO UPDATE SET
+       provider = 'simplemdm',
+       last_error = EXCLUDED.last_error,
+       updated_at = now()
+     RETURNING profile_id,
+               profile_name,
+               profile_identifier,
+               locked_bundle_id,
+               last_synced_at,
+               last_error,
+               updated_at`,
+    [userId, String(errorMessage || '동기화 실패')]
+  );
+  return res.rows[0] || null;
+}
+
 async function setStudentMdmAppAllowanceProfileSyncError(userId, errorMessage) {
   const res = await query(
     `INSERT INTO student_mdm_app_allowance_profiles
@@ -3461,6 +3556,10 @@ module.exports = {
   setStudentMdmAppAllowanceOverride,
   clearStudentMdmAppAllowanceOverride,
   deleteStudentMdmAppAllowanceProfileState,
+  getStudentMdmKioskProfileState,
+  upsertStudentMdmKioskProfileState,
+  deleteStudentMdmKioskProfileState,
+  setStudentMdmKioskProfileSyncError,
   setStudentMdmAppAllowanceProfileSyncError,
   listStudentIdsForWeeklyAppAllowanceEnforcement,
   upsertStudentCoachProfile,
