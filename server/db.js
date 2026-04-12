@@ -2918,6 +2918,16 @@ async function getStudentDailyRecordCompletion(userId, recordDate = null) {
   };
 }
 
+async function clearStudentDailyRecordCompletion(userId, recordDate = null) {
+  const res = await query(
+    `DELETE FROM student_daily_record_completion
+     WHERE user_id = $1
+       AND record_date = COALESCE($2::date, (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Seoul')::date)`,
+    [userId, recordDate]
+  );
+  return res.rowCount > 0;
+}
+
 async function listRecentStudentCoachLogs(userId, limit = 14) {
   const res = await query(
     `SELECT *
@@ -3638,6 +3648,7 @@ module.exports = {
   setStudentCoachLogTomorrowPracticeDone,
   markStudentDailyRecordSectionSaved,
   getStudentDailyRecordCompletion,
+  clearStudentDailyRecordCompletion,
   listRecentStudentCoachLogs,
   listStudentCoachLogsInWeekRange,
   listStudentCoachLogsInDateRange,

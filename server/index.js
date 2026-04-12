@@ -76,6 +76,7 @@ const {
   setStudentCoachLogTomorrowPracticeDone,
   markStudentDailyRecordSectionSaved,
   getStudentDailyRecordCompletion,
+  clearStudentDailyRecordCompletion,
   listRecentStudentCoachLogs,
   listStudentCoachLogsInWeekRange,
   listStudentCoachLogsInDateRange,
@@ -5606,6 +5607,7 @@ app.post("/api/parent/kiosk-mode/bulk-enable", authMiddleware, async (req, res) 
         if (!sync.ok) {
           throw new Error(sync.error || "SimpleMDM 동기화에 실패했습니다.");
         }
+        await clearStudentDailyRecordCompletion(student.id);
         results.push({
           studentId: student.id,
           email: student.email,

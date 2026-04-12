@@ -650,6 +650,11 @@ const App: React.FC = () => {
     activationSource: "planner_time" | "admin_manual" | "manual" | null;
   } | null>(null);
   const plannerEnterPopupShownRef = useRef(false);
+  const shouldShowKioskEnterPopup = useCallback(
+    (source: "planner_time" | "admin_manual" | "manual" | null) =>
+      source === "planner_time" || source === "admin_manual",
+    []
+  );
 
   const [newBookName, setNewBookName] = useState("");
   const [booksModalMounted, setBooksModalMounted] = useState(false);
@@ -1364,14 +1369,14 @@ const App: React.FC = () => {
       activationSource: kioskMode.activationSource || null
     };
     const previous = kioskTransitionRef.current;
-    if (current.active && current.activationSource !== "planner_time") {
+    if (!shouldShowKioskEnterPopup(current.activationSource)) {
       plannerEnterPopupShownRef.current = false;
     }
     if (previous) {
       if (
         !previous.active &&
         current.active &&
-        current.activationSource === "planner_time" &&
+        shouldShowKioskEnterPopup(current.activationSource) &&
         !plannerEnterPopupShownRef.current
       ) {
         plannerEnterPopupShownRef.current = true;
@@ -1388,14 +1393,14 @@ const App: React.FC = () => {
       }
     } else if (
       current.active &&
-      current.activationSource === "planner_time" &&
+      shouldShowKioskEnterPopup(current.activationSource) &&
       !plannerEnterPopupShownRef.current
     ) {
       plannerEnterPopupShownRef.current = true;
       setKioskPopupKind("planner-enter");
     }
     kioskTransitionRef.current = current;
-  }, [meRole, studentLockStatus]);
+  }, [meRole, shouldShowKioskEnterPopup, studentLockStatus]);
 
   useEffect(() => {
     if (meRole !== "student") return;
