@@ -2471,6 +2471,16 @@ async function clearStudentMdmAppAllowanceOverride(userId) {
   return res.rows[0] || null;
 }
 
+async function deleteStudentMdmAppAllowanceProfileState(userId) {
+  const res = await query(
+    `DELETE FROM student_mdm_app_allowance_profiles
+     WHERE user_id = $1
+       AND provider = 'simplemdm'`,
+    [userId]
+  );
+  return res.rowCount > 0;
+}
+
 async function setStudentMdmAppAllowanceProfileSyncError(userId, errorMessage) {
   const res = await query(
     `INSERT INTO student_mdm_app_allowance_profiles
@@ -3450,6 +3460,7 @@ module.exports = {
   upsertStudentMdmAppAllowanceProfileState,
   setStudentMdmAppAllowanceOverride,
   clearStudentMdmAppAllowanceOverride,
+  deleteStudentMdmAppAllowanceProfileState,
   setStudentMdmAppAllowanceProfileSyncError,
   listStudentIdsForWeeklyAppAllowanceEnforcement,
   upsertStudentCoachProfile,

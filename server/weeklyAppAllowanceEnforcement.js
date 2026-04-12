@@ -7,6 +7,7 @@ const {
   upsertStudentMdmGroup,
   getStudentMdmAppAllowanceProfileState,
   upsertStudentMdmAppAllowanceProfileState,
+  deleteStudentMdmAppAllowanceProfileState,
   setStudentMdmAppAllowanceProfileSyncError,
   listStudentIdsForWeeklyAppAllowanceEnforcement
 } = require("./db");
@@ -311,6 +312,12 @@ async function syncStudentWeeklyAppAllowance(userId, options = {}) {
     };
   }
 
+  let bundleIds = [];
+  let deviceId = null;
+  let assignmentGroupId = null;
+  let profileId = null;
+  let appliedRemotely = false;
+
   try {
     const serial = await getActiveDeviceSerialForUser(userId);
     if (!serial) {
@@ -354,8 +361,12 @@ async function syncStudentWeeklyAppAllowance(userId, options = {}) {
     const assignmentGroup = await ensureStudentAssignmentGroup(userId, Number(device.id));
     const mobileconfig = buildRestrictionsMobileconfig({ userId, bundleIds });
     const profile = await upsertProfileForStudent(userId, profileState, mobileconfig);
+    deviceId = Number(device.id);
+    assignmentGroupId = assignmentGroup.id;
+    profileId = profile.profileId;
 
     await assignProfileToGroup(assignmentGroup.id, profile.profileId);
+    appliedRemotely = true;
 
     if (
       profile.replacedProfileId &&
@@ -395,14 +406,27 @@ async function syncStudentWeeklyAppAllowance(userId, options = {}) {
       bundleIds,
       overrideApplied: Array.isArray(profileState?.override_bundle_ids),
       payloadHash,
-      deviceId: Number(device.id),
-      assignmentGroupId: assignmentGroup.id,
-      profileId: profile.profileId,
+      deviceId,
+      assignmentGroupId,
+      profileId,
       reason: syncDeferred ? "rate_limited" : options.reason || "manual"
     };
   } catch (error) {
     const message = error instanceof Error ? error.message : "허용 앱 제한 동기화에 실패했습니다.";
     await setStudentMdmAppAllowanceProfileSyncError(userId, message).catch(() => {});
+    if (appliedRemotely) {
+      return {
+        ok: true,
+        partial: true,
+        warning: message,
+        bundleIds,
+        appliedRemotely: true,
+        deviceId,
+        assignmentGroupId,
+        profileId,
+        reason: "applied_with_warning"
+      };
+    }
     return {
       ok: false,
       error: message,
@@ -452,7 +476,41 @@ async function reconcileAllStudentWeeklyAppAllowances(options = {}) {
   };
 }
 
+async function removeStudentWeeklyAppAllowanceRestriction(userId) {
+  const profileState = await getStudentMdmAppAllowanceProfileState(userId);
+  if (!profileState?.profile_id) {
+    await deleteStudentMdmAppAllowanceProfileState(userId).catch(() => {});
+    return {
+      ok: true,
+      removed: false,
+      reason: "profile_not_found"
+    };
+  }
+
+  const assignmentGroup = await getStudentMdmGroup(userId).catch(() => null);
+  const profileId = Number(profileState.profile_id || 0);
+  const assignmentGroupId = Number(assignmentGroup?.assignment_group_id || 0);
+
+  if (assignmentGroupId > 0 && profileId > 0) {
+    await unassignProfileFromGroup(assignmentGroupId, profileId).catch(() => {});
+    await syncProfiles(assignmentGroupId).catch(() => {});
+  }
+  if (profileId > 0) {
+    await deleteCustomConfigurationProfile(profileId).catch(() => {});
+  }
+  await deleteStudentMdmAppAllowanceProfileState(userId).catch(() => {});
+
+  return {
+    ok: true,
+    removed: true,
+    profileId,
+    assignmentGroupId: assignmentGroupId > 0 ? assignmentGroupId : null,
+    reason: "removed"
+  };
+}
+
 module.exports = {
   syncStudentWeeklyAppAllowance,
-  reconcileAllStudentWeeklyAppAllowances
+  reconcileAllStudentWeeklyAppAllowances,
+  removeStudentWeeklyAppAllowanceRestriction
 };

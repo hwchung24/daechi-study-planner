@@ -66,6 +66,7 @@ const {
   upsertStudentMdmGroup,
   setStudentMdmAppAllowanceOverride,
   clearStudentMdmAppAllowanceOverride,
+  getStudentMdmAppAllowanceProfileState,
   upsertStudentCoachProfile,
   getStudentCoachProfile,
   insertStudentCoachLog,
@@ -123,7 +124,8 @@ const { runOnePair } = require("./aiReportService");
 const { sendPushToUser, sendPushToUsers } = require("./pushService");
 const {
   syncStudentWeeklyAppAllowance,
-  reconcileAllStudentWeeklyAppAllowances
+  reconcileAllStudentWeeklyAppAllowances,
+  removeStudentWeeklyAppAllowanceRestriction
 } = require("./weeklyAppAllowanceEnforcement");
 const {
   getStudentLockStatus,
@@ -5433,7 +5435,9 @@ app.post("/api/parent/app-allowance/bulk-daechiroot-lock", authMiddleware, async
           studentId: student.id,
           email: student.email,
           ok: true,
-          queued: Boolean(sync.queued)
+          queued: Boolean(sync.queued),
+          warning: sync.warning || null,
+          partial: Boolean(sync.partial)
         });
       } catch (error) {
         results.push({
@@ -5450,17 +5454,21 @@ app.post("/api/parent/app-allowance/bulk-daechiroot-lock", authMiddleware, async
 
     const successCount = results.filter(item => item.ok).length;
     const failed = results.filter(item => !item.ok);
+    const warned = results.filter(item => item.ok && item.warning);
     const message =
       failed.length > 0
-        ? `관리 학생 ${successCount}명에 대치루트 전용 잠금을 적용했고 ${failed.length}명은 실패했습니다.`
-        : `관리 학생 ${successCount}명에 대치루트 앱만 허용하도록 적용했습니다.`;
+        ? `관리 학생 ${successCount}명에 대치루트 전용 잠금을 적용했고 ${failed.length}명은 실패했습니다.${warned.length > 0 ? ` 경고 ${warned.length}건이 있습니다.` : ""}`
+        : warned.length > 0
+          ? `관리 학생 ${successCount}명에 대치루트 앱만 허용하도록 적용했습니다. 경고 ${warned.length}건이 있습니다.`
+          : `관리 학생 ${successCount}명에 대치루트 앱만 허용하도록 적용했습니다.`;
 
     res.json({
       ok: failed.length === 0,
       summary: {
         total: results.length,
         success: successCount,
-        failed: failed.length
+        failed: failed.length,
+        warned: warned.length
       },
       message,
       results
@@ -5486,6 +5494,24 @@ app.post("/api/parent/app-allowance/bulk-daechiroot-unlock", authMiddleware, asy
     for (const student of students) {
       try {
         await clearStudentMdmAppAllowanceOverride(student.id);
+        const [scheduleRows, profileState] = await Promise.all([
+          listStudentWeeklyAppAllowanceSlots(student.id),
+          getStudentMdmAppAllowanceProfileState(student.id)
+        ]);
+
+        if (scheduleRows.length === 0) {
+          const removal = await removeStudentWeeklyAppAllowanceRestriction(student.id);
+          results.push({
+            studentId: student.id,
+            email: student.email,
+            ok: true,
+            removed: Boolean(removal.removed),
+            warning: null,
+            partial: false
+          });
+          continue;
+        }
+
         const sync = await syncStudentWeeklyAppAllowance(student.id, {
           force: true,
           reason: "parent_bulk_daechiroot_unlock"
@@ -5497,7 +5523,11 @@ app.post("/api/parent/app-allowance/bulk-daechiroot-unlock", authMiddleware, asy
           studentId: student.id,
           email: student.email,
           ok: true,
-          queued: Boolean(sync.queued)
+          queued: Boolean(sync.queued),
+          warning: sync.warning || null,
+          partial: Boolean(sync.partial),
+          removed: false,
+          profilePresent: Boolean(profileState?.profile_id)
         });
       } catch (error) {
         results.push({
@@ -5514,17 +5544,23 @@ app.post("/api/parent/app-allowance/bulk-daechiroot-unlock", authMiddleware, asy
 
     const successCount = results.filter(item => item.ok).length;
     const failed = results.filter(item => !item.ok);
+    const warned = results.filter(item => item.ok && item.warning);
+    const removed = results.filter(item => item.ok && item.removed).length;
     const message =
       failed.length > 0
-        ? `관리 학생 ${successCount}명의 대치루트 전용 잠금을 해제했고 ${failed.length}명은 실패했습니다.`
-        : `관리 학생 ${successCount}명의 수동 잠금을 해제하고 주간 허용 시간표로 되돌렸습니다.`;
+        ? `관리 학생 ${successCount}명의 대치루트 전용 잠금을 해제했고 ${failed.length}명은 실패했습니다.${warned.length > 0 ? ` 경고 ${warned.length}건이 있습니다.` : ""}`
+        : warned.length > 0
+          ? `관리 학생 ${successCount}명의 수동 잠금을 해제했습니다. 프로필 제거 ${removed}명, 시간표 복귀 ${successCount - removed}명, 경고 ${warned.length}건이 있습니다.`
+          : `관리 학생 ${successCount}명의 수동 잠금을 해제했습니다. 프로필 제거 ${removed}명, 시간표 복귀 ${successCount - removed}명입니다.`;
 
     res.json({
       ok: failed.length === 0,
       summary: {
         total: results.length,
         success: successCount,
-        failed: failed.length
+        failed: failed.length,
+        warned: warned.length,
+        removed
       },
       message,
       results
