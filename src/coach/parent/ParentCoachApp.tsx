@@ -2015,8 +2015,14 @@ function StudentSettingsTab(props: {
       } else {
         props.hapticSuccess();
       }
-    } catch {
-      props.setParentPlannerMessage("일괄 제어 중 오류가 발생했습니다.");
+    } catch (error) {
+      const detail =
+        error instanceof Error && error.message
+          ? ` (${error.message})`
+          : "";
+      props.setParentPlannerMessage(
+        `일괄 제어 중 오류가 발생했습니다. API: ${props.apiBase}${detail}`
+      );
       props.hapticWarning();
     } finally {
       setBulkDaechiRootLockSaving(false);
@@ -2061,8 +2067,14 @@ function StudentSettingsTab(props: {
       } else {
         props.hapticSuccess();
       }
-    } catch {
-      props.setParentPlannerMessage("키오스크 모드 제어 중 오류가 발생했습니다.");
+    } catch (error) {
+      const detail =
+        error instanceof Error && error.message
+          ? ` (${error.message})`
+          : "";
+      props.setParentPlannerMessage(
+        `키오스크 모드 제어 중 오류가 발생했습니다. API: ${props.apiBase}${detail}`
+      );
       props.hapticWarning();
     } finally {
       setBulkKioskSaving(false);
