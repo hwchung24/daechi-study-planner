@@ -5262,9 +5262,7 @@ app.get("/api/student/lock-status", authMiddleware, async (req, res) => {
       getStudentKioskModeStatus(req.userId),
       getStudentDailyRecordCompletion(req.userId)
     ]);
-    const forceRecordsPage = Boolean(
-      kioskMode.active && (!dailyRecordCompletion.completed || kioskMode.autoReleaseExempt)
-    );
+    const forceRecordsPage = Boolean(kioskMode.active && !dailyRecordCompletion.completed);
     res.json({ lockStatus: { ...lockStatus, kioskMode, dailyRecordCompletion, forceRecordsPage } });
   } catch (e) {
     console.error("/api/student/lock-status error", e);
@@ -5603,7 +5601,7 @@ app.post("/api/parent/kiosk-mode/bulk-enable", authMiddleware, async (req, res) 
         const sync = await enableStudentKioskMode(student.id, {
           reason: "parent_bulk_kiosk_enable",
           activationSource: "admin_manual",
-          autoReleaseExempt: true
+          autoReleaseExempt: false
         });
         if (!sync.ok) {
           throw new Error(sync.error || "SimpleMDM 동기화에 실패했습니다.");
@@ -5978,11 +5976,8 @@ app.post("/api/student/coach/log", authMiddleware, async (req, res) => {
       await markStudentDailyRecordSectionSaved(req.userId, recordKind);
       dailyRecordCompletion = await getStudentDailyRecordCompletion(req.userId);
       if (dailyRecordCompletion.completed) {
-        const kioskModeBefore = await getStudentKioskModeStatus(req.userId);
-        if (kioskModeBefore.active && !kioskModeBefore.autoReleaseExempt) {
-          const disabled = await disableStudentKioskMode(req.userId);
-          kioskModeReleased = Boolean(disabled.ok);
-        }
+        const disabled = await disableStudentKioskMode(req.userId);
+        kioskModeReleased = Boolean(disabled.ok);
       }
     }
     const kioskMode = await getStudentKioskModeStatus(req.userId);

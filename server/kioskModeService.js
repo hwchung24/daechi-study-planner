@@ -378,11 +378,6 @@ async function reconcilePlannerTimeKioskModes(now = new Date()) {
 
   for (const studentUserId of desiredLockedByStudent.keys()) {
     try {
-      const kioskMode = await getStudentKioskModeStatus(studentUserId);
-      if (kioskMode.active && kioskMode.autoReleaseExempt) {
-        skipped += 1;
-        continue;
-      }
       const completion = await getStudentDailyRecordCompletion(studentUserId);
       if (completion.completed) {
         const disabled = await disableStudentKioskMode(studentUserId);

@@ -649,6 +649,7 @@ const App: React.FC = () => {
     active: boolean;
     activationSource: "planner_time" | "admin_manual" | "manual" | null;
   } | null>(null);
+  const plannerEnterPopupShownRef = useRef(false);
 
   const [newBookName, setNewBookName] = useState("");
   const [booksModalMounted, setBooksModalMounted] = useState(false);
@@ -1350,6 +1351,7 @@ const App: React.FC = () => {
   useEffect(() => {
     if (meRole !== "student") {
       kioskTransitionRef.current = null;
+      plannerEnterPopupShownRef.current = false;
       setKioskPopupKind(null);
       return;
     }
@@ -1362,12 +1364,17 @@ const App: React.FC = () => {
       activationSource: kioskMode.activationSource || null
     };
     const previous = kioskTransitionRef.current;
+    if (current.active && current.activationSource !== "planner_time") {
+      plannerEnterPopupShownRef.current = false;
+    }
     if (previous) {
       if (
         !previous.active &&
         current.active &&
-        current.activationSource === "planner_time"
+        current.activationSource === "planner_time" &&
+        !plannerEnterPopupShownRef.current
       ) {
+        plannerEnterPopupShownRef.current = true;
         setKioskPopupKind("planner-enter");
       }
       if (
@@ -1377,10 +1384,30 @@ const App: React.FC = () => {
         Boolean(studentLockStatus?.dailyRecordCompletion?.completed)
       ) {
         setKioskPopupKind("planner-release");
+        plannerEnterPopupShownRef.current = false;
       }
+    } else if (
+      current.active &&
+      current.activationSource === "planner_time" &&
+      !plannerEnterPopupShownRef.current
+    ) {
+      plannerEnterPopupShownRef.current = true;
+      setKioskPopupKind("planner-enter");
     }
     kioskTransitionRef.current = current;
   }, [meRole, studentLockStatus]);
+
+  useEffect(() => {
+    if (meRole !== "student") return;
+    if (!studentLockStatus?.forceRecordsPage) return;
+    const forceToRecords = () => {
+      if (getAppPath() !== "#/records") {
+        replaceAppPath("#/records");
+      }
+    };
+    forceToRecords();
+    return subscribeAppPathChange(forceToRecords);
+  }, [meRole, studentLockStatus?.forceRecordsPage]);
 
   useEffect(() => {
     if (!authToken || meRole !== "student") return;
@@ -1406,10 +1433,17 @@ const App: React.FC = () => {
       }
     };
     run();
+    const onLogSaved = () => {
+      if (!cancelled) {
+        void run();
+      }
+    };
+    window.addEventListener(DAECHI_COACH_LOG_SAVED_EVENT, onLogSaved);
     const timerId = window.setInterval(run, 30000);
     return () => {
       cancelled = true;
       window.clearInterval(timerId);
+      window.removeEventListener(DAECHI_COACH_LOG_SAVED_EVENT, onLogSaved);
     };
   }, [authToken, meRole]);
 
@@ -3173,6 +3207,15 @@ const App: React.FC = () => {
             coachStudentTab={coachStudentTab}
             coachParentTab={coachParentTab}
             onStudentNavClick={nextTab => {
+              if (
+                meRole === "student" &&
+                studentLockStatus?.forceRecordsPage &&
+                nextTab !== "records"
+              ) {
+                hapticWarning();
+                setAppPath("#/records");
+                return;
+              }
                 hapticSelection();
               setCoachStudentTab(null);
               setCoachStudentCoachLayout("scroll");
@@ -3188,6 +3231,14 @@ const App: React.FC = () => {
               );
             }}
             onCoachStudentNavClick={nextTab => {
+              if (meRole === "student" && studentLockStatus?.forceRecordsPage) {
+                hapticWarning();
+                setCoachStudentTab(null);
+                setCoachStudentCoachLayout("scroll");
+                setTab("records");
+                setAppPath("#/records");
+                return;
+              }
                 hapticSelection();
               setCoachStudentTab(nextTab);
               setCoachStudentCoachLayout(nextTab === "coach" ? "chat" : "scroll");
