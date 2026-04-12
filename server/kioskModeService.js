@@ -54,8 +54,26 @@ function buildKioskMobileconfig({ userId, bundleId }) {
       <string>${escapeXml(kioskUuid)}</string>
       <key>PayloadDisplayName</key>
       <string>DaechiRoot Kiosk Mode</string>
-      <key>Identifier</key>
-      <string>${escapeXml(bundleId)}</string>
+      <key>App</key>
+      <dict>
+        <key>Identifier</key>
+        <string>${escapeXml(bundleId)}</string>
+        <key>Options</key>
+        <dict>
+          <key>DisableAutoLock</key>
+          <true/>
+          <key>DisableDeviceRotation</key>
+          <true/>
+          <key>DisableSleepWakeButton</key>
+          <true/>
+          <key>DisableVolumeButtons</key>
+          <true/>
+          <key>DisableRingerSwitch</key>
+          <true/>
+          <key>DisableTouch</key>
+          <false/>
+        </dict>
+      </dict>
     </dict>
   </array>
   <key>PayloadDisplayName</key>
