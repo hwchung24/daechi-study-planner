@@ -15,12 +15,18 @@ function getBasicAuthHeader() {
 }
 
 async function simpleMdmRequest(path, options = {}) {
+  const isFormDataBody =
+    typeof FormData !== "undefined" && options.body instanceof FormData;
   const res = await fetch(`${SIMPLEMDM_API_BASE}${path}`, {
     ...options,
     headers: {
       Authorization: getBasicAuthHeader(),
       Accept: "application/json",
-      ...(options.body ? { "Content-Type": "application/x-www-form-urlencoded" } : {}),
+      ...(
+        options.body && !isFormDataBody
+          ? { "Content-Type": "application/x-www-form-urlencoded" }
+          : {}
+      ),
       ...(options.headers || {})
     }
   });
@@ -40,7 +46,10 @@ async function simpleMdmRequest(path, options = {}) {
       data?.errors?.[0]?.detail ||
       data?.error ||
       `SimpleMDM 요청 실패 (${res.status})`;
-    throw new Error(message);
+    const error = new Error(message);
+    error.status = res.status;
+    error.payload = data;
+    throw error;
   }
 
   return data;
@@ -327,8 +336,93 @@ async function refreshDevice(deviceId) {
   });
 }
 
+async function createCustomConfigurationProfile({
+  name,
+  mobileconfig,
+  userScope = false,
+  attributeSupport = false,
+  declarative = false
+}) {
+  const form = new FormData();
+  form.set("name", String(name || "Weekly App Allowance"));
+  form.set(
+    "mobileconfig",
+    new Blob([String(mobileconfig || "")], {
+      type: "application/x-apple-aspen-config"
+    }),
+    "weekly-app-allowance.mobileconfig"
+  );
+  form.set("user_scope", userScope ? "true" : "false");
+  form.set("attribute_support", attributeSupport ? "true" : "false");
+  form.set("declarative", declarative ? "true" : "false");
+  const data = await simpleMdmRequest("/custom_configuration_profiles", {
+    method: "POST",
+    body: form
+  });
+  return data?.data || null;
+}
+
+async function updateCustomConfigurationProfile(
+  profileId,
+  { name, mobileconfig, userScope = false, attributeSupport = false, declarative = false }
+) {
+  const form = new FormData();
+  if (name != null) form.set("name", String(name));
+  if (mobileconfig != null) {
+    form.set(
+      "mobileconfig",
+      new Blob([String(mobileconfig)], {
+        type: "application/x-apple-aspen-config"
+      }),
+      "weekly-app-allowance.mobileconfig"
+    );
+  }
+  form.set("user_scope", userScope ? "true" : "false");
+  form.set("attribute_support", attributeSupport ? "true" : "false");
+  form.set("declarative", declarative ? "true" : "false");
+  const data = await simpleMdmRequest(
+    `/custom_configuration_profiles/${profileId}`,
+    {
+      method: "PATCH",
+      body: form
+    }
+  );
+  return data?.data || null;
+}
+
+async function deleteCustomConfigurationProfile(profileId) {
+  await simpleMdmRequest(`/custom_configuration_profiles/${profileId}`, {
+    method: "DELETE"
+  });
+}
+
+async function assignProfileToGroup(groupId, profileId) {
+  await simpleMdmRequest(
+    `/assignment_groups/${groupId}/profiles/${profileId}`,
+    {
+      method: "POST"
+    }
+  );
+}
+
+async function unassignProfileFromGroup(groupId, profileId) {
+  await simpleMdmRequest(
+    `/assignment_groups/${groupId}/profiles/${profileId}`,
+    {
+      method: "DELETE"
+    }
+  );
+}
+
+async function syncProfiles(groupId) {
+  await simpleMdmRequest(`/assignment_groups/${groupId}/sync_profiles`, {
+    method: "POST"
+  });
+}
+
 module.exports = {
   isSimpleMdmConfigured,
+  simpleMdmRequest,
   findDeviceBySerial,
   findAppByBundleId,
   findAppByName,
@@ -343,5 +437,11 @@ module.exports = {
   assignDeviceToGroup,
   pushApps,
   pushAssignedAppsToDevice,
-  refreshDevice
+  refreshDevice,
+  createCustomConfigurationProfile,
+  updateCustomConfigurationProfile,
+  deleteCustomConfigurationProfile,
+  assignProfileToGroup,
+  unassignProfileFromGroup,
+  syncProfiles
 };

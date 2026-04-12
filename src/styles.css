@@ -68,10 +68,7 @@
   --modal-radius: 18px;
   --modal-inner-transform-from: scale(0.96) translateY(10px);
   /* 하단 플로팅 네비 바로 위까지 — 여백 최소(네비 높이·safe-area만) */
-  --app-bottom-nav-clearance: max(
-    68px,
-    calc(env(safe-area-inset-bottom, 0px) + 58px)
-  );
+  --app-bottom-nav-clearance: 68px;
 }
 
 @supports (height: 100dvh) {
@@ -573,7 +570,7 @@ body.app-keyboard-open .app-main {
   min-height: 0;
   overflow: hidden;
   overscroll-behavior-y: contain;
-  padding-bottom: max(10px, calc(env(safe-area-inset-bottom, 0px) + 66px));
+  padding-bottom: 66px;
 }
 
 .app-main.app-main--coach-chat .coach-shell {
@@ -665,7 +662,7 @@ body.app-keyboard-open .app-main {
   flex-direction: column;
   gap: 10px;
   padding-top: 10px;
-  padding-bottom: calc(8px + env(safe-area-inset-bottom, 0px));
+  padding-bottom: 8px;
   background:
     linear-gradient(180deg, rgba(243, 244, 246, 0) 0%, rgba(243, 244, 246, 0.84) 24%, rgba(243, 244, 246, 0.97) 100%);
   backdrop-filter: blur(12px);
@@ -673,7 +670,7 @@ body.app-keyboard-open .app-main {
 
 .coach-chat-composer-open .coach-chat-bottom-rail {
   padding-top: 6px;
-  padding-bottom: max(4px, env(safe-area-inset-bottom, 0px));
+  padding-bottom: 4px;
   background: rgba(243, 244, 246, 0.98);
   backdrop-filter: blur(16px);
 }

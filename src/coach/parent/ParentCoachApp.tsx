@@ -1837,6 +1837,7 @@ function StudentSettingsTab(props: {
   const [studyRoomSaving, setStudyRoomSaving] = useState(false);
   const [studyRoomMessage, setStudyRoomMessage] = useState("");
   const [plannerTimeSheetOpen, setPlannerTimeSheetOpen] = useState(false);
+  const [bulkDaechiRootLockSaving, setBulkDaechiRootLockSaving] = useState(false);
 
   useEffect(() => {
     setStudyRoomMessage("");
@@ -1973,6 +1974,54 @@ function StudentSettingsTab(props: {
     }
   };
 
+  const toggleBulkDaechiRootLock = async (nextLocked: boolean) => {
+    if (!props.authToken || props.parentStudents.length === 0) return;
+    setBulkDaechiRootLockSaving(true);
+    props.setParentPlannerMessage("");
+    try {
+      const res = await fetch(
+        `${props.apiBase}/api/parent/app-allowance/${
+          nextLocked ? "bulk-daechiroot-lock" : "bulk-daechiroot-unlock"
+        }`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${props.authToken}`
+          }
+        }
+      );
+      const data = (await res.json().catch(() => ({}))) as {
+        error?: string;
+        message?: string;
+        summary?: { total?: number; success?: number; failed?: number };
+      };
+      if (!res.ok) {
+        props.setParentPlannerMessage(
+          data.error || (nextLocked ? "일괄 잠금에 실패했습니다." : "일괄 해제에 실패했습니다.")
+        );
+        props.hapticWarning();
+        return;
+      }
+      props.setParentPlannerMessage(
+        data.message ||
+          (nextLocked
+            ? "관리 학생 기기를 대치루트 전용 허용 상태로 전환했습니다."
+            : "관리 학생 기기를 주간 허용 시간표 기준으로 복원했습니다.")
+      );
+      if ((data.summary?.failed || 0) > 0) {
+        props.hapticWarning();
+      } else {
+        props.hapticSuccess();
+      }
+    } catch {
+      props.setParentPlannerMessage("일괄 제어 중 오류가 발생했습니다.");
+      props.hapticWarning();
+    } finally {
+      setBulkDaechiRootLockSaving(false);
+    }
+  };
+
   return (
     <div className="coach-page">
       <StudentSelectorCard
@@ -2045,6 +2094,36 @@ function StudentSettingsTab(props: {
                   {props.parentPlannerTime}
                 </span>
               </button>
+            </div>
+            <div className="student-profile-link-status student-profile-link-status--first">
+              <span className="student-profile-link-status__title">테스트용 일괄 잠금</span>
+              <span className="student-profile-link-status__hint">
+                관리 학생 전체에 대치루트 앱만 남기는 SimpleMDM 제한 프로필을 즉시 적용합니다.
+              </span>
+              <div className="student-profile-link-request-row" style={{ marginTop: 8 }}>
+                <div className="student-profile-link-request-row__actions">
+                  <button
+                    type="button"
+                    className="student-profile-link-action-btn"
+                    disabled={bulkDaechiRootLockSaving}
+                    onClick={() => {
+                      void toggleBulkDaechiRootLock(true);
+                    }}
+                  >
+                    {bulkDaechiRootLockSaving ? "처리 중..." : "일괄 잠금"}
+                  </button>
+                  <button
+                    type="button"
+                    className="student-profile-link-action-btn student-profile-link-action-btn--danger"
+                    disabled={bulkDaechiRootLockSaving}
+                    onClick={() => {
+                      void toggleBulkDaechiRootLock(false);
+                    }}
+                  >
+                    일괄 해제
+                  </button>
+                </div>
+              </div>
             </div>
             <div className="student-profile-link-status student-profile-link-status--first">
               <div className="student-profile-link-request-row">

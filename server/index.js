@@ -64,6 +64,8 @@ const {
   setStoreAppInstalled,
   getStudentMdmGroup,
   upsertStudentMdmGroup,
+  setStudentMdmAppAllowanceOverride,
+  clearStudentMdmAppAllowanceOverride,
   upsertStudentCoachProfile,
   getStudentCoachProfile,
   insertStudentCoachLog,
@@ -116,8 +118,13 @@ const {
 } = require("./analytics");
 const { startDailyAiReportCron } = require("./dailyReportCron");
 const { startPlannerLockCron } = require("./plannerLockCron");
+const { startWeeklyAppAllowanceCron } = require("./weeklyAppAllowanceCron");
 const { runOnePair } = require("./aiReportService");
 const { sendPushToUser, sendPushToUsers } = require("./pushService");
+const {
+  syncStudentWeeklyAppAllowance,
+  reconcileAllStudentWeeklyAppAllowances
+} = require("./weeklyAppAllowanceEnforcement");
 const {
   getStudentLockStatus,
   assertStudentCanEditDate,
@@ -165,6 +172,7 @@ const SIMPLEMDM_LOCATION_REFRESH_COOLDOWN_MS = 5 * 60 * 1000;
 const UPLOADS_ROOT = path.join(__dirname, "uploads");
 const HOMEWORK_UPLOADS_DIR = path.join(UPLOADS_ROOT, "homework");
 const simpleMdmLocationRefreshAtByDeviceId = new Map();
+const DAECHI_ROOT_BUNDLE_ID = "com.daechiroot.ios";
 
 fs.mkdirSync(HOMEWORK_UPLOADS_DIR, { recursive: true });
 
@@ -3320,9 +3328,13 @@ app.put("/api/student/weekly-app-allowance", authMiddleware, async (req, res) =>
       }
       throw error;
     }
+    const sync = await syncStudentWeeklyAppAllowance(req.userId, {
+      reason: "student_save"
+    });
     res.json({
       ok: true,
-      schedule: buildStudentWeeklyAppAllowanceResponse(rows)
+      schedule: buildStudentWeeklyAppAllowanceResponse(rows),
+      sync
     });
   } catch (e) {
     console.error("/api/student/weekly-app-allowance PUT error", e);
@@ -5395,6 +5407,134 @@ app.post("/api/parent/unlock-now", authMiddleware, async (req, res) => {
   }
 });
 
+app.post("/api/parent/app-allowance/bulk-daechiroot-lock", authMiddleware, async (req, res) => {
+  try {
+    const me = await getMe(req.userId);
+    if (!me || me.role !== "parent") {
+      return res.status(403).json({ error: "권한이 없습니다." });
+    }
+    const students = await listParentStudents(req.userId);
+    if (!students.length) {
+      return res.status(400).json({ error: "관리 중인 학생이 없습니다." });
+    }
+
+    const results = [];
+    for (const student of students) {
+      try {
+        await setStudentMdmAppAllowanceOverride(student.id, [DAECHI_ROOT_BUNDLE_ID]);
+        const sync = await syncStudentWeeklyAppAllowance(student.id, {
+          force: true,
+          reason: "parent_bulk_daechiroot_lock"
+        });
+        if (!sync.ok) {
+          throw new Error(sync.error || "SimpleMDM 동기화에 실패했습니다.");
+        }
+        results.push({
+          studentId: student.id,
+          email: student.email,
+          ok: true,
+          queued: Boolean(sync.queued)
+        });
+      } catch (error) {
+        results.push({
+          studentId: student.id,
+          email: student.email,
+          ok: false,
+          error:
+            error instanceof Error && error.message
+              ? error.message
+              : "대치루트 전용 잠금 적용에 실패했습니다."
+        });
+      }
+    }
+
+    const successCount = results.filter(item => item.ok).length;
+    const failed = results.filter(item => !item.ok);
+    const message =
+      failed.length > 0
+        ? `관리 학생 ${successCount}명에 대치루트 전용 잠금을 적용했고 ${failed.length}명은 실패했습니다.`
+        : `관리 학생 ${successCount}명에 대치루트 앱만 허용하도록 적용했습니다.`;
+
+    res.json({
+      ok: failed.length === 0,
+      summary: {
+        total: results.length,
+        success: successCount,
+        failed: failed.length
+      },
+      message,
+      results
+    });
+  } catch (e) {
+    console.error("/api/parent/app-allowance/bulk-daechiroot-lock error", e);
+    res.status(500).json({ error: "일괄 잠금에 실패했습니다." });
+  }
+});
+
+app.post("/api/parent/app-allowance/bulk-daechiroot-unlock", authMiddleware, async (req, res) => {
+  try {
+    const me = await getMe(req.userId);
+    if (!me || me.role !== "parent") {
+      return res.status(403).json({ error: "권한이 없습니다." });
+    }
+    const students = await listParentStudents(req.userId);
+    if (!students.length) {
+      return res.status(400).json({ error: "관리 중인 학생이 없습니다." });
+    }
+
+    const results = [];
+    for (const student of students) {
+      try {
+        await clearStudentMdmAppAllowanceOverride(student.id);
+        const sync = await syncStudentWeeklyAppAllowance(student.id, {
+          force: true,
+          reason: "parent_bulk_daechiroot_unlock"
+        });
+        if (!sync.ok) {
+          throw new Error(sync.error || "SimpleMDM 동기화에 실패했습니다.");
+        }
+        results.push({
+          studentId: student.id,
+          email: student.email,
+          ok: true,
+          queued: Boolean(sync.queued)
+        });
+      } catch (error) {
+        results.push({
+          studentId: student.id,
+          email: student.email,
+          ok: false,
+          error:
+            error instanceof Error && error.message
+              ? error.message
+              : "대치루트 전용 잠금 해제에 실패했습니다."
+        });
+      }
+    }
+
+    const successCount = results.filter(item => item.ok).length;
+    const failed = results.filter(item => !item.ok);
+    const message =
+      failed.length > 0
+        ? `관리 학생 ${successCount}명의 대치루트 전용 잠금을 해제했고 ${failed.length}명은 실패했습니다.`
+        : `관리 학생 ${successCount}명의 수동 잠금을 해제하고 주간 허용 시간표로 되돌렸습니다.`;
+
+    res.json({
+      ok: failed.length === 0,
+      summary: {
+        total: results.length,
+        success: successCount,
+        failed: failed.length
+      },
+      message,
+      results
+    });
+  } catch (e) {
+    console.error("/api/parent/app-allowance/bulk-daechiroot-unlock error", e);
+    res.status(500).json({ error: "일괄 해제에 실패했습니다." });
+  }
+});
+
 // 학생: 학습 앱스토어 목록 + 내 설치 상태
 app.get("/api/student/store-apps", authMiddleware, async (req, res) => {
   try {
@@ -6180,6 +6320,10 @@ app.post("/api/parent/app-timetable-request/approve", authMiddleware, async (req
       throw error;
     }
 
+    const sync = await syncStudentWeeklyAppAllowance(studentUser.id, {
+      reason: "parent_approve"
+    });
+
     await createStudentNotification(
       studentUser.id,
       "허용 앱 시간표 승인 완료",
@@ -6189,7 +6333,8 @@ app.post("/api/parent/app-timetable-request/approve", authMiddleware, async (req
     res.json({
       ok: true,
       dayKeys: Array.from(replacedDayKeys),
-      schedule: buildStudentWeeklyAppAllowanceResponse(rows)
+      schedule: buildStudentWeeklyAppAllowanceResponse(rows),
+      sync
     });
   } catch (e) {
     console.error("/api/parent/app-timetable-request/approve error", e);
@@ -7065,8 +7210,12 @@ async function connectDbWithRetry() {
     if (!cronStarted) {
       startDailyAiReportCron();
       startPlannerLockCron();
+      startWeeklyAppAllowanceCron();
       await reconcileAllPlannerLocks().catch(err => {
         console.error("planner lock reconciliation on startup failed:", err);
+      });
+      await reconcileAllStudentWeeklyAppAllowances({ reason: "startup" }).catch(err => {
+        console.error("weekly app allowance reconciliation on startup failed:", err);
       });
       cronStarted = true;
     }

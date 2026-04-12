@@ -2325,6 +2325,192 @@ async function upsertStudentMdmGroup(userId, assignmentGroupId, assignmentGroupN
   return res.rows[0];
 }
 
+async function getStudentMdmAppAllowanceProfileState(userId) {
+  const res = await query(
+    `SELECT profile_id,
+            profile_name,
+            profile_identifier,
+            override_bundle_ids,
+            override_updated_at,
+            last_payload_hash,
+            last_synced_at,
+            last_error,
+            updated_at
+     FROM student_mdm_app_allowance_profiles
+     WHERE user_id = $1
+       AND provider = 'simplemdm'
+     LIMIT 1`,
+    [userId]
+  );
+  return res.rows[0] || null;
+}
+
+async function upsertStudentMdmAppAllowanceProfileState(userId, input = {}) {
+  const res = await query(
+    `INSERT INTO student_mdm_app_allowance_profiles
+      (
+        user_id,
+        provider,
+        profile_id,
+        profile_name,
+        profile_identifier,
+        override_bundle_ids,
+        override_updated_at,
+        last_payload_hash,
+        last_synced_at,
+        last_error,
+        updated_at
+      )
+     VALUES ($1, 'simplemdm', $2, $3, $4, $5::jsonb, $6, $7, $8, $9, now())
+     ON CONFLICT (user_id)
+     DO UPDATE SET
+       provider = 'simplemdm',
+       profile_id = EXCLUDED.profile_id,
+       profile_name = EXCLUDED.profile_name,
+       profile_identifier = EXCLUDED.profile_identifier,
+       override_bundle_ids = COALESCE(
+         EXCLUDED.override_bundle_ids,
+         student_mdm_app_allowance_profiles.override_bundle_ids
+       ),
+       override_updated_at = COALESCE(
+         EXCLUDED.override_updated_at,
+         student_mdm_app_allowance_profiles.override_updated_at
+       ),
+       last_payload_hash = EXCLUDED.last_payload_hash,
+       last_synced_at = EXCLUDED.last_synced_at,
+       last_error = EXCLUDED.last_error,
+       updated_at = now()
+     RETURNING profile_id,
+               profile_name,
+               profile_identifier,
+               override_bundle_ids,
+               override_updated_at,
+               last_payload_hash,
+               last_synced_at,
+               last_error,
+               updated_at`,
+    [
+      userId,
+      input.profileId != null ? Number(input.profileId) : null,
+      input.profileName != null ? String(input.profileName) : null,
+      input.profileIdentifier != null ? String(input.profileIdentifier) : null,
+      Array.isArray(input.overrideBundleIds)
+        ? JSON.stringify(
+            Array.from(
+              new Set(
+                input.overrideBundleIds
+                  .map(value => String(value || "").trim().toLowerCase())
+                  .filter(Boolean)
+              )
+            )
+          )
+        : null,
+      input.overrideUpdatedAt != null ? input.overrideUpdatedAt : null,
+      input.lastPayloadHash != null ? String(input.lastPayloadHash) : null,
+      input.lastSyncedAt != null ? input.lastSyncedAt : null,
+      input.lastError != null ? String(input.lastError) : null
+    ]
+  );
+  return res.rows[0] || null;
+}
+
+async function setStudentMdmAppAllowanceOverride(userId, bundleIds = []) {
+  const normalizedBundleIds = Array.from(
+    new Set(
+      (Array.isArray(bundleIds) ? bundleIds : [])
+        .map(value => String(value || "").trim().toLowerCase())
+        .filter(Boolean)
+    )
+  ).sort();
+  const res = await query(
+    `INSERT INTO student_mdm_app_allowance_profiles
+      (user_id, provider, override_bundle_ids, override_updated_at, updated_at)
+     VALUES ($1, 'simplemdm', $2::jsonb, now(), now())
+     ON CONFLICT (user_id)
+     DO UPDATE SET
+       provider = 'simplemdm',
+       override_bundle_ids = EXCLUDED.override_bundle_ids,
+       override_updated_at = now(),
+       updated_at = now()
+     RETURNING profile_id,
+               profile_name,
+               profile_identifier,
+               override_bundle_ids,
+               override_updated_at,
+               last_payload_hash,
+               last_synced_at,
+               last_error,
+               updated_at`,
+    [userId, JSON.stringify(normalizedBundleIds)]
+  );
+  return res.rows[0] || null;
+}
+
+async function clearStudentMdmAppAllowanceOverride(userId) {
+  const res = await query(
+    `INSERT INTO student_mdm_app_allowance_profiles
+      (user_id, provider, override_bundle_ids, override_updated_at, updated_at)
+     VALUES ($1, 'simplemdm', NULL, NULL, now())
+     ON CONFLICT (user_id)
+     DO UPDATE SET
+       provider = 'simplemdm',
+       override_bundle_ids = NULL,
+       override_updated_at = NULL,
+       updated_at = now()
+     RETURNING profile_id,
+               profile_name,
+               profile_identifier,
+               override_bundle_ids,
+               override_updated_at,
+               last_payload_hash,
+               last_synced_at,
+               last_error,
+               updated_at`,
+    [userId]
+  );
+  return res.rows[0] || null;
+}
+
+async function setStudentMdmAppAllowanceProfileSyncError(userId, errorMessage) {
+  const res = await query(
+    `INSERT INTO student_mdm_app_allowance_profiles
+      (user_id, provider, last_error, updated_at)
+     VALUES ($1, 'simplemdm', $2, now())
+     ON CONFLICT (user_id)
+     DO UPDATE SET
+       provider = 'simplemdm',
+       last_error = EXCLUDED.last_error,
+       updated_at = now()
+     RETURNING profile_id,
+               profile_name,
+               profile_identifier,
+               override_bundle_ids,
+               override_updated_at,
+               last_payload_hash,
+               last_synced_at,
+               last_error,
+               updated_at`,
+    [userId, String(errorMessage || '동기화 실패')]
+  );
+  return res.rows[0] || null;
+}
+
+async function listStudentIdsForWeeklyAppAllowanceEnforcement() {
+  const res = await query(
+    `SELECT DISTINCT user_id
+     FROM (
+       SELECT user_id FROM student_weekly_app_allowance_slots
+       UNION
+       SELECT user_id FROM student_mdm_app_allowance_profiles
+     ) candidates
+     ORDER BY user_id ASC`,
+    []
+  );
+  return res.rows
+    .map(row => Number(row.user_id))
+    .filter(userId => Number.isFinite(userId) && userId > 0);
+}
+
 async function upsertStudentCoachProfile(userId, input = {}) {
   const res = await query(
     `INSERT INTO student_coach_profiles
@@ -3260,6 +3446,12 @@ module.exports = {
   setStoreAppInstalled,
   getStudentMdmGroup,
   upsertStudentMdmGroup,
+  getStudentMdmAppAllowanceProfileState,
+  upsertStudentMdmAppAllowanceProfileState,
+  setStudentMdmAppAllowanceOverride,
+  clearStudentMdmAppAllowanceOverride,
+  setStudentMdmAppAllowanceProfileSyncError,
+  listStudentIdsForWeeklyAppAllowanceEnforcement,
   upsertStudentCoachProfile,
   getStudentCoachProfile,
   insertStudentCoachLog,

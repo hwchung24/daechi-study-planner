@@ -325,6 +325,30 @@ CREATE TABLE IF NOT EXISTS student_mdm_groups (
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
+CREATE TABLE IF NOT EXISTS student_mdm_app_allowance_profiles (
+  user_id BIGINT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+  provider TEXT NOT NULL DEFAULT 'simplemdm',
+  profile_id BIGINT,
+  profile_name TEXT,
+  profile_identifier TEXT,
+  override_bundle_ids JSONB,
+  override_updated_at TIMESTAMPTZ,
+  last_payload_hash TEXT,
+  last_synced_at TIMESTAMPTZ,
+  last_error TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_student_mdm_app_allowance_profiles_updated
+  ON student_mdm_app_allowance_profiles (updated_at DESC);
+
+ALTER TABLE student_mdm_app_allowance_profiles
+  ADD COLUMN IF NOT EXISTS override_bundle_ids JSONB;
+
+ALTER TABLE student_mdm_app_allowance_profiles
+  ADD COLUMN IF NOT EXISTS override_updated_at TIMESTAMPTZ;
+
 -- 16. Student AI coach profile / memory
 CREATE TABLE IF NOT EXISTS student_coach_profiles (
   user_id BIGINT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
