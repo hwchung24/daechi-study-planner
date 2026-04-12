@@ -47,6 +47,18 @@ const BASELINE_ALLOWLIST_BUNDLE_IDS = Array.from(
     ].filter(Boolean)
   )
 ).sort();
+const DAECHI_ROOT_ONLY_BLOCKED_BUNDLE_IDS = Array.from(
+  new Set(
+    [
+      "com.apple.mobilephone",
+      "com.apple.Preferences",
+      ...String(process.env.SIMPLEMDM_DAECHIROOT_ONLY_BLOCKED_BUNDLE_IDS || "")
+        .split(",")
+        .map(value => String(value || "").trim())
+        .filter(Boolean)
+    ]
+  )
+).sort();
 
 function normalizeBundleIds(bundleIds) {
   return Array.from(
@@ -178,6 +190,14 @@ function buildPayloadHash(bundleIds) {
     .digest("hex");
 }
 
+function shouldApplyDaechiRootOnlyBlocklist(bundleIds) {
+  return (
+    Array.isArray(bundleIds) &&
+    bundleIds.length === 1 &&
+    String(bundleIds[0] || "").trim().toLowerCase() === DAECHI_ROOT_BUNDLE_ID
+  );
+}
+
 function escapeXml(value) {
   return String(value || "")
     .replace(/&/g, "&amp;")
@@ -193,6 +213,9 @@ function buildRestrictionsMobileconfig({ userId, bundleIds }) {
   const payloadUuid = crypto.randomUUID();
   const restrictionUuid = crypto.randomUUID();
   const items = Array.isArray(bundleIds) ? bundleIds : [];
+  const blockedItems = shouldApplyDaechiRootOnlyBlocklist(items)
+    ? DAECHI_ROOT_ONLY_BLOCKED_BUNDLE_IDS
+    : [];
 
   return `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -215,6 +238,42 @@ function buildRestrictionsMobileconfig({ userId, bundleIds }) {
       <array>
 ${items.map(bundleId => `        <string>${escapeXml(bundleId)}</string>`).join("\n")}
       </array>
+    ${blockedItems.length > 0
+      ? `      <key>blockedAppBundleIDs</key>
+      <array>
+    ${blockedItems.map(bundleId => `        <string>${escapeXml(bundleId)}</string>`).join("\n")}
+      </array>
+      <key>allowAppRemoval</key>
+      <false/>
+      <key>allowSystemAppRemoval</key>
+      <false/>
+      <key>allowAppInstallation</key>
+      <false/>
+      <key>allowUIAppInstallation</key>
+      <false/>
+      <key>allowUIConfigurationProfileInstallation</key>
+      <false/>
+      <key>allowPasscodeModification</key>
+      <false/>
+      <key>allowVPNCreation</key>
+      <false/>
+      <key>allowAccountModification</key>
+      <false/>
+      <key>allowHostPairing</key>
+      <false/>
+      <key>allowWallpaperModification</key>
+      <false/>
+      <key>allowBluetoothModification</key>
+      <false/>
+      <key>allowCellularPlanModification</key>
+      <false/>
+      <key>allowESIMModification</key>
+      <false/>
+      <key>allowDiagnosticSubmissionModification</key>
+      <false/>
+      <key>allowNotificationsModification</key>
+      <false/>`
+      : ""}
     </dict>
   </array>
   <key>PayloadDisplayName</key>
