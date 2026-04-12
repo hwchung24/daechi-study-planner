@@ -14,6 +14,21 @@ export type StudentLockStatus = {
   timezone: string;
   todayKey: string;
   tomorrowKey: string;
+  kioskMode?: {
+    active: boolean;
+    profileId?: number | null;
+    lockedBundleId?: string | null;
+    activationSource?: "planner_time" | "admin_manual" | "manual" | null;
+    autoReleaseExempt?: boolean;
+    lastSyncedAt?: string | null;
+    lastError?: string | null;
+  };
+  dailyRecordCompletion?: {
+    completed?: boolean;
+    study_saved_at?: string | null;
+    life_saved_at?: string | null;
+  };
+  forceRecordsPage?: boolean;
   rules: StudentLockRule[];
   sessions: Array<{
     id: number;

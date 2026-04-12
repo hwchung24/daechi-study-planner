@@ -356,28 +356,22 @@ CREATE TABLE IF NOT EXISTS student_mdm_kiosk_profiles (
   profile_name TEXT,
   profile_identifier TEXT,
   locked_bundle_id TEXT,
+  activation_source TEXT,
+  auto_release_exempt BOOLEAN NOT NULL DEFAULT false,
   last_synced_at TIMESTAMPTZ,
   last_error TEXT,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
+ALTER TABLE student_mdm_kiosk_profiles
+  ADD COLUMN IF NOT EXISTS activation_source TEXT;
+
+ALTER TABLE student_mdm_kiosk_profiles
+  ADD COLUMN IF NOT EXISTS auto_release_exempt BOOLEAN NOT NULL DEFAULT false;
+
 CREATE INDEX IF NOT EXISTS idx_student_mdm_kiosk_profiles_updated
   ON student_mdm_kiosk_profiles (updated_at DESC);
-
-CREATE TABLE IF NOT EXISTS student_record_kiosk_sessions (
-  user_id BIGINT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
-  active BOOLEAN NOT NULL DEFAULT false,
-  study_saved BOOLEAN NOT NULL DEFAULT false,
-  life_saved BOOLEAN NOT NULL DEFAULT false,
-  started_at TIMESTAMPTZ,
-  last_completed_at TIMESTAMPTZ,
-  updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
-);
-
-CREATE INDEX IF NOT EXISTS idx_student_record_kiosk_sessions_active
-  ON student_record_kiosk_sessions (active, updated_at DESC);
 
 -- 16. Student AI coach profile / memory
 CREATE TABLE IF NOT EXISTS student_coach_profiles (
@@ -524,6 +518,19 @@ CREATE TABLE IF NOT EXISTS student_profile_schedules (
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+CREATE TABLE IF NOT EXISTS student_daily_record_completion (
+  user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  record_date DATE NOT NULL,
+  study_saved_at TIMESTAMPTZ,
+  life_saved_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  PRIMARY KEY (user_id, record_date)
+);
+
+CREATE INDEX IF NOT EXISTS idx_student_daily_record_completion_recent
+  ON student_daily_record_completion (record_date DESC, updated_at DESC);
 
 CREATE INDEX IF NOT EXISTS idx_student_profile_schedules_user_date
   ON student_profile_schedules (user_id, schedule_date ASC, start_time ASC, created_at ASC);

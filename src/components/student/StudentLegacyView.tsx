@@ -224,7 +224,6 @@ export function StudentLegacyView(props: {
   hapticWarning: () => void;
   hapticImpactLight: () => void;
   hapticSuccess: () => void;
-  onTodayLogSaved?: (kind: "study" | "life") => Promise<void> | void;
 }) {
   const {
     tab,
@@ -264,8 +263,7 @@ export function StudentLegacyView(props: {
     hapticSelection,
     hapticWarning,
     hapticImpactLight,
-    hapticSuccess,
-    onTodayLogSaved
+    hapticSuccess
   } = props;
 
   const [todaySleepHours, setTodaySleepHours] = useState("7");
@@ -698,6 +696,7 @@ export function StudentLegacyView(props: {
         studyMinutesPayload = n;
       }
       const logPayload: Record<string, unknown> = {
+        recordKind: kind,
         sleepHours,
         stressScore: Number(todayStress),
         concentrationScore: Number(todayConcentration),
@@ -743,9 +742,6 @@ export function StudentLegacyView(props: {
         localStorage.setItem(DAECHI_COACH_LOG_SAVED_STORAGE_KEY, String(Date.now()));
       } catch {
         // ignore
-      }
-      if (onTodayLogSaved) {
-        await onTodayLogSaved(kind);
       }
     } catch {
       hapticWarning();

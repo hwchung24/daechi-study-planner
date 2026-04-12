@@ -68,16 +68,14 @@ const {
   clearStudentMdmAppAllowanceOverride,
   getStudentMdmAppAllowanceProfileState,
   getStudentMdmKioskProfileState,
-  getStudentRecordKioskSession,
-  startStudentRecordKioskSession,
-  markStudentRecordKioskSaved,
-  completeStudentRecordKioskSession,
   upsertStudentCoachProfile,
   getStudentCoachProfile,
   insertStudentCoachLog,
   upsertStudentCoachLog,
   setStudentCoachLogTomorrowPractice,
   setStudentCoachLogTomorrowPracticeDone,
+  markStudentDailyRecordSectionSaved,
+  getStudentDailyRecordCompletion,
   listRecentStudentCoachLogs,
   listStudentCoachLogsInWeekRange,
   listStudentCoachLogsInDateRange,
@@ -134,7 +132,8 @@ const {
 } = require("./weeklyAppAllowanceEnforcement");
 const {
   enableStudentKioskMode,
-  disableStudentKioskMode
+  disableStudentKioskMode,
+  getStudentKioskModeStatus
 } = require("./kioskModeService");
 const {
   getStudentLockStatus,
@@ -5259,7 +5258,14 @@ app.get("/api/student/lock-status", authMiddleware, async (req, res) => {
       return res.status(403).json({ error: "권한이 없습니다." });
     }
     const lockStatus = await getStudentLockStatus(req.userId);
-    res.json({ lockStatus });
+    const [kioskMode, dailyRecordCompletion] = await Promise.all([
+      getStudentKioskModeStatus(req.userId),
+      getStudentDailyRecordCompletion(req.userId)
+    ]);
+    const forceRecordsPage = Boolean(
+      kioskMode.active && (!dailyRecordCompletion.completed || kioskMode.autoReleaseExempt)
+    );
+    res.json({ lockStatus: { ...lockStatus, kioskMode, dailyRecordCompletion, forceRecordsPage } });
   } catch (e) {
     console.error("/api/student/lock-status error", e);
     res.status(500).json({ error: "잠금 상태를 불러오지 못했습니다." });
@@ -5595,7 +5601,9 @@ app.post("/api/parent/kiosk-mode/bulk-enable", authMiddleware, async (req, res) 
     for (const student of students) {
       try {
         const sync = await enableStudentKioskMode(student.id, {
-          reason: "parent_bulk_kiosk_enable"
+          reason: "parent_bulk_kiosk_enable",
+          activationSource: "admin_manual",
+          autoReleaseExempt: true
         });
         if (!sync.ok) {
           throw new Error(sync.error || "SimpleMDM 동기화에 실패했습니다.");
@@ -5703,100 +5711,6 @@ app.post("/api/parent/kiosk-mode/bulk-disable", authMiddleware, async (req, res)
   } catch (e) {
     console.error("/api/parent/kiosk-mode/bulk-disable error", e);
     res.status(500).json({ error: "키오스크 모드 해제에 실패했습니다." });
-  }
-});
-
-app.get("/api/student/kiosk-mode/records-session", authMiddleware, async (req, res) => {
-  try {
-    const me = await getMe(req.userId);
-    if (!me || me.role !== "student") {
-      return res.status(403).json({ error: "권한이 없습니다." });
-    }
-    const session = await getStudentRecordKioskSession(req.userId);
-    res.json({
-      ok: true,
-      session: session || {
-        user_id: req.userId,
-        active: false,
-        study_saved: false,
-        life_saved: false,
-        started_at: null,
-        last_completed_at: null,
-        updated_at: null
-      }
-    });
-  } catch (e) {
-    console.error("/api/student/kiosk-mode/records-session GET error", e);
-    res.status(500).json({ error: "키오스크 세션 상태 조회에 실패했습니다." });
-  }
-});
-
-app.post("/api/student/kiosk-mode/records-session/start", authMiddleware, async (req, res) => {
-  try {
-    const me = await getMe(req.userId);
-    if (!me || me.role !== "student") {
-      return res.status(403).json({ error: "권한이 없습니다." });
-    }
-    const session = await startStudentRecordKioskSession(req.userId);
-    const sync = await enableStudentKioskMode(req.userId, {
-      reason: "student_records_session_start"
-    });
-    const kioskWarning = sync?.ok
-      ? null
-      : sync?.error || "키오스크 모드 적용 중 경고가 발생했습니다.";
-    res.json({
-      ok: true,
-      session,
-      kiosk: {
-        applied: Boolean(sync?.ok),
-        queued: Boolean(sync?.queued),
-        reason: sync?.reason || "student_records_session_start",
-        warning: kioskWarning
-      }
-    });
-  } catch (e) {
-    console.error("/api/student/kiosk-mode/records-session/start POST error", e);
-    res.status(500).json({ error: "기록 키오스크 세션 시작에 실패했습니다." });
-  }
-});
-
-app.post("/api/student/kiosk-mode/records-session/saved", authMiddleware, async (req, res) => {
-  try {
-    const me = await getMe(req.userId);
-    if (!me || me.role !== "student") {
-      return res.status(403).json({ error: "권한이 없습니다." });
-    }
-    const kind = String((req.body || {}).kind || "").trim().toLowerCase();
-    if (kind !== "study" && kind !== "life") {
-      return res.status(400).json({ error: "저장 종류(kind)는 study 또는 life여야 합니다." });
-    }
-    let session = await markStudentRecordKioskSaved(req.userId, kind);
-    let released = false;
-    let kiosk = {
-      released: false,
-      warning: null
-    };
-
-    if (session?.active && session.study_saved && session.life_saved) {
-      await completeStudentRecordKioskSession(req.userId);
-      session = await getStudentRecordKioskSession(req.userId);
-      released = true;
-      const sync = await disableStudentKioskMode(req.userId);
-      kiosk = {
-        released: Boolean(sync?.ok),
-        warning: sync?.ok ? null : sync?.error || "키오스크 모드 해제 중 경고가 발생했습니다."
-      };
-    }
-
-    res.json({
-      ok: true,
-      released,
-      session,
-      kiosk
-    });
-  } catch (e) {
-    console.error("/api/student/kiosk-mode/records-session/saved POST error", e);
-    res.status(500).json({ error: "기록 저장 상태 반영에 실패했습니다." });
   }
 });
 
@@ -6054,12 +5968,29 @@ app.post("/api/student/coach/log", authMiddleware, async (req, res) => {
           ? null
           : Boolean(body.tomorrowPracticeDone);
     }
+    const recordKindRaw = String(body.recordKind || body.kind || "").trim().toLowerCase();
+    const recordKind =
+      recordKindRaw === "study" || recordKindRaw === "life" ? recordKindRaw : null;
     const row = await upsertStudentCoachLog(req.userId, logInput);
+    let dailyRecordCompletion = await getStudentDailyRecordCompletion(req.userId);
+    let kioskModeReleased = false;
+    if (recordKind) {
+      await markStudentDailyRecordSectionSaved(req.userId, recordKind);
+      dailyRecordCompletion = await getStudentDailyRecordCompletion(req.userId);
+      if (dailyRecordCompletion.completed) {
+        const kioskModeBefore = await getStudentKioskModeStatus(req.userId);
+        if (kioskModeBefore.active && !kioskModeBefore.autoReleaseExempt) {
+          const disabled = await disableStudentKioskMode(req.userId);
+          kioskModeReleased = Boolean(disabled.ok);
+        }
+      }
+    }
+    const kioskMode = await getStudentKioskModeStatus(req.userId);
     const logOut =
       row && typeof row === "object"
         ? { ...row, log_date: formatPgLogDate(row.log_date) }
         : row;
-    res.json({ ok: true, log: logOut });
+    res.json({ ok: true, log: logOut, dailyRecordCompletion, kioskModeReleased, kioskMode });
   } catch (e) {
     console.error("/api/student/coach/log error", e);
     res.status(500).json({ error: "학습 로그 저장에 실패했습니다." });

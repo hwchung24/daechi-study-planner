@@ -104,6 +104,8 @@ type StudyStoreApp = {
 
 type AppRoute = "student" | "parent" | "auth";
 
+type KioskPopupKind = "planner-enter" | "planner-release" | null;
+
 type ParentPlanAddRequestRow = {
   id: number;
   student_user_id: number;
@@ -505,6 +507,7 @@ const App: React.FC = () => {
   const [endInput, setEndInput] = useState("19:00");
   const [showAddModal, setShowAddModal] = useState(false);
   const [showRequestModal, setShowRequestModal] = useState(false);
+  const [kioskPopupKind, setKioskPopupKind] = useState<KioskPopupKind>(null);
   const [authConfirmKind, setAuthConfirmKind] = useState<
     "logout" | "withdraw" | null
   >(null);
@@ -641,6 +644,11 @@ const App: React.FC = () => {
   const parentStudentRequiredModalReveal = useModalReveal(
     showParentStudentRequiredModal
   );
+  const kioskPopupReveal = useModalReveal(kioskPopupKind !== null);
+  const kioskTransitionRef = useRef<{
+    active: boolean;
+    activationSource: "planner_time" | "admin_manual" | "manual" | null;
+  } | null>(null);
 
   const [newBookName, setNewBookName] = useState("");
   const [booksModalMounted, setBooksModalMounted] = useState(false);
@@ -792,9 +800,6 @@ const App: React.FC = () => {
   const [studentLockStatus, setStudentLockStatus] =
     useState<StudentLockStatus | null>(null);
   const [studentLockMessage, setStudentLockMessage] = useState("");
-  const [studentRecordKioskActive, setStudentRecordKioskActive] =
-    useState(false);
-  const studentRecordKioskStartInFlightRef = useRef(false);
   const [timelineSyncError, setTimelineSyncError] = useState("");
   const [studentNotificationUnreadCount, setStudentNotificationUnreadCount] =
     useState(0);
@@ -1343,47 +1348,39 @@ const App: React.FC = () => {
   }, [authToken, meRole]);
 
   useEffect(() => {
-    if (!authToken || meRole !== "student") {
-      setStudentRecordKioskActive(false);
+    if (meRole !== "student") {
+      kioskTransitionRef.current = null;
+      setKioskPopupKind(null);
       return;
     }
-    let cancelled = false;
-    const run = async () => {
-      try {
-        const res = await fetch(`${API_BASE}/api/student/kiosk-mode/records-session`, {
-          headers: { Authorization: `Bearer ${authToken}` },
-          cache: "no-store"
-        });
-        if (!res.ok || cancelled) return;
-        const data = (await res.json()) as {
-          session?: { active?: boolean };
-        };
-        if (!cancelled) {
-          setStudentRecordKioskActive(Boolean(data.session?.active));
-        }
-      } catch {
-        // ignore
+    const kioskMode = studentLockStatus?.kioskMode;
+    if (!kioskMode || typeof kioskMode.active !== "boolean") {
+      return;
+    }
+    const current = {
+      active: Boolean(kioskMode.active),
+      activationSource: kioskMode.activationSource || null
+    };
+    const previous = kioskTransitionRef.current;
+    if (previous) {
+      if (
+        !previous.active &&
+        current.active &&
+        current.activationSource === "planner_time"
+      ) {
+        setKioskPopupKind("planner-enter");
       }
-    };
-    void run();
-    return () => {
-      cancelled = true;
-    };
-  }, [authToken, meRole]);
-
-  useEffect(() => {
-    if (meRole !== "student" || !studentRecordKioskActive) return;
-    if (coachStudentTab != null) {
-      setCoachStudentTab(null);
-      setCoachStudentCoachLayout("scroll");
+      if (
+        previous.active &&
+        previous.activationSource === "planner_time" &&
+        !current.active &&
+        Boolean(studentLockStatus?.dailyRecordCompletion?.completed)
+      ) {
+        setKioskPopupKind("planner-release");
+      }
     }
-    if (tab !== "records") {
-      setTab("records");
-    }
-    if (getAppPath() !== "#/records") {
-      replaceAppPath("#/records");
-    }
-  }, [meRole, studentRecordKioskActive, coachStudentTab, tab]);
+    kioskTransitionRef.current = current;
+  }, [meRole, studentLockStatus]);
 
   useEffect(() => {
     if (!authToken || meRole !== "student") return;
@@ -1397,6 +1394,9 @@ const App: React.FC = () => {
         const data = await res.json();
         if (!cancelled) {
           setStudentLockStatus(data.lockStatus || null);
+          if (data.lockStatus?.forceRecordsPage && getAppPath() !== "#/records") {
+            setAppPath("#/records");
+          }
           if (!data.lockStatus?.locked) {
             setStudentLockMessage("");
           }
@@ -2120,74 +2120,12 @@ const App: React.FC = () => {
     }
   };
 
-  const startStudentRecordKioskSession = useCallback(
-    async (reason: string): Promise<boolean> => {
-      if (!authToken || meRole !== "student") return false;
-      if (studentRecordKioskActive || studentRecordKioskStartInFlightRef.current) {
-        return studentRecordKioskActive;
-      }
-      studentRecordKioskStartInFlightRef.current = true;
-      try {
-        const res = await fetch(`${API_BASE}/api/student/kiosk-mode/records-session/start`, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${authToken}`
-          },
-          body: JSON.stringify({ reason })
-        });
-        if (!res.ok) return false;
-        setStudentRecordKioskActive(true);
-        return true;
-      } catch {
-        return false;
-      } finally {
-        studentRecordKioskStartInFlightRef.current = false;
-      }
-    },
-    [API_BASE, authToken, meRole, studentRecordKioskActive]
-  );
-
-  const handleStudentTodayLogSaved = useCallback(
-    async (kind: "study" | "life") => {
-      if (!authToken || meRole !== "student" || !studentRecordKioskActive) return;
-      try {
-        const res = await fetch(`${API_BASE}/api/student/kiosk-mode/records-session/saved`, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${authToken}`
-          },
-          body: JSON.stringify({ kind })
-        });
-        if (!res.ok) return;
-        const data = (await res.json()) as {
-          released?: boolean;
-          session?: { active?: boolean };
-        };
-        if (data.released || !data.session?.active) {
-          setStudentRecordKioskActive(false);
-        }
-      } catch {
-        // ignore
-      }
-    },
-    [API_BASE, authToken, meRole, studentRecordKioskActive]
-  );
-
-  useEffect(() => {
-    if (meRole !== "student") return;
-    if (!studentLockStatus?.locked) return;
-    void startStudentRecordKioskSession("student_lock_time");
-  }, [meRole, studentLockStatus?.locked, startStudentRecordKioskSession]);
-
   const applyCoachTomorrowPlanAndGoRecords = async (
     next: ProgressPlan
   ): Promise<boolean> => {
     setTomorrowPlan(next);
     const ok = await saveTomorrowPlan(next);
     if (ok) {
-      await startStudentRecordKioskSession("plan_button");
       hapticSuccess();
       setAppPath("#/records");
     } else {
@@ -2222,7 +2160,6 @@ const App: React.FC = () => {
         return false;
       }
       setCoachDraftTomorrowPractice(trimmed);
-      await startStudentRecordKioskSession("plan_button");
       hapticSuccess();
       try {
         window.dispatchEvent(new CustomEvent(DAECHI_COACH_LOG_SAVED_EVENT));
@@ -3220,7 +3157,6 @@ const App: React.FC = () => {
                 hapticWarning={hapticWarning}
                 hapticImpactLight={hapticImpactLight}
                 hapticSuccess={hapticSuccess}
-                onTodayLogSaved={handleStudentTodayLogSaved}
               />
             )}
           </PageTransition>
@@ -3238,11 +3174,6 @@ const App: React.FC = () => {
             coachParentTab={coachParentTab}
             onStudentNavClick={nextTab => {
                 hapticSelection();
-              if (studentRecordKioskActive && nextTab !== "records") {
-                setTab("records");
-                replaceAppPath("#/records");
-                return;
-              }
               setCoachStudentTab(null);
               setCoachStudentCoachLayout("scroll");
               setTab(nextTab);
@@ -3406,6 +3337,47 @@ const App: React.FC = () => {
                   }
                 >
                   요청
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {kioskPopupKind && (
+          <div
+            className={
+              "dday-modal" +
+              (kioskPopupReveal.revealed ? " dday-modal--open" : "")
+            }
+            onClick={() =>
+              kioskPopupReveal.beginClose(() => setKioskPopupKind(null))
+            }
+          >
+            <div
+              className="dday-modal-inner"
+              onClick={e => {
+                e.stopPropagation();
+              }}
+            >
+              <div className="dday-modal-header">
+                <span className="dday-modal-title">안내</span>
+              </div>
+              <div className="dday-modal-body">
+                <p className="settings-hint" style={{ margin: 0, lineHeight: 1.5 }}>
+                  {kioskPopupKind === "planner-enter"
+                    ? "지금은 계획표 작성 시간입니다. 계획표를 작성하고 잠금을 해제하세요"
+                    : "계획표 작성이 완료되었습니다. 곧 잠금이 해제됩니다"}
+                </p>
+              </div>
+              <div className="dday-modal-footer">
+                <button
+                  type="button"
+                  className="modal-primary"
+                  onClick={() =>
+                    kioskPopupReveal.beginClose(() => setKioskPopupKind(null))
+                  }
+                >
+                  확인
                 </button>
               </div>
             </div>

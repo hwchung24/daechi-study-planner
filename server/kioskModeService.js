@@ -7,7 +7,9 @@ const {
   getStudentMdmKioskProfileState,
   upsertStudentMdmKioskProfileState,
   deleteStudentMdmKioskProfileState,
-  setStudentMdmKioskProfileSyncError
+  setStudentMdmKioskProfileSyncError,
+  listAllPlannerRules,
+  getStudentDailyRecordCompletion
 } = require("./db");
 const {
   isSimpleMdmConfigured,
@@ -23,6 +25,27 @@ const {
 } = require("./simpleMdmClient");
 
 const DAECHI_ROOT_BUNDLE_ID = "com.daechiroot.ios";
+
+function normalizeActivationSource(source) {
+  const normalized = String(source || "").trim().toLowerCase();
+  if (normalized === "planner_time") return "planner_time";
+  if (normalized === "admin_manual") return "admin_manual";
+  return "manual";
+}
+
+function formatTimeInKst(date = new Date()) {
+  return new Intl.DateTimeFormat("en-GB", {
+    timeZone: "Asia/Seoul",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false
+  }).format(date);
+}
+
+function parseLockClock(lockTime) {
+  const safe = /^\d{2}:\d{2}$/.test(String(lockTime || "")) ? String(lockTime) : "21:00";
+  return safe;
+}
 
 function escapeXml(value) {
   return String(value || "")
@@ -180,10 +203,48 @@ async function enableStudentKioskMode(userId, options = {}) {
     }
 
     const kioskState = await getStudentMdmKioskProfileState(userId);
+    const targetBundleId = String(options.bundleId || DAECHI_ROOT_BUNDLE_ID);
+    const activationSource = normalizeActivationSource(options.activationSource || options.reason);
+    const autoReleaseExempt = Object.prototype.hasOwnProperty.call(options, "autoReleaseExempt")
+      ? Boolean(options.autoReleaseExempt)
+      : activationSource === "admin_manual";
+    const sourceUnchanged =
+      normalizeActivationSource(kioskState?.activation_source) === activationSource;
+    const exemptUnchanged =
+      Boolean(kioskState?.auto_release_exempt) === autoReleaseExempt;
+    if (
+      !options.force &&
+      kioskState?.profile_id &&
+      String(kioskState.locked_bundle_id || "").trim().toLowerCase() ===
+        targetBundleId.trim().toLowerCase() &&
+      !kioskState.last_error
+    ) {
+      if (!sourceUnchanged || !exemptUnchanged) {
+        await upsertStudentMdmKioskProfileState(userId, {
+          profileId: Number(kioskState.profile_id),
+          profileName: kioskState.profile_name || null,
+          profileIdentifier: kioskState.profile_identifier || null,
+          lockedBundleId: targetBundleId,
+          activationSource,
+          autoReleaseExempt,
+          lastSyncedAt: kioskState.last_synced_at || null,
+          lastError: null
+        });
+      }
+      return {
+        ok: true,
+        skipped: true,
+        reason: !sourceUnchanged || !exemptUnchanged ? "metadata_updated" : "unchanged",
+        bundleId: targetBundleId,
+        profileId: Number(kioskState.profile_id),
+        activationSource,
+        autoReleaseExempt
+      };
+    }
     const assignmentGroup = await ensureStudentAssignmentGroup(userId, Number(device.id));
     const mobileconfig = buildKioskMobileconfig({
       userId,
-      bundleId: String(options.bundleId || DAECHI_ROOT_BUNDLE_ID)
+      bundleId: targetBundleId
     });
     const profile = await upsertKioskProfile(userId, kioskState, mobileconfig);
 
@@ -215,7 +276,9 @@ async function enableStudentKioskMode(userId, options = {}) {
       profileId: profile.profileId,
       profileName: profile.profileName,
       profileIdentifier: profile.profileIdentifier,
-      lockedBundleId: String(options.bundleId || DAECHI_ROOT_BUNDLE_ID),
+      lockedBundleId: targetBundleId,
+      activationSource,
+      autoReleaseExempt,
       lastSyncedAt: new Date().toISOString(),
       lastError
     });
@@ -223,9 +286,11 @@ async function enableStudentKioskMode(userId, options = {}) {
     return {
       ok: true,
       queued: syncDeferred,
-      bundleId: String(options.bundleId || DAECHI_ROOT_BUNDLE_ID),
+      bundleId: targetBundleId,
       profileId: profile.profileId,
       assignmentGroupId: assignmentGroup.id,
+      activationSource,
+      autoReleaseExempt,
       reason: syncDeferred ? "rate_limited" : options.reason || "manual"
     };
   } catch (error) {
@@ -279,8 +344,85 @@ async function disableStudentKioskMode(userId) {
   }
 }
 
+async function getStudentKioskModeStatus(userId) {
+  const state = await getStudentMdmKioskProfileState(userId);
+  return {
+    active: Boolean(state?.profile_id),
+    profileId: state?.profile_id ? Number(state.profile_id) : null,
+    lockedBundleId: state?.locked_bundle_id ? String(state.locked_bundle_id) : null,
+    activationSource: state?.activation_source
+      ? normalizeActivationSource(state.activation_source)
+      : null,
+    autoReleaseExempt: Boolean(state?.auto_release_exempt),
+    lastSyncedAt: state?.last_synced_at || null,
+    lastError: state?.last_error ? String(state.last_error) : null
+  };
+}
+
+async function reconcilePlannerTimeKioskModes(now = new Date()) {
+  const rules = await listAllPlannerRules();
+  const nowTime = formatTimeInKst(now);
+  const desiredLockedByStudent = new Map();
+
+  for (const rule of rules) {
+    if (!rule?.enabled) continue;
+    const lockTime = parseLockClock(rule.lock_time);
+    if (nowTime < lockTime) continue;
+    desiredLockedByStudent.set(Number(rule.student_user_id), true);
+  }
+
+  let enabled = 0;
+  let released = 0;
+  let skipped = 0;
+  let failed = 0;
+
+  for (const studentUserId of desiredLockedByStudent.keys()) {
+    try {
+      const kioskMode = await getStudentKioskModeStatus(studentUserId);
+      if (kioskMode.active && kioskMode.autoReleaseExempt) {
+        skipped += 1;
+        continue;
+      }
+      const completion = await getStudentDailyRecordCompletion(studentUserId);
+      if (completion.completed) {
+        const disabled = await disableStudentKioskMode(studentUserId);
+        if (disabled.ok) {
+          released += 1;
+        } else {
+          failed += 1;
+        }
+        continue;
+      }
+      const enabledResult = await enableStudentKioskMode(studentUserId, {
+        reason: "planner_time_record_gate",
+        activationSource: "planner_time",
+        autoReleaseExempt: false
+      });
+      if (enabledResult.ok && enabledResult.skipped) {
+        skipped += 1;
+      } else if (enabledResult.ok) {
+        enabled += 1;
+      } else {
+        failed += 1;
+      }
+    } catch {
+      failed += 1;
+    }
+  }
+
+  return {
+    evaluatedStudents: desiredLockedByStudent.size,
+    enabled,
+    released,
+    skipped,
+    failed
+  };
+}
+
 module.exports = {
   DAECHI_ROOT_BUNDLE_ID,
   enableStudentKioskMode,
-  disableStudentKioskMode
+  disableStudentKioskMode,
+  getStudentKioskModeStatus,
+  reconcilePlannerTimeKioskModes
 };

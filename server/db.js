@@ -2487,6 +2487,8 @@ async function getStudentMdmKioskProfileState(userId) {
             profile_name,
             profile_identifier,
             locked_bundle_id,
+            activation_source,
+            auto_release_exempt,
             last_synced_at,
             last_error,
             updated_at
@@ -2509,11 +2511,13 @@ async function upsertStudentMdmKioskProfileState(userId, input = {}) {
         profile_name,
         profile_identifier,
         locked_bundle_id,
+        activation_source,
+        auto_release_exempt,
         last_synced_at,
         last_error,
         updated_at
       )
-     VALUES ($1, 'simplemdm', $2, $3, $4, $5, $6, $7, now())
+     VALUES ($1, 'simplemdm', $2, $3, $4, $5, $6, $7, $8, $9, now())
      ON CONFLICT (user_id)
      DO UPDATE SET
        provider = 'simplemdm',
@@ -2521,6 +2525,8 @@ async function upsertStudentMdmKioskProfileState(userId, input = {}) {
        profile_name = EXCLUDED.profile_name,
        profile_identifier = EXCLUDED.profile_identifier,
        locked_bundle_id = EXCLUDED.locked_bundle_id,
+       activation_source = EXCLUDED.activation_source,
+       auto_release_exempt = EXCLUDED.auto_release_exempt,
        last_synced_at = EXCLUDED.last_synced_at,
        last_error = EXCLUDED.last_error,
        updated_at = now()
@@ -2528,6 +2534,8 @@ async function upsertStudentMdmKioskProfileState(userId, input = {}) {
                profile_name,
                profile_identifier,
                locked_bundle_id,
+               activation_source,
+               auto_release_exempt,
                last_synced_at,
                last_error,
                updated_at`,
@@ -2537,6 +2545,10 @@ async function upsertStudentMdmKioskProfileState(userId, input = {}) {
       input.profileName != null ? String(input.profileName) : null,
       input.profileIdentifier != null ? String(input.profileIdentifier) : null,
       input.lockedBundleId != null ? String(input.lockedBundleId) : null,
+      input.activationSource != null ? String(input.activationSource) : null,
+      Object.prototype.hasOwnProperty.call(input, "autoReleaseExempt")
+        ? Boolean(input.autoReleaseExempt)
+        : false,
       input.lastSyncedAt != null ? input.lastSyncedAt : null,
       input.lastError != null ? String(input.lastError) : null
     ]
@@ -2572,118 +2584,6 @@ async function setStudentMdmKioskProfileSyncError(userId, errorMessage) {
                last_error,
                updated_at`,
     [userId, String(errorMessage || '동기화 실패')]
-  );
-  return res.rows[0] || null;
-}
-
-async function getStudentRecordKioskSession(userId) {
-  const res = await query(
-    `SELECT user_id,
-            active,
-            study_saved,
-            life_saved,
-            started_at,
-            last_completed_at,
-            updated_at
-     FROM student_record_kiosk_sessions
-     WHERE user_id = $1
-     LIMIT 1`,
-    [userId]
-  );
-  return res.rows[0] || null;
-}
-
-async function startStudentRecordKioskSession(userId) {
-  const res = await query(
-    `INSERT INTO student_record_kiosk_sessions
-      (
-        user_id,
-        active,
-        study_saved,
-        life_saved,
-        started_at,
-        last_completed_at,
-        updated_at
-      )
-     VALUES ($1, true, false, false, now(), NULL, now())
-     ON CONFLICT (user_id)
-     DO UPDATE SET
-       active = true,
-       study_saved = false,
-       life_saved = false,
-       started_at = now(),
-       updated_at = now()
-     RETURNING user_id,
-               active,
-               study_saved,
-               life_saved,
-               started_at,
-               last_completed_at,
-               updated_at`,
-    [userId]
-  );
-  return res.rows[0] || null;
-}
-
-async function markStudentRecordKioskSaved(userId, kind) {
-  const normalizedKind = String(kind || "").trim().toLowerCase();
-  const markStudy = normalizedKind === "study";
-  const markLife = normalizedKind === "life";
-  if (!markStudy && !markLife) {
-    throw new Error("invalid_save_kind");
-  }
-  const res = await query(
-    `INSERT INTO student_record_kiosk_sessions
-      (
-        user_id,
-        active,
-        study_saved,
-        life_saved,
-        started_at,
-        updated_at
-      )
-     VALUES ($1, true, $2, $3, now(), now())
-     ON CONFLICT (user_id)
-     DO UPDATE SET
-       active = true,
-       study_saved = CASE
-         WHEN $2::boolean THEN true
-         ELSE student_record_kiosk_sessions.study_saved
-       END,
-       life_saved = CASE
-         WHEN $3::boolean THEN true
-         ELSE student_record_kiosk_sessions.life_saved
-       END,
-       updated_at = now()
-     RETURNING user_id,
-               active,
-               study_saved,
-               life_saved,
-               started_at,
-               last_completed_at,
-               updated_at`,
-    [userId, markStudy, markLife]
-  );
-  return res.rows[0] || null;
-}
-
-async function completeStudentRecordKioskSession(userId) {
-  const res = await query(
-    `UPDATE student_record_kiosk_sessions
-     SET active = false,
-         study_saved = false,
-         life_saved = false,
-         last_completed_at = now(),
-         updated_at = now()
-     WHERE user_id = $1
-     RETURNING user_id,
-               active,
-               study_saved,
-               life_saved,
-               started_at,
-               last_completed_at,
-               updated_at`,
-    [userId]
   );
   return res.rows[0] || null;
 }
@@ -2960,6 +2860,62 @@ async function setStudentCoachLogTomorrowPracticeDone(userId, done) {
   } finally {
     client.release();
   }
+}
+
+async function markStudentDailyRecordSectionSaved(userId, kind, recordDate = null) {
+  const normalizedKind = String(kind || "").trim().toLowerCase();
+  if (normalizedKind !== "study" && normalizedKind !== "life") {
+    throw new Error("kind는 study 또는 life여야 합니다.");
+  }
+  const targetColumn =
+    normalizedKind === "study" ? "study_saved_at" : "life_saved_at";
+  const res = await query(
+    `INSERT INTO student_daily_record_completion
+      (user_id, record_date, ${targetColumn}, updated_at)
+     VALUES ($1, COALESCE($2::date, (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Seoul')::date), now(), now())
+     ON CONFLICT (user_id, record_date)
+     DO UPDATE SET
+       ${targetColumn} = now(),
+       updated_at = now()
+     RETURNING user_id,
+               record_date,
+               study_saved_at,
+               life_saved_at,
+               created_at,
+               updated_at`,
+    [userId, recordDate]
+  );
+  return res.rows[0] || null;
+}
+
+async function getStudentDailyRecordCompletion(userId, recordDate = null) {
+  const res = await query(
+    `SELECT user_id,
+            record_date,
+            study_saved_at,
+            life_saved_at,
+            created_at,
+            updated_at
+     FROM student_daily_record_completion
+     WHERE user_id = $1
+       AND record_date = COALESCE($2::date, (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Seoul')::date)
+     LIMIT 1`,
+    [userId, recordDate]
+  );
+  const row = res.rows[0] || null;
+  if (!row) {
+    return {
+      user_id: Number(userId),
+      record_date: null,
+      study_saved_at: null,
+      life_saved_at: null,
+      completed: false
+    };
+  }
+  return {
+    ...row,
+    completed: Boolean(row.study_saved_at && row.life_saved_at)
+  };
 }
 
 async function listRecentStudentCoachLogs(userId, limit = 14) {
@@ -3672,10 +3628,6 @@ module.exports = {
   upsertStudentMdmKioskProfileState,
   deleteStudentMdmKioskProfileState,
   setStudentMdmKioskProfileSyncError,
-  getStudentRecordKioskSession,
-  startStudentRecordKioskSession,
-  markStudentRecordKioskSaved,
-  completeStudentRecordKioskSession,
   setStudentMdmAppAllowanceProfileSyncError,
   listStudentIdsForWeeklyAppAllowanceEnforcement,
   upsertStudentCoachProfile,
@@ -3684,6 +3636,8 @@ module.exports = {
   upsertStudentCoachLog,
   setStudentCoachLogTomorrowPractice,
   setStudentCoachLogTomorrowPracticeDone,
+  markStudentDailyRecordSectionSaved,
+  getStudentDailyRecordCompletion,
   listRecentStudentCoachLogs,
   listStudentCoachLogsInWeekRange,
   listStudentCoachLogsInDateRange,
