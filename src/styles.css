@@ -1,3 +1,21 @@
+/* 관리자 계획표 작성 시간 설정 카드 일관성 스타일 */
+.parent-planner-card {
+  border-radius: 16px;
+  background: var(--surface-base);
+  border: var(--border-width) solid var(--border-neutral);
+  box-shadow: var(--shadow-soft);
+  padding: 16px 16px 14px;
+  margin-bottom: 12px;
+}
+
+.parent-planner-time-input {
+  max-width: 150px;
+  padding: 7px 10px;
+  border-radius: 10px;
+  border: var(--border-width) solid var(--border-neutral);
+  background: var(--surface-base);
+  font-size: var(--font-size-medium);
+}
 :root {
   color-scheme: light;
   --app-viewport-height: 100vh;

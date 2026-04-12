@@ -244,84 +244,78 @@ export function ParentLegacyView(props: {
                   계획표 작성 시간 설정
                 </h3>
               </div>
-              <div className="progress-card" style={{ marginBottom: 12 }}>
-                <div
-                  className="settings-item"
-                  style={{ cursor: "default", padding: 0, borderBottom: "none" }}
-                >
+              <div className="progress-card parent-planner-card">
+                <div className="settings-item">
                   <span className="settings-label">강제 작성 활성화</span>
-                  <label style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+                  <label className="settings-value" style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
                     <input
                       type="checkbox"
                       checked={parentPlannerEnabled}
                       onChange={e => setParentPlannerEnabled(e.target.checked)}
                     />
-                    <span className="settings-value">
+                    <span style={{ marginLeft: 4 }}>
                       {parentPlannerEnabled ? "켜짐" : "꺼짐"}
                     </span>
                   </label>
                 </div>
-                <div
-                  className="settings-item"
-                  style={{ cursor: "default", padding: "10px 0 0", borderBottom: "none" }}
-                >
+                <div className="settings-item">
                   <span className="settings-label">학생이 계획표를 쓰는 시각</span>
                   <input
                     type="time"
-                    className="field-input"
+                    className="field-input parent-planner-time-input"
                     value={parentPlannerTime}
                     onChange={e => setParentPlannerTime(e.target.value || "21:00")}
-                    style={{ maxWidth: 150, padding: "7px 10px" }}
                   />
                 </div>
-                <button
-                  type="button"
-                  className="progress-footer-btn"
-                  style={{ marginTop: 10 }}
-                  disabled={parentPlannerSaving}
-                  onClick={async () => {
-                    if (!authToken || !parentStudentId) return;
-                    setParentPlannerSaving(true);
-                    setParentPlannerMessage("");
-                    try {
-                      const res = await fetch(`${apiBase}/api/parent/planner-rule`, {
-                        method: "PUT",
-                        headers: {
-                          "Content-Type": "application/json",
-                          Authorization: `Bearer ${authToken}`
-                        },
-                        body: JSON.stringify({
-                          studentId: parentStudentId,
-                          enabled: parentPlannerEnabled,
-                          lockTime: parentPlannerTime
-                        })
-                      });
-                      const data = await res.json().catch(() => ({}));
-                      if (!res.ok) {
-                        setParentPlannerMessage(
-                          (data as { error?: string }).error ||
-                            "시간 설정 저장에 실패했습니다."
+                <div className="settings-item" style={{ borderBottom: "none", paddingTop: 0 }}>
+                  <button
+                    type="button"
+                    className="modal-primary"
+                    disabled={parentPlannerSaving}
+                    onClick={async () => {
+                      if (!authToken || !parentStudentId) return;
+                      setParentPlannerSaving(true);
+                      setParentPlannerMessage("");
+                      try {
+                        const res = await fetch(`${apiBase}/api/parent/planner-rule`, {
+                          method: "PUT",
+                          headers: {
+                            "Content-Type": "application/json",
+                            Authorization: `Bearer ${authToken}`
+                          },
+                          body: JSON.stringify({
+                            studentId: parentStudentId,
+                            enabled: parentPlannerEnabled,
+                            lockTime: parentPlannerTime
+                          })
+                        });
+                        const data = await res.json().catch(() => ({}));
+                        if (!res.ok) {
+                          setParentPlannerMessage(
+                            (data as { error?: string }).error ||
+                              "시간 설정 저장에 실패했습니다."
+                          );
+                          return;
+                        }
+                        setParentLockStatus(
+                          (data as { lockStatus?: ParentLockStatus }).lockStatus || null
                         );
-                        return;
+                        setParentPlannerMessage("설정이 저장되었습니다.");
+                      } catch {
+                        setParentPlannerMessage("서버와 통신 중 오류가 발생했습니다.");
+                      } finally {
+                        setParentPlannerSaving(false);
                       }
-                      setParentLockStatus(
-                        (data as { lockStatus?: ParentLockStatus }).lockStatus || null
-                      );
-                      setParentPlannerMessage("설정이 저장되었습니다.");
-                    } catch {
-                      setParentPlannerMessage("서버와 통신 중 오류가 발생했습니다.");
-                    } finally {
-                      setParentPlannerSaving(false);
-                    }
-                  }}
-                >
-                  {parentPlannerSaving ? "저장 중..." : "시간 설정 저장"}
-                </button>
-                {parentPlannerMessage && (
-                  <p className="settings-hint" style={{ marginTop: 8 }}>
-                    {parentPlannerMessage}
-                  </p>
-                )}
+                    }}
+                  >
+                    {parentPlannerSaving ? "저장 중..." : "시간 설정 저장"}
+                  </button>
+                  {parentPlannerMessage && (
+                    <p className="settings-hint" style={{ marginTop: 8 }}>
+                      {parentPlannerMessage}
+                    </p>
+                  )}
+                </div>
                 {parentLockStatus && (
                   <div style={{ marginTop: 10 }}>
                     <p className="settings-hint">
