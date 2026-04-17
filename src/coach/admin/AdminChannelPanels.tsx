@@ -1,9 +1,18 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import React, {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState
+} from "react";
 import { Download, Paperclip, SendHorizontal, User } from "lucide-react";
 import { Card, EmptyState } from "../ui/components";
 import { API_BASE } from "../../lib/apiBase";
 import { useModalReveal } from "../../lib/useModalReveal";
 import { AppShell, canUseNativeAppShell } from "../../lib/nativeAppShell";
+import { isDocumentVisible, trackAsync } from "../../lib/perfMetrics";
+import { stableStringify } from "../../lib/stableUiUpdate";
 
 type AdminChatMessage = {
   id: number;
@@ -47,6 +56,71 @@ type ParentAdminChannelResponse = {
 };
 
 type HomeworkReviewFilter = "pending" | "needs_revision" | "approved";
+const MAX_RENDERED_CHAT_MESSAGES = 60;
+
+const ADMIN_CH_SESSION_PREFIX = "daechi:adminChannel:v1:";
+
+function readStudentAdminChannelCache(
+  token: string
+): StudentAdminChannelResponse | null {
+  if (typeof sessionStorage === "undefined") return null;
+  try {
+    const raw = sessionStorage.getItem(
+      `${ADMIN_CH_SESSION_PREFIX}s:${token.slice(0, 32)}`
+    );
+    if (!raw) return null;
+    return JSON.parse(raw) as StudentAdminChannelResponse;
+  } catch {
+    return null;
+  }
+}
+
+function writeStudentAdminChannelCache(
+  token: string,
+  data: StudentAdminChannelResponse
+) {
+  if (typeof sessionStorage === "undefined") return;
+  try {
+    sessionStorage.setItem(
+      `${ADMIN_CH_SESSION_PREFIX}s:${token.slice(0, 32)}`,
+      JSON.stringify(data)
+    );
+  } catch {
+    // ignore quota / private mode
+  }
+}
+
+function readParentAdminChannelCache(
+  token: string,
+  studentId: number
+): ParentAdminChannelResponse | null {
+  if (typeof sessionStorage === "undefined") return null;
+  try {
+    const raw = sessionStorage.getItem(
+      `${ADMIN_CH_SESSION_PREFIX}p:${studentId}:${token.slice(0, 24)}`
+    );
+    if (!raw) return null;
+    return JSON.parse(raw) as ParentAdminChannelResponse;
+  } catch {
+    return null;
+  }
+}
+
+function writeParentAdminChannelCache(
+  token: string,
+  studentId: number,
+  data: ParentAdminChannelResponse
+) {
+  if (typeof sessionStorage === "undefined") return;
+  try {
+    sessionStorage.setItem(
+      `${ADMIN_CH_SESSION_PREFIX}p:${studentId}:${token.slice(0, 24)}`,
+      JSON.stringify(data)
+    );
+  } catch {
+    // ignore
+  }
+}
 
 function DefaultChatAvatar(props: { label: string }) {
   return (
@@ -106,20 +180,47 @@ function ChatMessages(props: {
   trailingContent?: React.ReactNode;
 }) {
   const scrollRef = useRef<HTMLDivElement | null>(null);
+  const messages = useMemo(
+    () =>
+      props.messages.length > MAX_RENDERED_CHAT_MESSAGES
+        ? props.messages.slice(-MAX_RENDERED_CHAT_MESSAGES)
+        : props.messages,
+    [props.messages]
+  );
 
-  useEffect(() => {
+  const scrollLayoutSig = useMemo(
+    () =>
+      stableStringify(
+        messages.map(m => ({
+          id: m.id,
+          c: m.content,
+          t: m.createdAt
+        }))
+      ) + (props.trailingContent ? "\u0001t" : ""),
+    [messages, props.trailingContent]
+  );
+
+  useLayoutEffect(() => {
     const el = scrollRef.current;
     if (!el) return;
     el.scrollTop = el.scrollHeight;
-  }, [props.messages, props.trailingContent]);
+  }, [scrollLayoutSig]);
 
   return (
-    <div ref={scrollRef} className="coach-chat coach-admin-chat__messages">
-      {props.messages.length === 0 ? (
-        props.emptyState || <div className="coach-admin-chat__empty">아직 대화가 없습니다. 첫 메시지를 보내 보세요.</div>
+    <div
+      ref={scrollRef}
+      className="coach-chat coach-admin-chat__messages coach-admin-chat__messages--stable"
+    >
+      {messages.length === 0 ? (
+        props.emptyState !== undefined ? (
+          props.emptyState
+        ) : (
+          <div className="coach-admin-chat__empty">아직 대화가 없습니다. 첫 메시지를 보내 보세요.</div>
+        )
       ) : (
-        props.messages.map(message => {
+        messages.map(message => {
           const mine = message.senderRole === props.currentUserRole;
+          const lines = String(message.content || "").split("\n");
           return (
             <div
               key={message.id}
@@ -132,7 +233,7 @@ function ChatMessages(props: {
                   (mine ? "coach-bubble--user" : "coach-bubble--coach")
                 }
               >
-                {message.content.split("\n").map((line, index) => (
+                {lines.map((line, index) => (
                   <div key={index} className="coach-bubble__line">
                     {line || "\u00A0"}
                   </div>
@@ -163,32 +264,29 @@ function AdminChatShell(props: {
   showFrame?: boolean;
   showHeader?: boolean;
   starterContent?: React.ReactNode;
+  /** 첫 API 응답 전 등 — 입력만 막고 레이아웃은 동일하게 유지 */
+  composerDisabled?: boolean;
 }) {
   const rootRef = useRef<HTMLDivElement | null>(null);
-  const chatScrollRef = useRef<HTMLDivElement | null>(null);
   const inputDockRef = useRef<HTMLDivElement | null>(null);
   const composerInputRef = useRef<HTMLInputElement | null>(null);
 
   const handleSend = async () => {
+    if (props.composerDisabled) return;
     const message = props.draft.trim();
     if (!message || props.sending) return;
     await props.onSend(message);
   };
 
   useEffect(() => {
+    if (props.composerDisabled) return;
     const frame = window.requestAnimationFrame(() => {
       composerInputRef.current?.focus();
     });
     return () => {
       window.cancelAnimationFrame(frame);
     };
-  }, []);
-
-  useEffect(() => {
-    const el = chatScrollRef.current;
-    if (!el) return;
-    el.scrollTo({ top: el.scrollHeight, behavior: "auto" });
-  }, [props.messages, props.trailingContent]);
+  }, [props.composerDisabled]);
 
   const content = (
     <>
@@ -200,9 +298,12 @@ function AdminChatShell(props: {
       )}
       <div
         ref={rootRef}
-        className="coach-chat-embedded keyboard-dock-root coach-admin-chat-shell"
+        className={
+          "coach-chat-embedded keyboard-dock-root coach-admin-chat-shell" +
+          (props.composerDisabled ? " coach-admin-chat-shell--composer-disabled" : "")
+        }
       >
-        <div ref={chatScrollRef} className="coach-admin-chat-scroll">
+        <div className="coach-admin-chat-scroll">
           <ChatMessages
             messages={props.messages}
             currentUserRole={props.currentUserRole}
@@ -224,8 +325,11 @@ function AdminChatShell(props: {
                 className="coach-chat-text"
                 value={props.draft}
                 enterKeyHint="send"
+                placeholder={props.triggerPlaceholder}
+                disabled={props.composerDisabled}
                 onChange={event => props.setDraft(event.target.value)}
                 onKeyDown={event => {
+                  if (props.composerDisabled) return;
                   if (event.key === "Enter") {
                     event.preventDefault();
                     void handleSend();
@@ -237,7 +341,9 @@ function AdminChatShell(props: {
                 className="coach-primary-btn coach-primary-btn--sm"
                 onMouseDown={event => event.preventDefault()}
                 onClick={() => void handleSend()}
-                disabled={props.sending || !props.draft.trim()}
+                disabled={
+                  props.composerDisabled || props.sending || !props.draft.trim()
+                }
                 aria-label="메시지 보내기"
                 title="보내기"
               >
@@ -305,9 +411,21 @@ function SubmissionList(props: {
   );
 }
 
-export function StudentAdminChannelPanel(props: { authToken: string }) {
-  const [channel, setChannel] = useState<StudentAdminChannelResponse | null>(null);
-  const [loading, setLoading] = useState(true);
+export function StudentAdminChannelPanel(props: {
+  authToken: string;
+  /** true면 네트워크 폴링 안 함(다른 코치 탭을 보는 동안 등) */
+  pollingPaused?: boolean;
+}) {
+  const channelSigRef = useRef<string | null>(null);
+  const [channel, setChannel] = useState<StudentAdminChannelResponse | null>(() => {
+    const c = readStudentAdminChannelCache(props.authToken);
+    channelSigRef.current = c ? stableStringify(c) : null;
+    return c;
+  });
+  /** 첫 서버 응답 전까지 — 캐시가 있으면 처음부터 true (레이아웃 유지) */
+  const [initialSyncDone, setInitialSyncDone] = useState(
+    () => readStudentAdminChannelCache(props.authToken) != null
+  );
   const [error, setError] = useState("");
   const [draft, setDraft] = useState("");
   const [note, setNote] = useState("");
@@ -322,15 +440,22 @@ export function StudentAdminChannelPanel(props: { authToken: string }) {
 
   const refresh = useCallback(async () => {
     try {
-      const res = await fetch(`${API_BASE}/api/student/admin-channel`, {
-        headers: { Authorization: `Bearer ${props.authToken}` },
-        cache: "no-store"
-      });
+      const res = await trackAsync("panel.studentAdmin.refresh", () =>
+        fetch(`${API_BASE}/api/student/admin-channel?messageLimit=40&submissionLimit=12`, {
+          headers: { Authorization: `Bearer ${props.authToken}` },
+          cache: "no-store"
+        })
+      );
       const data = (await res.json().catch(() => ({}))) as StudentAdminChannelResponse & {
         error?: string;
       };
       if (!res.ok) throw new Error(String(data.error || "관리자 채널을 불러오지 못했습니다."));
-      setChannel(data);
+      const sig = stableStringify(data);
+      if (channelSigRef.current !== sig) {
+        channelSigRef.current = sig;
+        writeStudentAdminChannelCache(props.authToken, data);
+        setChannel(data);
+      }
       setError("");
     } catch (fetchError) {
       setError(
@@ -339,11 +464,29 @@ export function StudentAdminChannelPanel(props: { authToken: string }) {
           : "관리자 채널을 불러오지 못했습니다."
       );
     } finally {
-      setLoading(false);
+      setInitialSyncDone(true);
+    }
+  }, [props.authToken]);
+
+  const prevStudentTokenRef = useRef(props.authToken);
+  useEffect(() => {
+    if (prevStudentTokenRef.current === props.authToken) return;
+    prevStudentTokenRef.current = props.authToken;
+    const cached = readStudentAdminChannelCache(props.authToken);
+    if (cached) {
+      const sig = stableStringify(cached);
+      channelSigRef.current = sig;
+      setChannel(cached);
+      setInitialSyncDone(true);
+    } else {
+      channelSigRef.current = null;
+      setChannel(null);
+      setInitialSyncDone(false);
     }
   }, [props.authToken]);
 
   useEffect(() => {
+    if (props.pollingPaused) return;
     let cancelled = false;
     const run = async () => {
       if (cancelled) return;
@@ -352,12 +495,12 @@ export function StudentAdminChannelPanel(props: { authToken: string }) {
     void run();
     const timerId = window.setInterval(() => {
       void run();
-    }, 5000);
+    }, 15000);
     return () => {
       cancelled = true;
       window.clearInterval(timerId);
     };
-  }, [refresh]);
+  }, [refresh, props.pollingPaused]);
 
   const sendMessage = async () => {
     const message = draft.trim();
@@ -488,15 +631,15 @@ export function StudentAdminChannelPanel(props: { authToken: string }) {
     homeworkModalReveal.beginClose(() => setShowHomeworkComposer(false));
   };
 
-  if (loading && !channel) {
-    return <div className="coach-admin-loading">관리자 채널을 불러오는 중입니다.</div>;
-  }
-
-  if (error && !channel) {
+  if (initialSyncDone && error && !channel) {
     return <EmptyState title="관리자 채널을 열 수 없어요" body={error} />;
   }
 
-  if (!channel?.channelAvailable || !channel.parent) {
+  if (
+    initialSyncDone &&
+    channel &&
+    (!channel.channelAvailable || !channel.parent)
+  ) {
     return (
       <EmptyState
         title="연결된 관리자가 아직 없어요"
@@ -505,49 +648,57 @@ export function StudentAdminChannelPanel(props: { authToken: string }) {
     );
   }
 
+  const awaitingFirstPayload = !initialSyncDone && !channel;
+
+  const submissionList = channel?.submissions || [];
   const submissionCounts = {
-    pending: (channel?.submissions || []).filter(submission => submission.reviewStatus === "pending")
-      .length,
-    needs_revision: (channel?.submissions || []).filter(
+    pending: submissionList.filter(submission => submission.reviewStatus === "pending").length,
+    needs_revision: submissionList.filter(
       submission => submission.reviewStatus === "needs_revision"
     ).length,
-    approved: (channel?.submissions || []).filter(submission => submission.reviewStatus === "approved")
-      .length
+    approved: submissionList.filter(submission => submission.reviewStatus === "approved").length
   };
 
-  const filteredSubmissions = (channel?.submissions || []).filter(
+  const filteredSubmissions = submissionList.filter(
     submission => submission.reviewStatus === submissionFilter
   );
 
   return (
-    <div className="coach-admin-panel coach-admin-panel--student-chat">
+    <div
+      className="coach-admin-panel coach-admin-panel--student-chat"
+      aria-busy={awaitingFirstPayload || undefined}
+    >
       {error && <div className="coach-admin-error">{error}</div>}
 
       <div className="coach-admin-layout coach-admin-layout--single coach-admin-layout--student-chat">
         <AdminChatShell
-          messages={channel.messages || []}
+          messages={channel?.messages || []}
           currentUserRole="student"
           peerLabel="관리자"
           draft={draft}
           setDraft={setDraft}
           sending={sending}
           onSend={sendMessage}
+          emptyState={null}
           triggerPlaceholder="관리자에게 메시지를 입력해 보세요"
           showFrame={false}
           showHeader={false}
+          composerDisabled={awaitingFirstPayload}
           starterContent={
-            <button
-              type="button"
-              className="coach-starter coach-admin-chat__starter-button"
-              onClick={openHomeworkComposer}
-            >
-              숙제 제출하기
-            </button>
+            awaitingFirstPayload ? null : (
+              <button
+                type="button"
+                className="coach-starter coach-admin-chat__starter-button"
+                onClick={openHomeworkComposer}
+              >
+                숙제 제출하기
+              </button>
+            )
           }
         />
       </div>
 
-      {showHomeworkComposer && (
+      {showHomeworkComposer && channel && (
         <div
           className={"dday-modal" + (homeworkModalReveal.revealed ? " dday-modal--open" : "")}
           onClick={closeHomeworkComposer}
@@ -708,8 +859,17 @@ export function ParentAdminChannelPanel(props: {
   studentId: number | null;
   studentLabel: string;
 }) {
-  const [channel, setChannel] = useState<ParentAdminChannelResponse | null>(null);
-  const [loading, setLoading] = useState(false);
+  const parentChannelSigRef = useRef<string | null>(null);
+  const [channel, setChannel] = useState<ParentAdminChannelResponse | null>(() => {
+    if (!props.authToken || props.studentId == null) return null;
+    const c = readParentAdminChannelCache(props.authToken, props.studentId);
+    parentChannelSigRef.current = c ? stableStringify(c) : null;
+    return c;
+  });
+  const [loading, setLoading] = useState(() => {
+    if (!props.authToken || props.studentId == null) return false;
+    return !readParentAdminChannelCache(props.authToken, props.studentId);
+  });
   const [error, setError] = useState("");
   const [draft, setDraft] = useState("");
   const [sending, setSending] = useState(false);
@@ -720,24 +880,37 @@ export function ParentAdminChannelPanel(props: {
 
   const refresh = useCallback(async () => {
     if (!props.authToken || !props.studentId) {
+      parentChannelSigRef.current = null;
       setChannel(null);
       setLoading(false);
       return;
     }
-    setLoading(true);
+    if (!isDocumentVisible()) return;
     try {
-      const res = await fetch(
-        `${API_BASE}/api/parent/admin-channel?studentId=${encodeURIComponent(String(props.studentId))}`,
-        {
-          headers: { Authorization: `Bearer ${props.authToken}` },
-          cache: "no-store"
-        }
+      const res = await trackAsync("panel.parentAdmin.refresh", () =>
+        fetch(
+          `${API_BASE}/api/parent/admin-channel?studentId=${encodeURIComponent(String(props.studentId))}&messageLimit=40&submissionLimit=12`,
+          {
+            headers: { Authorization: `Bearer ${props.authToken}` },
+            cache: "no-store"
+          }
+        )
       );
       const data = (await res.json().catch(() => ({}))) as ParentAdminChannelResponse & {
         error?: string;
       };
       if (!res.ok) throw new Error(String(data.error || "학생 채널을 불러오지 못했습니다."));
-      setChannel(data);
+      const sig = stableStringify(data);
+      if (parentChannelSigRef.current !== sig) {
+        parentChannelSigRef.current = sig;
+        if (props.authToken && props.studentId != null) {
+          writeParentAdminChannelCache(props.authToken, props.studentId, data);
+        }
+        setChannel(data);
+        setLoading(false);
+      } else {
+        setLoading(false);
+      }
       setError("");
     } catch (fetchError) {
       setError(
@@ -745,8 +918,30 @@ export function ParentAdminChannelPanel(props: {
           ? fetchError.message
           : "학생 채널을 불러오지 못했습니다."
       );
-    } finally {
       setLoading(false);
+    }
+  }, [props.authToken, props.studentId]);
+
+  const prevParentScopeKeyRef = useRef("");
+  useEffect(() => {
+    const key = `${props.authToken ?? ""}\0${String(props.studentId ?? "")}`;
+    if (prevParentScopeKeyRef.current === key) return;
+    prevParentScopeKeyRef.current = key;
+    if (!props.authToken || props.studentId == null) {
+      parentChannelSigRef.current = null;
+      setChannel(null);
+      setLoading(false);
+      return;
+    }
+    const cached = readParentAdminChannelCache(props.authToken, props.studentId);
+    if (cached) {
+      parentChannelSigRef.current = stableStringify(cached);
+      setChannel(cached);
+      setLoading(false);
+    } else {
+      parentChannelSigRef.current = null;
+      setChannel(null);
+      setLoading(true);
     }
   }, [props.authToken, props.studentId]);
 
@@ -760,7 +955,7 @@ export function ParentAdminChannelPanel(props: {
     void run();
     const timerId = window.setInterval(() => {
       void run();
-    }, 5000);
+    }, 15000);
     return () => {
       cancelled = true;
       window.clearInterval(timerId);

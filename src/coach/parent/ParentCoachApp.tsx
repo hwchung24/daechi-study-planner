@@ -1,5 +1,5 @@
 import ModeScheduleSettings from "./ModeScheduleSettings";
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Brain,
   ClipboardList,
@@ -32,10 +32,15 @@ import {
   readStoredUserCacheScope,
   writeLocalCache
 } from "../../lib/viewCache";
+import {
+  scheduleBackgroundUiUpdate,
+  stableStringify
+} from "../../lib/stableUiUpdate";
 
 export type ParentTabKey = "manage" | "records" | "studentSettings" | "analysis";
 
-const STUDY_ROOM_VISITS_REFRESH_INTERVAL_MS = 30000;
+const STUDY_ROOM_VISITS_POLL_INTERVAL_ACTIVE_MS = 30000;
+const STUDY_ROOM_VISITS_POLL_INTERVAL_IDLE_MS = 90000;
 const PARENT_COACH_CACHE_TTL_MS = 2 * 60 * 1000;
 
 type ParentAiDaily = {
@@ -921,10 +926,26 @@ function AiReportTab(props: {
   const [patternsLoading, setPatternsLoading] = useState(false);
   const [patternsError, setPatternsError] = useState<string | null>(null);
   const [patternsUsedOpenAi, setPatternsUsedOpenAi] = useState(false);
+  const analysisHasDataRef = useRef(Boolean(analysisState));
+  const patternsHasDataRef = useRef(aiPatterns.length > 0);
+  const studyRoomVisitsHasDataRef = useRef(studyRoomVisits.length > 0);
+  const studyRoomPollSigRef = useRef<string | null>(null);
   const totalStudyMinutes = props.parentReport?.stats?.totalStudyMinutes || 0;
   const focusDistribution = props.parentReport?.stats?.focusDistribution;
   const stableFocus = (focusDistribution?.best || 0) + (focusDistribution?.good || 0);
   const consecutiveAbsentDays = props.parentReport?.stats?.consecutiveAbsentDays || 0;
+
+  useEffect(() => {
+    analysisHasDataRef.current = Boolean(analysisState);
+  }, [analysisState]);
+
+  useEffect(() => {
+    patternsHasDataRef.current = aiPatterns.length > 0;
+  }, [aiPatterns]);
+
+  useEffect(() => {
+    studyRoomVisitsHasDataRef.current = studyRoomVisits.length > 0;
+  }, [studyRoomVisits]);
 
   useEffect(() => {
     if (!props.authToken || !props.parentStudentId) return;
@@ -956,7 +977,7 @@ function AiReportTab(props: {
     }
     let cancelled = false;
     const ac = new AbortController();
-    setAnalysisLoading(true);
+    setAnalysisLoading(!analysisHasDataRef.current);
     setAnalysisError(null);
     const weekStart = encodeURIComponent(recentWeekStart);
     void fetch(
@@ -1015,7 +1036,7 @@ function AiReportTab(props: {
     }
     let cancelled = false;
     const ac = new AbortController();
-    setPatternsLoading(true);
+    setPatternsLoading(!patternsHasDataRef.current);
     setPatternsError(null);
     const weekStart = encodeURIComponent(recentWeekStart);
     void fetch(
@@ -1367,6 +1388,7 @@ function RecordsTab(props: {
   const refreshStudyRoomVisits = useCallback(
     async (options?: { silent?: boolean }) => {
       if (!props.authToken || !props.selectedStudent?.id) {
+        studyRoomPollSigRef.current = null;
         setStudyRoomVisits([]);
         setStudyRoomVisitsLoading(false);
         setStudyRoomLiveStatus({
@@ -1380,7 +1402,7 @@ function RecordsTab(props: {
         return;
       }
 
-      if (!options?.silent) {
+      if (!options?.silent && !studyRoomVisitsHasDataRef.current) {
         setStudyRoomVisitsLoading(true);
       }
 
@@ -1403,8 +1425,8 @@ function RecordsTab(props: {
           currentRadiusMeters?: number | null;
           studyRoomName?: string | null;
         };
-        setStudyRoomVisits(Array.isArray(data.visits) ? data.visits : []);
-        setStudyRoomLiveStatus({
+        const nextVisits = Array.isArray(data.visits) ? data.visits : [];
+        const nextLive = {
           currentDistanceMeters:
             data.currentDistanceMeters != null && Number.isFinite(Number(data.currentDistanceMeters))
               ? Number(data.currentDistanceMeters)
@@ -1422,8 +1444,18 @@ function RecordsTab(props: {
               ? Number(data.currentRadiusMeters)
               : null,
           studyRoomName: data.studyRoomName != null ? String(data.studyRoomName) : null
+        };
+        const bundleSig = stableStringify({ visits: nextVisits, live: nextLive });
+        if (studyRoomPollSigRef.current === bundleSig) {
+          return;
+        }
+        studyRoomPollSigRef.current = bundleSig;
+        scheduleBackgroundUiUpdate(() => {
+          setStudyRoomVisits(nextVisits);
+          setStudyRoomLiveStatus(nextLive);
         });
       } catch {
+        studyRoomPollSigRef.current = null;
         setStudyRoomVisits([]);
         setStudyRoomLiveStatus({
           currentDistanceMeters: null,
@@ -1454,6 +1486,9 @@ function RecordsTab(props: {
     if (!props.authToken || !props.selectedStudent?.id) {
       return;
     }
+    const pollIntervalMs = hasStudyRoomConfig
+      ? STUDY_ROOM_VISITS_POLL_INTERVAL_ACTIVE_MS
+      : STUDY_ROOM_VISITS_POLL_INTERVAL_IDLE_MS;
 
     const run = () => {
       if (typeof document !== "undefined" && document.visibilityState !== "visible") {
@@ -1462,7 +1497,7 @@ function RecordsTab(props: {
       void refreshStudyRoomVisits({ silent: true });
     };
 
-    const timerId = window.setInterval(run, STUDY_ROOM_VISITS_REFRESH_INTERVAL_MS);
+    const timerId = window.setInterval(run, pollIntervalMs);
     const onVisibilityChange = () => {
       if (document.visibilityState !== "visible") return;
       run();
@@ -1474,7 +1509,7 @@ function RecordsTab(props: {
       window.clearInterval(timerId);
       document.removeEventListener("visibilitychange", onVisibilityChange);
     };
-  }, [props.authToken, props.selectedStudent?.id, refreshStudyRoomVisits]);
+  }, [hasStudyRoomConfig, props.authToken, props.selectedStudent?.id, refreshStudyRoomVisits]);
 
   const daysByDate = useMemo(
     () =>
@@ -2448,85 +2483,63 @@ export function ParentCoachApp(props: {
     props.parentStudents[0] ||
     null;
 
-  const view = useMemo(() => {
-    const map: Record<ParentTabKey, React.ReactNode> = {
-      manage: (
-        <ManageTab
-          authToken={props.authToken}
-          parentStudents={props.parentStudents}
-          selectedStudent={selectedStudent}
-          parentStudentId={props.parentStudentId}
-          setParentStudentId={props.setParentStudentId}
-        />
-      ),
-      records: (
-        <RecordsTab
-          apiBase={props.apiBase}
-          authToken={props.authToken}
-          parentStudents={props.parentStudents}
-          selectedStudent={selectedStudent}
-          parentStudentId={props.parentStudentId}
-          setParentStudentId={props.setParentStudentId}
-          parentReport={props.parentReport}
-        />
-      ),
-      studentSettings: (
-        <StudentSettingsTab
-          apiBase={props.apiBase}
-          authToken={props.authToken}
-          parentStudents={props.parentStudents}
-          setParentStudents={props.setParentStudents}
-          selectedStudent={selectedStudent}
-          parentStudentId={props.parentStudentId}
-          setParentStudentId={props.setParentStudentId}
-          parentPlannerEnabled={props.parentPlannerEnabled}
-          setParentPlannerEnabled={props.setParentPlannerEnabled}
-          parentPlannerTime={props.parentPlannerTime}
-          setParentPlannerTime={props.setParentPlannerTime}
-          parentPlannerSaving={props.parentPlannerSaving}
-          setParentPlannerSaving={props.setParentPlannerSaving}
-          parentPlannerMessage={props.parentPlannerMessage}
-          setParentPlannerMessage={props.setParentPlannerMessage}
-          parentLockStatus={props.parentLockStatus}
-          setParentLockStatus={props.setParentLockStatus}
-          hapticWarning={props.hapticWarning}
-          hapticSuccess={props.hapticSuccess}
-        />
-      ),
-      analysis: (
-        <ParentAnalysisTab
-          authToken={props.authToken}
-          selectedStudent={selectedStudent}
-          parentReport={props.parentReport}
-          parentAiDaily={props.parentAiDaily}
-        />
-      )
-    };
-    return map[props.tab] || map.manage;
-  }, [
-    props.authToken,
-    props.apiBase,
-    props.parentAiDaily,
-    props.hapticSuccess,
-    props.hapticWarning,
-    props.parentLockStatus,
-    props.parentPlannerEnabled,
-    props.parentPlannerMessage,
-    props.parentPlannerSaving,
-    props.parentPlannerTime,
-    props.parentReport,
-    props.parentStudentId,
-    props.parentStudents,
-    props.setParentLockStatus,
-    props.setParentPlannerEnabled,
-    props.setParentPlannerMessage,
-    props.setParentPlannerSaving,
-    props.setParentPlannerTime,
-    props.setParentStudentId,
-    props.setParentStudents,
-    props.tab,
-    selectedStudent
-  ]);
+  let view: React.ReactNode;
+  if (props.tab === "records") {
+    view = (
+      <RecordsTab
+        apiBase={props.apiBase}
+        authToken={props.authToken}
+        parentStudents={props.parentStudents}
+        selectedStudent={selectedStudent}
+        parentStudentId={props.parentStudentId}
+        setParentStudentId={props.setParentStudentId}
+        parentReport={props.parentReport}
+      />
+    );
+  } else if (props.tab === "studentSettings") {
+    view = (
+      <StudentSettingsTab
+        apiBase={props.apiBase}
+        authToken={props.authToken}
+        parentStudents={props.parentStudents}
+        setParentStudents={props.setParentStudents}
+        selectedStudent={selectedStudent}
+        parentStudentId={props.parentStudentId}
+        setParentStudentId={props.setParentStudentId}
+        parentPlannerEnabled={props.parentPlannerEnabled}
+        setParentPlannerEnabled={props.setParentPlannerEnabled}
+        parentPlannerTime={props.parentPlannerTime}
+        setParentPlannerTime={props.setParentPlannerTime}
+        parentPlannerSaving={props.parentPlannerSaving}
+        setParentPlannerSaving={props.setParentPlannerSaving}
+        parentPlannerMessage={props.parentPlannerMessage}
+        setParentPlannerMessage={props.setParentPlannerMessage}
+        parentLockStatus={props.parentLockStatus}
+        setParentLockStatus={props.setParentLockStatus}
+        hapticWarning={props.hapticWarning}
+        hapticSuccess={props.hapticSuccess}
+      />
+    );
+  } else if (props.tab === "analysis") {
+    view = (
+      <ParentAnalysisTab
+        authToken={props.authToken}
+        selectedStudent={selectedStudent}
+        parentReport={props.parentReport}
+        parentAiDaily={props.parentAiDaily}
+      />
+    );
+  } else {
+    view = (
+      <ManageTab
+        authToken={props.authToken}
+        parentStudents={props.parentStudents}
+        selectedStudent={selectedStudent}
+        parentStudentId={props.parentStudentId}
+        setParentStudentId={props.setParentStudentId}
+      />
+    );
+  }
 
   return (
     <div className="coach-shell">

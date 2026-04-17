@@ -155,19 +155,12 @@ function centerRecordsStripOnDateKey(
   );
   if (!card) return;
 
-  const apply = () => {
-    scrollEl.scrollLeft = 0;
-    void scrollEl.offsetWidth;
-    const sc = scrollEl.getBoundingClientRect();
-    const cr = card.getBoundingClientRect();
-    scrollEl.scrollLeft = Math.max(
-      0,
-      cr.left - sc.left - (sc.width - cr.width) / 2
-    );
-  };
-
-  apply();
-  requestAnimationFrame(apply);
+  const centerLeft =
+    card.offsetLeft - scrollEl.clientWidth / 2 + card.offsetWidth / 2;
+  scrollEl.scrollTo({
+    left: Math.max(0, centerLeft),
+    behavior: "auto"
+  });
 }
 
 const storeAppIcons: Record<string, string> = {
@@ -434,17 +427,10 @@ export function StudentLegacyView(props: {
     };
 
     run();
-    const t0 = window.setTimeout(run, 0);
-    const t1 = window.setTimeout(run, 120);
-    const t2 = window.setTimeout(run, RECORDS_TAB_ENTER_MS);
-    const t3 = window.setTimeout(run, RECORDS_TAB_ENTER_MS + 120);
-    let raf = 0;
-    raf = requestAnimationFrame(run);
+    const t = window.setTimeout(run, RECORDS_TAB_ENTER_MS);
+    const raf = requestAnimationFrame(run);
     return () => {
-      window.clearTimeout(t0);
-      window.clearTimeout(t1);
-      window.clearTimeout(t2);
-      window.clearTimeout(t3);
+      window.clearTimeout(t);
       cancelAnimationFrame(raf);
     };
   }, [tab, progressWeekOffset]);
@@ -464,7 +450,7 @@ export function StudentLegacyView(props: {
         const mondayKey = getWeekDaysIncludingTomorrowSeoul(0)[0]?.key;
         if (!mondayKey) return;
         const res = await fetch(
-          `${apiBase}/api/student/coach/state?weekStart=${encodeURIComponent(mondayKey)}`,
+          `${apiBase}/api/student/coach/state?weekStart=${encodeURIComponent(mondayKey)}&fields=logs`,
           {
             headers: { Authorization: `Bearer ${authToken}` },
             cache: "no-store"
@@ -622,6 +608,17 @@ export function StudentLegacyView(props: {
   const todayDoneCount = blocks.filter(b => b.done).length;
   const todayProgress =
     todayTotalCount === 0 ? 0 : Math.round((todayDoneCount / todayTotalCount) * 100);
+  const todayBlockRangesBySubject = useMemo(() => {
+    const map = new Map<string, string[]>();
+    for (const block of blocks) {
+      const key = String(block.subject || "").trim();
+      if (!key) continue;
+      const prev = map.get(key) || [];
+      prev.push(`${block.start}~${block.end}`);
+      map.set(key, prev);
+    }
+    return map;
+  }, [blocks]);
 
   /** 종류 버튼 순서(서버 목록 순서대로 첫 등장 기준) */
   const storeCategoryList = useMemo(() => {
@@ -1254,14 +1251,7 @@ export function StudentLegacyView(props: {
                                 <div className="progress-day-book-plan">
                                   {isTodayCard ? "오늘 계획: " : "계획: "}
                                   {isTodayCard
-                                    ? (() => {
-                                        const ranges = blocks
-                                          .filter(b => b.subject === book.name)
-                                          .map(b => `${b.start}~${b.end}`);
-                                        return ranges.length > 0
-                                          ? ranges.join(", ")
-                                          : "미설정";
-                                      })()
+                                    ? (todayBlockRangesBySubject.get(book.name) || []).join(", ") || "미설정"
                                     : "미설정"}
                                 </div>
                               </div>

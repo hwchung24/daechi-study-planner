@@ -1,4 +1,8 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
+import {
+  scheduleBackgroundUiUpdate,
+  stableStringify
+} from "../../lib/stableUiUpdate";
 
 type NotificationItem = {
   id: number | string;
@@ -104,17 +108,6 @@ function parseNotificationAction(body?: string | null): {
       (parsed.initiatorRole === "parent" || parsed.initiatorRole === "student")
     ) {
       return {
-                dayKey:
-                  slot?.dayKey === "tue" ||
-                  slot?.dayKey === "wed" ||
-                  slot?.dayKey === "thu" ||
-                  slot?.dayKey === "fri" ||
-                  slot?.dayKey === "sat" ||
-                  slot?.dayKey === "sun"
-                    ? slot.dayKey
-                    : slot?.dayKey === "mon"
-                      ? "mon"
-                      : undefined,
         visibleBody: visibleBody || null,
         action: {
           type: "link_unlink_request",
@@ -147,6 +140,42 @@ function formatNotificationTime(value: string) {
   }).format(dt);
 }
 
+const NOTIF_SESSION_CACHE_PREFIX = "daechi:notif:v1:";
+
+function readCachedNotifications(
+  role: string,
+  token: string
+): NotificationItem[] | null {
+  if (typeof sessionStorage === "undefined") return null;
+  try {
+    const raw = sessionStorage.getItem(
+      `${NOTIF_SESSION_CACHE_PREFIX}${role}:${token.slice(0, 32)}`
+    );
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as unknown;
+    if (!Array.isArray(parsed)) return null;
+    return parsed as NotificationItem[];
+  } catch {
+    return null;
+  }
+}
+
+function writeCachedNotifications(
+  role: string,
+  token: string,
+  items: NotificationItem[]
+) {
+  if (typeof sessionStorage === "undefined") return;
+  try {
+    sessionStorage.setItem(
+      `${NOTIF_SESSION_CACHE_PREFIX}${role}:${token.slice(0, 32)}`,
+      JSON.stringify(items)
+    );
+  } catch {
+    // ignore quota / private mode
+  }
+}
+
 export function NotificationsPage(props: {
   apiBase: string;
   authToken: string | null;
@@ -154,17 +183,27 @@ export function NotificationsPage(props: {
   onReadAll?: () => void;
   onNotificationAction?: (action: ParentNotificationAction) => void;
 }) {
-  const [items, setItems] = useState<NotificationItem[]>([]);
-  const [loading, setLoading] = useState(false);
+  const token = String(props.authToken || "").trim();
+  const role = String(props.meRole || "").trim().toLowerCase();
+  const cachedInitial =
+    token && (role === "student" || role === "parent")
+      ? readCachedNotifications(role, token)
+      : null;
+  const [items, setItems] = useState<NotificationItem[]>(() => cachedInitial ?? []);
+  const [loading, setLoading] = useState(
+    () => !(cachedInitial && cachedInitial.length > 0)
+  );
   const [error, setError] = useState("");
+  const itemsSigRef = useRef<string | null>(
+    cachedInitial ? stableStringify(cachedInitial) : null
+  );
 
   useEffect(() => {
-    const token = String(props.authToken || "").trim();
-    const role = String(props.meRole || "").trim().toLowerCase();
     if (!token || (role !== "student" && role !== "parent")) {
       setItems([]);
       setLoading(false);
       setError("");
+      itemsSigRef.current = null;
       return;
     }
 
@@ -178,7 +217,17 @@ export function NotificationsPage(props: {
         ? `${props.apiBase}/api/parent/notifications/read-all`
         : `${props.apiBase}/api/student/notifications/read-all`;
 
-    setLoading(true);
+    const cached = readCachedNotifications(role, token);
+    if (cached && cached.length > 0) {
+      scheduleBackgroundUiUpdate(() => {
+        if (cancelled) return;
+        setItems(cached);
+        setLoading(false);
+        setError("");
+      });
+    } else {
+      setLoading(true);
+    }
     setError("");
 
     (async () => {
@@ -191,8 +240,14 @@ export function NotificationsPage(props: {
           throw new Error("알림 목록을 불러오지 못했습니다.");
         }
         const data = await res.json();
+        const next = Array.isArray(data?.notifications) ? data.notifications : [];
+        const sig = stableStringify(next);
         if (!cancelled) {
-          setItems(Array.isArray(data?.notifications) ? data.notifications : []);
+          if (itemsSigRef.current !== sig) {
+            itemsSigRef.current = sig;
+            writeCachedNotifications(role, token, next);
+            scheduleBackgroundUiUpdate(() => setItems(next));
+          }
         }
         await fetch(readAllUrl, {
           method: "POST",
@@ -201,82 +256,79 @@ export function NotificationsPage(props: {
         if (!cancelled) props.onReadAll?.();
       } catch (e) {
         if (!cancelled) {
-          setItems([]);
+          if (!cached || cached.length === 0) {
+            setItems([]);
+          }
           setError(
             e instanceof Error && e.message ? e.message : "알림을 불러오지 못했습니다."
           );
         }
       } finally {
-        if (!cancelled) setLoading(false);
+        if (!cancelled) {
+          setLoading(false);
+        }
       }
     })();
 
     return () => {
       cancelled = true;
     };
-  }, [props.apiBase, props.authToken, props.meRole, props.onReadAll]);
-
-  if (loading) {
-    return (
-      <p className="notifications-page__empty notifications-page__empty--modal">
-        알림을 불러오는 중입니다.
-      </p>
-    );
-  }
-
-  if (error) {
-    return (
-      <p className="notifications-page__empty notifications-page__empty--modal">
-        {error}
-      </p>
-    );
-  }
-
-  if (!items.length) {
-    return (
-      <p className="notifications-page__empty notifications-page__empty--modal">
-        새 알림이 없습니다.
-      </p>
-    );
-  }
+  }, [props.apiBase, props.authToken, props.meRole, props.onReadAll, role, token]);
 
   return (
-    <div className="notifications-page__list">
-      {items.map(item => {
-        const parsed = parseNotificationAction(item.body);
-        const actionable = parsed.action != null;
-        return (
-        <div
-          key={item.id}
-          className={
-            "notifications-page__item" +
-            (actionable ? " notifications-page__item--actionable" : "")
-          }
-          role={actionable ? "button" : undefined}
-          tabIndex={actionable ? 0 : undefined}
-          onClick={() => {
-            if (parsed.action) props.onNotificationAction?.(parsed.action);
-          }}
-          onKeyDown={event => {
-            if (!parsed.action) return;
-            if (event.key === "Enter" || event.key === " ") {
-              event.preventDefault();
-              props.onNotificationAction?.(parsed.action);
-            }
-          }}
-        >
-          <div className="notifications-page__item-title">{item.title}</div>
-          {parsed.visibleBody ? (
-            <div className="notifications-page__item-body">{parsed.visibleBody}</div>
-          ) : null}
-          {actionable ? (
-            <div className="notifications-page__item-link">눌러서 확인</div>
-          ) : null}
-          <div className="notifications-page__item-time">
-            {formatNotificationTime(item.created_at)}
-          </div>
+    <div className="notifications-page__modal-content">
+      {loading ? (
+        <p className="notifications-page__empty notifications-page__empty--modal">
+          알림을 불러오는 중입니다.
+        </p>
+      ) : error ? (
+        <p className="notifications-page__empty notifications-page__empty--modal">
+          {error}
+        </p>
+      ) : !items.length ? (
+        <p className="notifications-page__empty notifications-page__empty--modal">
+          새 알림이 없습니다.
+        </p>
+      ) : (
+        <div className="notifications-page__list">
+          {items.map(item => {
+            const parsed = parseNotificationAction(item.body);
+            const actionable = parsed.action != null;
+            return (
+              <div
+                key={item.id}
+                className={
+                  "notifications-page__item" +
+                  (actionable ? " notifications-page__item--actionable" : "")
+                }
+                role={actionable ? "button" : undefined}
+                tabIndex={actionable ? 0 : undefined}
+                onClick={() => {
+                  if (parsed.action) props.onNotificationAction?.(parsed.action);
+                }}
+                onKeyDown={event => {
+                  if (!parsed.action) return;
+                  if (event.key === "Enter" || event.key === " ") {
+                    event.preventDefault();
+                    props.onNotificationAction?.(parsed.action);
+                  }
+                }}
+              >
+                <div className="notifications-page__item-title">{item.title}</div>
+                {parsed.visibleBody ? (
+                  <div className="notifications-page__item-body">{parsed.visibleBody}</div>
+                ) : null}
+                {actionable ? (
+                  <div className="notifications-page__item-link">눌러서 확인</div>
+                ) : null}
+                <div className="notifications-page__item-time">
+                  {formatNotificationTime(item.created_at)}
+                </div>
+              </div>
+            );
+          })}
         </div>
-      )})}
+      )}
     </div>
   );
 }

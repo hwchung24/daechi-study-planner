@@ -9,7 +9,8 @@ private struct StudyRoomTrackingConfig: Codable {
 
 @objc final class StudyRoomTrackingManager: NSObject, CLLocationManagerDelegate {
     static let shared = StudyRoomTrackingManager()
-    private let heartbeatIntervalSeconds: TimeInterval = 30
+    private let heartbeatIntervalSeconds: TimeInterval = 60
+    private let minimumDistanceDeltaMeters: CLLocationDistance = 25
 
     private let locationManager = CLLocationManager()
     private let configKey = "daechi.studyRoomTracking.config"
@@ -18,13 +19,14 @@ private struct StudyRoomTrackingConfig: Codable {
     private let lastErrorKey = "daechi.studyRoomTracking.lastError"
     private var pendingPermissionCall: CAPPluginCall?
     private var lastSentAt: Date?
+    private var lastSentLocation: CLLocation?
 
     override init() {
         super.init()
         locationManager.delegate = self
-        locationManager.desiredAccuracy = kCLLocationAccuracyBest
+        locationManager.desiredAccuracy = kCLLocationAccuracyHundredMeters
         locationManager.distanceFilter = 50
-        locationManager.pausesLocationUpdatesAutomatically = false
+        locationManager.pausesLocationUpdatesAutomatically = true
         locationManager.allowsBackgroundLocationUpdates = true
     }
 
@@ -66,8 +68,10 @@ private struct StudyRoomTrackingConfig: Codable {
         UserDefaults.standard.set(true, forKey: enabledKey)
         UserDefaults.standard.removeObject(forKey: lastErrorKey)
         DispatchQueue.main.async {
-            self.locationManager.startMonitoringSignificantLocationChanges()
             self.locationManager.startUpdatingLocation()
+            if self.currentAuthorizationStatus() == .authorizedAlways {
+                self.locationManager.startMonitoringSignificantLocationChanges()
+            }
         }
         call.resolve(status())
     }
@@ -97,8 +101,10 @@ private struct StudyRoomTrackingConfig: Codable {
         }
 
         DispatchQueue.main.async {
-            self.locationManager.startMonitoringSignificantLocationChanges()
             self.locationManager.startUpdatingLocation()
+            if self.currentAuthorizationStatus() == .authorizedAlways {
+                self.locationManager.startMonitoringSignificantLocationChanges()
+            }
         }
     }
 
@@ -129,7 +135,12 @@ private struct StudyRoomTrackingConfig: Codable {
            Date().timeIntervalSince(lastSentAt) < heartbeatIntervalSeconds {
             return
         }
+        if let previous = lastSentLocation,
+           location.distance(from: previous) < minimumDistanceDeltaMeters {
+            return
+        }
         lastSentAt = Date()
+        lastSentLocation = location
         sendHeartbeat(location: location, config: config)
     }
 

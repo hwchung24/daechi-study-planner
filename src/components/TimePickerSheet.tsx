@@ -49,28 +49,19 @@ function selectClosestScrollOption(
   hapticSelection?: () => void
 ) {
   if (!container) return;
-  const options = Array.from(
-    container.querySelectorAll<HTMLButtonElement>(`.time-picker-option[data-${dataKey}]`)
+  const options = container.querySelectorAll<HTMLButtonElement>(
+    `.time-picker-option[data-${dataKey}]`
   );
-  if (options.length === 0) return;
-
-  const containerRect = container.getBoundingClientRect();
-  const containerCenter = containerRect.top + containerRect.height / 2;
-  let closestValue = currentValue;
-  let minDistance = Number.POSITIVE_INFINITY;
-
-  for (const option of options) {
-    const raw = option.dataset[dataKey];
-    const value = Number(raw);
-    if (!Number.isFinite(value)) continue;
-    const rect = option.getBoundingClientRect();
-    const center = rect.top + rect.height / 2;
-    const distance = Math.abs(center - containerCenter);
-    if (distance < minDistance) {
-      minDistance = distance;
-      closestValue = value;
-    }
-  }
+  const firstOption = options[0];
+  if (!firstOption || options.length === 0) return;
+  const optionHeight = firstOption.offsetHeight || 1;
+  const centerY = container.scrollTop + container.clientHeight / 2;
+  const firstCenterY = firstOption.offsetTop + optionHeight / 2;
+  const approxIndex = Math.round((centerY - firstCenterY) / optionHeight);
+  const safeIndex = Math.max(0, Math.min(options.length - 1, approxIndex));
+  const raw = options[safeIndex]?.dataset[dataKey];
+  const closestValue = Number(raw);
+  if (!Number.isFinite(closestValue)) return;
 
   if (closestValue !== currentValue) {
     hapticSelection?.();

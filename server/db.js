@@ -3289,7 +3289,7 @@ async function createParentPlanAddRequest({
   return res.rows[0] || null;
 }
 
-async function listPendingPlanAddRequestsForParent(parentUserId) {
+async function listPendingPlanAddRequestsForParent(parentUserId, limit = 100) {
   const res = await query(
     `SELECT r.id, r.student_user_id, r.target_date, r.book_id, r.planned_range,
             r.start_time, r.end_time, r.subject_snapshot, r.created_at,
@@ -3299,8 +3299,9 @@ async function listPendingPlanAddRequestsForParent(parentUserId) {
      INNER JOIN parents p ON p.user_id = $1
      INNER JOIN parents_students ps ON ps.parent_id = p.id AND ps.student_id = r.student_user_id
      WHERE r.status = 'pending'
-     ORDER BY r.created_at ASC`,
-    [parentUserId]
+     ORDER BY r.created_at ASC
+     LIMIT $2`,
+    [parentUserId, Math.max(1, Math.min(300, Number(limit) || 100))]
   );
   return res.rows;
 }
@@ -3493,13 +3494,18 @@ async function markParentNotificationsReadAll(userId) {
 async function createParentNotificationForLinkedParents(studentUserId, title, body) {
   const parentUserIds = await listLinkedParentUserIdsForStudent(studentUserId);
   if (!parentUserIds.length) return 0;
-  for (const parentUserId of parentUserIds) {
-    await query(
-      `INSERT INTO parent_in_app_notifications (user_id, title, body)
-       VALUES ($1, $2, $3)`,
-      [parentUserId, String(title || ""), body != null ? String(body) : null]
-    );
-  }
+  const values = [];
+  const params = [];
+  parentUserIds.forEach((parentUserId, index) => {
+    const base = index * 3;
+    values.push(`($${base + 1}, $${base + 2}, $${base + 3})`);
+    params.push(parentUserId, String(title || ""), body != null ? String(body) : null);
+  });
+  await query(
+    `INSERT INTO parent_in_app_notifications (user_id, title, body)
+     VALUES ${values.join(", ")}`,
+    params
+  );
   return parentUserIds.length;
 }
 

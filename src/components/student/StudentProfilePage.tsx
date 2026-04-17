@@ -991,7 +991,7 @@ export function StudentProfilePage(props: {
     const ac = new AbortController();
     fetchRef.current = ac;
     const weekStart = encodeURIComponent(getWeekStartKeySeoul(0));
-    fetch(`${API_BASE}/api/student/coach/state?weekStart=${weekStart}`, {
+    fetch(`${API_BASE}/api/student/coach/state?weekStart=${weekStart}&fields=snapshot`, {
       signal: ac.signal,
       cache: "no-store",
       headers: { Authorization: `Bearer ${token}` }
@@ -1031,10 +1031,18 @@ export function StudentProfilePage(props: {
   }, [refreshSchedules]);
 
   useEffect(() => {
-    void refreshWeeklyAppAllowance().catch(() => {
+    const raw = readProfileCache<WeeklyAppAllowanceSchedule | null>(
+      weeklyAppAllowanceCacheKey,
+      null
+    );
+    const normalized = normalizeWeeklyAppAllowanceSchedule(raw);
+    const hasCachedSlots = WEEKLY_APP_ALLOWANCE_DAYS.some(
+      d => (normalized[d.key]?.length || 0) > 0
+    );
+    void refreshWeeklyAppAllowance({ silent: hasCachedSlots }).catch(() => {
       // keep cached weekly app allowance visible
     });
-  }, [refreshWeeklyAppAllowance]);
+  }, [refreshWeeklyAppAllowance, weeklyAppAllowanceCacheKey]);
 
   useEffect(() => {
     refreshLinkedParents().catch(() => {

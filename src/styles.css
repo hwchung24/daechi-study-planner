@@ -298,6 +298,7 @@ select {
   flex-direction: column;
   width: 100%;
   min-width: 0;
+  isolation: isolate;
 }
 
 .network-transition-banner {
@@ -696,6 +697,40 @@ body.app-keyboard-open .app-main {
   min-height: 0;
 }
 
+/* Lazy 라우트 청크 대기: "불러오는 중" 텍스트 대신 얇은 스켈레톤으로 전환 플래시 완화 */
+.app-route-suspense-fallback {
+  min-height: min(40vh, 320px);
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px 16px;
+  box-sizing: border-box;
+}
+
+.app-route-suspense-fallback__pulse {
+  width: min(100%, 200px);
+  height: 10px;
+  border-radius: 999px;
+  background: linear-gradient(
+    90deg,
+    rgba(15, 23, 42, 0.06),
+    rgba(15, 23, 42, 0.12),
+    rgba(15, 23, 42, 0.06)
+  );
+  background-size: 200% 100%;
+  animation: app-route-suspense-shimmer 1.1s ease-in-out infinite;
+}
+
+@keyframes app-route-suspense-shimmer {
+  0% {
+    background-position: 100% 0;
+  }
+  100% {
+    background-position: -100% 0;
+  }
+}
+
 .app-main--today-fixed > .app-main__transition-root,
 .app-main.app-main--coach-chat > .app-main__transition-root {
   flex: 1;
@@ -738,6 +773,27 @@ body.app-keyboard-open .app-main {
 }
 
 .app-main.app-main--coach-chat .coach-shell__tab-panel {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+/* 코치 하위 탭: 조건부 렌더 대신 유지 + hidden — 관리자 1:1 등 탭 전환 시 리마운트·깜빡임 방지 */
+.app-main.app-main--coach-chat .coach-shell__tab-strip-panels {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.app-main.app-main--coach-chat .coach-shell__tab-strip-panels > .coach-shell__tab-surface[hidden] {
+  display: none !important;
+}
+
+.app-main.app-main--coach-chat .coach-shell__tab-strip-panels > .coach-shell__tab-surface:not([hidden]) {
   flex: 1 1 auto;
   min-height: 0;
   display: flex;
@@ -1002,6 +1058,26 @@ body.app-keyboard-open .app-main {
 .notifications-page__empty--modal {
   margin: 0;
   padding: 0;
+}
+
+.notifications-modal-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.notifications-page__modal-content {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+}
+
+.notifications-page__modal-content > .notifications-page__empty {
+  margin: auto 0;
 }
 
 .notifications-page__list {
@@ -1736,15 +1812,22 @@ body.app-keyboard-open .app-main {
 
 .study-room-modal .dday-modal-inner {
   width: min(94vw, 560px);
+  min-height: min(820px, calc(var(--app-viewport-height) - 24px));
   max-height: min(820px, calc(var(--app-viewport-height) - 24px));
   padding: 16px;
   overflow: hidden;
+  display: flex;
+  flex-direction: column;
 }
 
 .study-room-modal .dday-modal-body {
   display: flex;
   flex-direction: column;
   gap: 12px;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
 }
 
 .study-room-modal__guide {
@@ -3183,6 +3266,27 @@ button.practice-commitment-card:not(:disabled):active {
     transform var(--dur-modal) var(--ease-standard);
 }
 
+/* 공통: 내용 변화에도 모달 박스 크기 고정, 본문만 스크롤 */
+.dday-modal-inner.dday-modal-inner--fixed-72 {
+  width: min(94vw, 460px);
+  min-height: min(72vh, 640px);
+  max-height: min(72vh, 640px);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.dday-modal-inner.dday-modal-inner--fixed-72.parent-app-request-modal {
+  width: min(94vw, 440px);
+}
+
+.dday-modal-body.dday-modal-body--scroll-fill {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
 .dday-modal--open .dday-modal-inner {
   opacity: 1;
   transform: scale(1) translateY(0);
@@ -4033,10 +4137,6 @@ button.practice-commitment-card:not(:disabled):active {
   font-size: var(--font-size-small);
   font-weight: var(--font-weight-bold);
   color: var(--text-accent);
-}
-
-.parent-app-request-modal {
-  width: min(94vw, 440px);
 }
 
 .parent-app-request-modal__body {
@@ -6668,6 +6768,10 @@ button:active:not(:disabled),
   min-height: 0;
 }
 
+.coach-admin-chat-shell--composer-disabled .coach-chat-composer {
+  opacity: 0.88;
+}
+
 .coach-admin-chat-shell--plain {
   flex: 1 1 auto;
 }
@@ -6698,6 +6802,87 @@ button:active:not(:disabled),
   min-height: 0;
   max-height: none;
   margin-top: 0;
+}
+
+.coach-admin-chat__messages--stable {
+  contain: layout style;
+}
+
+/* 관리자 채널: 첫 로드 시 문구만 바뀌는 깜빡임 방지 — 채팅 셸과 동일한 뼈대 */
+.coach-admin-panel--hydrating {
+  min-height: min(72vh, 520px);
+}
+
+.coach-admin-hydrate-shell {
+  display: flex;
+  flex-direction: column;
+  min-height: min(56vh, 420px);
+  flex: 1 1 auto;
+}
+
+.coach-admin-hydrate-shell__messages {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  justify-content: flex-end;
+  min-height: 240px;
+}
+
+.coach-admin-hydrate-shell__shimmer {
+  height: 14px;
+  max-width: 82%;
+  border-radius: 12px;
+  background: linear-gradient(
+    90deg,
+    rgba(148, 163, 184, 0.22) 0%,
+    rgba(226, 232, 240, 0.55) 50%,
+    rgba(148, 163, 184, 0.22) 100%
+  );
+  background-size: 200% 100%;
+  animation: coach-admin-hydrate-shimmer 1.1s ease-in-out infinite;
+}
+
+.coach-admin-hydrate-shell__shimmer--short {
+  max-width: 48%;
+}
+
+.coach-admin-hydrate-shell__shimmer--right {
+  align-self: flex-end;
+  max-width: 58%;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .coach-admin-hydrate-shell__shimmer {
+    animation: none;
+    background: rgba(148, 163, 184, 0.2);
+  }
+}
+
+@keyframes coach-admin-hydrate-shimmer {
+  0% {
+    background-position: 100% 0;
+  }
+  100% {
+    background-position: -100% 0;
+  }
+}
+
+.coach-admin-hydrate-shell__rail {
+  padding-top: 10px;
+}
+
+.coach-admin-hydrate-shell__composer-fake {
+  min-height: 44px;
+  align-items: center;
+  padding: 10px 12px;
+  border-radius: 16px;
+  background: rgba(248, 250, 252, 0.85);
+  border: var(--border-width) solid var(--border-neutral);
+}
+
+.coach-admin-hydrate-shell__hint {
+  font-size: var(--font-size-small);
+  color: var(--text-sub);
 }
 
 .coach-admin-chat__avatar {

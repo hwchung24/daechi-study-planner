@@ -45,7 +45,8 @@ let webWatchId: number | null = null;
 let webApiBase = "";
 let webAuthToken = "";
 let webLastSentAt = 0;
-const HEARTBEAT_INTERVAL_MS = 30_000;
+const HEARTBEAT_INTERVAL_MS_VISIBLE = 30_000;
+const HEARTBEAT_INTERVAL_MS_HIDDEN = 120_000;
 
 function isNativeIos() {
   return Capacitor.getPlatform() === "ios";
@@ -58,7 +59,11 @@ function buildHeartbeatUrl(apiBase: string) {
 async function sendWebHeartbeat(position: GeolocationPosition) {
   if (!webApiBase || !webAuthToken) return;
   const now = Date.now();
-  if (now - webLastSentAt < HEARTBEAT_INTERVAL_MS) return;
+  const visibilityBasedInterval =
+    typeof document !== "undefined" && document.visibilityState === "hidden"
+      ? HEARTBEAT_INTERVAL_MS_HIDDEN
+      : HEARTBEAT_INTERVAL_MS_VISIBLE;
+  if (now - webLastSentAt < visibilityBasedInterval) return;
   webLastSentAt = now;
   try {
     const res = await fetch(buildHeartbeatUrl(webApiBase), {
@@ -184,9 +189,9 @@ async function startWebTracking(options: StartTrackingOptions): Promise<NativeTr
       };
     },
     {
-      enableHighAccuracy: true,
-      maximumAge: 30_000,
-      timeout: 20_000
+      enableHighAccuracy: false,
+      maximumAge: 60_000,
+      timeout: 30_000
     }
   );
 

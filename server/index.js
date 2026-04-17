@@ -185,9 +185,18 @@ let dbConnected = false;
 let cronStarted = false;
 let schemaApplied = false;
 const SIMPLEMDM_LOCATION_REFRESH_COOLDOWN_MS = 5 * 60 * 1000;
+const PATTERN_INSIGHTS_CACHE_TTL_MS = 5 * 60 * 1000;
+const PATTERN_INSIGHTS_CACHE_MAX_ENTRIES = 200;
+const LOCK_STATUS_CACHE_TTL_MS = 8 * 1000;
+const LOCK_STATUS_CACHE_MAX_ENTRIES = 300;
+const RESPONSE_CACHE_TTL_MS = 15 * 1000;
+const RESPONSE_CACHE_MAX_ENTRIES = 500;
 const UPLOADS_ROOT = path.join(__dirname, "uploads");
 const HOMEWORK_UPLOADS_DIR = path.join(UPLOADS_ROOT, "homework");
 const simpleMdmLocationRefreshAtByDeviceId = new Map();
+const patternInsightsCache = new Map();
+const lockStatusCache = new Map();
+const responseCache = new Map();
 const DAECHI_ROOT_BUNDLE_ID = "com.daechiroot.ios";
 const APP_ALLOWANCE_MODE_TO_PROFILE_NAME = Object.freeze({
   default: String(process.env.SIMPLEMDM_APP_ALLOWANCE_DEFAULT_PROFILE || "default").trim(),
@@ -208,6 +217,141 @@ function normalizeSimpleMdmProfileName(value) {
     .trim()
     .toLowerCase()
     .replace(/\s+/g, " ");
+}
+
+function getPatternInsightsCache(key) {
+  const cached = patternInsightsCache.get(key);
+  if (!cached) return null;
+  if (Date.now() - Number(cached.at || 0) > PATTERN_INSIGHTS_CACHE_TTL_MS) {
+    patternInsightsCache.delete(key);
+    return null;
+  }
+  // LRU touch
+  patternInsightsCache.delete(key);
+  patternInsightsCache.set(key, cached);
+  return cached.value;
+}
+
+function setPatternInsightsCache(key, value) {
+  if (patternInsightsCache.size >= PATTERN_INSIGHTS_CACHE_MAX_ENTRIES) {
+    const oldestKey = patternInsightsCache.keys().next().value;
+    if (oldestKey) patternInsightsCache.delete(oldestKey);
+  }
+  patternInsightsCache.set(key, { at: Date.now(), value });
+}
+
+function normalizeWeekStartForCache(weekStartRaw) {
+  const weekStart = String(weekStartRaw || "").trim();
+  if (!weekStart) return "recent";
+  return isIsoDate(weekStart) ? weekStart : "recent";
+}
+
+function buildPatternCacheKey(scope, userId, studentId, weekStartRaw) {
+  const week = normalizeWeekStartForCache(weekStartRaw);
+  if (scope === "parent") {
+    return `parent:${Number(userId) || 0}:${Number(studentId) || 0}:${week}`;
+  }
+  return `student:${Number(userId) || 0}:${week}`;
+}
+
+function invalidatePatternInsightsCacheForStudent(studentUserId) {
+  const sid = Number(studentUserId) || 0;
+  if (!sid) return;
+  const prefixes = [`student:${sid}:`, `parent:`];
+  for (const key of patternInsightsCache.keys()) {
+    if (String(key).startsWith(prefixes[0])) {
+      patternInsightsCache.delete(key);
+      continue;
+    }
+    if (String(key).startsWith(prefixes[1]) && String(key).includes(`:${sid}:`)) {
+      patternInsightsCache.delete(key);
+    }
+  }
+}
+
+function getResponseCache(key) {
+  const cached = responseCache.get(key);
+  if (!cached) return null;
+  if (Date.now() - Number(cached.at || 0) > RESPONSE_CACHE_TTL_MS) {
+    responseCache.delete(key);
+    return null;
+  }
+  // LRU touch
+  responseCache.delete(key);
+  responseCache.set(key, cached);
+  return cached.value;
+}
+
+function setResponseCache(key, value) {
+  if (responseCache.size >= RESPONSE_CACHE_MAX_ENTRIES) {
+    const oldestKey = responseCache.keys().next().value;
+    if (oldestKey) responseCache.delete(oldestKey);
+  }
+  responseCache.set(key, { at: Date.now(), value });
+}
+
+function invalidateResponseCacheByPrefix(prefix) {
+  const normalized = String(prefix || "");
+  if (!normalized) return;
+  for (const key of responseCache.keys()) {
+    if (String(key).startsWith(normalized)) {
+      responseCache.delete(key);
+    }
+  }
+}
+
+function buildParentStudyRoomVisitsCacheKey(parentUserId, studentId, limit) {
+  return `parent-study-room-visits:${Number(parentUserId) || 0}:${Number(studentId) || 0}:${Number(limit) || 6}`;
+}
+
+function getLockStatusCache(key) {
+  const cached = lockStatusCache.get(key);
+  if (!cached) return null;
+  if (Date.now() - Number(cached.at || 0) > LOCK_STATUS_CACHE_TTL_MS) {
+    lockStatusCache.delete(key);
+    return null;
+  }
+  // LRU touch
+  lockStatusCache.delete(key);
+  lockStatusCache.set(key, cached);
+  return cached.value;
+}
+
+function setLockStatusCache(key, value) {
+  if (lockStatusCache.size >= LOCK_STATUS_CACHE_MAX_ENTRIES) {
+    const oldestKey = lockStatusCache.keys().next().value;
+    if (oldestKey) lockStatusCache.delete(oldestKey);
+  }
+  lockStatusCache.set(key, { at: Date.now(), value });
+}
+
+function invalidateLockStatusCacheForStudent(studentUserId) {
+  const sid = Number(studentUserId) || 0;
+  if (!sid) return;
+  for (const key of lockStatusCache.keys()) {
+    const text = String(key);
+    if (text === `student-lock:${sid}` || text.includes(`:${sid}`)) {
+      lockStatusCache.delete(key);
+    }
+  }
+}
+
+async function asyncMapWithConcurrency(items, mapper, concurrency = 4) {
+  const list = Array.isArray(items) ? items : [];
+  const limit = Math.max(1, Math.min(8, Number(concurrency) || 4));
+  const results = new Array(list.length);
+  let index = 0;
+
+  async function worker() {
+    while (index < list.length) {
+      const current = index;
+      index += 1;
+      results[current] = await mapper(list[current], current);
+    }
+  }
+
+  await Promise.all(Array.from({ length: Math.min(limit, list.length) }, worker));
+  return results;
 }
 
 async function ensureStudentAssignmentGroupForProfile(userId, deviceId) {
@@ -2996,6 +3140,17 @@ app.use(
 );
 app.use("/uploads", express.static(UPLOADS_ROOT));
 app.use(express.json({ limit: "2mb" }));
+app.use((req, res, next) => {
+  const startedAt = Date.now();
+  res.on("finish", () => {
+    const elapsedMs = Date.now() - startedAt;
+    if (elapsedMs < 1200) return;
+    console.warn(
+      `[perf] slow-request ${req.method} ${req.originalUrl} ${res.statusCode} ${elapsedMs}ms`
+    );
+  });
+  next();
+});
 
 app.get("/health", (_req, res) => {
   res.status(200).json({
@@ -4031,6 +4186,7 @@ app.put("/api/parent/students/:studentId/study-room", authMiddleware, async (req
       longitude: normalizedLng,
       radiusMeters: normalizedRadiusMeters
     });
+    invalidateResponseCacheByPrefix(`parent-study-room-visits:${req.userId}:${studentId}:`);
     res.json({
       ok: true,
       studyRoom: row
@@ -4069,6 +4225,7 @@ app.delete("/api/parent/students/:studentId/study-room", authMiddleware, async (
       return res.status(403).json({ error: "연결된 학생만 설정할 수 있습니다." });
     }
     await deleteParentStudentStudyRoom(req.userId, studentId);
+    invalidateResponseCacheByPrefix(`parent-study-room-visits:${req.userId}:${studentId}:`);
     res.json({ ok: true });
   } catch (e) {
     console.error("/api/parent/students/:studentId/study-room DELETE error", e);
@@ -4091,12 +4248,17 @@ app.get("/api/parent/students/:studentId/study-room-visits", authMiddleware, asy
     if (!has) {
       return res.status(403).json({ error: "연결된 학생만 조회할 수 있습니다." });
     }
+    const cacheKey = buildParentStudyRoomVisitsCacheKey(req.userId, studentId, limit);
+    const cached = getResponseCache(cacheKey);
+    if (cached) {
+      return res.json(cached);
+    }
     const [visits, liveSummary] = await Promise.all([
       listRecentStudyRoomVisitSessionsForParent(req.userId, studentId, limit),
       getMergedStudyRoomTrackingSummary(studentId)
     ]);
     const currentRoom = liveSummary.rooms.find(room => room.parentUserId === req.userId) || null;
-    res.json({
+    const response = {
       visits,
       currentDistanceMeters: currentRoom?.currentDistanceMeters ?? null,
       currentWithinRadius: currentRoom?.isWithinRadius ?? null,
@@ -4104,7 +4266,9 @@ app.get("/api/parent/students/:studentId/study-room-visits", authMiddleware, asy
       currentAccuracyMeters: liveSummary.currentAccuracyMeters,
       currentRadiusMeters: currentRoom?.radiusMeters ?? null,
       studyRoomName: currentRoom?.name || null
-    });
+    };
+    setResponseCache(cacheKey, response);
+    res.json(response);
   } catch (e) {
     console.error("/api/parent/students/:studentId/study-room-visits GET error", e);
     res.status(500).json({ error: "체류 기록을 불러오지 못했습니다." });
@@ -4126,7 +4290,12 @@ app.post("/api/parent/link-request", authMiddleware, async (req, res) => {
     if (!result.ok) {
       return res.status(400).json({ error: result.error || "연결 요청에 실패했습니다." });
     }
+    invalidateResponseCacheByPrefix(`parent-notification-summary:${req.userId}`);
     if (Number.isFinite(Number(result.studentUserId)) && Number(result.studentUserId) > 0) {
+      invalidateResponseCacheByPrefix(`student-link-requests:${Number(result.studentUserId) || 0}`);
+      invalidateResponseCacheByPrefix(
+        `student-notification-summary:${Number(result.studentUserId) || 0}`
+      );
       await createStudentNotificationForAlarm(
         Number(result.studentUserId),
         "parentLinkAlerts",
@@ -4171,7 +4340,12 @@ app.post("/api/parent/link-confirm", authMiddleware, async (req, res) => {
     if (!result.ok) {
       return res.status(400).json({ error: result.error || "승인에 실패했습니다." });
     }
+    invalidateResponseCacheByPrefix(`parent-notification-summary:${req.userId}`);
     if (Number.isFinite(Number(result.studentUserId)) && Number(result.studentUserId) > 0) {
+      invalidateResponseCacheByPrefix(`student-link-requests:${Number(result.studentUserId) || 0}`);
+      invalidateResponseCacheByPrefix(
+        `student-notification-summary:${Number(result.studentUserId) || 0}`
+      );
       await createStudentNotificationForAlarm(
         Number(result.studentUserId),
         "parentLinkAlerts",
@@ -4193,8 +4367,16 @@ app.get("/api/parent/plan-add-requests", authMiddleware, async (req, res) => {
     if (!me || me.role !== "parent") {
       return res.status(403).json({ error: "권한이 없습니다." });
     }
-    const requests = await listPendingPlanAddRequestsForParent(req.userId);
-    res.json({ requests });
+    const limit = Math.max(1, Math.min(300, Number(req.query.limit) || 100));
+    const cacheKey = `parent-plan-add:${req.userId}:${limit}`;
+    const cached = getResponseCache(cacheKey);
+    if (cached) {
+      return res.json(cached);
+    }
+    const requests = await listPendingPlanAddRequestsForParent(req.userId, limit);
+    const response = { requests };
+    setResponseCache(cacheKey, response);
+    res.json(response);
   } catch (e) {
     console.error("/api/parent/plan-add-requests error", e);
     res.status(500).json({ error: "목록을 불러오지 못했습니다." });
@@ -4221,6 +4403,7 @@ app.post(
       if (!result.ok) {
         return res.status(400).json({ error: result.error || "승인에 실패했습니다." });
       }
+      invalidateResponseCacheByPrefix(`parent-plan-add:${req.userId}:`);
       res.json({ ok: true });
     } catch (e) {
       console.error("/api/parent/plan-add-requests/:id/approve error", e);
@@ -4246,6 +4429,7 @@ app.post(
       if (!result.ok) {
         return res.status(400).json({ error: result.error || "거절에 실패했습니다." });
       }
+      invalidateResponseCacheByPrefix(`parent-plan-add:${req.userId}:`);
       res.json({ ok: true });
     } catch (e) {
       console.error("/api/parent/plan-add-requests/:id/reject error", e);
@@ -4269,7 +4453,10 @@ app.post("/api/student/request-parent", authMiddleware, async (req, res) => {
     if (!result.ok) {
       return res.status(400).json({ error: result.error || "연결 요청에 실패했습니다." });
     }
+    invalidateResponseCacheByPrefix(`student-link-requests:${req.userId}`);
+    invalidateResponseCacheByPrefix(`student-notification-summary:${req.userId}`);
     if (Number.isFinite(Number(result.parentUserId)) && Number(result.parentUserId) > 0) {
+      invalidateResponseCacheByPrefix(`parent-notification-summary:${Number(result.parentUserId) || 0}`);
       await createParentNotificationForAlarmWithPush(
         Number(result.parentUserId),
         "studentLinkAlerts",
@@ -4291,7 +4478,13 @@ app.get("/api/student/link-requests", authMiddleware, async (req, res) => {
     if (!me || me.role !== "student") {
       return res.status(403).json({ error: "권한이 없습니다." });
     }
+    const cacheKey = `student-link-requests:${req.userId}`;
+    const cached = getResponseCache(cacheKey);
+    if (cached) {
+      return res.json(cached);
+    }
     const data = await listStudentLinkRequests(req.userId);
+    setResponseCache(cacheKey, data);
     res.json(data);
   } catch (e) {
     console.error("/api/student/link-requests error", e);
@@ -4316,6 +4509,8 @@ app.get("/api/student/parents", authMiddleware, async (req, res) => {
 
 app.get("/api/student/admin-channel", authMiddleware, async (req, res) => {
   try {
+    const messageLimit = Math.max(1, Math.min(120, Number(req.query.messageLimit) || 40));
+    const submissionLimit = Math.max(1, Math.min(60, Number(req.query.submissionLimit) || 12));
     const parent = await resolvePrimaryParentForStudent(req.userId);
     if (!parent) {
       return res.json({
@@ -4326,8 +4521,8 @@ app.get("/api/student/admin-channel", authMiddleware, async (req, res) => {
       });
     }
     const [messages, submissions] = await Promise.all([
-      listStudentParentChatMessages(req.userId, parent.id, 80),
-      listStudentHomeworkSubmissions(req.userId, parent.id, 24)
+      listStudentParentChatMessages(req.userId, parent.id, messageLimit),
+      listStudentHomeworkSubmissions(req.userId, parent.id, submissionLimit)
     ]);
     res.json({
       channelAvailable: true,
@@ -4488,6 +4683,8 @@ app.delete(
 app.get("/api/parent/admin-channel", authMiddleware, async (req, res) => {
   try {
     const studentId = Number(req.query.studentId);
+    const messageLimit = Math.max(1, Math.min(120, Number(req.query.messageLimit) || 40));
+    const submissionLimit = Math.max(1, Math.min(60, Number(req.query.submissionLimit) || 12));
     if (!Number.isFinite(studentId)) {
       return res.status(400).json({ error: "studentId가 필요합니다." });
     }
@@ -4498,8 +4695,8 @@ app.get("/api/parent/admin-channel", authMiddleware, async (req, res) => {
     const students = await listParentStudents(req.userId);
     const student = students.find(row => Number(row.id) === studentId) || null;
     const [messages, submissions] = await Promise.all([
-      listStudentParentChatMessages(studentId, req.userId, 80),
-      listStudentHomeworkSubmissions(studentId, req.userId, 24)
+      listStudentParentChatMessages(studentId, req.userId, messageLimit),
+      listStudentHomeworkSubmissions(studentId, req.userId, submissionLimit)
     ]);
     res.json({
       ok: true,
@@ -4635,6 +4832,14 @@ app.post("/api/student/location/heartbeat", authMiddleware, async (req, res) => 
       accuracy,
       timestamp
     });
+    if (Array.isArray(summary?.rooms)) {
+      for (const room of summary.rooms) {
+        if (Number.isFinite(Number(room.parentUserId)) && Number(room.parentUserId) > 0) {
+          const pid = Number(room.parentUserId);
+          invalidateResponseCacheByPrefix(`parent-study-room-visits:${pid}:${req.userId}:`);
+        }
+      }
+    }
     if (Array.isArray(summary?.transitions) && summary.transitions.length > 0) {
       for (const transition of summary.transitions) {
         const title =
@@ -4690,7 +4895,10 @@ app.post("/api/student/link-confirm", authMiddleware, async (req, res) => {
     if (!result.ok) {
       return res.status(400).json({ error: result.error || "승인에 실패했습니다." });
     }
+    invalidateResponseCacheByPrefix(`student-link-requests:${req.userId}`);
+    invalidateResponseCacheByPrefix(`student-notification-summary:${req.userId}`);
     if (Number.isFinite(Number(result.parentUserId)) && Number(result.parentUserId) > 0) {
+      invalidateResponseCacheByPrefix(`parent-notification-summary:${Number(result.parentUserId) || 0}`);
       await createParentNotificationForAlarmWithPush(
         Number(result.parentUserId),
         "studentLinkAlerts",
@@ -4759,6 +4967,11 @@ app.post("/api/student/plan-add-request", authMiddleware, async (req, res) => {
       "오늘 계획 수정 요청",
       `${String(me.email || "학생")}(이)가 ${d} ${st}-${et} ${name}${plannedRange ? ` · ${String(plannedRange).trim()}` : ""} 계획 수정을 요청했어요.`
     );
+    const linkedParents = await listLinkedParentUserIdsForStudent(req.userId).catch(() => []);
+    for (const parentUserId of linkedParents) {
+      invalidateResponseCacheByPrefix(`parent-plan-add:${Number(parentUserId) || 0}:`);
+      invalidateResponseCacheByPrefix(`parent-notification-summary:${Number(parentUserId) || 0}`);
+    }
     res.json({ ok: true, id: row.id });
   } catch (e) {
     console.error("/api/student/plan-add-request error", e);
@@ -4780,6 +4993,9 @@ app.post("/api/link/reject", authMiddleware, async (req, res) => {
     const result = await rejectLinkRequest(req.userId, requestId);
     if (!result.ok) {
       return res.status(400).json({ error: result.error || "거절에 실패했습니다." });
+    }
+    if (me.role === "student") {
+      invalidateResponseCacheByPrefix(`student-link-requests:${req.userId}`);
     }
     if (
       me.role === "parent" &&
@@ -5083,13 +5299,37 @@ app.get("/api/parent/coach/state", authMiddleware, async (req, res) => {
     if (!has) {
       return res.status(403).json({ error: "연결된 학생이 아닙니다." });
     }
-    const profile = await getStudentCoachProfile(studentId);
     const weekStart = String(req.query.weekStart || "").trim();
+    const fields = String(req.query.fields || "").trim().toLowerCase();
+    const logsOnly = fields === "logs";
+    const snapshotOnly = fields === "snapshot";
     const logs =
       weekStart && isIsoDate(weekStart)
         ? await listStudentCoachLogsInWeekRange(studentId, weekStart)
         : await listRecentStudentCoachLogs(studentId, 21);
+    if (logsOnly) {
+      return res.json({
+        logs: logs.map(r => ({
+          date: formatPgLogDate(r.log_date),
+          sleepHours: r.sleep_hours,
+          concentrationScore: r.concentration_score,
+          stressScore: r.stress_score,
+          steps: r.steps,
+          planCompletionRate: r.plan_completion_rate,
+          studyMinutes: r.study_minutes,
+          memo: r.memo,
+          tomorrowPractice: r.tomorrow_practice,
+          tomorrowPracticeDone: r.tomorrow_practice_done,
+          studyEvaluation: r.study_evaluation,
+          metacognitionReflection: r.metacognition_reflection
+        }))
+      });
+    }
+    const profile = await getStudentCoachProfile(studentId);
     const snapshot = buildCoachSnapshot(profile, logs);
+    if (snapshotOnly) {
+      return res.json({ snapshot });
+    }
     res.json({
       snapshot,
       logs: logs.map(r => ({
@@ -5128,6 +5368,11 @@ app.get("/api/parent/coach/pattern-insights", authMiddleware, async (req, res) =
       return res.status(403).json({ error: "연결된 학생이 아닙니다." });
     }
     const weekStart = String(req.query.weekStart || "").trim();
+    const cacheKey = buildPatternCacheKey("parent", req.userId, studentId, weekStart);
+    const cached = getPatternInsightsCache(cacheKey);
+    if (cached) {
+      return res.json(cached);
+    }
     const logs =
       weekStart && isIsoDate(weekStart)
         ? await listStudentCoachLogsInWeekRange(studentId, weekStart)
@@ -5146,12 +5391,14 @@ app.get("/api/parent/coach/pattern-insights", authMiddleware, async (req, res) =
     ).length;
 
     if (!openai) {
-      return res.json({
+      const response = {
         patterns: [],
         usedOpenAi: false,
         rhythmWeek,
         recordedDayCount: recordedDays
-      });
+      };
+      setPatternInsightsCache(cacheKey, response);
+      return res.json(response);
     }
 
     const payload = {
@@ -5185,13 +5432,15 @@ app.get("/api/parent/coach/pattern-insights", authMiddleware, async (req, res) =
       patterns = [buildRhythmFallbackPattern(rhythmWeek, recordedDays)];
     }
 
-    res.json({
+    const response = {
       patterns,
       usedOpenAi: true,
       rhythmWeek,
       recordedDayCount: recordedDays,
       model: OPENAI_MODEL
-    });
+    };
+    setPatternInsightsCache(cacheKey, response);
+    res.json(response);
   } catch (e) {
     console.error("/api/parent/coach/pattern-insights error", e);
     res.status(500).json({ error: "학생 AI 패턴 분석을 불러오지 못했습니다." });
@@ -5216,6 +5465,7 @@ app.post("/api/parent/ai-daily-report/refresh", authMiddleware, async (req, res)
     if (!has) {
       return res.status(403).json({ error: "연결된 학생이 아닙니다." });
     }
+    invalidatePatternInsightsCacheForStudent(studentId);
     const result = await runOnePair(req.userId, studentId, { notifyParent: false });
     const row = await getLatestParentAiReport(req.userId, studentId);
     res.json({ ok: true, result, report: row });
@@ -5290,6 +5540,7 @@ app.put("/api/parent/planner-rule", authMiddleware, async (req, res) => {
       lockTime
     );
     const lockStatus = await getParentLockStatus(req.userId, studentId);
+    invalidateLockStatusCacheForStudent(studentId);
     res.json({
       ok: true,
       rule: {
@@ -5357,13 +5608,22 @@ app.get("/api/student/lock-status", authMiddleware, async (req, res) => {
     if (!me || me.role !== "student") {
       return res.status(403).json({ error: "권한이 없습니다." });
     }
+    const cacheKey = `student-lock:${req.userId}`;
+    const cached = getLockStatusCache(cacheKey);
+    if (cached) {
+      return res.json(cached);
+    }
     const lockStatus = await getStudentLockStatus(req.userId);
     const [kioskMode, dailyRecordCompletion] = await Promise.all([
       getStudentKioskModeStatus(req.userId),
       getStudentDailyRecordCompletion(req.userId)
     ]);
     const forceRecordsPage = Boolean(kioskMode.active && !dailyRecordCompletion.completed);
-    res.json({ lockStatus: { ...lockStatus, kioskMode, dailyRecordCompletion, forceRecordsPage } });
+    const response = {
+      lockStatus: { ...lockStatus, kioskMode, dailyRecordCompletion, forceRecordsPage }
+    };
+    setLockStatusCache(cacheKey, response);
+    res.json(response);
   } catch (e) {
     console.error("/api/student/lock-status error", e);
     res.status(500).json({ error: "잠금 상태를 불러오지 못했습니다." });
@@ -5376,8 +5636,15 @@ app.get("/api/student/notifications/summary", authMiddleware, async (req, res) =
     if (!me || me.role !== "student") {
       return res.status(403).json({ error: "권한이 없습니다." });
     }
+    const cacheKey = `student-notification-summary:${req.userId}`;
+    const cached = getResponseCache(cacheKey);
+    if (cached) {
+      return res.json(cached);
+    }
     const unreadCount = await countUnreadStudentNotifications(req.userId);
-    res.json({ unreadCount });
+    const response = { unreadCount };
+    setResponseCache(cacheKey, response);
+    res.json(response);
   } catch (e) {
     console.error("/api/student/notifications/summary error", e);
     res.status(500).json({ error: "알림 상태를 불러오지 못했습니다." });
@@ -5405,6 +5672,7 @@ app.post("/api/student/notifications/read-all", authMiddleware, async (req, res)
       return res.status(403).json({ error: "권한이 없습니다." });
     }
     await markStudentNotificationsReadAll(req.userId);
+    invalidateResponseCacheByPrefix(`student-notification-summary:${req.userId}`);
     res.json({ ok: true });
   } catch (e) {
     console.error("/api/student/notifications/read-all error", e);
@@ -5418,8 +5686,15 @@ app.get("/api/parent/notifications/summary", authMiddleware, async (req, res) =>
     if (!me || me.role !== "parent") {
       return res.status(403).json({ error: "권한이 없습니다." });
     }
+    const cacheKey = `parent-notification-summary:${req.userId}`;
+    const cached = getResponseCache(cacheKey);
+    if (cached) {
+      return res.json(cached);
+    }
     const unreadCount = await countUnreadParentNotifications(req.userId);
-    res.json({ unreadCount });
+    const response = { unreadCount };
+    setResponseCache(cacheKey, response);
+    res.json(response);
   } catch (e) {
     console.error("/api/parent/notifications/summary error", e);
     res.status(500).json({ error: "알림 상태를 불러오지 못했습니다." });
@@ -5447,6 +5722,7 @@ app.post("/api/parent/notifications/read-all", authMiddleware, async (req, res) 
       return res.status(403).json({ error: "권한이 없습니다." });
     }
     await markParentNotificationsReadAll(req.userId);
+    invalidateResponseCacheByPrefix(`parent-notification-summary:${req.userId}`);
     res.json({ ok: true });
   } catch (e) {
     console.error("/api/parent/notifications/read-all error", e);
@@ -5468,8 +5744,15 @@ app.get("/api/parent/lock-status", authMiddleware, async (req, res) => {
     if (!has) {
       return res.status(403).json({ error: "연결된 학생이 아닙니다." });
     }
+    const cacheKey = `parent-lock:${req.userId}:${studentId}`;
+    const cached = getLockStatusCache(cacheKey);
+    if (cached) {
+      return res.json(cached);
+    }
     const lockStatus = await getParentLockStatus(req.userId, studentId);
-    res.json({ lockStatus });
+    const response = { lockStatus };
+    setLockStatusCache(cacheKey, response);
+    res.json(response);
   } catch (e) {
     console.error("/api/parent/lock-status error", e);
     res.status(500).json({ error: "잠금 상태를 불러오지 못했습니다." });
@@ -5492,6 +5775,7 @@ app.post("/api/parent/lock-now", authMiddleware, async (req, res) => {
     }
     const session = await forceParentLock(req.userId, studentId);
     const lockStatus = await getParentLockStatus(req.userId, studentId);
+    invalidateLockStatusCacheForStudent(studentId);
     res.json({ ok: true, session, lockStatus });
   } catch (e) {
     console.error("/api/parent/lock-now error", e);
@@ -5515,6 +5799,7 @@ app.post("/api/parent/unlock-now", authMiddleware, async (req, res) => {
     }
     const session = await forceParentUnlock(req.userId, studentId);
     const lockStatus = await getParentLockStatus(req.userId, studentId);
+    invalidateLockStatusCacheForStudent(studentId);
     res.json({ ok: true, session, lockStatus });
   } catch (e) {
     console.error("/api/parent/unlock-now error", e);
@@ -5540,37 +5825,40 @@ app.post("/api/parent/app-allowance/bulk-daechiroot-lock", authMiddleware, async
       return res.status(400).json({ error: "관리 중인 학생이 없습니다." });
     }
 
-    const results = [];
-    for (const student of students) {
-      try {
-        await setStudentMdmAppAllowanceOverride(student.id, [DAECHI_ROOT_BUNDLE_ID]);
-        const sync = await syncStudentWeeklyAppAllowance(student.id, {
-          force: true,
-          reason: "parent_bulk_daechiroot_lock"
-        });
-        if (!sync.ok) {
-          throw new Error(sync.error || "SimpleMDM 동기화에 실패했습니다.");
+    const results = await asyncMapWithConcurrency(
+      students,
+      async student => {
+        try {
+          await setStudentMdmAppAllowanceOverride(student.id, [DAECHI_ROOT_BUNDLE_ID]);
+          const sync = await syncStudentWeeklyAppAllowance(student.id, {
+            force: true,
+            reason: "parent_bulk_daechiroot_lock"
+          });
+          if (!sync.ok) {
+            throw new Error(sync.error || "SimpleMDM 동기화에 실패했습니다.");
+          }
+          return {
+            studentId: student.id,
+            email: student.email,
+            ok: true,
+            queued: Boolean(sync.queued),
+            warning: sync.warning || null,
+            partial: Boolean(sync.partial)
+          };
+        } catch (error) {
+          return {
+            studentId: student.id,
+            email: student.email,
+            ok: false,
+            error:
+              error instanceof Error && error.message
+                ? error.message
+                : "대치루트 전용 잠금 적용에 실패했습니다."
+          };
         }
-        results.push({
-          studentId: student.id,
-          email: student.email,
-          ok: true,
-          queued: Boolean(sync.queued),
-          warning: sync.warning || null,
-          partial: Boolean(sync.partial)
-        });
-      } catch (error) {
-        results.push({
-          studentId: student.id,
-          email: student.email,
-          ok: false,
-          error:
-            error instanceof Error && error.message
-              ? error.message
-              : "대치루트 전용 잠금 적용에 실패했습니다."
-        });
-      }
-    }
+      },
+      4
+    );
 
     const successCount = results.filter(item => item.ok).length;
     const failed = results.filter(item => !item.ok);
@@ -5617,57 +5905,59 @@ app.post("/api/parent/app-allowance/bulk-daechiroot-unlock", authMiddleware, asy
       return res.status(400).json({ error: "관리 중인 학생이 없습니다." });
     }
 
-    const results = [];
-    for (const student of students) {
-      try {
-        await clearStudentMdmAppAllowanceOverride(student.id);
-        const [scheduleRows, profileState] = await Promise.all([
-          listStudentWeeklyAppAllowanceSlots(student.id),
-          getStudentMdmAppAllowanceProfileState(student.id)
-        ]);
+    const results = await asyncMapWithConcurrency(
+      students,
+      async student => {
+        try {
+          await clearStudentMdmAppAllowanceOverride(student.id);
+          const [scheduleRows, profileState] = await Promise.all([
+            listStudentWeeklyAppAllowanceSlots(student.id),
+            getStudentMdmAppAllowanceProfileState(student.id)
+          ]);
 
-        if (scheduleRows.length === 0) {
-          const removal = await removeStudentWeeklyAppAllowanceRestriction(student.id);
-          results.push({
+          if (scheduleRows.length === 0) {
+            const removal = await removeStudentWeeklyAppAllowanceRestriction(student.id);
+            return {
+              studentId: student.id,
+              email: student.email,
+              ok: true,
+              removed: Boolean(removal.removed),
+              warning: null,
+              partial: false
+            };
+          }
+
+          const sync = await syncStudentWeeklyAppAllowance(student.id, {
+            force: true,
+            reason: "parent_bulk_daechiroot_unlock"
+          });
+          if (!sync.ok) {
+            throw new Error(sync.error || "SimpleMDM 동기화에 실패했습니다.");
+          }
+          return {
             studentId: student.id,
             email: student.email,
             ok: true,
-            removed: Boolean(removal.removed),
-            warning: null,
-            partial: false
-          });
-          continue;
+            queued: Boolean(sync.queued),
+            warning: sync.warning || null,
+            partial: Boolean(sync.partial),
+            removed: false,
+            profilePresent: Boolean(profileState?.profile_id)
+          };
+        } catch (error) {
+          return {
+            studentId: student.id,
+            email: student.email,
+            ok: false,
+            error:
+              error instanceof Error && error.message
+                ? error.message
+                : "대치루트 전용 잠금 해제에 실패했습니다."
+          };
         }
-
-        const sync = await syncStudentWeeklyAppAllowance(student.id, {
-          force: true,
-          reason: "parent_bulk_daechiroot_unlock"
-        });
-        if (!sync.ok) {
-          throw new Error(sync.error || "SimpleMDM 동기화에 실패했습니다.");
-        }
-        results.push({
-          studentId: student.id,
-          email: student.email,
-          ok: true,
-          queued: Boolean(sync.queued),
-          warning: sync.warning || null,
-          partial: Boolean(sync.partial),
-          removed: false,
-          profilePresent: Boolean(profileState?.profile_id)
-        });
-      } catch (error) {
-        results.push({
-          studentId: student.id,
-          email: student.email,
-          ok: false,
-          error:
-            error instanceof Error && error.message
-              ? error.message
-              : "대치루트 전용 잠금 해제에 실패했습니다."
-        });
-      }
-    }
+      },
+      4
+    );
 
     const successCount = results.filter(item => item.ok).length;
     const failed = results.filter(item => !item.ok);
@@ -5724,29 +6014,32 @@ app.post("/api/parent/app-allowance/activate-mode", authMiddleware, async (req, 
       return res.status(400).json({ error: "관리 중인 학생이 없습니다." });
     }
 
-    const results = [];
-    for (const student of students) {
-      try {
-        const applied = await applyNamedAppAllowanceProfileForStudent(student.id, mode);
-        results.push({
-          studentId: student.id,
-          email: student.email,
-          ok: true,
-          mode: applied.mode,
-          profileId: applied.profileId,
-          profileName: applied.profileName,
-          groupId: applied.groupId,
-          removedProfileIds: applied.removedProfileIds
-        });
-      } catch (error) {
-        results.push({
-          studentId: student.id,
-          email: student.email,
-          ok: false,
-          error: error instanceof Error && error.message ? error.message : "프로파일 적용에 실패했습니다."
-        });
-      }
-    }
+    const results = await asyncMapWithConcurrency(
+      students,
+      async student => {
+        try {
+          const applied = await applyNamedAppAllowanceProfileForStudent(student.id, mode);
+          return {
+            studentId: student.id,
+            email: student.email,
+            ok: true,
+            mode: applied.mode,
+            profileId: applied.profileId,
+            profileName: applied.profileName,
+            groupId: applied.groupId,
+            removedProfileIds: applied.removedProfileIds
+          };
+        } catch (error) {
+          return {
+            studentId: student.id,
+            email: student.email,
+            ok: false,
+            error: error instanceof Error && error.message ? error.message : "프로파일 적용에 실패했습니다."
+          };
+        }
+      },
+      4
+    );
 
     const successCount = results.filter(item => item.ok).length;
     const failedCount = results.length - successCount;
@@ -5796,6 +6089,7 @@ app.post("/api/parent/kiosk-mode/bulk-enable", authMiddleware, async (req, res) 
           throw new Error(sync.error || "SimpleMDM 동기화에 실패했습니다.");
         }
         await clearStudentDailyRecordCompletion(student.id);
+        invalidateLockStatusCacheForStudent(student.id);
         results.push({
           studentId: student.id,
           email: student.email,
@@ -5864,6 +6158,7 @@ app.post("/api/parent/kiosk-mode/bulk-disable", authMiddleware, async (req, res)
           removed: Boolean(sync.removed),
           hadProfile: Boolean(before?.profile_id)
         });
+        invalidateLockStatusCacheForStudent(student.id);
       } catch (error) {
         results.push({
           studentId: student.id,
@@ -5936,11 +6231,47 @@ app.get("/api/student/coach/state", authMiddleware, async (req, res) => {
       return res.status(403).json({ error: "권한이 없습니다." });
     }
     const weekStart = String(req.query.weekStart || "").trim();
-    const [profile, logs, liveStudyRoomSummary, recentVisits] = await Promise.all([
+    const fields = String(req.query.fields || "").trim().toLowerCase();
+    const logsOnly = fields === "logs";
+    const snapshotOnly = fields === "snapshot";
+    if (logsOnly) {
+      const logs =
+        weekStart && isIsoDate(weekStart)
+          ? await listStudentCoachLogsInWeekRange(req.userId, weekStart)
+          : await listRecentStudentCoachLogs(req.userId, 21);
+      return res.json({
+        logs: logs.map(r => ({
+          date: formatPgLogDate(r.log_date),
+          sleepHours: r.sleep_hours,
+          concentrationScore: r.concentration_score,
+          stressScore: r.stress_score,
+          steps: r.steps,
+          planCompletionRate: r.plan_completion_rate,
+          studyMinutes: r.study_minutes,
+          memo: r.memo,
+          tomorrowPractice: r.tomorrow_practice,
+          tomorrowPracticeDone: r.tomorrow_practice_done,
+          studyEvaluation: r.study_evaluation,
+          metacognitionReflection: r.metacognition_reflection
+        }))
+      });
+    }
+    const [profile, logs] = await Promise.all([
       getStudentCoachProfile(req.userId),
       weekStart && isIsoDate(weekStart)
         ? listStudentCoachLogsInWeekRange(req.userId, weekStart)
-        : listRecentStudentCoachLogs(req.userId, 21),
+        : listRecentStudentCoachLogs(req.userId, 21)
+    ]);
+    if (snapshotOnly) {
+      const snapshot = buildCoachSnapshot(
+        profile,
+        logs,
+        null,
+        weekStart && isIsoDate(weekStart) ? weekStart : null
+      );
+      return res.json({ snapshot });
+    }
+    const [liveStudyRoomSummary, recentVisits] = await Promise.all([
       getMergedStudyRoomTrackingSummary(req.userId),
       listRecentStudyRoomVisitSessionsForStudent(req.userId, 24)
     ]);
@@ -5986,6 +6317,11 @@ app.get("/api/student/coach/pattern-insights", authMiddleware, async (req, res) 
       return res.status(403).json({ error: "권한이 없습니다." });
     }
     const weekStart = String(req.query.weekStart || "").trim();
+    const cacheKey = buildPatternCacheKey("student", req.userId, null, weekStart);
+    const cached = getPatternInsightsCache(cacheKey);
+    if (cached) {
+      return res.json(cached);
+    }
     const [logs, liveStudyRoomSummary, recentVisits] = await Promise.all([
       weekStart && isIsoDate(weekStart)
         ? listStudentCoachLogsInWeekRange(req.userId, weekStart)
@@ -6012,7 +6348,7 @@ app.get("/api/student/coach/pattern-insights", authMiddleware, async (req, res) 
     ).length;
 
     if (!openai) {
-      return res.json({
+      const response = {
         patterns: [
           buildRhythmFallbackPattern(rhythmWeek, recordedDays, studyRoomSummary)
         ],
@@ -6020,7 +6356,9 @@ app.get("/api/student/coach/pattern-insights", authMiddleware, async (req, res) 
         studyRoomSummary,
         rhythmWeek,
         recordedDayCount: recordedDays
-      });
+      };
+      setPatternInsightsCache(cacheKey, response);
+      return res.json(response);
     }
 
     const payload = {
@@ -6071,14 +6409,16 @@ app.get("/api/student/coach/pattern-insights", authMiddleware, async (req, res) 
         buildRhythmFallbackPattern(rhythmWeek, recordedDays, studyRoomSummary)
       ];
     }
-    res.json({
+    const response = {
       patterns,
       usedOpenAi: true,
       model: OPENAI_MODEL,
       studyRoomSummary,
       rhythmWeek,
       recordedDayCount: recordedDays
-    });
+    };
+    setPatternInsightsCache(cacheKey, response);
+    res.json(response);
   } catch (e) {
     console.error("/api/student/coach/pattern-insights error", e);
     res.status(500).json({ error: "패턴 분석에 실패했습니다." });
@@ -6160,6 +6500,8 @@ app.post("/api/student/coach/log", authMiddleware, async (req, res) => {
     const recordKind =
       recordKindRaw === "study" || recordKindRaw === "life" ? recordKindRaw : null;
     const row = await upsertStudentCoachLog(req.userId, logInput);
+    invalidatePatternInsightsCacheForStudent(req.userId);
+    invalidateLockStatusCacheForStudent(req.userId);
     let dailyRecordCompletion = await getStudentDailyRecordCompletion(req.userId);
     let kioskModeReleased = false;
     if (recordKind) {
@@ -6736,6 +7078,8 @@ app.patch("/api/student/coach/log/tomorrow-practice", authMiddleware, async (req
         ? null
         : String(raw).trim().slice(0, 500) || null;
     const row = await setStudentCoachLogTomorrowPractice(req.userId, text);
+    invalidatePatternInsightsCacheForStudent(req.userId);
+    invalidateLockStatusCacheForStudent(req.userId);
     const logOut =
       row && typeof row === "object"
         ? { ...row, log_date: formatPgLogDate(row.log_date) }
@@ -6758,6 +7102,8 @@ async function handleStudentTomorrowPracticeDone(req, res) {
       return res.status(400).json({ error: "done은 true 또는 false여야 합니다." });
     }
     const row = await setStudentCoachLogTomorrowPracticeDone(req.userId, raw);
+    invalidatePatternInsightsCacheForStudent(req.userId);
+    invalidateLockStatusCacheForStudent(req.userId);
     const logOut =
       row && typeof row === "object"
         ? { ...row, log_date: formatPgLogDate(row.log_date) }

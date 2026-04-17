@@ -1,4 +1,10 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import React, {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState
+} from "react";
 import { Capacitor } from "@capacitor/core";
 import { AppConfig } from "@capacitor-community/mdm-appconfig";
 import { LocalNotifications } from "@capacitor/local-notifications";
@@ -7,21 +13,17 @@ import SplashScreen from "./SplashScreen";
 import { AuthScreen } from "./components/AuthScreen";
 import { AppBottomNav } from "./components/AppBottomNav";
 import { PageTransition } from "./components/PageTransition";
-import { ParentLegacyView, type ParentTabKey } from "./components/parent/ParentLegacyView";
-import { StudentLegacyView, type TabKey } from "./components/student/StudentLegacyView";
-import { StudentProfilePage } from "./components/student/StudentProfilePage";
+import type { ParentTabKey } from "./components/parent/ParentLegacyView";
+import type { TabKey } from "./components/student/StudentLegacyView";
 import type { ParentStudentRow } from "./types/parent";
-import {
-  NotificationsPage,
-  type ParentNotificationAction
-} from "./components/student/NotificationsPage";
+import type { ParentNotificationAction } from "./components/student/NotificationsPage";
 import { TimePickerInline } from "./components/TimePickerSheet";
 import { NativeKeyboardInputManager } from "./components/NativeKeyboardInputManager";
 import { useOnlineStatus } from "./hooks/useOnlineStatus";
 import { canUseNativeAppShell, AppShell, type PendingNetworkBanner } from "./lib/nativeAppShell";
 import { DAECHI_LINKS_UPDATED_EVENT } from "./lib/linkEvents";
-import { StudentCoachApp, type StudentTabKey as CoachStudentTabKey } from "./coach/student/StudentCoachApp";
-import { ParentCoachApp, type ParentTabKey as CoachParentTabKey } from "./coach/parent/ParentCoachApp";
+import type { StudentTabKey as CoachStudentTabKey } from "./coach/student/StudentCoachApp";
+import type { ParentTabKey as CoachParentTabKey } from "./coach/parent/ParentCoachApp";
 import {
   hapticImpactLight,
   hapticImpactMedium,
@@ -88,8 +90,53 @@ import {
   registerNativePushNotifications,
   requestNativePushPermissions
 } from "./lib/nativePushNotifications";
+import { isDocumentVisible, trackAsync } from "./lib/perfMetrics";
+import {
+  scheduleBackgroundUiUpdate,
+  stableStringify
+} from "./lib/stableUiUpdate";
 import type { ParentLockStatus, StudentLockStatus } from "./types/lockStatus";
 import type { ProgressBook, ProgressPlan, StudyBlock } from "./types/planner";
+
+const ParentLegacyView = React.lazy(() =>
+  import("./components/parent/ParentLegacyView").then(module => ({
+    default: module.ParentLegacyView
+  }))
+);
+const StudentLegacyView = React.lazy(() =>
+  import("./components/student/StudentLegacyView").then(module => ({
+    default: module.StudentLegacyView
+  }))
+);
+const StudentProfilePage = React.lazy(() =>
+  import("./components/student/StudentProfilePage").then(module => ({
+    default: module.StudentProfilePage
+  }))
+);
+const NotificationsPage = React.lazy(() =>
+  import("./components/student/NotificationsPage").then(module => ({
+    default: module.NotificationsPage
+  }))
+);
+const StudentCoachApp = React.lazy(() =>
+  import("./coach/student/StudentCoachApp").then(module => ({
+    default: module.StudentCoachApp
+  }))
+);
+const ParentCoachApp = React.lazy(() =>
+  import("./coach/parent/ParentCoachApp").then(module => ({
+    default: module.ParentCoachApp
+  }))
+);
+
+/** lazy 라우트 청크 로딩 시 큰 텍스트 플래시 대신 얇은 스켈레톤만 표시 */
+function AppRouteSuspenseFallback() {
+  return (
+    <div className="app-route-suspense-fallback" aria-hidden>
+      <div className="app-route-suspense-fallback__pulse" />
+    </div>
+  );
+}
 
 type StudyStoreApp = {
   id: string;
@@ -818,6 +865,25 @@ const App: React.FC = () => {
     [userEmail]
   );
 
+  const studentLockStatusSigRef = useRef<string | null>(null);
+  const applyStudentLockStatus = useCallback(
+    (next: StudentLockStatus | null) => {
+      const sig = stableStringify(next);
+      if (studentLockStatusSigRef.current === sig) return;
+      studentLockStatusSigRef.current = sig;
+      scheduleBackgroundUiUpdate(() => setStudentLockStatus(next));
+    },
+    []
+  );
+
+  const timelineBlocksSigRef = useRef<string | null>(null);
+  const parentPlanAddSigRef = useRef<string | null>(null);
+  const parentStudentsSigRef = useRef<string | null>(null);
+  const parentLinkWaitSigRef = useRef<string | null>(null);
+  const studentLinkWaitSigRef = useRef<string | null>(null);
+  const coachTodayRowSigRef = useRef<string | null>(null);
+  const storeAppsSigRef = useRef<string | null>(null);
+
   useEffect(() => {
     try {
       const savedEmail = localStorage.getItem("daechi_planner_user_email");
@@ -1130,6 +1196,28 @@ const App: React.FC = () => {
     setStudentSetupPromptArmed(consumeStudentSetupPrompt(userEmail));
   }, [authToken, userEmail]);
 
+  /** 로그인 직후 lazy 라우트 청크를 미리 받아 탭·페이지 전환 시 Suspense 플래시를 줄임 */
+  useEffect(() => {
+    if (!authToken || !meRoleResolved || !meRole) return;
+    const prefetch = () => {
+      void import("./coach/parent/ParentCoachApp");
+      void import("./coach/student/StudentCoachApp");
+      void import("./components/parent/ParentLegacyView");
+      void import("./components/student/StudentLegacyView");
+      void import("./components/student/StudentProfilePage");
+      void import("./components/student/NotificationsPage");
+    };
+    const ric = window.requestIdleCallback;
+    if (typeof ric === "function") {
+      const id = ric.call(window, prefetch, { timeout: 2000 });
+      return () => {
+        window.cancelIdleCallback?.(id);
+      };
+    }
+    const t = window.setTimeout(prefetch, 200);
+    return () => window.clearTimeout(t);
+  }, [authToken, meRole, meRoleResolved]);
+
   useEffect(() => {
     if (
       !authToken ||
@@ -1417,15 +1505,20 @@ const App: React.FC = () => {
   useEffect(() => {
     if (!authToken || meRole !== "student") return;
     let cancelled = false;
+    const lockStatusPollIntervalMs =
+      tab === "today" || tab === "records" ? 20000 : 60000;
     const run = async () => {
+      if (!isDocumentVisible()) return;
       try {
-        const res = await fetch(`${API_BASE}/api/student/lock-status`, {
-          headers: { Authorization: `Bearer ${authToken}` }
-        });
+        const res = await trackAsync("poll.studentLockStatus", () =>
+          fetch(`${API_BASE}/api/student/lock-status`, {
+            headers: { Authorization: `Bearer ${authToken}` }
+          })
+        );
         if (!res.ok) return;
         const data = await res.json();
         if (!cancelled) {
-          setStudentLockStatus(data.lockStatus || null);
+          applyStudentLockStatus(data.lockStatus || null);
           if (data.lockStatus?.forceRecordsPage && getAppPath() !== "#/records") {
             setAppPath("#/records");
           }
@@ -1437,20 +1530,26 @@ const App: React.FC = () => {
         // ignore
       }
     };
-    run();
+    void run();
     const onLogSaved = () => {
       if (!cancelled) {
         void run();
       }
     };
+    const onVisibilityChange = () => {
+      if (document.visibilityState !== "visible" || cancelled) return;
+      void run();
+    };
     window.addEventListener(DAECHI_COACH_LOG_SAVED_EVENT, onLogSaved);
-    const timerId = window.setInterval(run, 30000);
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    const timerId = window.setInterval(run, lockStatusPollIntervalMs);
     return () => {
       cancelled = true;
       window.clearInterval(timerId);
       window.removeEventListener(DAECHI_COACH_LOG_SAVED_EVENT, onLogSaved);
+      document.removeEventListener("visibilitychange", onVisibilityChange);
     };
-  }, [authToken, meRole]);
+  }, [authToken, meRole, tab, applyStudentLockStatus]);
 
   useEffect(() => {
     if (!authToken || meRole !== "student") {
@@ -1458,14 +1557,19 @@ const App: React.FC = () => {
       return;
     }
     let cancelled = false;
+    const studentNotificationPollIntervalMs =
+      tab === "today" || tab === "records" || tab === "profile" ? 25000 : 70000;
     const run = async () => {
+      if (!isDocumentVisible()) return;
       try {
-        const res = await fetch(
-          `${API_BASE}/api/student/notifications/summary`,
-          {
-            headers: { Authorization: `Bearer ${authToken}` },
-            cache: "no-store"
-          }
+        const res = await trackAsync("poll.studentNotificationSummary", () =>
+          fetch(
+            `${API_BASE}/api/student/notifications/summary`,
+            {
+              headers: { Authorization: `Bearer ${authToken}` },
+              cache: "no-store"
+            }
+          )
         );
         if (!res.ok || cancelled) return;
         const data = (await res.json()) as { unreadCount?: unknown };
@@ -1478,12 +1582,18 @@ const App: React.FC = () => {
       }
     };
     void run();
+    const onVisibilityChange = () => {
+      if (document.visibilityState !== "visible" || cancelled) return;
+      void run();
+    };
+    document.addEventListener("visibilitychange", onVisibilityChange);
     const timerId = window.setInterval(() => {
       void run();
-    }, 25000);
+    }, studentNotificationPollIntervalMs);
     return () => {
       cancelled = true;
       window.clearInterval(timerId);
+      document.removeEventListener("visibilitychange", onVisibilityChange);
     };
   }, [authToken, meRole, meFetchNonce, tab]);
 
@@ -1493,12 +1603,16 @@ const App: React.FC = () => {
       return;
     }
     let cancelled = false;
+    const parentNotificationPollIntervalMs = showNotificationsModal ? 20000 : 45000;
     const run = async () => {
+      if (!isDocumentVisible()) return;
       try {
-        const res = await fetch(`${API_BASE}/api/parent/notifications/summary`, {
-          headers: { Authorization: `Bearer ${authToken}` },
-          cache: "no-store"
-        });
+        const res = await trackAsync("poll.parentNotificationSummary", () =>
+          fetch(`${API_BASE}/api/parent/notifications/summary`, {
+            headers: { Authorization: `Bearer ${authToken}` },
+            cache: "no-store"
+          })
+        );
         if (!res.ok || cancelled) return;
         const data = (await res.json()) as { unreadCount?: unknown };
         const n = Number(data.unreadCount);
@@ -1510,14 +1624,20 @@ const App: React.FC = () => {
       }
     };
     void run();
+    const onVisibilityChange = () => {
+      if (document.visibilityState !== "visible" || cancelled) return;
+      void run();
+    };
+    document.addEventListener("visibilitychange", onVisibilityChange);
     const timerId = window.setInterval(() => {
       void run();
-    }, 25000);
+    }, parentNotificationPollIntervalMs);
     return () => {
       cancelled = true;
       window.clearInterval(timerId);
+      document.removeEventListener("visibilitychange", onVisibilityChange);
     };
-  }, [authToken, meRole, meFetchNonce]);
+  }, [authToken, meRole, meFetchNonce, showNotificationsModal]);
 
   // 학부모 계정이면 항상 학부모 페이지로 (학습 플래너 대신)
   useEffect(() => {
@@ -1585,7 +1705,7 @@ const App: React.FC = () => {
       });
       if (res.status === 423) {
         const data = await res.json().catch(() => ({}));
-        setStudentLockStatus(data.lockStatus || null);
+        applyStudentLockStatus(data.lockStatus || null);
         setStudentLockMessage(
           data.error || "잠금 상태에서는 오늘 계획을 수정할 수 없습니다."
         );
@@ -1603,7 +1723,7 @@ const App: React.FC = () => {
       }
       const data = await res.json().catch(() => ({}));
       if (data.lockStatus) {
-        setStudentLockStatus(data.lockStatus);
+        applyStudentLockStatus(data.lockStatus);
       }
       setStudentLockMessage("");
       setTimelineSyncError("");
@@ -1663,7 +1783,10 @@ const App: React.FC = () => {
 
   // 학생: 오늘 학습 기록(공부 좋았던/나빴던 점·메타인지) — 코치/기록/계획 협업에서 공유
   useEffect(() => {
-    if (!authToken || meRole !== "student") return;
+    if (!authToken || meRole !== "student") {
+      coachTodayRowSigRef.current = null;
+      return;
+    }
     const dayKey = getDateKey(0);
     const weekStart = getDateKeySeoul(-6);
     let cancelled = false;
@@ -1698,14 +1821,26 @@ const App: React.FC = () => {
           l => seoulDateKeyFromApiValue(l.date) === dayKey
         );
         if (!row || cancelled) return;
-        setTodayStudyEvaluation(String(row.studyEvaluation ?? ""));
-        setTodayMetacognitionReflection(String(row.metacognitionReflection ?? ""));
-        setCoachTodayMemo(String(row.memo ?? ""));
-        setCoachDraftTomorrowPractice(String(row.tomorrowPractice ?? ""));
         const sm = row.studyMinutes;
-        setCoachTodayStudyMinutes(
-          sm != null && Number.isFinite(Number(sm)) ? Number(sm) : null
-        );
+        const studyMinutesVal =
+          sm != null && Number.isFinite(Number(sm)) ? Number(sm) : null;
+        const rowSnapshot = {
+          studyEvaluation: String(row.studyEvaluation ?? ""),
+          metacognitionReflection: String(row.metacognitionReflection ?? ""),
+          memo: String(row.memo ?? ""),
+          tomorrowPractice: String(row.tomorrowPractice ?? ""),
+          studyMinutes: studyMinutesVal
+        };
+        const sig = stableStringify(rowSnapshot);
+        if (coachTodayRowSigRef.current === sig) return;
+        coachTodayRowSigRef.current = sig;
+        scheduleBackgroundUiUpdate(() => {
+          setTodayStudyEvaluation(rowSnapshot.studyEvaluation);
+          setTodayMetacognitionReflection(rowSnapshot.metacognitionReflection);
+          setCoachTodayMemo(rowSnapshot.memo);
+          setCoachDraftTomorrowPractice(rowSnapshot.tomorrowPractice);
+          setCoachTodayStudyMinutes(rowSnapshot.studyMinutes);
+        });
       } catch {
         /* ignore */
       }
@@ -1724,7 +1859,16 @@ const App: React.FC = () => {
 
   // 학생: 오늘 공부 타임라인 — DB study_blocks (항상 오늘이 속한 주만 조회, 주간 탭 offset과 무관)
   useEffect(() => {
-    if (!authToken || meRole !== "student") return;
+    if (!authToken || meRole !== "student") {
+      timelineBlocksSigRef.current = null;
+      return;
+    }
+    const applyBlocks = (next: StudyBlock[]) => {
+      const sig = stableStringify(next);
+      if (timelineBlocksSigRef.current === sig) return;
+      timelineBlocksSigRef.current = sig;
+      scheduleBackgroundUiUpdate(() => setBlocks(next));
+    };
     const run = async () => {
       try {
         const mondayStr = getWeekStartKey(0);
@@ -1735,7 +1879,7 @@ const App: React.FC = () => {
           { headers }
         );
         if (!res.ok) {
-          setBlocks([]);
+          applyBlocks([]);
           return;
         }
         const dataScroll = (await res.json()) as {
@@ -1759,7 +1903,7 @@ const App: React.FC = () => {
           ) ?? null;
         const todayDayId = todayDay ? Number(todayDay.id) : NaN;
         if (!todayDay || !Number.isFinite(todayDayId)) {
-          setBlocks([]);
+          applyBlocks([]);
         } else {
           const todayBlocks =
             dataScroll.blocks
@@ -1786,10 +1930,10 @@ const App: React.FC = () => {
                       : undefined
                 };
               }) ?? [];
-          setBlocks(sortStudyBlocksByStart(todayBlocks));
+          applyBlocks(sortStudyBlocksByStart(todayBlocks));
         }
       } catch {
-        setBlocks([]);
+        applyBlocks([]);
       }
     };
     run();
@@ -1798,6 +1942,7 @@ const App: React.FC = () => {
   useEffect(() => {
     if (!authToken || meRole !== "student" || tab !== "today") return;
     const id = window.setInterval(() => {
+      if (!isDocumentVisible()) return;
       setTimelineRefreshNonce(n => n + 1);
     }, 22000);
     return () => window.clearInterval(id);
@@ -1805,17 +1950,22 @@ const App: React.FC = () => {
 
   const refreshParentPlanAddRequests = useCallback(async () => {
     if (!authToken || meRole !== "parent") return;
+    if (!isDocumentVisible()) return;
     try {
-      const res = await fetch(`${API_BASE}/api/parent/plan-add-requests`, {
-        headers: { Authorization: `Bearer ${authToken}` }
-      });
+      const res = await trackAsync("poll.parentPlanAddRequests", () =>
+        fetch(`${API_BASE}/api/parent/plan-add-requests?limit=100`, {
+          headers: { Authorization: `Bearer ${authToken}` }
+        })
+      );
       if (!res.ok) return;
       const data = (await res.json().catch(() => ({}))) as {
         requests?: ParentPlanAddRequestRow[];
       };
-      setParentPlanAddRequests(
-        Array.isArray(data.requests) ? data.requests : []
-      );
+      const next = Array.isArray(data.requests) ? data.requests : [];
+      const sig = stableStringify(next);
+      if (parentPlanAddSigRef.current === sig) return;
+      parentPlanAddSigRef.current = sig;
+      scheduleBackgroundUiUpdate(() => setParentPlanAddRequests(next));
     } catch {
       // ignore
     }
@@ -1823,6 +1973,7 @@ const App: React.FC = () => {
 
   useEffect(() => {
     if (!authToken || meRole !== "parent") {
+      parentPlanAddSigRef.current = null;
       setParentPlanAddRequests([]);
       return;
     }
@@ -1835,6 +1986,7 @@ const App: React.FC = () => {
 
   const refreshParentStudents = useCallback(async () => {
     if (!authToken || meRole !== "parent") {
+      parentStudentsSigRef.current = null;
       setParentStudentsLoaded(false);
       return;
     }
@@ -1844,13 +1996,20 @@ const App: React.FC = () => {
       });
       if (!res.ok) return;
       const data = await res.json();
-      setParentStudents(data.students || []);
-      if (data.students && data.students.length > 0) {
-        setParentStudentId(data.students[0].id);
-      } else {
-        setParentStudentId(null);
+      const nextStudents = data.students || [];
+      const nextId =
+        nextStudents.length > 0 ? nextStudents[0].id : null;
+      const bundleSig = stableStringify({ list: nextStudents, selectedId: nextId });
+      if (parentStudentsSigRef.current === bundleSig) {
+        setParentStudentsLoaded(true);
+        return;
       }
-      setParentStudentsLoaded(true);
+      parentStudentsSigRef.current = bundleSig;
+      scheduleBackgroundUiUpdate(() => {
+        setParentStudents(nextStudents);
+        setParentStudentId(nextId);
+        setParentStudentsLoaded(true);
+      });
     } catch {
       // ignore
     }
@@ -1863,6 +2022,10 @@ const App: React.FC = () => {
 
   // 학부모: 연결 요청 목록 (양쪽 확인)
   useEffect(() => {
+    if (!authToken || meRole !== "parent") {
+      parentLinkWaitSigRef.current = null;
+      return;
+    }
     const run = async () => {
       if (!authToken || meRole !== "parent") return;
       try {
@@ -1871,8 +2034,15 @@ const App: React.FC = () => {
         });
         if (!res.ok) return;
         const data = await res.json();
-        setParentWaitingOnStudent(data.waitingOnStudent || []);
-        setParentWaitingOnMe(data.waitingOnMe || []);
+        const nextA = data.waitingOnStudent || [];
+        const nextB = data.waitingOnMe || [];
+        const sig = stableStringify({ a: nextA, b: nextB });
+        if (parentLinkWaitSigRef.current === sig) return;
+        parentLinkWaitSigRef.current = sig;
+        scheduleBackgroundUiUpdate(() => {
+          setParentWaitingOnStudent(nextA);
+          setParentWaitingOnMe(nextB);
+        });
       } catch {
         // ignore
       }
@@ -1884,25 +2054,47 @@ const App: React.FC = () => {
   useEffect(() => {
     const run = async () => {
       if (!authToken || meRole !== "student") return;
+      if (tab !== "profile") return;
+      if (!isDocumentVisible()) return;
       try {
-        const res = await fetch(`${API_BASE}/api/student/link-requests`, {
-          headers: { Authorization: `Bearer ${authToken}` }
-        });
+        const res = await trackAsync("poll.studentLinkRequests", () =>
+          fetch(`${API_BASE}/api/student/link-requests`, {
+            headers: { Authorization: `Bearer ${authToken}` }
+          })
+        );
         if (!res.ok) return;
         const data = await res.json();
-        setStudentWaitingOnParent(data.waitingOnParent || []);
-        setStudentWaitingOnMe(data.waitingOnMe || []);
+        const nextA = data.waitingOnParent || [];
+        const nextB = data.waitingOnMe || [];
+        const sig = stableStringify({ a: nextA, b: nextB });
+        if (studentLinkWaitSigRef.current === sig) return;
+        studentLinkWaitSigRef.current = sig;
+        scheduleBackgroundUiUpdate(() => {
+          setStudentWaitingOnParent(nextA);
+          setStudentWaitingOnMe(nextB);
+        });
       } catch {
         // ignore
       }
     };
     void run();
     if (!authToken || meRole !== "student") {
+      studentLinkWaitSigRef.current = null;
+      setStudentWaitingOnParent([]);
+      setStudentWaitingOnMe([]);
+      return;
+    }
+    if (tab !== "profile") {
+      // 프로필 탭 진입 시 StudentProfilePage가 즉시 재조회하므로
+      // 글로벌 폴링은 유휴 탭에서 중단해 배터리/네트워크를 아낀다.
+      studentLinkWaitSigRef.current = null;
+      setStudentWaitingOnParent([]);
+      setStudentWaitingOnMe([]);
       return;
     }
     const timerId = window.setInterval(() => {
       void run();
-    }, 25000);
+    }, 45000);
     return () => {
       window.clearInterval(timerId);
     };
@@ -1913,6 +2105,7 @@ const App: React.FC = () => {
     let cancelled = false;
     const run = async () => {
       if (!authToken || meRole !== "student") {
+        storeAppsSigRef.current = null;
         setStoreLoading(false);
         setStoreError("");
         return;
@@ -1949,8 +2142,15 @@ const App: React.FC = () => {
           return;
         }
         const nextApps = Array.isArray(data.apps) ? data.apps : [];
-        setStoreApps(nextApps);
-        writeLocalCache(storeAppsCacheKey, nextApps);
+        const sig = stableStringify(nextApps);
+        if (storeAppsSigRef.current === sig) {
+          return;
+        }
+        storeAppsSigRef.current = sig;
+        scheduleBackgroundUiUpdate(() => {
+          setStoreApps(nextApps);
+          writeLocalCache(storeAppsCacheKey, nextApps);
+        });
       } catch {
         if (!cancelled && (cachedApps.length === 0 || tab === "store")) {
           setStoreError("앱 목록을 불러오지 못했습니다.");
@@ -1991,7 +2191,10 @@ const App: React.FC = () => {
   // 학부모: AI 일일 리포트 (자정 배치 생성본)
   useEffect(() => {
     const run = async () => {
-      if (!authToken || meRole !== "parent") return;
+      if (!authToken || meRole !== "parent") {
+        setParentAiDaily(null);
+        return;
+      }
       if (!parentStudentId) {
         setParentAiDaily(null);
         return;
@@ -2002,13 +2205,13 @@ const App: React.FC = () => {
           { headers: { Authorization: `Bearer ${authToken}` } }
         );
         if (!res.ok) {
-          setParentAiDaily(null);
+          // 기존 값 유지: 느린 재동기화 중 화면 깜빡임 방지
           return;
         }
         const data = await res.json();
         setParentAiDaily(data.report ?? null);
       } catch {
-        setParentAiDaily(null);
+        // 네트워크 에러 시 이전 리포트를 유지해 화면 점멸을 줄인다.
       }
     };
     run();
@@ -2121,7 +2324,7 @@ const App: React.FC = () => {
       });
       const data = await res.json().catch(() => ({}));
       if (res.status === 423) {
-        setStudentLockStatus(data.lockStatus || null);
+        applyStudentLockStatus(data.lockStatus || null);
         setStudentLockMessage(
           data.error ||
             "잠금 상태에서는 오늘 계획을 수정할 수 없습니다."
@@ -2131,7 +2334,7 @@ const App: React.FC = () => {
       if (res.ok) {
         setStudentLockMessage("");
         if (data.lockStatus) {
-          setStudentLockStatus(data.lockStatus);
+          applyStudentLockStatus(data.lockStatus);
         }
         try {
           const tk = getDateKey(1);
@@ -3042,172 +3245,182 @@ const App: React.FC = () => {
               </div>
             )}
             {!roleLoading && coachStudentMode && coachStudentTab && (
-              <StudentCoachApp
-                tab={coachStudentTab}
-                authToken={authToken}
-                onLayoutModeChange={setCoachStudentCoachLayout}
-                blocks={blocks}
-                progressBooks={progressBooks}
-                tomorrowPlan={tomorrowPlan}
-                todayStudyEvaluation={todayStudyEvaluation}
-                todayMetacognitionReflection={todayMetacognitionReflection}
-                todayMemo={coachTodayMemo}
-                draftTomorrowPractice={coachDraftTomorrowPractice}
-                todayStudyMinutes={coachTodayStudyMinutes}
-                onApplyTomorrowPlanAndGoRecords={applyCoachTomorrowPlanAndGoRecords}
-                onApplyTomorrowPracticeAndGoRecords={
-                  applyCoachTomorrowPracticeAndGoRecords
-                }
-              />
+              <React.Suspense fallback={<AppRouteSuspenseFallback />}>
+                <StudentCoachApp
+                  tab={coachStudentTab}
+                  authToken={authToken}
+                  onLayoutModeChange={setCoachStudentCoachLayout}
+                  blocks={blocks}
+                  progressBooks={progressBooks}
+                  tomorrowPlan={tomorrowPlan}
+                  todayStudyEvaluation={todayStudyEvaluation}
+                  todayMetacognitionReflection={todayMetacognitionReflection}
+                  todayMemo={coachTodayMemo}
+                  draftTomorrowPractice={coachDraftTomorrowPractice}
+                  todayStudyMinutes={coachTodayStudyMinutes}
+                  onApplyTomorrowPlanAndGoRecords={applyCoachTomorrowPlanAndGoRecords}
+                  onApplyTomorrowPracticeAndGoRecords={
+                    applyCoachTomorrowPracticeAndGoRecords
+                  }
+                />
+              </React.Suspense>
             )}
             {!roleLoading && coachParentMode && coachParentTab && (
-              <ParentCoachApp
-                tab={coachParentTab}
-                apiBase={API_BASE}
-                authToken={authToken}
-                parentStudents={parentStudents}
-                setParentStudents={setParentStudents}
-                parentStudentId={parentStudentId}
-                setParentStudentId={setParentStudentId}
-                parentReport={parentReport}
-                parentAiDaily={parentAiDaily}
-                parentPlannerEnabled={parentPlannerEnabled}
-                setParentPlannerEnabled={setParentPlannerEnabled}
-                parentPlannerTime={parentPlannerTime}
-                setParentPlannerTime={setParentPlannerTime}
-                parentPlannerSaving={parentPlannerSaving}
-                setParentPlannerSaving={setParentPlannerSaving}
-                parentPlannerMessage={parentPlannerMessage}
-                setParentPlannerMessage={setParentPlannerMessage}
-                parentLockStatus={parentLockStatus}
-                setParentLockStatus={setParentLockStatus}
-                hapticWarning={hapticWarning}
-                hapticSuccess={hapticSuccess}
-              />
+              <React.Suspense fallback={<AppRouteSuspenseFallback />}>
+                <ParentCoachApp
+                  tab={coachParentTab}
+                  apiBase={API_BASE}
+                  authToken={authToken}
+                  parentStudents={parentStudents}
+                  setParentStudents={setParentStudents}
+                  parentStudentId={parentStudentId}
+                  setParentStudentId={setParentStudentId}
+                  parentReport={parentReport}
+                  parentAiDaily={parentAiDaily}
+                  parentPlannerEnabled={parentPlannerEnabled}
+                  setParentPlannerEnabled={setParentPlannerEnabled}
+                  parentPlannerTime={parentPlannerTime}
+                  setParentPlannerTime={setParentPlannerTime}
+                  parentPlannerSaving={parentPlannerSaving}
+                  setParentPlannerSaving={setParentPlannerSaving}
+                  parentPlannerMessage={parentPlannerMessage}
+                  setParentPlannerMessage={setParentPlannerMessage}
+                  parentLockStatus={parentLockStatus}
+                  setParentLockStatus={setParentLockStatus}
+                  hapticWarning={hapticWarning}
+                  hapticSuccess={hapticSuccess}
+                />
+              </React.Suspense>
             )}
             {!roleLoading && parentView && !coachParentMode && (
-              <ParentLegacyView
-                apiBase={API_BASE}
-                authToken={authToken}
-                meRole={meRole}
-                userEmail={userEmail}
-                parentTab={parentTab}
-                parentLinkEmail={parentLinkEmail}
-                setParentLinkEmail={setParentLinkEmail}
-                parentWaitingOnStudent={parentWaitingOnStudent}
-                parentWaitingOnMe={parentWaitingOnMe}
-                parentStudents={parentStudents}
-                parentStudentId={parentStudentId}
-                setParentStudentId={setParentStudentId}
-                parentWeekOffset={parentWeekOffset}
-                setParentWeekOffset={setParentWeekOffset}
-                parentReport={parentReport}
-                parentAiDaily={parentAiDaily}
-                parentPlannerEnabled={parentPlannerEnabled}
-                setParentPlannerEnabled={setParentPlannerEnabled}
-                parentPlannerTime={parentPlannerTime}
-                setParentPlannerTime={setParentPlannerTime}
-                parentPlannerSaving={parentPlannerSaving}
-                setParentPlannerSaving={setParentPlannerSaving}
-                parentPlannerMessage={parentPlannerMessage}
-                setParentPlannerMessage={setParentPlannerMessage}
-                parentLockStatus={parentLockStatus}
-                setParentLockStatus={setParentLockStatus}
-                setParentTab={setParentTab}
-                setParentWaitingOnStudent={setParentWaitingOnStudent}
-                setParentWaitingOnMe={setParentWaitingOnMe}
-                setParentStudents={setParentStudents}
-                setParentAiDaily={setParentAiDaily}
-                onSelectManagedStudent={studentId => {
-                  setParentStudentId(studentId);
-                  setCoachParentTab("manage");
-                  setAppPath("#/parent/manage");
-                }}
-                hapticSelection={hapticSelection}
-                hapticWarning={hapticWarning}
-                hapticSuccess={hapticSuccess}
-                onUserEmailUpdated={(email: string) => {
-                  setUserEmail(email);
-                  try {
-                    localStorage.setItem("daechi_planner_user_email", email);
-                  } catch {
-                    // ignore
-                  }
-                }}
-                onLogoutPress={() => setAuthConfirmKind("logout")}
-                onWithdrawPress={() => setAuthConfirmKind("withdraw")}
-              />
+              <React.Suspense fallback={<AppRouteSuspenseFallback />}>
+                <ParentLegacyView
+                  apiBase={API_BASE}
+                  authToken={authToken}
+                  meRole={meRole}
+                  userEmail={userEmail}
+                  parentTab={parentTab}
+                  parentLinkEmail={parentLinkEmail}
+                  setParentLinkEmail={setParentLinkEmail}
+                  parentWaitingOnStudent={parentWaitingOnStudent}
+                  parentWaitingOnMe={parentWaitingOnMe}
+                  parentStudents={parentStudents}
+                  parentStudentId={parentStudentId}
+                  setParentStudentId={setParentStudentId}
+                  parentWeekOffset={parentWeekOffset}
+                  setParentWeekOffset={setParentWeekOffset}
+                  parentReport={parentReport}
+                  parentAiDaily={parentAiDaily}
+                  parentPlannerEnabled={parentPlannerEnabled}
+                  setParentPlannerEnabled={setParentPlannerEnabled}
+                  parentPlannerTime={parentPlannerTime}
+                  setParentPlannerTime={setParentPlannerTime}
+                  parentPlannerSaving={parentPlannerSaving}
+                  setParentPlannerSaving={setParentPlannerSaving}
+                  parentPlannerMessage={parentPlannerMessage}
+                  setParentPlannerMessage={setParentPlannerMessage}
+                  parentLockStatus={parentLockStatus}
+                  setParentLockStatus={setParentLockStatus}
+                  setParentTab={setParentTab}
+                  setParentWaitingOnStudent={setParentWaitingOnStudent}
+                  setParentWaitingOnMe={setParentWaitingOnMe}
+                  setParentStudents={setParentStudents}
+                  setParentAiDaily={setParentAiDaily}
+                  onSelectManagedStudent={studentId => {
+                    setParentStudentId(studentId);
+                    setCoachParentTab("manage");
+                    setAppPath("#/parent/manage");
+                  }}
+                  hapticSelection={hapticSelection}
+                  hapticWarning={hapticWarning}
+                  hapticSuccess={hapticSuccess}
+                  onUserEmailUpdated={(email: string) => {
+                    setUserEmail(email);
+                    try {
+                      localStorage.setItem("daechi_planner_user_email", email);
+                    } catch {
+                      // ignore
+                    }
+                  }}
+                  onLogoutPress={() => setAuthConfirmKind("logout")}
+                  onWithdrawPress={() => setAuthConfirmKind("withdraw")}
+                />
+              </React.Suspense>
             )}
 
             {showStudentShell && !coachStudentMode && tab === "profile" && (
-              <StudentProfilePage
-                authToken={authToken}
-                apiBase={API_BASE}
-                userEmail={userEmail}
-                meRole={meRole}
-                storeApps={storeApps}
-                studentParentEmail={studentParentEmail}
-                setStudentParentEmail={setStudentParentEmail}
-                studentWaitingOnParent={studentWaitingOnParent}
-                studentWaitingOnMe={studentWaitingOnMe}
-                setStudentWaitingOnParent={setStudentWaitingOnParent}
-                setStudentWaitingOnMe={setStudentWaitingOnMe}
-                hapticSelection={hapticSelection}
-                hapticWarning={hapticWarning}
-                hapticSuccess={hapticSuccess}
-                onUserEmailUpdated={(email: string) => {
-                  setUserEmail(email);
-                  try {
-                    localStorage.setItem("daechi_planner_user_email", email);
-                  } catch {
-                    // ignore
-                  }
-                }}
-                onLogoutPress={() => setAuthConfirmKind("logout")}
-                onWithdrawPress={() => setAuthConfirmKind("withdraw")}
-              />
+              <React.Suspense fallback={<AppRouteSuspenseFallback />}>
+                <StudentProfilePage
+                  authToken={authToken}
+                  apiBase={API_BASE}
+                  userEmail={userEmail}
+                  meRole={meRole}
+                  storeApps={storeApps}
+                  studentParentEmail={studentParentEmail}
+                  setStudentParentEmail={setStudentParentEmail}
+                  studentWaitingOnParent={studentWaitingOnParent}
+                  studentWaitingOnMe={studentWaitingOnMe}
+                  setStudentWaitingOnParent={setStudentWaitingOnParent}
+                  setStudentWaitingOnMe={setStudentWaitingOnMe}
+                  hapticSelection={hapticSelection}
+                  hapticWarning={hapticWarning}
+                  hapticSuccess={hapticSuccess}
+                  onUserEmailUpdated={(email: string) => {
+                    setUserEmail(email);
+                    try {
+                      localStorage.setItem("daechi_planner_user_email", email);
+                    } catch {
+                      // ignore
+                    }
+                  }}
+                  onLogoutPress={() => setAuthConfirmKind("logout")}
+                  onWithdrawPress={() => setAuthConfirmKind("withdraw")}
+                />
+              </React.Suspense>
             )}
             {showStudentShell && !coachStudentMode && tab !== "profile" && (
-              <StudentLegacyView
-                tab={tab}
-                apiBase={API_BASE}
-                authToken={authToken}
-                meRole={meRole}
-                blocks={blocks}
-                toggleDone={toggleDone}
-                studentLockStatus={studentLockStatus}
-                studentLockMessage={studentLockMessage}
-                timelineSyncError={timelineSyncError}
-                onDismissTimelineSyncError={() => setTimelineSyncError("")}
-                planRequestNotice={planRequestNotice}
-                onDismissPlanRequestNotice={() => setPlanRequestNotice("")}
-                progressWeekOffset={progressWeekOffset}
-                setProgressWeekOffset={setProgressWeekOffset}
-                progressBooks={progressBooks}
-                removeProgressBook={removeProgressBook}
-                tomorrowPlan={tomorrowPlan}
-                setTomorrowPlan={setTomorrowPlan}
-                saveTomorrowPlan={saveTomorrowPlan}
-                todayStudyEvaluation={todayStudyEvaluation}
-                setTodayStudyEvaluation={setTodayStudyEvaluation}
-                todayMetacognitionReflection={todayMetacognitionReflection}
-                setTodayMetacognitionReflection={setTodayMetacognitionReflection}
-                setBooksModalOpen={setBooksModalOpen}
-                onOpenAddPlan={openAddPlanModal}
-                setCheckSettingsOpen={setCheckSettingsOpen}
-                storeApps={storeApps}
-                storeLoading={storeLoading}
-                storeError={storeError}
-                storeSavingId={storeSavingId}
-                setStoreSavingId={setStoreSavingId}
-                setStoreError={setStoreError}
-                setStoreApps={setStoreApps}
-                resolvePreferredSerial={resolvePreferredSerial}
-                hapticSelection={hapticSelection}
-                hapticWarning={hapticWarning}
-                hapticImpactLight={hapticImpactLight}
-                hapticSuccess={hapticSuccess}
-              />
+              <React.Suspense fallback={<AppRouteSuspenseFallback />}>
+                <StudentLegacyView
+                  tab={tab}
+                  apiBase={API_BASE}
+                  authToken={authToken}
+                  meRole={meRole}
+                  blocks={blocks}
+                  toggleDone={toggleDone}
+                  studentLockStatus={studentLockStatus}
+                  studentLockMessage={studentLockMessage}
+                  timelineSyncError={timelineSyncError}
+                  onDismissTimelineSyncError={() => setTimelineSyncError("")}
+                  planRequestNotice={planRequestNotice}
+                  onDismissPlanRequestNotice={() => setPlanRequestNotice("")}
+                  progressWeekOffset={progressWeekOffset}
+                  setProgressWeekOffset={setProgressWeekOffset}
+                  progressBooks={progressBooks}
+                  removeProgressBook={removeProgressBook}
+                  tomorrowPlan={tomorrowPlan}
+                  setTomorrowPlan={setTomorrowPlan}
+                  saveTomorrowPlan={saveTomorrowPlan}
+                  todayStudyEvaluation={todayStudyEvaluation}
+                  setTodayStudyEvaluation={setTodayStudyEvaluation}
+                  todayMetacognitionReflection={todayMetacognitionReflection}
+                  setTodayMetacognitionReflection={setTodayMetacognitionReflection}
+                  setBooksModalOpen={setBooksModalOpen}
+                  onOpenAddPlan={openAddPlanModal}
+                  setCheckSettingsOpen={setCheckSettingsOpen}
+                  storeApps={storeApps}
+                  storeLoading={storeLoading}
+                  storeError={storeError}
+                  storeSavingId={storeSavingId}
+                  setStoreSavingId={setStoreSavingId}
+                  setStoreError={setStoreError}
+                  setStoreApps={setStoreApps}
+                  resolvePreferredSerial={resolvePreferredSerial}
+                  hapticSelection={hapticSelection}
+                  hapticWarning={hapticWarning}
+                  hapticImpactLight={hapticImpactLight}
+                  hapticSuccess={hapticSuccess}
+                />
+              </React.Suspense>
             )}
           </PageTransition>
         </main>
@@ -3509,7 +3722,7 @@ const App: React.FC = () => {
             aria-labelledby="parent-plan-add-title"
           >
             <div
-              className="dday-modal-inner"
+              className="dday-modal-inner dday-modal-inner--fixed-72"
               onClick={e => {
                 e.stopPropagation();
               }}
@@ -3522,7 +3735,7 @@ const App: React.FC = () => {
                   오늘 계획 수정을 허용하시겠습니까?
                 </span>
               </div>
-              <div className="dday-modal-body">
+              <div className="dday-modal-body dday-modal-body--scroll-fill">
                 <p
                   className="settings-hint"
                   style={{ margin: "0 0 10px", lineHeight: 1.5 }}
@@ -3627,7 +3840,7 @@ const App: React.FC = () => {
             }
           >
             <div
-              className="dday-modal-inner"
+              className="dday-modal-inner dday-modal-inner--fixed-72"
               onClick={e => {
                 e.stopPropagation();
               }}
@@ -3643,29 +3856,31 @@ const App: React.FC = () => {
                   알림
                 </span>
               </div>
-              <div className="dday-modal-body">
-                <NotificationsPage
-                  apiBase={API_BASE}
-                  authToken={authToken}
-                  meRole={meRole}
-                  onNotificationAction={action => {
-                    if (action.type === "link_unlink_request") {
-                      openLinkUnlinkRequestFromNotification(action);
-                      return;
-                    }
-                    if (meRole === "parent") {
-                      openParentAppTimetableRequestFromNotification(action);
-                    }
-                  }}
-                  onReadAll={() => {
-                    if (meRole === "parent") {
-                      setParentNotificationUnreadCount(0);
-                    }
-                    if (meRole === "student") {
-                      setStudentNotificationUnreadCount(0);
-                    }
-                  }}
-                />
+              <div className="dday-modal-body notifications-modal-body">
+                <React.Suspense fallback={<AppRouteSuspenseFallback />}>
+                  <NotificationsPage
+                    apiBase={API_BASE}
+                    authToken={authToken}
+                    meRole={meRole}
+                    onNotificationAction={action => {
+                      if (action.type === "link_unlink_request") {
+                        openLinkUnlinkRequestFromNotification(action);
+                        return;
+                      }
+                      if (meRole === "parent") {
+                        openParentAppTimetableRequestFromNotification(action);
+                      }
+                    }}
+                    onReadAll={() => {
+                      if (meRole === "parent") {
+                        setParentNotificationUnreadCount(0);
+                      }
+                      if (meRole === "student") {
+                        setStudentNotificationUnreadCount(0);
+                      }
+                    }}
+                  />
+                </React.Suspense>
               </div>
               <div className="dday-modal-footer">
                 <button
@@ -3891,7 +4106,7 @@ const App: React.FC = () => {
             }
           >
             <div
-              className="dday-modal-inner parent-app-request-modal"
+              className="dday-modal-inner dday-modal-inner--fixed-72 parent-app-request-modal"
               onClick={e => e.stopPropagation()}
               role="dialog"
               aria-modal="true"
@@ -3902,7 +4117,7 @@ const App: React.FC = () => {
                   허용 앱 요청
                 </span>
               </div>
-              <div className="dday-modal-body parent-app-request-modal__body">
+              <div className="dday-modal-body parent-app-request-modal__body dday-modal-body--scroll-fill">
                 <div className="parent-app-request-modal__meta">
                   <div className="parent-app-request-modal__meta-row">
                     <span className="parent-app-request-modal__label">학생</span>

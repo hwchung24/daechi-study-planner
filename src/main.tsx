@@ -607,7 +607,7 @@ async function primeManagedApiBase() {
 }
 
 async function bootstrap() {
-  await primeManagedApiBase();
+  void primeManagedApiBase();
   const { default: App } = await import("./App");
   ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
     <React.StrictMode>

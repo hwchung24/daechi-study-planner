@@ -18,7 +18,6 @@ import {
   TrendingUp
 } from "lucide-react";
 import { motion } from "framer-motion";
-import { TabTransitionPanel } from "../../components/PageTransition";
 import { demoStudents } from "../demoData";
 import { useCoachStore, type CoachChatGreetingMode } from "../state/useCoachStore";
 import type { Severity } from "../types";
@@ -29,6 +28,10 @@ import {
   SectionHeader
 } from "../ui/components";
 import { API_BASE } from "../../lib/apiBase";
+import {
+  scheduleBackgroundUiUpdate,
+  stableStringify
+} from "../../lib/stableUiUpdate";
 import {
   DAECHI_COACH_CHAT_STARTER_KEY,
   DAECHI_COACH_INITIAL_PANEL_KEY,
@@ -61,9 +64,13 @@ import {
   writeLocalCache
 } from "../../lib/viewCache";
 import type { ProgressBook, ProgressPlan, StudyBlock } from "../../types/planner";
-import { StudentAdminChannelPanel } from "../admin/AdminChannelPanels";
 import { CoachAvatar } from "../CoachAvatar";
-import { CoachTomorrowPlanCollab } from "./CoachTomorrowPlanCollab";
+const CoachTomorrowPlanCollabLazy = React.lazy(() =>
+  import("./CoachTomorrowPlanCollab").then(module => ({
+    default: module.CoachTomorrowPlanCollab
+  }))
+);
+import { StudentAdminChannelPanel } from "../admin/AdminChannelPanels";
 
 export type StudentTabKey = "home" | "coach" | "analysis";
 
@@ -694,6 +701,7 @@ function CoachStudentUnified(props: {
   const [panel, setPanel] = useState<CoachPanelKey>(() =>
     readInitialCoachPanelFromWindow(props.entryTab)
   );
+  const shouldFetchPatterns = isStandaloneAnalysis || panel === "analysis";
   const prevEntryTabRef = useRef<StudentTabKey | null>(null);
 
   /** `?panel=` / sessionStorage만 반영. URL은 사용자가 세그먼트를 누를 때까지 유지(Strict Mode 재마운트·hashchange 오동작 방지). */
@@ -821,6 +829,9 @@ function CoachStudentUnified(props: {
   const [patternsUsedOpenAi, setPatternsUsedOpenAi] = useState(false);
   const coachStateFetchRef = useRef<AbortController | null>(null);
   const patternFetchRef = useRef<AbortController | null>(null);
+  const patternsHasDataRef = useRef(aiPatterns.length > 0);
+  const remoteCoachSigRef = useRef<string | null>(null);
+  const patternsListSigRef = useRef<string | null>(null);
 
   useEffect(() => {
     if (!token) return;
@@ -837,6 +848,10 @@ function CoachStudentUnified(props: {
       setAiPatterns(cachedPatterns);
     }
   }, [token, coachPatternsCacheKey, coachStateCacheKey]);
+
+  useEffect(() => {
+    patternsHasDataRef.current = aiPatterns.length > 0;
+  }, [aiPatterns]);
 
   const refreshCoachHomeData = useCallback(() => {
     if (!token) return;
@@ -867,8 +882,13 @@ function CoachStudentUnified(props: {
             .map(normalizeRemoteCoachLog)
             .filter((x): x is RemoteCoachLogRow => x != null)
         };
-        setRemote(nextState);
-        writeLocalCache(coachStateCacheKey, nextState);
+        const sig = stableStringify(nextState);
+        if (remoteCoachSigRef.current === sig) return;
+        remoteCoachSigRef.current = sig;
+        scheduleBackgroundUiUpdate(() => {
+          setRemote(nextState);
+          writeLocalCache(coachStateCacheKey, nextState);
+        });
       })
       .catch((e: unknown) => {
         if (e instanceof DOMException && e.name === "AbortError") return;
@@ -882,7 +902,7 @@ function CoachStudentUnified(props: {
     patternFetchRef.current?.abort();
     const ac = new AbortController();
     patternFetchRef.current = ac;
-    setPatternsLoading(true);
+    setPatternsLoading(!patternsHasDataRef.current);
     setPatternsError(null);
     const weekStart = encodeURIComponent(recentWeekStart);
     const query = `weekStart=${weekStart}${
@@ -899,6 +919,7 @@ function CoachStudentUnified(props: {
         if (ac.signal.aborted) return;
         if (!r.ok) {
           setPatternsError(String((data as { error?: string }).error || "").trim() || "패턴을 불러오지 못했습니다.");
+          patternsListSigRef.current = null;
           setAiPatterns([]);
           setPatternsUsedOpenAi(false);
           return;
@@ -906,8 +927,14 @@ function CoachStudentUnified(props: {
         setPatternsUsedOpenAi(Boolean((data as { usedOpenAi?: boolean }).usedOpenAi));
         const list = (data as { patterns?: AiPatternRow[] }).patterns;
         const nextPatterns = Array.isArray(list) ? list : [];
-        setAiPatterns(nextPatterns);
-        writeLocalCache(coachPatternsCacheKey, nextPatterns);
+        const psig = stableStringify(nextPatterns);
+        if (patternsListSigRef.current !== psig) {
+          patternsListSigRef.current = psig;
+          scheduleBackgroundUiUpdate(() => {
+            setAiPatterns(nextPatterns);
+            writeLocalCache(coachPatternsCacheKey, nextPatterns);
+          });
+        }
         setPatternsError(null);
       })
       .catch((e: unknown) => {
@@ -925,6 +952,8 @@ function CoachStudentUnified(props: {
 
   useEffect(() => {
     if (!token) {
+      remoteCoachSigRef.current = null;
+      patternsListSigRef.current = null;
       setRemote(null);
       setAiPatterns([]);
       setPatternsError(null);
@@ -939,6 +968,7 @@ function CoachStudentUnified(props: {
     };
     const runPatterns = () => {
       if (cancelled) return;
+      if (!shouldFetchPatterns) return;
       refreshPatternInsights();
     };
     runState();
@@ -968,7 +998,7 @@ function CoachStudentUnified(props: {
       window.removeEventListener("storage", onStorage);
       document.removeEventListener("visibilitychange", onVisible);
     };
-  }, [token, refreshCoachHomeData, refreshPatternInsights]);
+  }, [token, refreshCoachHomeData, refreshPatternInsights, shouldFetchPatterns]);
 
   const displayPatterns = useMemo((): AiPatternRow[] => {
     return aiPatterns;
@@ -1251,36 +1281,40 @@ function CoachStudentUnified(props: {
         </button>
       </div>
 
-      <TabTransitionPanel
-        tabKey={panel}
-        className={
-          panel === "chat" || panel === "plan" || panel === "admin"
-            ? "coach-shell__tab-panel coach-unified-tab-panel--fill"
-            : "coach-unified-tab-panel"
-        }
-      >
-        {panel === "plan" ? (
-          props.blocks != null &&
+      <div className="coach-shell__tab-panel coach-unified-tab-panel--fill coach-shell__tab-strip-panels">
+        <div
+          className="coach-shell__tab-surface"
+          hidden={panel !== "plan"}
+        >
+          {props.blocks != null &&
           props.progressBooks != null &&
           props.tomorrowPlan != null &&
           props.onApplyTomorrowPlanAndGoRecords != null &&
           props.onApplyTomorrowPracticeAndGoRecords != null ? (
-            <CoachTomorrowPlanCollab
-              apiToken={token}
-              blocks={props.blocks}
-              progressBooks={props.progressBooks}
-              tomorrowPlan={props.tomorrowPlan}
-              studyEvaluation={props.todayStudyEvaluation ?? ""}
-              metacognitionReflection={props.todayMetacognitionReflection ?? ""}
-              todayMemo={props.todayMemo ?? ""}
-              draftTomorrowPractice={props.draftTomorrowPractice ?? ""}
-              todayStudyMinutes={props.todayStudyMinutes ?? null}
-              onOpenScheduleManager={openScheduleManagerInCoachChat}
-              onApplyAndReturnToRecords={props.onApplyTomorrowPlanAndGoRecords}
-              onApplyTomorrowPracticeAndGoRecords={
-                props.onApplyTomorrowPracticeAndGoRecords
+            <React.Suspense
+              fallback={
+                <div className="app-route-suspense-fallback" aria-hidden>
+                  <div className="app-route-suspense-fallback__pulse" />
+                </div>
               }
-            />
+            >
+              <CoachTomorrowPlanCollabLazy
+                apiToken={token}
+                blocks={props.blocks}
+                progressBooks={props.progressBooks}
+                tomorrowPlan={props.tomorrowPlan}
+                studyEvaluation={props.todayStudyEvaluation ?? ""}
+                metacognitionReflection={props.todayMetacognitionReflection ?? ""}
+                todayMemo={props.todayMemo ?? ""}
+                draftTomorrowPractice={props.draftTomorrowPractice ?? ""}
+                todayStudyMinutes={props.todayStudyMinutes ?? null}
+                onOpenScheduleManager={openScheduleManagerInCoachChat}
+                onApplyAndReturnToRecords={props.onApplyTomorrowPlanAndGoRecords}
+                onApplyTomorrowPracticeAndGoRecords={
+                  props.onApplyTomorrowPracticeAndGoRecords
+                }
+              />
+            </React.Suspense>
           ) : (
             <div className="coach-stack">
               <EmptyState
@@ -1288,13 +1322,18 @@ function CoachStudentUnified(props: {
                 body="앱 메인에서 학생으로 로그인한 뒤 다시 시도해 주세요."
               />
             </div>
-          )
-        ) : panel === "chat" ? (
+          )}
+        </div>
+        <div className="coach-shell__tab-surface" hidden={panel !== "chat"}>
           <CoachChatTabConnected apiToken={token} />
-        ) : (
-          <StudentAdminChannelPanel authToken={token} />
-        )}
-      </TabTransitionPanel>
+        </div>
+        <div className="coach-shell__tab-surface" hidden={panel !== "admin"}>
+          <StudentAdminChannelPanel
+            authToken={token}
+            pollingPaused={panel !== "admin"}
+          />
+        </div>
+      </div>
     </>
   );
 
