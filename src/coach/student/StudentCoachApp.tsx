@@ -668,6 +668,9 @@ function riskLevelFromSnapshotMetrics(m: SnapshotMetrics | undefined): Severity 
 function CoachStudentUnified(props: {
   apiToken: string;
   entryTab: StudentTabKey;
+  apiScope?: "student" | "parent";
+  parentStudentId?: number | null;
+  analysisActionTextOverride?: string;
   onLayoutModeChange?: (mode: "scroll" | "chat") => void;
   blocks?: StudyBlock[];
   progressBooks?: ProgressBook[];
@@ -681,6 +684,12 @@ function CoachStudentUnified(props: {
   onApplyTomorrowPracticeAndGoRecords?: (text: string) => Promise<boolean>;
 }) {
   const token = props.apiToken;
+  const apiScope = props.apiScope === "parent" ? "parent" : "student";
+  const actionLabel = apiScope === "parent" ? "지금 추천하는 한마디" : "지금 추천하는 한 가지";
+  const scopedStudentId =
+    apiScope === "parent" && Number.isFinite(Number(props.parentStudentId))
+      ? Number(props.parentStudentId)
+      : null;
   const isStandaloneAnalysis = props.entryTab === "analysis";
   const [panel, setPanel] = useState<CoachPanelKey>(() =>
     readInitialCoachPanelFromWindow(props.entryTab)
@@ -779,7 +788,10 @@ function CoachStudentUnified(props: {
     [activeStudentId]
   );
   const recentWeekStart = getDateKeySeoul(-6);
-  const coachCacheScope = readStoredUserCacheScope();
+  const coachCacheScope =
+    apiScope === "parent" && scopedStudentId
+      ? `${readStoredUserCacheScope()}:parent:${scopedStudentId}`
+      : readStoredUserCacheScope();
   const coachStateCacheKey = buildStudentCoachStateCacheKey(
     coachCacheScope,
     recentWeekStart
@@ -828,11 +840,15 @@ function CoachStudentUnified(props: {
 
   const refreshCoachHomeData = useCallback(() => {
     if (!token) return;
+    if (apiScope === "parent" && !scopedStudentId) return;
     coachStateFetchRef.current?.abort();
     const ac = new AbortController();
     coachStateFetchRef.current = ac;
     const weekStart = encodeURIComponent(recentWeekStart);
-    fetch(`${API_BASE}/api/student/coach/state?weekStart=${weekStart}`, {
+    const query = `weekStart=${weekStart}${
+      apiScope === "parent" && scopedStudentId ? `&studentId=${encodeURIComponent(String(scopedStudentId))}` : ""
+    }`;
+    fetch(`${API_BASE}/api/${apiScope}/coach/state?${query}`, {
       signal: ac.signal,
       cache: "no-store",
       headers: { Authorization: `Bearer ${token}` }
@@ -858,17 +874,21 @@ function CoachStudentUnified(props: {
         if (e instanceof DOMException && e.name === "AbortError") return;
         if (ac.signal.aborted) return;
       });
-  }, [token, coachStateCacheKey, recentWeekStart]);
+  }, [token, coachStateCacheKey, recentWeekStart, apiScope, scopedStudentId]);
 
   const refreshPatternInsights = useCallback(() => {
     if (!token) return;
+    if (apiScope === "parent" && !scopedStudentId) return;
     patternFetchRef.current?.abort();
     const ac = new AbortController();
     patternFetchRef.current = ac;
     setPatternsLoading(true);
     setPatternsError(null);
     const weekStart = encodeURIComponent(recentWeekStart);
-    fetch(`${API_BASE}/api/student/coach/pattern-insights?weekStart=${weekStart}`, {
+    const query = `weekStart=${weekStart}${
+      apiScope === "parent" && scopedStudentId ? `&studentId=${encodeURIComponent(String(scopedStudentId))}` : ""
+    }`;
+    fetch(`${API_BASE}/api/${apiScope}/coach/pattern-insights?${query}`, {
       signal: ac.signal,
       cache: "no-store",
       headers: { Authorization: `Bearer ${token}` }
@@ -901,7 +921,7 @@ function CoachStudentUnified(props: {
           setPatternsLoading(false);
         }
       });
-  }, [token, coachPatternsCacheKey, recentWeekStart]);
+  }, [token, coachPatternsCacheKey, recentWeekStart, apiScope, scopedStudentId]);
 
   useEffect(() => {
     if (!token) {
@@ -1071,19 +1091,14 @@ function CoachStudentUnified(props: {
         <div className="coach-analysis-hero__action-box">
           <div className="coach-analysis-hero__action-label">
             {renderAnalysisIcon("action", "coach-analysis-icon coach-analysis-icon--action-label")}
-            <span>지금 추천하는 한 가지</span>
+            <span>{actionLabel}</span>
           </div>
           <div className="coach-analysis-hero__action-text">
-            {analysis.recommendedAction || "오늘 할 일 한 가지부터 시작해 보세요."}
+            {String(props.analysisActionTextOverride || "").trim() ||
+              analysis.recommendedAction ||
+              "오늘 할 일 한 가지부터 시작해 보세요."}
           </div>
         </div>
-        <button
-          type="button"
-          className="coach-primary-btn coach-home-insight-card__cta"
-          onClick={() => setAppPath("#/student/coach?panel=plan")}
-        >
-          내일 계획 같이 짜기
-        </button>
       </Card>
 
       {highlightMetrics.length > 0 ? (
@@ -1284,9 +1299,10 @@ function CoachStudentUnified(props: {
   );
 
   return isStandaloneAnalysis ? (
-    <div className="coach-page coach-page--unified">
+    <div className="coach-page coach-page--unified coach-page--analysis-standalone">
       <motion.div
         key="student-analysis-page"
+        className="coach-analysis-standalone-content"
         initial={{ x: "100%" }}
         animate={{ x: 0 }}
         transition={{ duration: 0.29, ease: [0.2, 0.88, 0.22, 1] }}
@@ -1676,6 +1692,9 @@ function CoachChatTabConnected(props: { apiToken: string }) {
 export function StudentCoachApp(props: {
   tab: StudentTabKey;
   authToken: string | null;
+  apiScope?: "student" | "parent";
+  parentStudentId?: number | null;
+  analysisActionTextOverride?: string;
   onLayoutModeChange?: (mode: "scroll" | "chat") => void;
   blocks?: StudyBlock[];
   progressBooks?: ProgressBook[];
@@ -1695,6 +1714,9 @@ export function StudentCoachApp(props: {
       <CoachStudentUnified
         apiToken={apiToken}
         entryTab={props.tab}
+        apiScope={props.apiScope}
+        parentStudentId={props.parentStudentId}
+        analysisActionTextOverride={props.analysisActionTextOverride}
         onLayoutModeChange={props.onLayoutModeChange}
         blocks={props.blocks}
         progressBooks={props.progressBooks}

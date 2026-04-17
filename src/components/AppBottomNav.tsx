@@ -4,7 +4,6 @@ import {
   Bot,
   Calendar,
   ClipboardList,
-  FileText,
   LayoutGrid,
   Settings,
   User
@@ -21,7 +20,7 @@ function NavIcon({ children }: { children: React.ReactNode }) {
 type TabKey = "today" | "records" | "store" | "profile";
 type CoachStudentTabKey = "home" | "coach" | "analysis";
 type ParentTabKey = "report" | "profile";
-type CoachParentTabKey = "manage" | "aiReport" | "records" | "studentSettings";
+type CoachParentTabKey = "manage" | "records" | "studentSettings" | "analysis";
 
 type PillMetrics = {
   left: number;
@@ -260,19 +259,6 @@ export function AppBottomNav(props: {
               <User size={20} strokeWidth={2} />
             </NavIcon>
             <span className="nav-label">학생 관리</span>
-          </button>
-          <button
-            type="button"
-            className={
-              "nav-item" +
-              (coachParentTab === "aiReport" ? " nav-item-active" : "")
-            }
-            onClick={() => onCoachParentNavClick("aiReport")}
-          >
-            <NavIcon>
-              <FileText size={20} strokeWidth={2} />
-            </NavIcon>
-            <span className="nav-label">AI 리포트</span>
           </button>
           <button
             type="button"

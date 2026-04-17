@@ -726,8 +726,8 @@ const App: React.FC = () => {
         }
       }
 
-        setCoachParentTab("aiReport");
-        setAppPath("#/parent/ai-report");
+        setCoachParentTab("analysis");
+        setAppPath("#/parent/analysis");
       notificationsModalReveal.beginClose(() => {
         setShowNotificationsModal(false);
         setParentAppTimetableRequestError("");
@@ -882,8 +882,8 @@ const App: React.FC = () => {
         setRoute("auth");
         return;
       }
-      if (path === "#/parent/report") {
-        replaceAppPath("#/parent/ai-report");
+      if (path === "#/parent/report" || path === "#/parent/ai-report") {
+        replaceAppPath("#/parent/analysis");
         return;
       }
       setRoute(parseRouteFromHash(path));
@@ -1527,7 +1527,7 @@ const App: React.FC = () => {
     if (
       h === "#/parent" ||
       h === "#/parent/manage" ||
-      h === "#/parent/ai-report" ||
+      h === "#/parent/analysis" ||
       h === "#/parent/student-settings" ||
       h === "#/parent/records" ||
       h === "#/parent/report" ||
@@ -1545,7 +1545,7 @@ const App: React.FC = () => {
     if (
       h === "#/parent" ||
       h === "#/parent/manage" ||
-      h === "#/parent/ai-report" ||
+      h === "#/parent/analysis" ||
       h === "#/parent/student-settings" ||
       h === "#/parent/records" ||
       h === "#/parent/report" ||
@@ -2685,6 +2685,8 @@ const App: React.FC = () => {
     parentView &&
     meRole === "parent" &&
     coachParentTab !== null;
+  const isParentAnalysisPage = coachParentMode && coachParentTab === "analysis";
+  const isStandaloneAnalysisPage = isStudentAnalysisPage || isParentAnalysisPage;
 
   const redirectParentToProfileForStudentLink = useCallback(() => {
     hapticWarning();
@@ -2702,7 +2704,7 @@ const App: React.FC = () => {
     const path = getAppPath();
     const requiresLinkedStudent =
       path === "#/parent/manage" ||
-      path === "#/parent/ai-report" ||
+      path === "#/parent/analysis" ||
       path === "#/parent/records" ||
       path === "#/parent/student-settings";
 
@@ -2729,14 +2731,14 @@ const App: React.FC = () => {
         ? coachParentMode
           ? coachParentTab === "manage"
             ? "학생 관리"
-            : coachParentTab === "aiReport"
-              ? "AI 리포트"
-              : coachParentTab === "records"
+            : coachParentTab === "records"
                 ? "학생 기록"
+                : coachParentTab === "analysis"
+                  ? "학습 분석"
                 : "학생 설정"
           : parentTab === "profile"
             ? "관리자 프로필"
-            : "AI 리포트"
+            : "관리자"
         : "관리자"
       : showStudentShell
         ? coachStudentMode
@@ -2937,17 +2939,26 @@ const App: React.FC = () => {
         />
       ) : splashDone ? (
       <div
-        className={"app-shell" + (mainEnter ? " app-shell--enter" : "")}
+        className={
+          "app-shell" +
+          (mainEnter ? " app-shell--enter" : "") +
+          (isStandaloneAnalysisPage ? " app-shell--analysis-focus" : "")
+        }
       >
         <header className="app-header">
           <div className="header-top">
-            {isStudentAnalysisPage ? (
+            {isStandaloneAnalysisPage ? (
               <button
                 type="button"
                 className="header-icon-btn header-icon-btn--back"
                 aria-label="AI 코치로 돌아가기"
                 onClick={() => {
                   hapticSelection();
+                  if (isParentAnalysisPage) {
+                    setCoachParentTab("records");
+                    setAppPath("#/parent/records");
+                    return;
+                  }
                   setCoachStudentTab("coach");
                   setCoachStudentCoachLayout("chat");
                   setAppPath("#/student/coach");
@@ -2962,7 +2973,7 @@ const App: React.FC = () => {
               </div>
             </div>
             {((showStudentShell && !parentView) || (parentView && meRole === "parent")) &&
-            !isStudentAnalysisPage ? (
+            !isStandaloneAnalysisPage ? (
               <div className="header-actions">
                 <button
                   type="button"
@@ -3201,7 +3212,7 @@ const App: React.FC = () => {
           </PageTransition>
         </main>
 
-        {!isStudentAnalysisPage && (
+        {!isStandaloneAnalysisPage && (
           <AppBottomNav
             showStudentShell={showStudentShell}
             roleLoading={roleLoading}
@@ -3274,8 +3285,8 @@ const App: React.FC = () => {
               setAppPath(
                 nextTab === "manage"
                   ? "#/parent/manage"
-                  : nextTab === "aiReport"
-                    ? "#/parent/ai-report"
+                  : nextTab === "analysis"
+                      ? "#/parent/analysis"
                     : nextTab === "records"
                       ? "#/parent/records"
                       : "#/parent/student-settings"

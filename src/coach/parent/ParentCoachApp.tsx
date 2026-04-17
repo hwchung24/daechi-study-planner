@@ -20,6 +20,7 @@ import type { ParentLockStatus } from "../../types/lockStatus";
 import type { Severity } from "../types";
 import { getDateKeySeoul, getWeekDaysIncludingTomorrowSeoul } from "../../lib/weekDates";
 import { ParentAdminChannelPanel } from "../admin/AdminChannelPanels";
+import { StudentCoachApp } from "../student/StudentCoachApp";
 import { Card, EmptyState, GradientHeroCard, MetricCard, RiskBadge, SectionHeader, StatPill } from "../ui/components";
 import { formatMinutes } from "../utils/format";
 import type { ParentStudentRow } from "../../types/parent";
@@ -32,7 +33,7 @@ import {
   writeLocalCache
 } from "../../lib/viewCache";
 
-export type ParentTabKey = "manage" | "aiReport" | "records" | "studentSettings";
+export type ParentTabKey = "manage" | "records" | "studentSettings" | "analysis";
 
 const STUDY_ROOM_VISITS_REFRESH_INTERVAL_MS = 30000;
 const PARENT_COACH_CACHE_TTL_MS = 2 * 60 * 1000;
@@ -704,12 +705,29 @@ function formatStudyRoomVisitDateTime(value: string | null) {
   });
 }
 
-function formatStudyRoomVisitPeriod(visit: StudyRoomVisitSession) {
-  const enteredAt = formatStudyRoomVisitDateTime(visit.enteredAt);
-  const exitedAt = visit.exitedAt
-    ? formatStudyRoomVisitDateTime(visit.exitedAt)
-    : "현재 체크인 상태";
-  return `${enteredAt} - ${exitedAt}`;
+function formatStudyRoomVisitDateLabel(value: string | null) {
+  if (!value) return "날짜 미확인";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "날짜 미확인";
+  const weekdays = ["일", "월", "화", "수", "목", "금", "토"];
+  return `${date.getMonth() + 1}.${date.getDate()} ${weekdays[date.getDay()]}요일`;
+}
+
+function formatStudyRoomVisitTimeRange(visit: StudyRoomVisitSession) {
+  const formatTime = (raw: string | null) => {
+    if (!raw) return null;
+    const date = new Date(raw);
+    if (Number.isNaN(date.getTime())) return null;
+    return date.toLocaleTimeString("ko-KR", {
+      hour: "2-digit",
+      minute: "2-digit",
+      hour12: false
+    });
+  };
+
+  const start = formatTime(visit.enteredAt) || "--:--";
+  const end = visit.exitedAt ? formatTime(visit.exitedAt) || "--:--" : "현재 체크인";
+  return `${start} ~ ${end}`;
 }
 
 function deriveGuide(report: ParentWeeklyReport | null, aiDaily: ParentAiDaily | null): ParentGuide {
@@ -1327,6 +1345,24 @@ function RecordsTab(props: {
     studyRoomLiveStatus.currentDistanceMeters != null
       ? studyRoomLiveStatus.currentDistanceMeters
       : latestVisitDistance;
+  const studyRoomVisitGroups = useMemo(() => {
+    const grouped = new Map<string, { label: string; visits: StudyRoomVisitSession[] }>();
+    for (const visit of studyRoomVisits) {
+      const keySource = visit.enteredAt || visit.lastSeenAt || visit.exitedAt || "";
+      const date = new Date(keySource);
+      const key = Number.isNaN(date.getTime())
+        ? "unknown"
+        : `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+      if (!grouped.has(key)) {
+        grouped.set(key, {
+          label: formatStudyRoomVisitDateLabel(keySource),
+          visits: []
+        });
+      }
+      grouped.get(key)?.visits.push(visit);
+    }
+    return Array.from(grouped.values());
+  }, [studyRoomVisits]);
 
   const refreshStudyRoomVisits = useCallback(
     async (options?: { silent?: boolean }) => {
@@ -1479,6 +1515,10 @@ function RecordsTab(props: {
   const todayDay = daysByDate.get(todayKey) || null;
   const tomorrowDay = daysByDate.get(tomorrowKey) || null;
   const todayBlocks = todayDay ? sortBlocks(blocksByDayId.get(todayDay.id) || []) : [];
+  const coreTimelineBlock = todayBlocks.length > 0 ? todayBlocks[0] : null;
+  const todayCoreTimelineText = coreTimelineBlock
+    ? `${trimText(coreTimelineBlock.subject) || "과목 미기록"} · ${coreTimelineBlock.start_time} - ${coreTimelineBlock.end_time}`
+    : "";
   const todayLog = logsByDate.get(todayKey) || null;
   const yesterdayLog = logsByDate.get(shiftDateKey(todayKey, -1)) || null;
   const todayCommitment = trimText(yesterdayLog?.tomorrowPractice);
@@ -1652,120 +1692,72 @@ function RecordsTab(props: {
         <EmptyState title="학생을 먼저 선택해 주세요." />
       ) : (
         <>
-          <div style={{ marginTop: 10 }}>
-            <button
-              type="button"
-              className="timeline-save-button study-room-editor__save-button"
-              disabled={aiReportRefreshing}
-              onClick={() => {
-                if (!props.authToken || !props.selectedStudent?.id) return;
-                setAiReportRefreshing(true);
-                setAiReportMessage("");
-                void (async () => {
-                  try {
-                    const res = await fetch(`${props.apiBase}/api/parent/ai-daily-report/refresh`, {
-                      method: "POST",
-                      headers: {
-                        "Content-Type": "application/json",
-                        Authorization: `Bearer ${props.authToken}`
-                      },
-                      body: JSON.stringify({ studentId: props.selectedStudent?.id })
-                    });
-                    const data = (await res.json().catch(() => ({}))) as {
-                      error?: string;
-                      result?: { message?: string };
-                    };
-                    if (!res.ok) {
-                      setAiReportMessage(data.error || "AI 리포트 생성에 실패했습니다.");
-                      return;
-                    }
-                    setAiReportMessage(
-                      data.result?.message || "AI 리포트를 생성했습니다. AI 리포트 탭에서 확인해 주세요."
-                    );
-                  } catch (error) {
-                    setAiReportMessage(
-                      error instanceof Error && error.message
-                        ? `AI 리포트 생성 중 오류가 발생했습니다. (${error.message})`
-                        : "AI 리포트 생성 중 오류가 발생했습니다."
-                    );
-                  } finally {
-                    setAiReportRefreshing(false);
-                  }
-                })();
-              }}
-            >
-              {aiReportRefreshing ? "생성 중..." : "AI 리포트 생성"}
-            </button>
-          </div>
-          {aiReportMessage ? (
-            <p className="settings-hint" style={{ margin: "8px 2px 0" }}>
-              {aiReportMessage}
-            </p>
-          ) : null}
-          <div className="coach-grid coach-records-summary-grid" style={{ marginTop: 12 }}>
-            <MetricCard
-              title="목표달성률"
-              value={goalRate != null ? `${goalRate}%` : "—"}
-              hint={
-                totalTargets > 0
-                  ? `완료 ${achievedTargets}/${totalTargets}`
-                  : "오늘 확인할 계획이 없습니다."
-              }
-              tone={goalRate != null && goalRate >= 70 ? "good" : goalRate != null ? "warn" : "neutral"}
-            />
-            <MetricCard
-              title="오늘의 집중 과목"
-              value={focusSubject?.subject || "기록 없음"}
-              hint={
-                focusSubject
-                  ? `${formatMinutes(focusSubject.minutes)} · ${focusSubject.sessions}세션`
-                  : "오늘 타임라인이 없습니다."
-              }
-            />
-            <MetricCard
-              title="오늘 학습 시간"
-              value={todayStudyMinutes > 0 ? formatStudyHoursLabel(todayStudyMinutes) : "—"}
-              hint={todayStudyMinutes > 0 ? formatMinutes(todayStudyMinutes) : "아직 저장된 시간이 없습니다."}
-            />
-          </div>
-
           <div className="coach-records-overview-grid">
             <Card className="coach-card coach-card--padded coach-records-overview-card">
               <SectionHeader
                 title="학생 타임라인"
+                right={(
+                  <button
+                    type="button"
+                    className={
+                      "parent-settings-header-toggle" +
+                      (aiReportRefreshing ? " parent-settings-header-toggle--loading" : "")
+                    }
+                    disabled={aiReportRefreshing}
+                    onClick={() => {
+                      if (!props.authToken || !props.selectedStudent?.id) return;
+                      setAiReportRefreshing(true);
+                      setAiReportMessage("");
+                      void (async () => {
+                        try {
+                          const res = await fetch(`${props.apiBase}/api/parent/ai-daily-report/refresh`, {
+                            method: "POST",
+                            headers: {
+                              "Content-Type": "application/json",
+                              Authorization: `Bearer ${props.authToken}`
+                            },
+                            body: JSON.stringify({ studentId: props.selectedStudent?.id })
+                          });
+                          const data = (await res.json().catch(() => ({}))) as {
+                            error?: string;
+                            result?: { message?: string };
+                          };
+                          if (!res.ok) {
+                            setAiReportMessage(data.error || "AI 리포트 생성에 실패했습니다.");
+                            return;
+                          }
+                          setAiReportMessage(
+                            data.result?.message || "AI 리포트를 생성했습니다. AI 리포트 탭에서 확인해 주세요."
+                          );
+                        } catch (error) {
+                          setAiReportMessage(
+                            error instanceof Error && error.message
+                              ? `AI 리포트 생성 중 오류가 발생했습니다. (${error.message})`
+                              : "AI 리포트 생성 중 오류가 발생했습니다."
+                          );
+                        } finally {
+                          setAiReportRefreshing(false);
+                          setAppPath("#/parent/analysis");
+                        }
+                      })();
+                    }}
+                  >
+                    <span>{aiReportRefreshing ? "생성 중..." : "AI 리포트 생성"}</span>
+                  </button>
+                )}
               />
+              {aiReportMessage ? (
+                <p className="settings-hint" style={{ margin: "8px 2px 0" }}>
+                  {aiReportMessage}
+                </p>
+              ) : null}
               <div style={{ marginTop: 12 }}>
                 <TimelineListView
-                  blocks={todayBlocks}
+                  blocks={coreTimelineBlock ? todayBlocks.slice(1) : todayBlocks}
+                  commitmentText={todayCoreTimelineText}
+                  commitmentDone={coreTimelineBlock ? Boolean(coreTimelineBlock.done) : null}
                   emptyText="오늘 타임라인이 없습니다."
                 />
-              </div>
-            </Card>
-            <Card className="coach-card coach-card--padded coach-records-overview-card">
-              <SectionHeader
-                title="이행여부 카드"
-              />
-              <div className="coach-records-commitment-body">
-                <div
-                  className={
-                    "coach-records-status" +
-                    (todayCommitmentDone === true
-                      ? " coach-records-status--done"
-                      : todayCommitmentDone === false
-                        ? " coach-records-status--wait"
-                        : " coach-records-status--empty")
-                  }
-                >
-                  {todayCommitmentDone === true
-                    ? "실천 완료"
-                    : todayCommitmentDone === false
-                      ? "미실천"
-                      : "기록 없음"}
-                </div>
-                <div className="coach-records-card-subtitle">오늘의 핵심</div>
-                <div className="record-readonly-value" style={{ marginTop: 8 }}>
-                  {todayCommitment || "어제 기록한 실천 내용이 없습니다."}
-                </div>
               </div>
             </Card>
           </div>
@@ -1799,22 +1791,27 @@ function RecordsTab(props: {
                 <div className="parent-study-room-item__visit-empty">체크인 기록 없음</div>
               ) : (
                 <div className="parent-study-room-item__visit-list">
-                  {studyRoomVisits.map(visit => (
-                    <div key={visit.id} className="parent-study-room-item__visit-item">
-                      <div className="parent-study-room-item__visit-row">
-                        <span className="parent-study-room-item__visit-name">{visit.studyRoomName}</span>
-                        <span className="parent-study-room-item__visit-pill">
-                          {visit.exitedAt ? "체크아웃" : "체크인"}
-                        </span>
-                      </div>
-                      <div className="parent-study-room-item__visit-meta">
-                        {formatStudyRoomVisitPeriod(visit)}
-                      </div>
-                      <div className="parent-study-room-item__visit-meta">
-                        {visit.lastDistanceMeters != null
-                          ? `마지막 거리 ${Math.round(visit.lastDistanceMeters)}m`
-                          : "-"}
-                      </div>
+                  {studyRoomVisitGroups.map(group => (
+                    <div key={group.label} className="parent-study-room-item__visit-group">
+                      <div className="parent-study-room-item__visit-date">{group.label}</div>
+                      {group.visits.map(visit => (
+                        <div key={visit.id} className="parent-study-room-item__visit-item">
+                          <div className="parent-study-room-item__visit-row">
+                            <span className="parent-study-room-item__visit-name">{visit.studyRoomName}</span>
+                            <span className="parent-study-room-item__visit-pill">
+                              {visit.exitedAt ? "체크아웃" : "체크인"}
+                            </span>
+                          </div>
+                          <div className="parent-study-room-item__visit-meta">
+                            {formatStudyRoomVisitTimeRange(visit)}
+                          </div>
+                          <div className="parent-study-room-item__visit-meta">
+                            {visit.lastDistanceMeters != null
+                              ? `마지막 거리 ${Math.round(visit.lastDistanceMeters)}m`
+                              : "-"}
+                          </div>
+                        </div>
+                      ))}
                     </div>
                   ))}
                 </div>
@@ -2402,6 +2399,27 @@ function ManageTab(props: {
   );
 }
 
+function ParentAnalysisTab(props: {
+  authToken: string | null;
+  selectedStudent: ParentStudentRow | null;
+  parentReport: ParentWeeklyReport | null;
+  parentAiDaily: ParentAiDaily | null;
+}) {
+  if (!props.selectedStudent) {
+    return <EmptyState title="학생을 먼저 선택해 주세요." />;
+  }
+  const parentSuggestedPhrase = deriveGuide(props.parentReport, props.parentAiDaily).suggestedPhrases[0];
+  return (
+    <StudentCoachApp
+      tab="analysis"
+      authToken={props.authToken}
+      apiScope="parent"
+      parentStudentId={props.selectedStudent.id}
+      analysisActionTextOverride={parentSuggestedPhrase}
+    />
+  );
+}
+
 export function ParentCoachApp(props: {
   tab: ParentTabKey;
   apiBase: string;
@@ -2441,17 +2459,6 @@ export function ParentCoachApp(props: {
           setParentStudentId={props.setParentStudentId}
         />
       ),
-      aiReport: (
-        <AiReportTab
-          apiBase={props.apiBase}
-          authToken={props.authToken}
-          parentStudents={props.parentStudents}
-          parentStudentId={props.parentStudentId}
-          setParentStudentId={props.setParentStudentId}
-          parentReport={props.parentReport}
-          parentAiDaily={props.parentAiDaily}
-        />
-      ),
       records: (
         <RecordsTab
           apiBase={props.apiBase}
@@ -2484,6 +2491,14 @@ export function ParentCoachApp(props: {
           setParentLockStatus={props.setParentLockStatus}
           hapticWarning={props.hapticWarning}
           hapticSuccess={props.hapticSuccess}
+        />
+      ),
+      analysis: (
+        <ParentAnalysisTab
+          authToken={props.authToken}
+          selectedStudent={selectedStudent}
+          parentReport={props.parentReport}
+          parentAiDaily={props.parentAiDaily}
         />
       )
     };

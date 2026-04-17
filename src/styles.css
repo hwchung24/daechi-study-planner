@@ -44,16 +44,36 @@
   line-height: 1;
   cursor: pointer;
   white-space: nowrap;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
 }
 
 .parent-settings-header-toggle:disabled {
-  opacity: 0.7;
+  opacity: 0.62;
   cursor: wait;
+}
+
+.parent-settings-header-toggle--loading::before {
+  content: "";
+  width: 12px;
+  height: 12px;
+  border-radius: 999px;
+  border: 2px solid rgba(32, 63, 120, 0.28);
+  border-top-color: var(--accent);
+  animation: parent-header-toggle-spin 0.8s linear infinite;
 }
 
 .parent-settings-header-toggle--danger {
   background: #fff;
   color: var(--accent);
+}
+
+@keyframes parent-header-toggle-spin {
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 .parent-mode-schedule-item {
@@ -740,6 +760,19 @@ body.app-keyboard-open .app-main {
   display: flex;
   flex-direction: column;
   overflow: hidden;
+}
+
+.app-main.app-main--coach-chat .coach-page--unified.coach-page--analysis-standalone {
+  overflow-y: auto;
+  overflow-x: hidden;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior-y: contain;
+}
+
+.coach-analysis-standalone-content {
+  width: 100%;
+  max-width: 100%;
+  margin: 0 auto;
 }
 
 .app-main.app-main--coach-chat
@@ -1608,6 +1641,19 @@ body.app-keyboard-open .app-main {
   flex-direction: column;
   gap: 10px;
   margin-top: 10px;
+}
+
+.parent-study-room-item__visit-group {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.parent-study-room-item__visit-date {
+  font-size: var(--font-size-small);
+  font-weight: var(--font-weight-bold);
+  color: var(--text-accent);
+  margin-top: 2px;
 }
 
 .parent-study-room-item__visit-item {
@@ -5407,6 +5453,12 @@ button:active:not(:disabled),
     padding: 16px;
   }
 
+  .app-shell.app-shell--analysis-focus {
+    display: flex;
+    flex-direction: column;
+    padding: 16px;
+  }
+
   .app-header {
     grid-column: 2;
     grid-row: 1;
@@ -5414,6 +5466,16 @@ button:active:not(:disabled),
     max-width: 1120px;
     justify-self: center;
     padding: 6px 4px 14px;
+  }
+
+  .app-shell.app-shell--analysis-focus .app-header,
+  .app-shell.app-shell--analysis-focus .app-main {
+    grid-column: auto;
+    grid-row: auto;
+    justify-self: stretch;
+    max-width: 1120px;
+    width: 100%;
+    margin: 0 auto;
   }
 
   .app-main {
