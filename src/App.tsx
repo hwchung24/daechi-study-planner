@@ -319,6 +319,75 @@ function sortStudyBlocksByStart(blocks: StudyBlock[]): StudyBlock[] {
   );
 }
 
+type WeekApiPayload = {
+  days?: Array<{ id: number | string; date: string }>;
+  blocks?: Array<{
+    id: number;
+    study_day_id: number | string;
+    subject: string;
+    start_time: string;
+    end_time: string;
+    done: boolean | number;
+    book_id?: number | string | null;
+    planned_range?: string | null;
+  }>;
+};
+
+/** /api/week 응답에서 서울 기준 오늘 칸 블록만 추출 */
+function extractTodayBlocksFromWeekApi(
+  dataScroll: WeekApiPayload,
+  wantTodayKey: string
+): StudyBlock[] {
+  const todayDay =
+    dataScroll.days?.find(
+      d => seoulDateKeyFromApiValue(d.date) === wantTodayKey
+    ) ?? null;
+  const todayDayId = todayDay ? Number(todayDay.id) : NaN;
+  if (!todayDay || !Number.isFinite(todayDayId)) return [];
+  const rows =
+    dataScroll.blocks?.filter(b => {
+      const sid = b.study_day_id;
+      return (
+        Number(sid) === todayDayId ||
+        String(sid) === String(todayDayId)
+      );
+    }) ?? [];
+  const todayBlocks: StudyBlock[] = rows.map(b => {
+    const bid = b.book_id;
+    const bookIdNum =
+      bid != null && bid !== "" ? Number(bid) : undefined;
+    return {
+      id: b.id,
+      subject: b.subject,
+      start: normalizeBlockTime(b.start_time),
+      end: normalizeBlockTime(b.end_time),
+      done: !!b.done,
+      bookId:
+        bookIdNum != null && Number.isFinite(bookIdNum) ? bookIdNum : undefined,
+      plannedRange:
+        b.planned_range != null && String(b.planned_range).trim() !== ""
+          ? String(b.planned_range).trim()
+          : undefined
+    };
+  });
+  return sortStudyBlocksByStart(todayBlocks);
+}
+
+/**
+ * 저장 직전 서버 최신 목록을 기준으로 하고, 클라이언트가 바꾼 done만 반영.
+ * 학부모가 승인해 추가된 블록이 로컬 state에 없을 때 PUT으로 지워지지 않게 함.
+ */
+function mergeServerTodayWithLocalDone(
+  serverToday: StudyBlock[],
+  localNext: StudyBlock[]
+): StudyBlock[] {
+  const localById = new Map(localNext.map(b => [b.id, b]));
+  return serverToday.map(sb => {
+    const loc = localById.get(sb.id);
+    return loc ? { ...sb, done: loc.done } : sb;
+  });
+}
+
 function studyReminderScope(email: string | null) {
   const normalized = String(email || "").trim().toLowerCase();
   return normalized || "anonymous";
@@ -739,6 +808,8 @@ const App: React.FC = () => {
     null
   );
   const [parentWeekOffset, setParentWeekOffset] = useState(0);
+  /** 기록 탭·포그라운드 복귀 시 학부모 주간 데이터 재조회 */
+  const [parentWeekRefreshNonce, setParentWeekRefreshNonce] = useState(0);
   const [parentReport, setParentReport] = useState<any>(null);
   const [parentError, setParentError] = useState<string | null>(null);
   const [parentAiDaily, setParentAiDaily] = useState<{
@@ -1683,6 +1754,24 @@ const App: React.FC = () => {
       setTimelineSyncError("로그인이 필요합니다.");
       return false;
     }
+    let payloadBlocks = nextBlocks;
+    try {
+      const mondayStr = getWeekStartKeySeoul(0);
+      const weekRes = await fetch(
+        `${API_BASE}/api/week?start=${encodeURIComponent(mondayStr)}`,
+        { headers: { Authorization: `Bearer ${authToken}` } }
+      );
+      if (weekRes.ok) {
+        const dataScroll = (await weekRes.json()) as WeekApiPayload;
+        const wantToday = normalizeDayKey(getDateKeySeoul(0));
+        const serverToday = extractTodayBlocksFromWeekApi(dataScroll, wantToday);
+        if (serverToday.length > 0) {
+          payloadBlocks = mergeServerTodayWithLocalDone(serverToday, nextBlocks);
+        }
+      }
+    } catch {
+      /* 네트워크 실패 시 기존 nextBlocks로 저장 시도 */
+    }
     try {
       const res = await fetch(`${API_BASE}/api/blocks`, {
         method: "PUT",
@@ -1691,8 +1780,8 @@ const App: React.FC = () => {
           Authorization: `Bearer ${authToken}`
         },
         body: JSON.stringify({
-          date: getDateKey(0),
-          blocks: nextBlocks.map(b => ({
+          date: getDateKeySeoul(0),
+          blocks: payloadBlocks.map(b => ({
             subject: b.subject,
             startTime: b.start,
             endTime: b.end,
@@ -1871,7 +1960,7 @@ const App: React.FC = () => {
     };
     const run = async () => {
       try {
-        const mondayStr = getWeekStartKey(0);
+        const mondayStr = getWeekStartKeySeoul(0);
 
         const headers = { Authorization: `Bearer ${authToken}` };
         const res = await fetch(
@@ -1882,56 +1971,10 @@ const App: React.FC = () => {
           applyBlocks([]);
           return;
         }
-        const dataScroll = (await res.json()) as {
-          days?: Array<{ id: number | string; date: string }>;
-          blocks?: Array<{
-            id: number;
-            study_day_id: number | string;
-            subject: string;
-            start_time: string;
-            end_time: string;
-            done: boolean | number;
-            book_id?: number | string | null;
-            planned_range?: string | null;
-          }>;
-        };
+        const dataScroll = (await res.json()) as WeekApiPayload;
 
-        const wantToday = normalizeDayKey(getDateKey(0));
-        const todayDay =
-          dataScroll.days?.find(
-            d => normalizeDayKey(d.date) === wantToday
-          ) ?? null;
-        const todayDayId = todayDay ? Number(todayDay.id) : NaN;
-        if (!todayDay || !Number.isFinite(todayDayId)) {
-          applyBlocks([]);
-        } else {
-          const todayBlocks =
-            dataScroll.blocks
-              ?.filter(b => Number(b.study_day_id) === todayDayId)
-              .map(b => {
-                const bid = b.book_id;
-                const bookIdNum =
-                  bid != null && bid !== ""
-                    ? Number(bid)
-                    : undefined;
-                return {
-                  id: b.id,
-                  subject: b.subject,
-                  start: normalizeBlockTime(b.start_time),
-                  end: normalizeBlockTime(b.end_time),
-                  done: !!b.done,
-                  bookId:
-                    bookIdNum != null && Number.isFinite(bookIdNum)
-                      ? bookIdNum
-                      : undefined,
-                  plannedRange:
-                    b.planned_range != null && String(b.planned_range).trim() !== ""
-                      ? String(b.planned_range).trim()
-                      : undefined
-                };
-              }) ?? [];
-          applyBlocks(sortStudyBlocksByStart(todayBlocks));
-        }
+        const wantToday = normalizeDayKey(getDateKeySeoul(0));
+        applyBlocks(extractTodayBlocksFromWeekApi(dataScroll, wantToday));
       } catch {
         applyBlocks([]);
       }
@@ -1947,6 +1990,18 @@ const App: React.FC = () => {
     }, 22000);
     return () => window.clearInterval(id);
   }, [authToken, meRole, tab]);
+
+  // 다른 기기(학부모 승인 등) 후 앱으로 돌아올 때 타임라인 즉시 재조회
+  useEffect(() => {
+    if (!authToken || meRole !== "student") return;
+    const onVis = () => {
+      if (document.visibilityState === "visible") {
+        setTimelineRefreshNonce(n => n + 1);
+      }
+    };
+    document.addEventListener("visibilitychange", onVis);
+    return () => document.removeEventListener("visibilitychange", onVis);
+  }, [authToken, meRole]);
 
   const refreshParentPlanAddRequests = useCallback(async () => {
     if (!authToken || meRole !== "parent") return;
@@ -2173,9 +2228,9 @@ const App: React.FC = () => {
       if (!authToken || meRole !== "parent") return;
       if (!parentStudentId) return;
       try {
-        const start = getWeekStartKey(parentWeekOffset);
+        const start = getWeekStartKeySeoul(parentWeekOffset);
         const res = await fetch(
-          `${API_BASE}/api/parent/week?studentId=${parentStudentId}&start=${start}`,
+          `${API_BASE}/api/parent/week?studentId=${parentStudentId}&start=${encodeURIComponent(start)}`,
           { headers: { Authorization: `Bearer ${authToken}` } }
         );
         if (!res.ok) return;
@@ -2186,7 +2241,26 @@ const App: React.FC = () => {
       }
     };
     run();
-  }, [authToken, meRole, parentStudentId, parentWeekOffset]);
+  }, [
+    authToken,
+    meRole,
+    parentStudentId,
+    parentWeekOffset,
+    coachParentTab,
+    parentWeekRefreshNonce
+  ]);
+
+  useEffect(() => {
+    if (!authToken || meRole !== "parent") return;
+    if (coachParentTab !== "records") return;
+    const onVis = () => {
+      if (document.visibilityState === "visible") {
+        setParentWeekRefreshNonce(n => n + 1);
+      }
+    };
+    document.addEventListener("visibilitychange", onVis);
+    return () => document.removeEventListener("visibilitychange", onVis);
+  }, [authToken, meRole, coachParentTab]);
 
   // 학부모: AI 일일 리포트 (자정 배치 생성본)
   useEffect(() => {
@@ -2824,7 +2898,7 @@ const App: React.FC = () => {
           plannedRange: planTrim || null,
           startTime: start,
           endTime: end,
-          date: getDateKey(0)
+          date: getDateKeySeoul(0)
         })
       });
       const data = (await res.json().catch(() => ({}))) as {
@@ -2947,7 +3021,17 @@ const App: React.FC = () => {
         ? coachStudentMode
           ? isStudentAnalysisPage
             ? "학습 분석"
-            : "AI 코치"
+            : coachStudentTab === "home"
+              ? tab === "profile"
+                ? "프로필"
+                : tab === "today"
+                  ? "오늘 공부"
+                  : tab === "records"
+                    ? "기록"
+                    : tab === "store"
+                      ? "학습 앱스토어"
+                      : "오늘 공부"
+              : "AI 코치"
           : tab === "profile"
             ? "프로필"
             : tab === "today"
@@ -2963,7 +3047,8 @@ const App: React.FC = () => {
     if (roleLoading) return "loading";
     if (profileLoadFailed) return "profile-error";
     /* 코치·학부모 탭 전환은 각 셸 안 TabTransitionPanel에서 처리 (이중 애니메이션 방지) */
-    if (coachStudentMode && coachStudentTab) return "student-coach";
+    if (coachStudentMode && coachStudentTab && coachStudentTab !== "home")
+      return "student-coach";
     if (coachParentMode && coachParentTab) return "parent-coach";
     if (parentView && !coachParentMode) return "parent-legacy";
     if (showStudentShell) return "student";
@@ -3215,11 +3300,14 @@ const App: React.FC = () => {
         <main
           className={
             "app-main" +
-            (showStudentShell && !coachStudentMode && tab === "today"
+            (showStudentShell &&
+            (!coachStudentMode || coachStudentTab === "home") &&
+            tab === "today"
               ? " app-main--today-fixed"
               : "") +
             ((showStudentShell &&
             coachStudentMode &&
+            coachStudentTab !== "home" &&
             coachStudentCoachLayout === "chat") ||
             (parentView && coachParentMode && coachParentTab === "manage")
               ? " app-main--coach-chat"
@@ -3244,7 +3332,10 @@ const App: React.FC = () => {
                 </button>
               </div>
             )}
-            {!roleLoading && coachStudentMode && coachStudentTab && (
+            {!roleLoading &&
+              coachStudentMode &&
+              coachStudentTab &&
+              coachStudentTab !== "home" && (
               <React.Suspense fallback={<AppRouteSuspenseFallback />}>
                 <StudentCoachApp
                   tab={coachStudentTab}
@@ -3378,7 +3469,9 @@ const App: React.FC = () => {
                 />
               </React.Suspense>
             )}
-            {showStudentShell && !coachStudentMode && tab !== "profile" && (
+            {showStudentShell &&
+              (!coachStudentMode || coachStudentTab === "home") &&
+              tab !== "profile" && (
               <React.Suspense fallback={<AppRouteSuspenseFallback />}>
                 <StudentLegacyView
                   tab={tab}

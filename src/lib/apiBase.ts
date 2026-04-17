@@ -4,10 +4,24 @@ function normalizeApiBase(value: string | null | undefined): string {
   return String(value || "").trim().replace(/\/+$/, "");
 }
 
+/** http(s)만 허용 — javascript: 등 악성 스킴 저장 방지 */
+function isSafeHttpApiBase(url: string): boolean {
+  const s = String(url || "").trim();
+  if (!s) return false;
+  try {
+    const u = new URL(s);
+    return u.protocol === "http:" || u.protocol === "https:";
+  } catch {
+    return false;
+  }
+}
+
 function getStoredApiBaseOverride(): string {
   if (typeof window === "undefined") return "";
   try {
-    return normalizeApiBase(localStorage.getItem(API_BASE_OVERRIDE_STORAGE_KEY));
+    const raw = normalizeApiBase(localStorage.getItem(API_BASE_OVERRIDE_STORAGE_KEY));
+    if (!isSafeHttpApiBase(raw)) return "";
+    return raw;
   } catch {
     return "";
   }
@@ -25,12 +39,18 @@ function getBrowserOriginApiBase(): string {
 export function persistApiBaseOverride(value: string) {
   if (typeof window === "undefined") return;
   const normalized = normalizeApiBase(value);
-  if (!normalized) return;
+  if (!normalized || !isSafeHttpApiBase(normalized)) return;
   try {
     localStorage.setItem(API_BASE_OVERRIDE_STORAGE_KEY, normalized);
   } catch {
     // ignore
   }
+}
+
+function envViteApiBase(): string {
+  const v = normalizeApiBase((import.meta as any).env?.VITE_API_BASE);
+  if (v && isSafeHttpApiBase(v)) return v;
+  return "";
 }
 
 /**
@@ -42,6 +62,6 @@ export function persistApiBaseOverride(value: string) {
  */
 export const API_BASE =
   getStoredApiBaseOverride() ||
-  normalizeApiBase((import.meta as any).env?.VITE_API_BASE) ||
+  envViteApiBase() ||
   getBrowserOriginApiBase() ||
   "http://localhost:3000";

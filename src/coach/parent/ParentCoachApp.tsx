@@ -18,7 +18,11 @@ import {
 } from "../../components/parent/StudyRoomPickerModal";
 import type { ParentLockStatus } from "../../types/lockStatus";
 import type { Severity } from "../types";
-import { getDateKeySeoul, getWeekDaysIncludingTomorrowSeoul } from "../../lib/weekDates";
+import {
+  getDateKeySeoul,
+  getWeekDaysIncludingTomorrowSeoul,
+  seoulDateKeyFromApiValue
+} from "../../lib/weekDates";
 import { ParentAdminChannelPanel } from "../admin/AdminChannelPanels";
 import { StudentCoachApp } from "../student/StudentCoachApp";
 import { Card, EmptyState, GradientHeroCard, MetricCard, RiskBadge, SectionHeader, StatPill } from "../ui/components";
@@ -51,22 +55,23 @@ type ParentAiDaily = {
 };
 
 type ParentWeekDay = {
-  id: number;
+  id: number | string;
   date: string;
 };
 
 type ParentWeekBlock = {
-  study_day_id: number;
+  study_day_id: number | string;
   subject: string;
   start_time: string;
   end_time: string;
   done?: boolean;
   focus_score?: "◎" | "○" | "△" | "✕" | null;
+  planned_range?: string | null;
 };
 
 type ParentWeekPlan = {
-  id: number;
-  study_day_id: number;
+  id: number | string;
+  study_day_id: number | string;
   book_name?: string | null;
   planned_range?: string | null;
   start_time?: string | null;
@@ -226,7 +231,10 @@ function buildDailyChart(report: ParentWeeklyReport | null) {
   const blocks = Array.isArray(report?.blocks) ? report.blocks : [];
 
   return days.map(day => {
-    const dayBlocks = blocks.filter(block => block.study_day_id === day.id);
+    const dayId = Number(day.id);
+    const dayBlocks = blocks.filter(
+      block => Number(block.study_day_id) === dayId
+    );
     const studyMinutes = dayBlocks.reduce(
       (sum, block) => sum + minutesBetween(block.start_time, block.end_time),
       0
@@ -686,7 +694,13 @@ function TimelineListView(props: {
             </span>
             <span className="timeline-book-name">{trimText(block.subject) || "과목 미기록"}</span>
             <span className="timeline-plan-range">
-              {block.focus_score ? `집중도 ${block.focus_score}` : block.done ? "완료" : "미완료"}
+              {trimText(block.planned_range)
+                ? trimText(block.planned_range)
+                : block.focus_score
+                  ? `집중도 ${block.focus_score}`
+                  : block.done
+                    ? "완료"
+                    : "미완료"}
             </span>
           </div>
           <div className="check-col" aria-hidden="true">
@@ -1514,32 +1528,36 @@ function RecordsTab(props: {
   const daysByDate = useMemo(
     () =>
       new Map(
-        days.map(day => [normalizeDateKey(day.date), day] as const)
+        days.map(day => [seoulDateKeyFromApiValue(day.date), day] as const)
       ),
     [days]
   );
   const blocksByDayId = useMemo(() => {
     const next = new Map<number, ParentWeekBlock[]>();
     for (const block of blocks) {
-      const list = next.get(block.study_day_id) || [];
+      const sid = Number(block.study_day_id);
+      if (!Number.isFinite(sid)) continue;
+      const list = next.get(sid) || [];
       list.push(block);
-      next.set(block.study_day_id, list);
+      next.set(sid, list);
     }
     return next;
   }, [blocks]);
   const plansByDayId = useMemo(() => {
     const next = new Map<number, ParentWeekPlan[]>();
     for (const plan of plans) {
-      const list = next.get(plan.study_day_id) || [];
+      const sid = Number(plan.study_day_id);
+      if (!Number.isFinite(sid)) continue;
+      const list = next.get(sid) || [];
       list.push(plan);
-      next.set(plan.study_day_id, list);
+      next.set(sid, list);
     }
     return next;
   }, [plans]);
   const logsByDate = useMemo(() => {
     const next = new Map<string, ParentCoachLog>();
     for (const log of logs) {
-      const key = normalizeDateKey(log.date);
+      const key = seoulDateKeyFromApiValue(log.date);
       if (key && !next.has(key)) next.set(key, log);
     }
     return next;
@@ -1549,11 +1567,11 @@ function RecordsTab(props: {
   const tomorrowKey = getDateKeySeoul(1);
   const todayDay = daysByDate.get(todayKey) || null;
   const tomorrowDay = daysByDate.get(tomorrowKey) || null;
-  const todayBlocks = todayDay ? sortBlocks(blocksByDayId.get(todayDay.id) || []) : [];
-  const coreTimelineBlock = todayBlocks.length > 0 ? todayBlocks[0] : null;
-  const todayCoreTimelineText = coreTimelineBlock
-    ? `${trimText(coreTimelineBlock.subject) || "과목 미기록"} · ${coreTimelineBlock.start_time} - ${coreTimelineBlock.end_time}`
-    : "";
+  const todayDayId = todayDay != null ? Number(todayDay.id) : NaN;
+  const todayBlocks =
+    todayDay && Number.isFinite(todayDayId)
+      ? sortBlocks(blocksByDayId.get(todayDayId) || [])
+      : [];
   const todayLog = logsByDate.get(todayKey) || null;
   const yesterdayLog = logsByDate.get(shiftDateKey(todayKey, -1)) || null;
   const todayCommitment = trimText(yesterdayLog?.tomorrowPractice);
@@ -1575,9 +1593,18 @@ function RecordsTab(props: {
   const renderStudyCard = (dayKey: string) => {
     const day = daysByDate.get(dayKey) || null;
     const dayLog = logsByDate.get(dayKey) || null;
-    const dayBlocks = day ? sortBlocks(blocksByDayId.get(day.id) || []) : [];
-    const tomorrowPlans = tomorrowDay ? plansByDayId.get(tomorrowDay.id) || [] : [];
-    const dayPlans = day ? plansByDayId.get(day.id) || [] : [];
+    const dayIdNum = day != null ? Number(day.id) : NaN;
+    const dayBlocks =
+      day && Number.isFinite(dayIdNum)
+        ? sortBlocks(blocksByDayId.get(dayIdNum) || [])
+        : [];
+    const tomorrowDayId = tomorrowDay != null ? Number(tomorrowDay.id) : NaN;
+    const tomorrowPlans =
+      tomorrowDay && Number.isFinite(tomorrowDayId)
+        ? plansByDayId.get(tomorrowDayId) || []
+        : [];
+    const dayPlans =
+      day && Number.isFinite(dayIdNum) ? plansByDayId.get(dayIdNum) || [] : [];
     const isToday = dayKey === todayKey;
     const isTomorrow = dayKey === tomorrowKey;
     const hasAnyContent = hasStudyLogContent(dayLog) || dayBlocks.length > 0 || dayPlans.length > 0;
@@ -1788,9 +1815,9 @@ function RecordsTab(props: {
               ) : null}
               <div style={{ marginTop: 12 }}>
                 <TimelineListView
-                  blocks={coreTimelineBlock ? todayBlocks.slice(1) : todayBlocks}
-                  commitmentText={todayCoreTimelineText}
-                  commitmentDone={coreTimelineBlock ? Boolean(coreTimelineBlock.done) : null}
+                  blocks={todayBlocks}
+                  commitmentText={todayCommitment}
+                  commitmentDone={todayCommitmentDone}
                   emptyText="오늘 타임라인이 없습니다."
                 />
               </div>

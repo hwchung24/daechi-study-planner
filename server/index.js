@@ -6,6 +6,8 @@ const crypto = require("crypto");
 const fs = require("fs");
 const path = require("path");
 const multer = require("multer");
+const rateLimit = require("express-rate-limit");
+const helmet = require("helmet");
 require("dotenv").config({ path: path.join(__dirname, ".env") });
 const OpenAI = require("openai");
 
@@ -549,6 +551,25 @@ function sanitizeUploadExtension(originalName) {
   return /^\.[a-z0-9]{1,12}$/.test(ext) ? ext : "";
 }
 
+/** 숙제 업로드 허용 MIME (확장자만 믿지 않음) */
+const HOMEWORK_ALLOWED_MIMES = new Set([
+  "image/jpeg",
+  "image/png",
+  "image/gif",
+  "image/webp",
+  "image/heic",
+  "application/pdf",
+  "application/zip",
+  "application/x-zip-compressed",
+  "application/msword",
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  "application/vnd.ms-excel",
+  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  "application/vnd.ms-powerpoint",
+  "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+  "text/plain"
+]);
+
 const homeworkUpload = multer({
   storage: multer.diskStorage({
     destination(_req, _file, cb) {
@@ -561,6 +582,15 @@ const homeworkUpload = multer({
   }),
   limits: {
     fileSize: 15 * 1024 * 1024
+  },
+  fileFilter(_req, file, cb) {
+    const mime = String(file.mimetype || "").toLowerCase().trim();
+    if (HOMEWORK_ALLOWED_MIMES.has(mime)) {
+      return cb(null, true);
+    }
+    const err = new Error("지원하지 않는 파일 형식입니다.");
+    err.code = "INVALID_HOMEWORK_MIME";
+    cb(err);
   }
 });
 
@@ -571,6 +601,24 @@ function assertRuntimeConfig() {
       "JWT_SECRET must be set to a strong value (24+ chars) in production."
     );
   }
+  if (!isProd && JWT_SECRET.length < 8) {
+    console.warn(
+      "[security] JWT_SECRET is short or empty — set a strong secret before any shared/staging deploy."
+    );
+  }
+}
+
+function minPasswordLength() {
+  const raw = Number(process.env.MIN_PASSWORD_LENGTH);
+  const fallback = process.env.NODE_ENV === "production" ? 8 : 4;
+  if (!Number.isFinite(raw) || raw < 4) return fallback;
+  return Math.min(128, Math.max(4, Math.floor(raw)));
+}
+
+function isReasonableEmail(email) {
+  const s = String(email || "").trim();
+  if (s.length < 5 || s.length > 254) return false;
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(s);
 }
 
 const app = express();
@@ -3119,8 +3167,8 @@ function isAllowedCorsOrigin(origin) {
   if (allowlist.has(origin)) return true;
   try {
     const u = new URL(origin);
-    // Vercel preview/prod domains
-    if (u.hostname.endsWith(".vercel.app")) return true;
+    if (process.env.CORS_ALLOW_VERCEL_APP !== "false" && u.hostname.endsWith(".vercel.app"))
+      return true;
     // local dev
     if (u.hostname === "localhost" || u.hostname === "127.0.0.1") return true;
   } catch {
@@ -3128,6 +3176,37 @@ function isAllowedCorsOrigin(origin) {
   }
   return false;
 }
+
+if (process.env.TRUST_PROXY === "1") {
+  app.set("trust proxy", 1);
+}
+
+app.use(
+  helmet({
+    contentSecurityPolicy: false,
+    crossOriginEmbedderPolicy: false,
+    crossOriginResourcePolicy: { policy: "cross-origin" },
+    permittedCrossDomainPolicies: { permittedPolicies: "none" }
+  })
+);
+
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: Number(process.env.AUTH_RATE_LIMIT_MAX) || (process.env.NODE_ENV === "production" ? 40 : 200),
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: "요청이 너무 많습니다. 잠시 후 다시 시도해 주세요." },
+  validate: { trustProxy: false }
+});
+
+const webclipEntryLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  max: Number(process.env.WEBCLIP_RATE_LIMIT_MAX) || 120,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: "요청이 너무 많습니다. 잠시 후 다시 시도해 주세요." },
+  validate: { trustProxy: false }
+});
 
 app.use(
   cors({
@@ -3138,7 +3217,14 @@ app.use(
     credentials: true
   })
 );
-app.use("/uploads", express.static(UPLOADS_ROOT));
+app.use(
+  "/uploads",
+  (_req, res, next) => {
+    res.setHeader("X-Content-Type-Options", "nosniff");
+    next();
+  },
+  express.static(UPLOADS_ROOT, { index: false, dotfiles: "deny" })
+);
 app.use(express.json({ limit: "2mb" }));
 app.use((req, res, next) => {
   const startedAt = Date.now();
@@ -3256,7 +3342,7 @@ function authMiddleware(req, res, next) {
   }
   try {
     const token = auth.slice(7);
-    const decoded = jwt.verify(token, JWT_SECRET);
+    const decoded = jwt.verify(token, JWT_SECRET, { algorithms: ["HS256"] });
     const rawId = decoded.userId;
     const uid = typeof rawId === "string" ? Number(rawId) : rawId;
     if (!Number.isFinite(Number(uid))) {
@@ -3301,7 +3387,7 @@ function stripHtmlTags(value) {
   return String(value || "").replace(/<[^>]+>/g, "").trim();
 }
 
-app.post("/auth/register", async (req, res) => {
+app.post("/auth/register", authLimiter, async (req, res) => {
   try {
     const { email, password, role, serial, name } = req.body || {};
     if (!email || !password) {
@@ -3310,15 +3396,16 @@ app.post("/auth/register", async (req, res) => {
         .json({ error: "이메일과 비밀번호를 입력해 주세요." });
     }
     const trimmedEmail = String(email).trim().toLowerCase();
-    if (trimmedEmail.length < 3) {
+    if (!isReasonableEmail(trimmedEmail)) {
       return res
         .status(400)
         .json({ error: "이메일을 올바르게 입력해 주세요." });
     }
-    if (String(password).length < 4) {
-      return res
-        .status(400)
-        .json({ error: "비밀번호는 4자 이상이어야 합니다." });
+    const pwMin = minPasswordLength();
+    if (String(password).length < pwMin) {
+      return res.status(400).json({
+        error: `비밀번호는 ${pwMin}자 이상이어야 합니다.`
+      });
     }
     const existing = await findUserByEmail(trimmedEmail);
     if (existing) {
@@ -3342,7 +3429,10 @@ app.post("/auth/register", async (req, res) => {
     await attachDeviceByCookieIfPresent(req, userId).catch(err => {
       console.warn("device link skipped on register:", err.message);
     });
-    const token = jwt.sign({ userId }, JWT_SECRET, { expiresIn: "30d" });
+    const token = jwt.sign({ userId }, JWT_SECRET, {
+      expiresIn: "30d",
+      algorithm: "HS256"
+    });
     res.json({ token, userId, email: trimmedEmail, role: safeRole });
   } catch (e) {
     console.error("/auth/register error", e);
@@ -3350,7 +3440,7 @@ app.post("/auth/register", async (req, res) => {
   }
 });
 
-app.post("/auth/login", async (req, res) => {
+app.post("/auth/login", authLimiter, async (req, res) => {
   try {
     const { email, password, serial } = req.body || {};
     if (!email || !password) {
@@ -3371,7 +3461,8 @@ app.post("/auth/login", async (req, res) => {
         .json({ error: "이메일 또는 비밀번호가 올바르지 않습니다." });
     }
     const token = jwt.sign({ userId: user.id }, JWT_SECRET, {
-      expiresIn: "30d"
+      expiresIn: "30d",
+      algorithm: "HS256"
     });
     if (isLikelySerial(serial)) {
       await linkDeviceToUserBySerial(user.id, String(serial).trim()).catch(err => {
@@ -3394,7 +3485,7 @@ app.post("/auth/login", async (req, res) => {
  * - serial 쿼리값은 1회용 HttpOnly 쿠키 세션으로 교체
  * - URL은 next(기본 /student)로 즉시 리다이렉트하여 노출 최소화
  */
-app.get("/webclip/entry", async (req, res) => {
+app.get("/webclip/entry", webclipEntryLimiter, async (req, res) => {
   const serial = String(req.query.serial || "").trim();
   const nextUrl = appendSerialToRedirect(
     resolveWebRedirect(req.query.next),
@@ -3672,25 +3763,35 @@ app.get("/api/student/plans-by-date", authMiddleware, async (req, res) => {
   }
 });
 
+/** YYYY-MM-DD에 delta일(그레고리력) — 서버 TZ와 무관하게 주간 끝 날짜 계산 */
+function addCalendarDaysIso(ymd, deltaDays) {
+  const m = String(ymd || "")
+    .trim()
+    .slice(0, 10)
+    .match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!m) return null;
+  const y = Number(m[1]);
+  const mo = Number(m[2]);
+  const d = Number(m[3]);
+  const t = Date.UTC(y, mo - 1, d + deltaDays);
+  const dt = new Date(t);
+  return `${dt.getUTCFullYear()}-${String(dt.getUTCMonth() + 1).padStart(2, "0")}-${String(dt.getUTCDate()).padStart(2, "0")}`;
+}
+
 app.get("/api/week", authMiddleware, async (req, res) => {
   try {
     const start = String(req.query.start || "").slice(0, 10);
-    if (!start) {
+    if (!start || !/^\d{4}-\d{2}-\d{2}$/.test(start)) {
       return res
         .status(400)
         .json({ error: "start 쿼리 파라미터(YYYY-MM-DD)가 필요합니다." });
     }
-    const startDate = new Date(start);
-    if (Number.isNaN(startDate.getTime())) {
+    const end = addCalendarDaysIso(start, 6);
+    if (!end) {
       return res
         .status(400)
         .json({ error: "start 형식이 올바르지 않습니다. (YYYY-MM-DD)" });
     }
-    const endDate = new Date(startDate.getTime());
-    endDate.setDate(startDate.getDate() + 6);
-    const end = `${endDate.getFullYear()}-${String(
-      endDate.getMonth() + 1
-    ).padStart(2, "0")}-${String(endDate.getDate()).padStart(2, "0")}`;
 
     const { days, blocks, plans } = await getWeekData(
       req.userId,
@@ -3909,6 +4010,9 @@ async function handleAccountUpdate(req, res) {
     }
 
     if (emailChanged) {
+      if (!isReasonableEmail(emailIn)) {
+        return res.status(400).json({ error: "이메일을 올바르게 입력해 주세요." });
+      }
       const taken = await findUserByEmail(emailIn);
       if (taken && Number(taken.id) !== Number(user.id)) {
         return res.status(400).json({ error: "이미 사용 중인 이메일입니다." });
@@ -3917,10 +4021,11 @@ async function handleAccountUpdate(req, res) {
     }
 
     if (passwordChange) {
-      if (newPasswordIn.length < 4) {
-        return res
-          .status(400)
-          .json({ error: "비밀번호는 4자 이상이어야 합니다." });
+      const pwMin = minPasswordLength();
+      if (newPasswordIn.length < pwMin) {
+        return res.status(400).json({
+          error: `비밀번호는 ${pwMin}자 이상이어야 합니다.`
+        });
       }
       const hash = await bcrypt.hash(newPasswordIn, 10);
       await updateUserPasswordHash(req.userId, hash);
@@ -5202,18 +5307,23 @@ app.get("/api/parent/week", authMiddleware, async (req, res) => {
     const has = await parentHasStudent(req.userId, studentId);
     if (!has) return res.status(403).json({ error: "연결된 학생이 아닙니다." });
 
-    const startDate = new Date(start);
-    if (Number.isNaN(startDate.getTime())) {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(start)) {
       return res
         .status(400)
         .json({ error: "start 형식이 올바르지 않습니다. (YYYY-MM-DD)" });
     }
-    const endDate = new Date(startDate.getTime());
-    endDate.setDate(startDate.getDate() + 6);
-    const end = `${endDate.getFullYear()}-${String(endDate.getMonth() + 1).padStart(2, "0")}-${String(endDate.getDate()).padStart(2, "0")}`;
-    const prevDate = new Date(startDate.getTime());
-    prevDate.setDate(startDate.getDate() - 1);
-    const logsStart = `${prevDate.getFullYear()}-${String(prevDate.getMonth() + 1).padStart(2, "0")}-${String(prevDate.getDate()).padStart(2, "0")}`;
+    const end = addCalendarDaysIso(start, 6);
+    if (!end) {
+      return res
+        .status(400)
+        .json({ error: "start 형식이 올바르지 않습니다. (YYYY-MM-DD)" });
+    }
+    const logsStart = addCalendarDaysIso(start, -1);
+    if (!logsStart) {
+      return res
+        .status(400)
+        .json({ error: "start 형식이 올바르지 않습니다. (YYYY-MM-DD)" });
+    }
 
     const { days, blocks, plans } = await getWeekData(studentId, start, end);
     const logs = await listStudentCoachLogsInDateRange(studentId, logsStart, end);
@@ -7928,6 +8038,30 @@ app.post("/api/device/link-serial", authMiddleware, async (req, res) => {
     console.error("/api/device/link-serial error", e);
     res.status(500).json({ error: "기기 연결에 실패했습니다." });
   }
+});
+
+app.use((err, req, res, next) => {
+  if (!err) return next();
+  if (err.message === "CORS origin not allowed") {
+    return res.status(403).json({ error: "허용되지 않은 출처입니다." });
+  }
+  if (err.code === "INVALID_HOMEWORK_MIME") {
+    return res.status(400).json({
+      error: err.message || "지원하지 않는 파일 형식입니다."
+    });
+  }
+  if (err.name === "MulterError") {
+    if (err.code === "LIMIT_FILE_SIZE") {
+      return res.status(400).json({ error: "파일 크기가 너무 큽니다." });
+    }
+  }
+  console.error("unhandled API error:", err);
+  if (process.env.NODE_ENV === "production") {
+    return res.status(500).json({ error: "서버 오류가 발생했습니다." });
+  }
+  return res.status(500).json({
+    error: err.message || "서버 오류가 발생했습니다."
+  });
 });
 
 async function connectDbWithRetry() {
