@@ -327,66 +327,7 @@ export function ParentLegacyView(props: {
                         parentLockStatus.session?.locked_at ||
                         "아직 없음"}
                     </p>
-                    <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
-                      <button
-                        type="button"
-                        className="progress-footer-btn"
-                        onClick={async () => {
-                          if (!authToken || !parentStudentId) return;
-                          const res = await fetch(`${apiBase}/api/parent/lock-now`, {
-                            method: "POST",
-                            headers: {
-                              "Content-Type": "application/json",
-                              Authorization: `Bearer ${authToken}`
-                            },
-                            body: JSON.stringify({ studentId: parentStudentId })
-                          });
-                          const data = await res.json().catch(() => ({}));
-                          if (!res.ok) {
-                            setParentPlannerMessage(
-                              (data as { error?: string }).error ||
-                                "수동 잠금에 실패했습니다."
-                            );
-                            return;
-                          }
-                          setParentLockStatus(
-                            (data as { lockStatus?: ParentLockStatus }).lockStatus || null
-                          );
-                          setParentPlannerMessage("학생 기기를 잠금 상태로 전환했습니다.");
-                        }}
-                      >
-                        지금 잠그기
-                      </button>
-                      <button
-                        type="button"
-                        className="progress-footer-btn"
-                        onClick={async () => {
-                          if (!authToken || !parentStudentId) return;
-                          const res = await fetch(`${apiBase}/api/parent/unlock-now`, {
-                            method: "POST",
-                            headers: {
-                              "Content-Type": "application/json",
-                              Authorization: `Bearer ${authToken}`
-                            },
-                            body: JSON.stringify({ studentId: parentStudentId })
-                          });
-                          const data = await res.json().catch(() => ({}));
-                          if (!res.ok) {
-                            setParentPlannerMessage(
-                              (data as { error?: string }).error ||
-                                "수동 해제에 실패했습니다."
-                            );
-                            return;
-                          }
-                          setParentLockStatus(
-                            (data as { lockStatus?: ParentLockStatus }).lockStatus || null
-                          );
-                          setParentPlannerMessage("학생 기기 잠금을 해제했습니다.");
-                        }}
-                      >
-                        지금 해제
-                      </button>
-                    </div>
+                    {/* 지금 잠그기/지금 해제 버튼 제거됨 */}
                   </div>
                 )}
               </div>

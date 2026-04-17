@@ -158,7 +158,12 @@ const {
   assignDeviceToGroup,
   pushApps,
   pushAssignedAppsToDevice,
-  refreshDevice
+  refreshDevice,
+  assignProfileToGroup,
+  unassignProfileFromGroup,
+  syncProfiles,
+  findProfileByName,
+  listProfilesForAssignmentGroup
 } = require("./simpleMdmClient");
 
 const JWT_SECRET = String(process.env.JWT_SECRET || "");
@@ -184,8 +189,102 @@ const UPLOADS_ROOT = path.join(__dirname, "uploads");
 const HOMEWORK_UPLOADS_DIR = path.join(UPLOADS_ROOT, "homework");
 const simpleMdmLocationRefreshAtByDeviceId = new Map();
 const DAECHI_ROOT_BUNDLE_ID = "com.daechiroot.ios";
+const APP_ALLOWANCE_MODE_TO_PROFILE_NAME = Object.freeze({
+  default: String(process.env.SIMPLEMDM_APP_ALLOWANCE_DEFAULT_PROFILE || "default").trim(),
+  utility: String(process.env.SIMPLEMDM_APP_ALLOWANCE_UTILITY_PROFILE || "utility").trim(),
+  free: String(process.env.SIMPLEMDM_APP_ALLOWANCE_FREE_PROFILE || "free").trim()
+});
 
 fs.mkdirSync(HOMEWORK_UPLOADS_DIR, { recursive: true });
+
+function normalizeModeKey(value) {
+  return String(value || "")
+    .trim()
+    .toLowerCase();
+}
+
+function normalizeSimpleMdmProfileName(value) {
+  return String(value || "")
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, " ");
+}
+
+async function ensureStudentAssignmentGroupForProfile(userId, deviceId) {
+  let group = await getStudentMdmGroup(userId);
+  if (!group) {
+    const created = await createAssignmentGroup(`student-${userId}`);
+    if (!created?.id) {
+      throw new Error("학생용 SimpleMDM assignment group 생성에 실패했습니다.");
+    }
+    group = await upsertStudentMdmGroup(
+      userId,
+      Number(created.id),
+      created.attributes?.name || `student-${userId}`
+    );
+  }
+  await assignDeviceToGroup(Number(group.assignment_group_id), Number(deviceId));
+  return {
+    id: Number(group.assignment_group_id),
+    name: String(group.assignment_group_name || `student-${userId}`)
+  };
+}
+
+async function applyNamedAppAllowanceProfileForStudent(userId, modeKey) {
+  if (!isSimpleMdmConfigured()) {
+    throw new Error("SimpleMDM 연동이 설정되지 않았습니다.");
+  }
+  const normalizedMode = normalizeModeKey(modeKey);
+  const profileName = APP_ALLOWANCE_MODE_TO_PROFILE_NAME[normalizedMode];
+  if (!profileName) {
+    throw new Error("지원하지 않는 허용앱 모드입니다.");
+  }
+
+  const serial = await getActiveDeviceSerialForUser(userId);
+  if (!serial) {
+    throw new Error("학생 기기 시리얼이 등록되지 않았습니다.");
+  }
+  const device = await findDeviceBySerial(serial);
+  if (!device?.id) {
+    throw new Error("SimpleMDM에서 학생 기기를 찾을 수 없습니다.");
+  }
+
+  const group = await ensureStudentAssignmentGroupForProfile(userId, Number(device.id));
+  const targetProfile = await findProfileByName(profileName);
+  if (!targetProfile?.id) {
+    throw new Error(`SimpleMDM 프로파일 '${profileName}'을 찾지 못했습니다.`);
+  }
+
+  const managedProfileNameSet = new Set(
+    Object.values(APP_ALLOWANCE_MODE_TO_PROFILE_NAME)
+      .map(normalizeSimpleMdmProfileName)
+      .filter(Boolean)
+  );
+  const assignedProfiles = await listProfilesForAssignmentGroup(group.id).catch(() => []);
+  const targetProfileId = Number(targetProfile.id);
+  const removedProfileIds = [];
+
+  for (const profile of Array.isArray(assignedProfiles) ? assignedProfiles : []) {
+    const profileId = Number(profile?.id);
+    const profileNameKey = normalizeSimpleMdmProfileName(profile?.attributes?.name);
+    if (!profileId || !managedProfileNameSet.has(profileNameKey) || profileId === targetProfileId) {
+      continue;
+    }
+    await unassignProfileFromGroup(group.id, profileId);
+    removedProfileIds.push(profileId);
+  }
+
+  await assignProfileToGroup(group.id, targetProfileId);
+  await syncProfiles(group.id);
+
+  return {
+    mode: normalizedMode,
+    profileId: targetProfileId,
+    profileName: String(targetProfile?.attributes?.name || profileName),
+    removedProfileIds,
+    groupId: group.id
+  };
+}
 
 function resolveHomeworkUploadPath(fileUrl) {
   const raw = String(fileUrl || "").trim();
@@ -5429,7 +5528,14 @@ app.post("/api/parent/app-allowance/bulk-daechiroot-lock", authMiddleware, async
     if (!me || me.role !== "parent") {
       return res.status(403).json({ error: "권한이 없습니다." });
     }
-    const students = await listParentStudents(req.userId);
+    let studentIds = Array.isArray(req.body?.studentIds) ? req.body.studentIds.map(Number).filter(Boolean) : [];
+    let students;
+    if (studentIds.length > 0) {
+      const allStudents = await listParentStudents(req.userId);
+      students = allStudents.filter(s => studentIds.includes(s.id));
+    } else {
+      students = await listParentStudents(req.userId);
+    }
     if (!students.length) {
       return res.status(400).json({ error: "관리 중인 학생이 없습니다." });
     }
@@ -5499,7 +5605,14 @@ app.post("/api/parent/app-allowance/bulk-daechiroot-unlock", authMiddleware, asy
     if (!me || me.role !== "parent") {
       return res.status(403).json({ error: "권한이 없습니다." });
     }
-    const students = await listParentStudents(req.userId);
+    let studentIds = Array.isArray(req.body?.studentIds) ? req.body.studentIds.map(Number).filter(Boolean) : [];
+    let students;
+    if (studentIds.length > 0) {
+      const allStudents = await listParentStudents(req.userId);
+      students = allStudents.filter(s => studentIds.includes(s.id));
+    } else {
+      students = await listParentStudents(req.userId);
+    }
     if (!students.length) {
       return res.status(400).json({ error: "관리 중인 학생이 없습니다." });
     }
@@ -5582,6 +5695,81 @@ app.post("/api/parent/app-allowance/bulk-daechiroot-unlock", authMiddleware, asy
   } catch (e) {
     console.error("/api/parent/app-allowance/bulk-daechiroot-unlock error", e);
     res.status(500).json({ error: "일괄 해제에 실패했습니다." });
+  }
+});
+
+app.post("/api/parent/app-allowance/activate-mode", authMiddleware, async (req, res) => {
+  try {
+    const me = await getMe(req.userId);
+    if (!me || me.role !== "parent") {
+      return res.status(403).json({ error: "권한이 없습니다." });
+    }
+
+    const mode = normalizeModeKey(req.body?.mode);
+    if (!APP_ALLOWANCE_MODE_TO_PROFILE_NAME[mode]) {
+      return res.status(400).json({ error: "mode는 default, utility, free 중 하나여야 합니다." });
+    }
+
+    let studentIds = Array.isArray(req.body?.studentIds)
+      ? req.body.studentIds.map(Number).filter(Boolean)
+      : [];
+    let students;
+    if (studentIds.length > 0) {
+      const allStudents = await listParentStudents(req.userId);
+      students = allStudents.filter(student => studentIds.includes(student.id));
+    } else {
+      students = await listParentStudents(req.userId);
+    }
+    if (!students.length) {
+      return res.status(400).json({ error: "관리 중인 학생이 없습니다." });
+    }
+
+    const results = [];
+    for (const student of students) {
+      try {
+        const applied = await applyNamedAppAllowanceProfileForStudent(student.id, mode);
+        results.push({
+          studentId: student.id,
+          email: student.email,
+          ok: true,
+          mode: applied.mode,
+          profileId: applied.profileId,
+          profileName: applied.profileName,
+          groupId: applied.groupId,
+          removedProfileIds: applied.removedProfileIds
+        });
+      } catch (error) {
+        results.push({
+          studentId: student.id,
+          email: student.email,
+          ok: false,
+          error: error instanceof Error && error.message ? error.message : "프로파일 적용에 실패했습니다."
+        });
+      }
+    }
+
+    const successCount = results.filter(item => item.ok).length;
+    const failedCount = results.length - successCount;
+    const message =
+      failedCount > 0
+        ? `관리 학생 ${successCount}명에 ${mode} 프로파일을 적용했고 ${failedCount}명은 실패했습니다.`
+        : `관리 학생 ${successCount}명에 ${mode} 프로파일을 적용했습니다.`;
+
+    res.json({
+      ok: failedCount === 0,
+      summary: {
+        total: results.length,
+        success: successCount,
+        failed: failedCount
+      },
+      mode,
+      profileName: APP_ALLOWANCE_MODE_TO_PROFILE_NAME[mode],
+      message,
+      results
+    });
+  } catch (e) {
+    console.error("/api/parent/app-allowance/activate-mode error", e);
+    res.status(500).json({ error: "허용앱 프로파일 적용에 실패했습니다." });
   }
 });
 

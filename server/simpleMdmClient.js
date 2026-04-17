@@ -420,6 +420,38 @@ async function syncProfiles(groupId) {
   });
 }
 
+async function listProfiles(search = "") {
+  const query = String(search || "").trim();
+  const path = query ? `/profiles?search=${encodeURIComponent(query)}` : "/profiles";
+  return listPaginatedCollection(path);
+}
+
+function normalizeSimpleMdmName(value) {
+  return String(value || "")
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, " ");
+}
+
+async function findProfileByName(name) {
+  const target = normalizeSimpleMdmName(name);
+  if (!target) return null;
+  const profiles = await listProfiles(name);
+  return (
+    profiles.find(
+      profile => normalizeSimpleMdmName(profile?.attributes?.name) === target
+    ) || null
+  );
+}
+
+async function listProfilesForAssignmentGroup(groupId) {
+  const numericGroupId = Number(groupId);
+  if (!Number.isFinite(numericGroupId) || numericGroupId <= 0) {
+    throw new Error("assignment group id가 올바르지 않습니다.");
+  }
+  return listPaginatedCollection(`/assignment_groups/${numericGroupId}/profiles`);
+}
+
 module.exports = {
   isSimpleMdmConfigured,
   simpleMdmRequest,
@@ -443,5 +475,8 @@ module.exports = {
   deleteCustomConfigurationProfile,
   assignProfileToGroup,
   unassignProfileFromGroup,
-  syncProfiles
+  syncProfiles,
+  listProfiles,
+  findProfileByName,
+  listProfilesForAssignmentGroup
 };

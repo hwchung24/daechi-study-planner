@@ -16,6 +16,124 @@
   background: var(--surface-base);
   font-size: var(--font-size-medium);
 }
+
+.parent-mode-schedule-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.parent-settings-block {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.parent-settings-primary-action {
+  margin-top: 0;
+}
+
+.parent-settings-header-toggle {
+  border: 1px solid var(--accent);
+  background: #fff;
+  color: var(--accent);
+  border-radius: 999px;
+  padding: 8px 14px;
+  font-size: var(--font-size-small);
+  font-weight: var(--font-weight-semibold);
+  line-height: 1;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.parent-settings-header-toggle:disabled {
+  opacity: 0.7;
+  cursor: wait;
+}
+
+.parent-settings-header-toggle--danger {
+  background: #fff;
+  color: var(--accent);
+}
+
+.parent-mode-schedule-item {
+  margin-bottom: 0;
+}
+
+.parent-mode-schedule-item__row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+}
+
+.parent-mode-schedule-item__label {
+  font-weight: var(--font-weight-bold);
+  color: var(--text-main);
+}
+
+.parent-mode-schedule-item__add {
+  min-width: 96px;
+  justify-content: center;
+  color: #fff;
+  border: 1px solid transparent;
+  background: var(--accent);
+  border-color: var(--accent);
+}
+
+.parent-mode-schedule-item__activate {
+  display: block;
+  width: 100%;
+  margin-top: 0;
+  border-radius: 999px;
+}
+
+.parent-mode-schedule-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  width: 100vw;
+  height: 100vh;
+  background: rgba(0, 0, 0, 0.35);
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+}
+
+.parent-mode-schedule-modal {
+  width: min(960px, calc(100vw - 24px));
+  max-height: min(84vh, 920px);
+  overflow-y: auto;
+  background: #fff;
+  border-radius: 16px;
+  padding: 20px;
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.12);
+}
+
+.parent-mode-schedule-modal__header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+.parent-mode-schedule-modal__title {
+  font-weight: var(--font-weight-bold);
+  font-size: var(--font-size-large);
+  color: var(--text-main);
+}
+
+.parent-mode-schedule-modal__close {
+  border: var(--border-width) solid var(--border-neutral);
+  background: var(--surface-base);
+  color: var(--text-main);
+  border-radius: 10px;
+  padding: 6px 14px;
+  font-weight: var(--font-weight-semibold);
+  cursor: pointer;
+}
 :root {
   color-scheme: light;
   --app-viewport-height: 100vh;

@@ -1316,7 +1316,7 @@ export function StudentProfilePage(props: {
   return (
     <>
       <div className="student-profile-page section">
-        <Card className="coach-card coach-card--padded coach-profile-card">
+          <Card className="coach-card coach-card--padded coach-profile-card">
           <div className="coach-profile-card__main">
             <div className="coach-profile-card__info">
               <div className="coach-profile-card__content">
@@ -1373,13 +1373,10 @@ export function StudentProfilePage(props: {
           </div>
         </Card>
 
-        <Card className="coach-card coach-card--padded student-profile-settings-card">
-          <SectionHeader title="설정" />
+        {/* 관리카드 */}
+        <Card className="coach-card coach-card--padded student-profile-manage-card">
+          <SectionHeader title="관리" />
           <div className="student-profile-settings-list">
-            <button type="button" className="settings-item" onClick={openAccountEdit}>
-              <span className="settings-label">이메일 · 이름 · 비밀번호</span>
-              <span className="settings-value">수정</span>
-            </button>
             <button
               type="button"
               className="settings-item"
@@ -1396,14 +1393,6 @@ export function StudentProfilePage(props: {
               <span className="settings-label">일주일 허용 앱 관리</span>
               <span className="settings-value">{weeklyAppSummary}</span>
             </button>
-            <button
-              type="button"
-              className="settings-item"
-              onClick={openAlarmSettingsModal}
-            >
-              <span className="settings-label">알람 설정</span>
-              <span className="settings-value">{alarmSettingsSummary}</span>
-            </button>
             {meRole === "student" ? (
               <button
                 type="button"
@@ -1414,6 +1403,25 @@ export function StudentProfilePage(props: {
                 <span className="settings-value">{studyRoomTrackingSummaryText}</span>
               </button>
             ) : null}
+          </div>
+        </Card>
+
+        {/* 설정카드 */}
+        <Card className="coach-card coach-card--padded student-profile-settings-card">
+          <SectionHeader title="설정" />
+          <div className="student-profile-settings-list">
+            <button type="button" className="settings-item" onClick={openAccountEdit}>
+              <span className="settings-label">이메일 · 이름 · 비밀번호</span>
+              <span className="settings-value">수정</span>
+            </button>
+            <button
+              type="button"
+              className="settings-item"
+              onClick={openAlarmSettingsModal}
+            >
+              <span className="settings-label">알람 설정</span>
+              <span className="settings-value">{alarmSettingsSummary}</span>
+            </button>
             {meRole === "student" ? (
               <button
                 type="button"

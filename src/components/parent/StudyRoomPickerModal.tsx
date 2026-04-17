@@ -409,7 +409,7 @@ export function StudyRoomPickerModal(props: {
     >
       <div className="dday-modal-inner" onClick={event => event.stopPropagation()}>
         <div className="dday-modal-header">
-          <span className="dday-modal-title">{activeStudentName} 독서실 위치 설정</span>
+          <span className="dday-modal-title">{activeStudentName} 학습 위치 설정</span>
         </div>
         <div className="dday-modal-body">
           <StudyRoomPickerEditor
