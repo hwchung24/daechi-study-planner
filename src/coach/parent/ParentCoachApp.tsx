@@ -1307,6 +1307,8 @@ function RecordsTab(props: {
   const logs = Array.isArray(props.parentReport?.logs) ? props.parentReport.logs : [];
   const [studyRoomVisits, setStudyRoomVisits] = useState<StudyRoomVisitSession[]>([]);
   const [studyRoomVisitsLoading, setStudyRoomVisitsLoading] = useState(false);
+  const [aiReportRefreshing, setAiReportRefreshing] = useState(false);
+  const [aiReportMessage, setAiReportMessage] = useState("");
   const [studyRoomLiveStatus, setStudyRoomLiveStatus] = useState<ParentStudyRoomLiveStatus>({
     currentDistanceMeters: null,
     currentWithinRadius: null,
@@ -1319,6 +1321,12 @@ function RecordsTab(props: {
     (studyRoomLiveStatus.studyRoomName && String(studyRoomLiveStatus.studyRoomName).trim()) ||
       props.selectedStudent?.studyRoom
   );
+  const latestVisitDistance =
+    studyRoomVisits.find(visit => visit.lastDistanceMeters != null)?.lastDistanceMeters ?? null;
+  const displayDistanceMeters =
+    studyRoomLiveStatus.currentDistanceMeters != null
+      ? studyRoomLiveStatus.currentDistanceMeters
+      : latestVisitDistance;
 
   const refreshStudyRoomVisits = useCallback(
     async (options?: { silent?: boolean }) => {
@@ -1401,6 +1409,10 @@ function RecordsTab(props: {
   useEffect(() => {
     void refreshStudyRoomVisits();
   }, [refreshStudyRoomVisits]);
+
+  useEffect(() => {
+    setAiReportMessage("");
+  }, [props.selectedStudent?.id]);
 
   useEffect(() => {
     if (!props.authToken || !props.selectedStudent?.id) {
@@ -1640,6 +1652,56 @@ function RecordsTab(props: {
         <EmptyState title="학생을 먼저 선택해 주세요." />
       ) : (
         <>
+          <div style={{ marginTop: 10 }}>
+            <button
+              type="button"
+              className="timeline-save-button study-room-editor__save-button"
+              disabled={aiReportRefreshing}
+              onClick={() => {
+                if (!props.authToken || !props.selectedStudent?.id) return;
+                setAiReportRefreshing(true);
+                setAiReportMessage("");
+                void (async () => {
+                  try {
+                    const res = await fetch(`${props.apiBase}/api/parent/ai-daily-report/refresh`, {
+                      method: "POST",
+                      headers: {
+                        "Content-Type": "application/json",
+                        Authorization: `Bearer ${props.authToken}`
+                      },
+                      body: JSON.stringify({ studentId: props.selectedStudent?.id })
+                    });
+                    const data = (await res.json().catch(() => ({}))) as {
+                      error?: string;
+                      result?: { message?: string };
+                    };
+                    if (!res.ok) {
+                      setAiReportMessage(data.error || "AI 리포트 생성에 실패했습니다.");
+                      return;
+                    }
+                    setAiReportMessage(
+                      data.result?.message || "AI 리포트를 생성했습니다. AI 리포트 탭에서 확인해 주세요."
+                    );
+                  } catch (error) {
+                    setAiReportMessage(
+                      error instanceof Error && error.message
+                        ? `AI 리포트 생성 중 오류가 발생했습니다. (${error.message})`
+                        : "AI 리포트 생성 중 오류가 발생했습니다."
+                    );
+                  } finally {
+                    setAiReportRefreshing(false);
+                  }
+                })();
+              }}
+            >
+              {aiReportRefreshing ? "생성 중..." : "AI 리포트 생성"}
+            </button>
+          </div>
+          {aiReportMessage ? (
+            <p className="settings-hint" style={{ margin: "8px 2px 0" }}>
+              {aiReportMessage}
+            </p>
+          ) : null}
           <div className="coach-grid coach-records-summary-grid" style={{ marginTop: 12 }}>
             <MetricCard
               title="목표달성률"
@@ -1715,8 +1777,12 @@ function RecordsTab(props: {
             <div style={{ marginTop: 12 }}>
               {hasStudyRoomConfig ? (
                 <div className="parent-study-room-item__visit-empty" style={{ marginBottom: 10 }}>
-                  {studyRoomLiveStatus.currentDistanceMeters != null
-                    ? `현재 거리 ${Math.round(studyRoomLiveStatus.currentDistanceMeters)}m · ${studyRoomLiveStatus.currentWithinRadius ? "체크인됨" : "체크아웃됨"}`
+                  {displayDistanceMeters != null
+                    ? `${studyRoomLiveStatus.currentDistanceMeters != null ? "현재 거리" : "최근 거리"} ${Math.round(displayDistanceMeters)}m${
+                        typeof studyRoomLiveStatus.currentWithinRadius === "boolean"
+                          ? ` · ${studyRoomLiveStatus.currentWithinRadius ? "체크인됨" : "체크아웃됨"}`
+                          : ""
+                      }`
                     : "아직 실시간 거리 정보가 없습니다."}
                   {studyRoomLiveStatus.currentHeartbeatAt
                     ? ` · 기준 ${formatStudyRoomVisitDateTime(studyRoomLiveStatus.currentHeartbeatAt)}`

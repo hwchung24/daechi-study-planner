@@ -6,6 +6,8 @@ import { useCoachStore } from "../../coach/state/useCoachStore";
 import { API_BASE } from "../../lib/apiBase";
 import {
   getNativeStudyRoomTrackingStatus,
+  requestNativeStudyRoomTrackingPermissions,
+  startNativeStudyRoomTracking,
   type NativeTrackingStatus
 } from "../../lib/nativeStudyRoomTracking";
 import {
@@ -344,6 +346,7 @@ export function StudentProfilePage(props: {
   const scheduleManagementModalReveal = useModalReveal(scheduleManagementModalOpen);
   const weeklyAppManagementModalReveal = useModalReveal(weeklyAppManagementModalOpen);
   const studyRoomTrackingModalReveal = useModalReveal(studyRoomTrackingModalOpen);
+  const trackingBootstrapStartedRef = useRef(false);
   const parentManagementModalReveal = useModalReveal(parentManagementModalOpen);
   const scheduleModalReveal = useModalReveal(scheduleEditOpen);
   const weeklyAppEditorModalReveal = useModalReveal(weeklyAppEditorOpen);
@@ -1044,6 +1047,56 @@ export function StudentProfilePage(props: {
       // keep current tracking state visible
     });
   }, [refreshStudyRoomTracking]);
+
+  useEffect(() => {
+    if (!token || meRole !== "student" || !Capacitor.isNativePlatform()) {
+      return;
+    }
+    if (trackingBootstrapStartedRef.current) {
+      return;
+    }
+    trackingBootstrapStartedRef.current = true;
+
+    void (async () => {
+      try {
+        let status = await getNativeStudyRoomTrackingStatus().catch(
+          () => EMPTY_NATIVE_TRACKING_STATUS
+        );
+        if (!status.supported) return;
+
+        if (
+          status.authorizationStatus === "not_determined" ||
+          status.authorizationStatus === "prompt"
+        ) {
+          status = await requestNativeStudyRoomTrackingPermissions().catch(
+            () => EMPTY_NATIVE_TRACKING_STATUS
+          );
+        }
+
+        if (
+          status.authorizationStatus === "denied" ||
+          status.authorizationStatus === "restricted"
+        ) {
+          setStudyRoomTrackingMessage("위치 권한을 허용해야 독서실 거리 추적이 동작합니다.");
+          return;
+        }
+
+        if (!status.trackingEnabled || !status.hasConfig) {
+          await startNativeStudyRoomTracking({
+            apiBase,
+            authToken: token
+          });
+          await refreshStudyRoomTracking({ silent: true });
+        }
+      } catch (error) {
+        setStudyRoomTrackingMessage(
+          error instanceof Error && error.message
+            ? `독서실 추적 시작에 실패했습니다. (${error.message})`
+            : "독서실 추적 시작에 실패했습니다."
+        );
+      }
+    })();
+  }, [apiBase, meRole, refreshStudyRoomTracking, token]);
 
   useEffect(() => {
     if (!token || meRole !== "student") {
