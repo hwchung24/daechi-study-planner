@@ -23,6 +23,7 @@ const {
   deleteCustomConfigurationProfile,
   assignProfileToGroup,
   unassignProfileFromGroup,
+  unassignCompetingAppAllowanceProfilesFromGroup,
   syncProfiles,
   listProfilesForAssignmentGroup
 } = require("./simpleMdmClient");
@@ -221,16 +222,13 @@ async function hasUtilityFreeOrBlockNamedProfileAssigned(groupId) {
   return false;
 }
 
-/** 주간 동적 프로파일 적용 전 이름 기반 default/utility/free 제거 */
+/** 주간 동적 프로파일 적용 전: 같은 그룹의 앱 제한/허용 경쟁 프로파일(named·app_restrictions·주간 커스텀) 제거 */
 async function unassignAllNamedAppAllowanceProfilesFromGroup(groupId) {
   const named = getConfiguredNamedAllowanceProfileNameSet();
-  const assigned = await listProfilesForAssignmentGroup(groupId).catch(() => []);
-  for (const profile of Array.isArray(assigned) ? assigned : []) {
-    const profileId = Number(profile?.id);
-    const key = normalizeAllowanceModeProfileName(profile?.attributes?.name);
-    if (!profileId || !named.has(key)) continue;
-    await unassignProfileFromGroup(groupId, profileId).catch(() => {});
-  }
+  await unassignCompetingAppAllowanceProfilesFromGroup(groupId, {
+    targetProfileId: 0,
+    managedNameKeys: named
+  });
   await syncProfiles(groupId).catch(() => {});
 }
 

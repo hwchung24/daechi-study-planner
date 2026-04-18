@@ -169,6 +169,7 @@ const {
   refreshDevice,
   assignProfileToGroup,
   unassignProfileFromGroup,
+  unassignCompetingAppAllowanceProfilesFromGroup,
   syncProfiles,
   findProfileByName,
   listProfilesForAssignmentGroup,
@@ -491,19 +492,11 @@ async function applyNamedAppAllowanceProfileForStudent(userId, modeKey) {
       .map(normalizeSimpleMdmProfileName)
       .filter(Boolean)
   );
-  const assignedProfiles = await listProfilesForAssignmentGroup(group.id).catch(() => []);
   const targetProfileId = Number(targetProfile.id);
-  const removedProfileIds = [];
-
-  for (const profile of Array.isArray(assignedProfiles) ? assignedProfiles : []) {
-    const profileId = Number(profile?.id);
-    const profileNameKey = normalizeSimpleMdmProfileName(profile?.attributes?.name);
-    if (!profileId || !managedProfileNameSet.has(profileNameKey) || profileId === targetProfileId) {
-      continue;
-    }
-    await unassignProfileFromGroup(group.id, profileId);
-    removedProfileIds.push(profileId);
-  }
+  const removedProfileIds = await unassignCompetingAppAllowanceProfilesFromGroup(group.id, {
+    targetProfileId,
+    managedNameKeys: managedProfileNameSet
+  });
 
   await assignProfileToGroup(group.id, targetProfileId);
   await syncProfiles(group.id);

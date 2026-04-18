@@ -544,6 +544,50 @@ async function unassignProfileFromGroup(groupId, profileId) {
   );
 }
 
+/**
+ * 앱 허용/제한 슬롯을 차지하는 프로파일인지 — 그룹에는 이 계열만 하나 두는 전제.
+ * - Simple MDM 네이티브 App Restrictions (`app_restrictions`)
+ * - env로 지정한 named 프로파일 이름과 일치
+ * - 주간 동적 mobileconfig (`DaechiRoot Weekly App Allowance …`)
+ */
+function shouldUnassignProfileForAllowanceSlot(profileRow, targetProfileId, managedNameKeys) {
+  const id = Number(profileRow?.id);
+  if (!Number.isFinite(id) || id <= 0) return false;
+  const target = Number(targetProfileId);
+  if (target > 0 && id === target) return false;
+  const keys =
+    managedNameKeys instanceof Set ? managedNameKeys : new Set();
+  const typeLc = String(profileRow?.type || "").trim().toLowerCase();
+  const nameKey = normalizeSimpleMdmName(profileRow?.attributes?.name);
+  if (typeLc === "app_restrictions") return true;
+  if (nameKey && keys.has(nameKey)) return true;
+  if (nameKey && nameKey.startsWith("dae chiroot weekly app allowance")) return true;
+  return false;
+}
+
+/**
+ * 새 허용앱 프로파일을 붙이기 전, 같은 그룹에 남아 있는 경쟁 프로파일을 모두 그룹에서 뗀다(계정에서 삭제하지 않음).
+ */
+async function unassignCompetingAppAllowanceProfilesFromGroup(groupId, options = {}) {
+  const targetProfileId = Number(options.targetProfileId || 0);
+  const managedNameKeys =
+    options.managedNameKeys instanceof Set
+      ? options.managedNameKeys
+      : new Set();
+  const assigned = await listProfilesForAssignmentGroup(groupId).catch(() => []);
+  const removedIds = [];
+  for (const profile of Array.isArray(assigned) ? assigned : []) {
+    if (!shouldUnassignProfileForAllowanceSlot(profile, targetProfileId, managedNameKeys)) {
+      continue;
+    }
+    const pid = Number(profile?.id);
+    if (!Number.isFinite(pid) || pid <= 0) continue;
+    await unassignProfileFromGroup(groupId, pid).catch(() => {});
+    removedIds.push(pid);
+  }
+  return removedIds;
+}
+
 async function syncProfiles(groupId) {
   await simpleMdmRequest(`/assignment_groups/${groupId}/sync_profiles`, {
     method: "POST"
@@ -627,6 +671,8 @@ module.exports = {
   deleteCustomConfigurationProfile,
   assignProfileToGroup,
   unassignProfileFromGroup,
+  shouldUnassignProfileForAllowanceSlot,
+  unassignCompetingAppAllowanceProfilesFromGroup,
   syncProfiles,
   listProfiles,
   findProfileByName,
