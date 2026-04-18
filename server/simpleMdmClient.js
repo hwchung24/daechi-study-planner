@@ -14,7 +14,17 @@ function getBasicAuthHeader() {
   return `Basic ${Buffer.from(`${SIMPLEMDM_API_KEY}:`).toString("base64")}`;
 }
 
-async function simpleMdmRequest(path, options = {}) {
+function sleep(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+/** 429/503 시 재시도 — Simple MDM 쪽 속도 제한 완화 */
+const SIMPLEMDM_RETRYABLE_STATUS = new Set([429, 503]);
+const SIMPLEMDM_MAX_ATTEMPTS = Number(
+  process.env.SIMPLEMDM_MAX_RETRY_ATTEMPTS || 6
+);
+
+async function simpleMdmRequest(path, options = {}, attempt = 1) {
   const isFormDataBody =
     typeof FormData !== "undefined" && options.body instanceof FormData;
   const res = await fetch(`${SIMPLEMDM_API_BASE}${path}`, {
@@ -32,6 +42,23 @@ async function simpleMdmRequest(path, options = {}) {
   });
 
   if (res.status === 204) return null;
+
+  if (
+    SIMPLEMDM_RETRYABLE_STATUS.has(res.status) &&
+    attempt < SIMPLEMDM_MAX_ATTEMPTS
+  ) {
+    await res.text().catch(() => {});
+    const ra = res.headers.get("retry-after");
+    let delayMs = Math.min(90000, 500 * 2 ** (attempt - 1));
+    if (ra != null && String(ra).trim() !== "") {
+      const sec = Number(ra);
+      if (Number.isFinite(sec) && sec >= 0) {
+        delayMs = Math.min(120000, Math.max(delayMs, sec * 1000));
+      }
+    }
+    await sleep(delayMs);
+    return simpleMdmRequest(path, options, attempt + 1);
+  }
 
   const text = await res.text();
   let data = null;
@@ -55,18 +82,37 @@ async function simpleMdmRequest(path, options = {}) {
   return data;
 }
 
+const findDeviceBySerialInflight = new Map();
+
 async function findDeviceBySerial(serial) {
-  const data = await simpleMdmRequest(
-    `/devices?search=${encodeURIComponent(serial)}`
-  );
-  const list = Array.isArray(data?.data) ? data.data : [];
-  return (
-    list.find(
-      item =>
-        String(item?.attributes?.serial_number || "").toUpperCase() ===
-        String(serial).toUpperCase()
-    ) || null
-  );
+  const key = String(serial ?? "")
+    .trim()
+    .toUpperCase();
+  if (!key) return null;
+
+  if (findDeviceBySerialInflight.has(key)) {
+    return findDeviceBySerialInflight.get(key);
+  }
+
+  const promise = (async () => {
+    try {
+      const data = await simpleMdmRequest(
+        `/devices?search=${encodeURIComponent(serial)}`
+      );
+      const list = Array.isArray(data?.data) ? data.data : [];
+      return (
+        list.find(
+          item =>
+            String(item?.attributes?.serial_number || "").toUpperCase() === key
+        ) || null
+      );
+    } finally {
+      findDeviceBySerialInflight.delete(key);
+    }
+  })();
+
+  findDeviceBySerialInflight.set(key, promise);
+  return promise;
 }
 
 async function getDeviceById(deviceId) {
@@ -89,14 +135,45 @@ function getAssignmentGroupIdsFromDevice(deviceDetailResponse) {
 function profileReferencesAssignmentGroup(row, assignmentGroupId) {
   const target = Number(assignmentGroupId);
   if (!Number.isFinite(target) || target <= 0) return false;
-  const groups = row?.relationships?.groups?.data;
-  if (!Array.isArray(groups)) return false;
-  return groups.some(g => Number(g?.id) === target);
+  const collectIds = rel => {
+    if (!rel) return [];
+    const data = rel.data;
+    if (Array.isArray(data)) {
+      return data.map(g => Number(g?.id)).filter(n => Number.isFinite(n) && n > 0);
+    }
+    if (data && typeof data === "object" && data.id != null) {
+      const n = Number(data.id);
+      return Number.isFinite(n) && n > 0 ? [n] : [];
+    }
+    return [];
+  };
+  const rel = row?.relationships || {};
+  const ids = new Set([
+    ...collectIds(rel.groups),
+    ...collectIds(rel.assignment_groups)
+  ]);
+  return ids.has(target);
 }
 
-/** 문서상 GET /assignment_groups/:id/profiles 목록이 없어 404가 나는 경우가 많음 → 계정 /profiles 로 대체 */
+function isNotFoundError(err) {
+  const st = Number(err?.status);
+  const msg = String(err?.message || err || "");
+  return st === 404 || /\(\s*404\s*\)/.test(msg) || /\b404\b/.test(msg);
+}
+
+/** GET /assignment_groups/:id/profiles 목록 API는 없거나 404인 경우가 많아 계정 /profiles(실패 시 custom_configuration_profiles)로만 조회 */
 async function listProfilesFilteredByAssignmentGroupId(assignmentGroupId) {
-  const rows = await listPaginatedCollection("/profiles");
+  let rows = [];
+  try {
+    rows = await listPaginatedCollection("/profiles");
+  } catch (err) {
+    if (!isNotFoundError(err)) throw err;
+    try {
+      rows = await listPaginatedCollection("/custom_configuration_profiles");
+    } catch (err2) {
+      throw err;
+    }
+  }
   return (Array.isArray(rows) ? rows : []).filter(row =>
     profileReferencesAssignmentGroup(row, assignmentGroupId)
   );

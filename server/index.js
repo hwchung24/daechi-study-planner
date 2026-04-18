@@ -4513,6 +4513,22 @@ app.get(
         device = await findDeviceBySerial(serial);
       } catch (err) {
         console.error("simplemdm-device-profiles findDevice", studentId, err);
+        const up = Number(err?.status);
+        if (up === 429) {
+          return res.status(429).json({
+            error:
+              "Simple MDM 요청이 많아 잠시 제한되었습니다. 10~60초 후 다시 시도해 주세요.",
+            detail: String(err?.message || err),
+            simplemdmStatus: 429
+          });
+        }
+        if (up === 503) {
+          return res.status(503).json({
+            error: "Simple MDM 서비스가 일시적으로 응답하지 않습니다. 잠시 후 다시 시도해 주세요.",
+            detail: String(err?.message || err),
+            simplemdmStatus: 503
+          });
+        }
         return res.status(502).json({
           error: "SimpleMDM 기기 조회에 실패했습니다.",
           detail: String(err?.message || err)
@@ -4558,14 +4574,22 @@ app.get(
           : 0;
 
       let deviceDetailPayload = null;
-      try {
-        deviceDetailPayload = await getDeviceById(deviceId);
-      } catch (devDetailErr) {
-        console.warn(
-          "simplemdm-device-profiles getDeviceById",
-          deviceId,
-          devDetailErr?.message || devDetailErr
-        );
+      const searchHasGroupRel =
+        device &&
+        device.relationships &&
+        Object.prototype.hasOwnProperty.call(device.relationships, "groups");
+      if (searchHasGroupRel) {
+        deviceDetailPayload = { data: device };
+      } else {
+        try {
+          deviceDetailPayload = await getDeviceById(deviceId);
+        } catch (devDetailErr) {
+          console.warn(
+            "simplemdm-device-profiles getDeviceById",
+            deviceId,
+            devDetailErr?.message || devDetailErr
+          );
+        }
       }
       const deviceGroupIds = getAssignmentGroupIdsFromDevice(deviceDetailPayload);
 
