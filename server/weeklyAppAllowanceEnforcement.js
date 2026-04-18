@@ -7,6 +7,7 @@ const {
   upsertStudentMdmGroup,
   getStudentMdmAppAllowanceProfileState,
   upsertStudentMdmAppAllowanceProfileState,
+  touchStudentWeeklyAppAllowancePayloadSync,
   deleteStudentMdmAppAllowanceProfileState,
   setStudentMdmAppAllowanceProfileSyncError,
   listStudentIdsForWeeklyAppAllowanceEnforcement
@@ -48,6 +49,12 @@ const BASELINE_ALLOWLIST_BUNDLE_IDS = Array.from(
     ].filter(Boolean)
   )
 ).sort();
+
+/** When false (default), do not create/update "DaechiRoot Weekly App Allowance {userId}" custom profiles; use named profiles only. Set to "true" to restore legacy per-student mobileconfig sync. */
+const WEEKLY_DYNAMIC_APP_ALLOWANCE_PROFILE_ENABLED =
+  String(process.env.SIMPLEMDM_WEEKLY_DYNAMIC_APP_ALLOWANCE_PROFILE || "")
+    .trim()
+    .toLowerCase() === "true";
 
 function normalizeBundleIds(bundleIds) {
   return Array.from(
@@ -417,6 +424,18 @@ async function syncStudentWeeklyAppAllowance(userId, options = {}) {
         reason: "named_utility_free_or_block_active",
         bundleIds,
         deviceId: Number(device.id)
+      };
+    }
+
+    if (!WEEKLY_DYNAMIC_APP_ALLOWANCE_PROFILE_ENABLED) {
+      await touchStudentWeeklyAppAllowancePayloadSync(userId, payloadHash).catch(() => {});
+      return {
+        ok: true,
+        skipped: true,
+        reason: "weekly_dynamic_profile_disabled",
+        bundleIds,
+        deviceId: Number(device.id),
+        payloadHash
       };
     }
 

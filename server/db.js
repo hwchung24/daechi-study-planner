@@ -2487,6 +2487,24 @@ async function upsertStudentMdmAppAllowanceProfileState(userId, input = {}) {
   return res.rows[0] || null;
 }
 
+/** Updates weekly allowance payload hash/sync metadata without touching named-profile columns (profile_id, etc.). */
+async function touchStudentWeeklyAppAllowancePayloadSync(userId, payloadHash) {
+  const nowIso = new Date().toISOString();
+  const hash = payloadHash != null ? String(payloadHash) : null;
+  await query(
+    `INSERT INTO student_mdm_app_allowance_profiles
+      (user_id, provider, last_payload_hash, last_synced_at, last_error, updated_at)
+     VALUES ($1, 'simplemdm', $2, $3::timestamptz, NULL, now())
+     ON CONFLICT (user_id)
+     DO UPDATE SET
+       last_payload_hash = EXCLUDED.last_payload_hash,
+       last_synced_at = EXCLUDED.last_synced_at,
+       last_error = NULL,
+       updated_at = now()`,
+    [userId, hash, nowIso]
+  );
+}
+
 async function setStudentMdmAppAllowanceOverride(userId, bundleIds = []) {
   const normalizedBundleIds = Array.from(
     new Set(
@@ -3714,6 +3732,7 @@ module.exports = {
   upsertStudentMdmGroup,
   getStudentMdmAppAllowanceProfileState,
   upsertStudentMdmAppAllowanceProfileState,
+  touchStudentWeeklyAppAllowancePayloadSync,
   upsertStudentMdmAppAllowanceUiSurfaceMode,
   setStudentMdmAppAllowanceOverride,
   clearStudentMdmAppAllowanceOverride,
