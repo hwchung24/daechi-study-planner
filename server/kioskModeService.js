@@ -9,7 +9,8 @@ const {
   deleteStudentMdmKioskProfileState,
   setStudentMdmKioskProfileSyncError,
   listAllPlannerRules,
-  getStudentDailyRecordCompletion
+  getStudentDailyRecordCompletion,
+  upsertStudentCoachProfile
 } = require("./db");
 const {
   isSimpleMdmConfigured,
@@ -25,6 +26,10 @@ const {
 } = require("./simpleMdmClient");
 
 const DAECHI_ROOT_BUNDLE_ID = "com.daechiroot.ios";
+
+async function markStudentProfileMdmApplied(userId) {
+  await upsertStudentCoachProfile(userId, { mdmApplied: true }).catch(() => {});
+}
 
 function normalizeActivationSource(source) {
   const normalized = String(source || "").trim().toLowerCase();
@@ -231,6 +236,7 @@ async function enableStudentKioskMode(userId, options = {}) {
           lastError: null
         });
       }
+      await markStudentProfileMdmApplied(userId);
       return {
         ok: true,
         skipped: true,
@@ -282,6 +288,7 @@ async function enableStudentKioskMode(userId, options = {}) {
       lastSyncedAt: new Date().toISOString(),
       lastError
     });
+    await markStudentProfileMdmApplied(userId);
 
     return {
       ok: true,

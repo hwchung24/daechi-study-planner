@@ -217,6 +217,17 @@ function resolveAppAllowanceModeFromProfileName(profileNameRaw) {
   return "default";
 }
 
+/** UI용: 계획표(주간 슬롯) / 유틸리티 / 자유시간 / 기본 — 넷 중 하나 */
+function resolveMdmSurfaceMode(appAllowanceModeKey, weeklySlotCount) {
+  const mode = String(appAllowanceModeKey || "default").trim().toLowerCase();
+  if (mode === "utility") return "utility";
+  if (mode === "free") return "free";
+  if (mode === "default") {
+    return Number(weeklySlotCount) > 0 ? "schedule" : "default";
+  }
+  return "default";
+}
+
 fs.mkdirSync(HOMEWORK_UPLOADS_DIR, { recursive: true });
 
 function normalizeModeKey(value) {
@@ -433,6 +444,8 @@ async function applyNamedAppAllowanceProfileForStudent(userId, modeKey) {
 
   await assignProfileToGroup(group.id, targetProfileId);
   await syncProfiles(group.id);
+
+  await upsertStudentCoachProfile(userId, { mdmApplied: true }).catch(() => {});
 
   return {
     mode: normalizedMode,
@@ -4281,14 +4294,17 @@ app.get("/api/parent/students/:studentId/device-control-state", authMiddleware, 
     if (!has) {
       return res.status(403).json({ error: "연결된 학생만 조회할 수 있습니다." });
     }
-    const [appAllowanceState, kioskState] = await Promise.all([
+    const [appAllowanceState, kioskState, weeklySlots] = await Promise.all([
       getStudentMdmAppAllowanceProfileState(studentId),
-      getStudentMdmKioskProfileState(studentId)
+      getStudentMdmKioskProfileState(studentId),
+      listStudentWeeklyAppAllowanceSlots(studentId)
     ]);
     const appAllowanceMode = resolveAppAllowanceModeFromProfileName(appAllowanceState?.profile_name);
+    const mdmSurfaceMode = resolveMdmSurfaceMode(appAllowanceMode, weeklySlots.length);
     const kioskEnabled = Boolean(kioskState?.profile_id);
     return res.json({
       appAllowanceMode,
+      mdmSurfaceMode,
       kioskEnabled
     });
   } catch (e) {

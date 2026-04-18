@@ -1934,6 +1934,23 @@ function RecordsTab(props: {
   );
 }
 
+type ParentMdmSurfaceMode = "schedule" | "utility" | "free" | "default";
+
+const PARENT_MDM_SURFACE_LABEL: Record<ParentMdmSurfaceMode, string> = {
+  schedule: "계획표",
+  utility: "유틸리티",
+  free: "자유시간",
+  default: "기본"
+};
+
+function parseParentMdmSurfaceMode(raw: unknown): ParentMdmSurfaceMode | null {
+  const s = String(raw || "")
+    .trim()
+    .toLowerCase();
+  if (s === "schedule" || s === "utility" || s === "free" || s === "default") return s;
+  return null;
+}
+
 function StudentSettingsTab(props: {
   apiBase: string;
   authToken: string | null;
@@ -1956,6 +1973,7 @@ function StudentSettingsTab(props: {
   hapticSuccess: () => void;
 }) {
   type AppAllowanceModeKey = "utility" | "free";
+
   const [studyRoomSaving, setStudyRoomSaving] = useState(false);
   const [studyRoomMessage, setStudyRoomMessage] = useState("");
   const [studyRoomModalOpen, setStudyRoomModalOpen] = useState(false);
@@ -1966,8 +1984,19 @@ function StudentSettingsTab(props: {
   const [activeAppAllowanceMode, setActiveAppAllowanceMode] =
     useState<AppAllowanceModeKey | null>(null);
   const [deviceControlStateLoading, setDeviceControlStateLoading] = useState(false);
+  const [mdmSurfaceMode, setMdmSurfaceMode] = useState<ParentMdmSurfaceMode | null>(null);
   const [activatingAppMode, setActivatingAppMode] = useState<"utility" | "free" | "default" | null>(null);
   const isAppAllowanceLocked = Boolean(props.parentLockStatus?.locked);
+
+  /** DB `mdm_applied` 또는 실제 SimpleMDM 프로필(키오스크·유틸·자유·주간 계획) 적용 여부 */
+  const mdmEffectiveApplied =
+    props.selectedStudent?.mdmApplied === true ||
+    isBulkKioskEnabled ||
+    mdmSurfaceMode === "utility" ||
+    mdmSurfaceMode === "free" ||
+    mdmSurfaceMode === "schedule" ||
+    (mdmSurfaceMode === "default" &&
+      (props.selectedStudent?.mdmApplied === true || isBulkKioskEnabled));
 
   useEffect(() => {
     setStudyRoomMessage("");
@@ -1994,37 +2023,44 @@ function StudentSettingsTab(props: {
     props.setParentStudents
   ]);
 
+  const reloadStudentDeviceUi = useCallback(async () => {
+    if (!props.authToken || !props.parentStudentId) return;
+    await refreshStudents();
+    const res = await fetch(
+      `${props.apiBase}/api/parent/students/${encodeURIComponent(String(props.parentStudentId))}/device-control-state`,
+      {
+        headers: {
+          Authorization: `Bearer ${props.authToken}`
+        }
+      }
+    );
+    const data = (await res.json().catch(() => ({}))) as {
+      appAllowanceMode?: "default" | AppAllowanceModeKey;
+      mdmSurfaceMode?: string;
+      kioskEnabled?: boolean;
+    };
+    if (!res.ok) return;
+    setActiveAppAllowanceMode(
+      data.appAllowanceMode === "utility" || data.appAllowanceMode === "free"
+        ? data.appAllowanceMode
+        : null
+    );
+    setIsBulkKioskEnabled(Boolean(data.kioskEnabled));
+    setMdmSurfaceMode(parseParentMdmSurfaceMode(data.mdmSurfaceMode));
+  }, [props.apiBase, props.authToken, props.parentStudentId, refreshStudents]);
+
   useEffect(() => {
     if (!props.authToken || !props.parentStudentId) {
       setActiveAppAllowanceMode(null);
       setIsBulkKioskEnabled(false);
+      setMdmSurfaceMode(null);
       return;
     }
     let cancelled = false;
     setDeviceControlStateLoading(true);
     void (async () => {
       try {
-        await refreshStudents();
-        if (cancelled) return;
-        const res = await fetch(
-          `${props.apiBase}/api/parent/students/${encodeURIComponent(String(props.parentStudentId))}/device-control-state`,
-          {
-            headers: {
-              Authorization: `Bearer ${props.authToken}`
-            }
-          }
-        );
-        const data = (await res.json().catch(() => ({}))) as {
-          appAllowanceMode?: "default" | AppAllowanceModeKey;
-          kioskEnabled?: boolean;
-        };
-        if (!res.ok || cancelled) return;
-        setActiveAppAllowanceMode(
-          data.appAllowanceMode === "utility" || data.appAllowanceMode === "free"
-            ? data.appAllowanceMode
-            : null
-        );
-        setIsBulkKioskEnabled(Boolean(data.kioskEnabled));
+        await reloadStudentDeviceUi();
       } finally {
         if (!cancelled) setDeviceControlStateLoading(false);
       }
@@ -2032,7 +2068,7 @@ function StudentSettingsTab(props: {
     return () => {
       cancelled = true;
     };
-  }, [props.apiBase, props.authToken, props.parentStudentId, refreshStudents]);
+  }, [props.authToken, props.parentStudentId, reloadStudentDeviceUi]);
 
   const saveStudyRoomSetting = (value: StudyRoomSetting) => {
     if (!props.authToken) return;
@@ -2190,6 +2226,7 @@ function StudentSettingsTab(props: {
         props.hapticWarning();
       } else {
         props.hapticSuccess();
+        await reloadStudentDeviceUi();
       }
     } catch (error) {
       const detail =
@@ -2228,8 +2265,8 @@ function StudentSettingsTab(props: {
         return;
       }
       props.setParentPlannerMessage(data.message || "허용앱 프로파일을 적용했습니다.");
-      setActiveAppAllowanceMode(mode === "default" ? null : mode);
       props.hapticSuccess();
+      await reloadStudentDeviceUi();
     } catch (error) {
       const detail = error instanceof Error && error.message ? ` (${error.message})` : "";
       props.setParentPlannerMessage(`허용앱 프로파일 적용 중 오류가 발생했습니다.${detail}`);
@@ -2238,6 +2275,10 @@ function StudentSettingsTab(props: {
       setActivatingAppMode(null);
     }
   };
+
+  const surfaceModeLabel =
+    PARENT_MDM_SURFACE_LABEL[(mdmSurfaceMode ?? "default") as ParentMdmSurfaceMode] ??
+    PARENT_MDM_SURFACE_LABEL.default;
 
   const toggleBulkKioskMode = async (nextEnabled: boolean) => {
     if (!props.authToken || !props.parentStudentId) return;
@@ -2267,7 +2308,6 @@ function StudentSettingsTab(props: {
         props.hapticWarning();
         return;
       }
-      setIsBulkKioskEnabled(nextEnabled);
       props.setParentPlannerMessage(
         data.message ||
           (nextEnabled
@@ -2278,6 +2318,7 @@ function StudentSettingsTab(props: {
         props.hapticWarning();
       } else {
         props.hapticSuccess();
+        await reloadStudentDeviceUi();
       }
     } catch (error) {
       const detail =
@@ -2304,7 +2345,7 @@ function StudentSettingsTab(props: {
         <div
           className={
             "parent-mdm-status" +
-            (props.selectedStudent.mdmApplied === true ? " parent-mdm-status--on" : " parent-mdm-status--off")
+            (mdmEffectiveApplied ? " parent-mdm-status--on" : " parent-mdm-status--off")
           }
           style={{
             marginTop: 12,
@@ -2312,17 +2353,26 @@ function StudentSettingsTab(props: {
             padding: "12px 14px",
             borderRadius: 12,
             border: "1px solid var(--stroke)",
-            background:
-              props.selectedStudent.mdmApplied === true
-                ? "color-mix(in srgb, var(--success, #22c55e) 12%, transparent)"
-                : "color-mix(in srgb, var(--muted-foreground, #64748b) 8%, transparent)"
+            background: mdmEffectiveApplied
+              ? "color-mix(in srgb, var(--success, #22c55e) 12%, transparent)"
+              : "color-mix(in srgb, var(--muted-foreground, #64748b) 8%, transparent)"
           }}
         >
           <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 4 }}>휴대폰 MDM 상태</div>
           <div style={{ fontSize: 14, lineHeight: 1.45, color: "var(--foreground)" }}>
-            {props.selectedStudent.mdmApplied === true
-              ? "현재 선택한 학생 휴대폰은 MDM이 적용된 상태입니다."
-              : "현재 선택한 학생 휴대폰은 MDM이 적용되어 있지 않습니다. 학생 앱에서 기기가 연결되면 적용으로 갱신됩니다."}
+            {deviceControlStateLoading && !mdmEffectiveApplied
+              ? "기기·프로필 상태를 확인하는 중입니다."
+              : mdmEffectiveApplied
+                ? (
+                    <>
+                      현재 선택한 학생 휴대폰은 MDM이 적용된 상태입니다.
+                      <div style={{ marginTop: 8, fontSize: 14 }}>
+                        적용 모드: {surfaceModeLabel}
+                        {isBulkKioskEnabled ? " · 키오스크" : ""}
+                      </div>
+                    </>
+                  )
+                : "현재 선택한 학생 휴대폰은 MDM이 적용되어 있지 않습니다. 학생 앱에서 기기가 연결되면 적용으로 갱신됩니다."}
           </div>
         </div>
       ) : null}
