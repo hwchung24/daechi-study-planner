@@ -804,9 +804,9 @@ function buildCoachSnapshot(profile, logs = [], studyRoomSummary = null, weekSta
   }
 
   const nextActions = [
-    "첫 블록은 25분만 시작하기",
+    "첫 공부는 25분만 시작하기",
     "오늘 할 일을 3개로 줄이기",
-    "핸드폰은 첫 블록 동안 시야 밖에 두기"
+    "핸드폰은 첫 공부 시간 동안 시야 밖에 두기"
   ];
   if (sleep > 0 && sleep < 6.2) nextActions[0] = "취침 시간을 20분만 당기기";
   if (plan > 0 && plan < 60) nextActions[1] = "실행률이 낮은 과목 1개만 먼저 시작하기";
@@ -1165,7 +1165,7 @@ function buildStudentCoachAnalysis(metrics, nextActions, rhythmWeek, studyRoomSu
   let headline = "이번 주 흐름을 한 번 더 정리하면 더 좋아질 구간이 보여요.";
   let body =
     "핵심 지표를 1~2개만 집중해서 보면 현재 상태를 더 빠르게 읽을 수 있어요.";
-  let recommendedAction = nextActions?.[0] || "첫 블록은 25분만 시작하기";
+  let recommendedAction = nextActions?.[0] || "첫 공부는 25분만 시작하기";
   let focusMetricKey = "studyMinutes";
 
   if (
@@ -1182,7 +1182,7 @@ function buildStudentCoachAnalysis(metrics, nextActions, rhythmWeek, studyRoomSu
     statusLabel = "부하 높음";
     headline = "스트레스가 높아져서 실행 진입 장벽이 커진 상태예요.";
     body =
-      "이번 주에는 계획을 늘리는 것보다, 바로 시작할 수 있는 쉬운 첫 블록을 만드는 게 효과적이에요.";
+      "이번 주에는 계획을 늘리는 것보다, 바로 시작할 수 있는 쉬운 첫 공부를 정하는 게 효과적이에요.";
     recommendedAction = "오늘 목표를 완료보다 시작 중심으로 다시 줄이기";
     focusMetricKey = "concentration";
   } else if (
@@ -1209,7 +1209,7 @@ function buildStudentCoachAnalysis(metrics, nextActions, rhythmWeek, studyRoomSu
       studyRoomMinutes > 0
         ? `독서실 체류 ${formatMinutesAsHourLabel(studyRoomMinutes)}, 기록 공부 ${formatMinutesAsHourLabel(totalStudyMinutes)}로 학습 환경과 실행이 같이 유지되고 있어요.`
         : `최근 7일 기록 공부 ${formatMinutesAsHourLabel(totalStudyMinutes)}로 학습 루틴이 크게 흐트러지지 않았어요.`;
-    recommendedAction = "내일도 같은 시작 시간으로 첫 블록을 이어가기";
+    recommendedAction = "내일도 같은 시작 시간으로 첫 공부를 이어가기";
     focusMetricKey =
       studyRoomMinutes > totalStudyMinutes ? "studyRoomMinutes" : "studyMinutes";
   }
@@ -1803,7 +1803,7 @@ function buildParentCoachCustomizationPrompt(customization) {
             ? "높음: 미루기나 회피는 짚되, 학생을 깎아내리지 말고 바로 실행을 요구한다."
             : "매우 높음: 매우 분명하고 단호하게 방향을 제시하되, 위협·모욕·비난은 금지한다.";
   return [
-    "연결된 관리자가 이 학생의 AI 코치 스타일을 다음과 같이 커스터마이징했다.",
+    "연결된 학부모가 이 학생의 AI 코치 스타일을 다음과 같이 커스터마이징했다.",
     `- 페르소나: ${cfg.persona}`,
     `- 말투/화법: ${cfg.tone}`,
     `- 통제 강도: ${cfg.controlIntensity}/5. ${intensityGuide}`,
@@ -1814,7 +1814,7 @@ function buildParentCoachCustomizationPrompt(customization) {
 
 function buildCustomizedFallbackAction(customization, suggestedAction) {
   const cfg = serializeParentCoachCustomization(customization);
-  const action = String(suggestedAction || "첫 25분만 하는 블록부터 시작해 보세요.").trim();
+  const action = String(suggestedAction || "첫 25분만 하는 공부부터 시작해 보세요.").trim();
   if (cfg.controlIntensity <= 2) {
     return `부담을 크게 잡지 말고 ${action}`;
   }
@@ -2916,7 +2916,7 @@ async function buildWeeklyAppRequestAssistantReply({
       {
         role: "system",
         content:
-          "너는 학생이 관리자에게 보낼 주간 허용 앱 요청을 정리해 주는 AI 코치다. installedApps, schedules, studyPlans는 참고 정보이며, 학생이 명시하지 않은 요일·시간·앱을 임의로 만들면 안 된다. 반드시 JSON 객체만 출력한다. 형식은 {\"reply\":\"학생에게 보여줄 짧은 한국어 답변\",\"summary\":\"관리자에게 보여줄 한두 문장 요약\",\"slots\":[{\"dayKey\":\"mon|tue|wed|thu|fri|sat|sun\",\"title\":\"요청 제목\",\"source\":\"plan\"|\"schedule\"|\"free\",\"startTime\":\"HH:MM\",\"endTime\":\"HH:MM\",\"reason\":\"짧은 근거\",\"allowedAppIds\":[\"com.daechiroot.ios\"]}]} 이다. 허용 앱은 installedApps에 있는 것만 allowedAppIds로 넣을 수 있다. 대치루트 앱(id=com.daechiroot.ios)은 모든 슬롯에 반드시 포함한다. 요청이 불충분하면 slots는 빈 배열로 두고 reply에서 필요한 정보를 짧게 다시 물어본다."
+          "너는 학생이 학부모에게 보낼 주간 허용 앱 요청을 정리해 주는 AI 코치다. installedApps, schedules, studyPlans는 참고 정보이며, 학생이 명시하지 않은 요일·시간·앱을 임의로 만들면 안 된다. 반드시 JSON 객체만 출력한다. 형식은 {\"reply\":\"학생에게 보여줄 짧은 한국어 답변\",\"summary\":\"학부모에게 보여줄 한두 문장 요약\",\"slots\":[{\"dayKey\":\"mon|tue|wed|thu|fri|sat|sun\",\"title\":\"요청 제목\",\"source\":\"plan\"|\"schedule\"|\"free\",\"startTime\":\"HH:MM\",\"endTime\":\"HH:MM\",\"reason\":\"짧은 근거\",\"allowedAppIds\":[\"com.daechiroot.ios\"]}]} 이다. 허용 앱은 installedApps에 있는 것만 allowedAppIds로 넣을 수 있다. 대치루트 앱(id=com.daechiroot.ios)은 모든 슬롯에 반드시 포함한다. 요청이 불충분하면 slots는 빈 배열로 두고 reply에서 필요한 정보를 짧게 다시 물어본다."
       },
       {
         role: "user",
@@ -2935,7 +2935,7 @@ async function buildWeeklyAppRequestAssistantReply({
     reply:
       sanitizePromptText(parsed.reply, 1200) ||
       (normalized.slots.length > 0
-        ? "요청하신 허용 앱 내용을 관리자에게 전달할 수 있게 정리했어요."
+        ? "요청하신 허용 앱 내용을 학부모에게 전달할 수 있게 정리했어요."
         : "원하는 요일, 시간, 허용 앱을 조금 더 구체적으로 알려 주세요."),
     summary: normalized.summary,
     slots: normalized.slots,
@@ -3647,7 +3647,7 @@ app.put("/api/blocks", authMiddleware, async (req, res) => {
     res.json({ ok: true, lockStatus });
   } catch (e) {
     console.error("/api/blocks error", e);
-    res.status(500).json({ error: "타임라인 저장에 실패했습니다." });
+    res.status(500).json({ error: "계획 저장에 실패했습니다." });
   }
 });
 
@@ -4879,8 +4879,8 @@ app.post("/api/parent/link-request", authMiddleware, async (req, res) => {
       await createStudentNotificationForAlarm(
         Number(result.studentUserId),
         "parentLinkAlerts",
-        "관리자 연결 요청 도착",
-        `${String(me.email || "관리자").trim() || "관리자"} 님이 계정 연결을 요청했습니다. 프로필의 관리자 연결 영역에서 승인할 수 있습니다.`
+        "학부모 연결 요청 도착",
+        `${String(me.email || "학부모").trim() || "학부모"} 님이 계정 연결을 요청했습니다. 내 정보의 학부모 연결에서 승인할 수 있어요.`
       );
     }
     res.json({ ok: true, requestId: result.requestId });
@@ -4929,8 +4929,8 @@ app.post("/api/parent/link-confirm", authMiddleware, async (req, res) => {
       await createStudentNotificationForAlarm(
         Number(result.studentUserId),
         "parentLinkAlerts",
-        "관리자 연결 승인 완료",
-        `${String(me.email || "관리자").trim() || "관리자"} 님이 연결 요청을 승인했습니다. 이제 계정이 연결되었습니다.`
+        "학부모 연결 승인 완료",
+        `${String(me.email || "학부모").trim() || "학부모"} 님이 연결 요청을 승인했어요. 계정이 연결되었습니다.`
       );
     }
     res.json({ ok: true });
@@ -5112,7 +5112,7 @@ app.get("/api/student/admin-channel", authMiddleware, async (req, res) => {
     });
   } catch (e) {
     console.error("/api/student/admin-channel error", e);
-    res.status(500).json({ error: "관리자 채널을 불러오지 못했습니다." });
+    res.status(500).json({ error: "학원 메시지를 불러오지 못했습니다." });
   }
 });
 
@@ -5120,7 +5120,7 @@ app.post("/api/student/admin-channel/messages", authMiddleware, async (req, res)
   try {
     const parent = await resolvePrimaryParentForStudent(req.userId);
     if (!parent) {
-      return res.status(400).json({ error: "연결된 관리자가 없습니다." });
+      return res.status(400).json({ error: "연결된 학부모가 없습니다." });
     }
     const message = String((req.body || {}).message || "").trim().slice(0, 2000);
     if (!message) {
@@ -5136,7 +5136,7 @@ app.post("/api/student/admin-channel/messages", authMiddleware, async (req, res)
       req.userId,
       "messageAlerts",
       "새 학생 메시지",
-      "학생이 관리자 1:1 채널에 새 메시지를 보냈습니다."
+      "학생이 학부모 1:1 채널에 새 메시지를 보냈습니다."
     ).catch(() => {});
     res.json({ ok: true, message: saved });
   } catch (e) {
@@ -5153,7 +5153,7 @@ app.post(
     try {
       const parent = await resolvePrimaryParentForStudent(req.userId);
       if (!parent) {
-        return res.status(400).json({ error: "연결된 관리자가 없습니다." });
+        return res.status(400).json({ error: "연결된 학부모가 없습니다." });
       }
       if (!req.file) {
         return res.status(400).json({ error: "업로드할 파일이 필요합니다." });
@@ -5181,7 +5181,7 @@ app.post(
         req.userId,
         "homeworkAlerts",
         "새 숙제 제출",
-        "학생이 새 숙제를 제출했습니다. 관리자 코치 채팅 탭에서 검토할 수 있습니다."
+        "학생이 새 숙제를 제출했습니다. 코치 탭에서 검토할 수 있어요."
       ).catch(() => {});
       res.json({ ok: true, submission: created });
     } catch (e) {
@@ -5200,7 +5200,7 @@ app.patch(
       const submissionId = Number(req.params.submissionId);
       const parent = await resolvePrimaryParentForStudent(req.userId);
       if (!parent) {
-        return res.status(400).json({ error: "연결된 관리자가 없습니다." });
+        return res.status(400).json({ error: "연결된 학부모가 없습니다." });
       }
       if (!Number.isFinite(submissionId)) {
         return res.status(400).json({ error: "submissionId가 필요합니다." });
@@ -5242,7 +5242,7 @@ app.delete(
       const submissionId = Number(req.params.submissionId);
       const parent = await resolvePrimaryParentForStudent(req.userId);
       if (!parent) {
-        return res.status(400).json({ error: "연결된 관리자가 없습니다." });
+        return res.status(400).json({ error: "연결된 학부모가 없습니다." });
       }
       if (!Number.isFinite(submissionId)) {
         return res.status(400).json({ error: "submissionId가 필요합니다." });
@@ -5318,8 +5318,8 @@ app.post("/api/parent/admin-channel/messages", authMiddleware, async (req, res) 
     await createStudentNotificationForAlarm(
       studentId,
       "messageAlerts",
-      "새 관리자 메시지",
-      "관리자 1:1 채널에 새 메시지가 도착했습니다."
+      "새 학부모 메시지",
+      "학부모 1:1 채널에 새 메시지가 도착했습니다."
     ).catch(() => {});
     res.json({ ok: true, message: saved });
   } catch (e) {
@@ -5493,7 +5493,7 @@ app.post("/api/student/link-confirm", authMiddleware, async (req, res) => {
   }
 });
 
-// 학생: 오늘 타임라인 추가 → 연결된 학부모에게 승인 요청
+// 학생: 오늘 공부 계획(시간대) 추가 → 연결된 학부모에게 승인 요청
 app.post("/api/student/plan-add-request", authMiddleware, async (req, res) => {
   try {
     const me = await getMe(req.userId);
@@ -5586,8 +5586,8 @@ app.post("/api/link/reject", authMiddleware, async (req, res) => {
       await createStudentNotificationForAlarm(
         Number(result.studentUserId),
         "parentLinkAlerts",
-        "관리자 연결 요청 거절됨",
-        `${String(me.email || "관리자").trim() || "관리자"} 님이 연결 요청을 거절했습니다.`
+        "학부모 연결 요청 거절됨",
+        `${String(me.email || "학부모").trim() || "학부모"} 님이 연결 요청을 거절했습니다.`
       );
     }
     if (
@@ -5644,7 +5644,7 @@ app.post("/api/link/unlink", authMiddleware, async (req, res) => {
         await createStudentNotificationForAlarm(
           studentId,
           "parentLinkAlerts",
-          "관리자 연결 끊기 요청",
+          "학부모 연결 해제 요청",
           embedNotificationAction(
             {
               type: "link_unlink_request",
@@ -5652,7 +5652,7 @@ app.post("/api/link/unlink", authMiddleware, async (req, res) => {
               initiatorRole: "parent",
               counterpartEmail: String(me.email || "").trim()
             },
-            `${String(me.email || "관리자").trim() || "관리자"} 님이 연결 끊기를 요청했습니다. 알림을 열어 확인하면 연결이 해제됩니다.`
+            `${String(me.email || "학부모").trim() || "학부모"} 님이 연결 해제를 요청했습니다. 알림을 열어 확인하면 연결이 해제됩니다.`
           )
         ).catch(() => {});
       }
@@ -5707,7 +5707,7 @@ app.post("/api/link/unlink-confirm", authMiddleware, async (req, res) => {
         Number(result.studentUserId),
         "parentLinkAlerts",
         "연결 해제 완료",
-        "관리자가 연결 끊기 요청을 확인해 계정 연결이 해제되었습니다."
+        "학부모가 연결 해제 요청을 확인해 계정 연결이 해제되었습니다."
       ).catch(() => {});
     } else {
       await createParentNotificationForAlarmWithPush(
@@ -5749,7 +5749,7 @@ app.post("/api/link/unlink-reject", authMiddleware, async (req, res) => {
         Number(result.studentUserId),
         "parentLinkAlerts",
         "연결 끊기 요청 거절됨",
-        "관리자가 연결 끊기 요청을 거절했습니다. 연결은 그대로 유지됩니다."
+        "학부모가 연결 해제 요청을 거절했습니다. 연결은 그대로 유지됩니다."
       ).catch(() => {});
     } else {
       await createParentNotificationForAlarmWithPush(
@@ -6523,7 +6523,7 @@ app.post("/api/parent/app-allowance/bulk-daechiroot-unlock", authMiddleware, asy
             reason: "parent_bulk_daechiroot_unlock"
           });
           if (!sync.ok) {
-            throw new Error(sync.error || "SimpleMDM 동기화에 실패했습니다.");
+            throw new Error(sync.error || "기기(MDM) 설정을 반영하지 못했습니다.");
           }
           return {
             studentId: student.id,
@@ -6686,7 +6686,7 @@ app.post("/api/parent/kiosk-mode/bulk-enable", authMiddleware, async (req, res) 
           autoReleaseExempt: false
         });
         if (!sync.ok) {
-          throw new Error(sync.error || "SimpleMDM 동기화에 실패했습니다.");
+          throw new Error(sync.error || "기기(MDM) 설정을 반영하지 못했습니다.");
         }
         await clearStudentDailyRecordCompletion(student.id);
         invalidateLockStatusCacheForStudent(student.id);
@@ -6756,7 +6756,7 @@ app.post("/api/parent/kiosk-mode/bulk-disable", authMiddleware, async (req, res)
         const before = await getStudentMdmKioskProfileState(student.id);
         const sync = await disableStudentKioskMode(student.id);
         if (!sync.ok) {
-          throw new Error(sync.error || "SimpleMDM 동기화에 실패했습니다.");
+          throw new Error(sync.error || "기기(MDM) 설정을 반영하지 못했습니다.");
         }
         /** 학부모가 수동으로 끄면 계획표를 다 작성한 것과 동일하게 처리해, 같은 날 다시 키오스크가 잠기지 않게 함 */
         await markStudentDailyRecordSectionSaved(student.id, "study").catch(() => {});
@@ -7604,7 +7604,7 @@ app.post("/api/parent/app-timetable-request/approve", authMiddleware, async (req
   try {
     const me = await getMe(req.userId);
     if (!me || me.role !== "parent") {
-      return res.status(403).json({ error: "관리자만 승인할 수 있습니다." });
+      return res.status(403).json({ error: "학부모만 승인할 수 있습니다." });
     }
 
     const studentEmail = String((req.body || {}).studentEmail || "")
@@ -7683,7 +7683,7 @@ app.post("/api/parent/app-timetable-request/approve", authMiddleware, async (req
     await createStudentNotification(
       studentUser.id,
       "허용 앱 시간표 승인 완료",
-      `${String(me.email || "관리자").trim() || "관리자"} 님이 ${targetDate} 허용 앱 시간표를 승인해 주었어요.`
+      `${String(me.email || "학부모").trim() || "학부모"} 님이 ${targetDate} 허용 앱 시간표를 승인했어요.`
     ).catch(() => {});
 
     res.json({
@@ -8109,7 +8109,7 @@ app.post("/api/student/coach/chat", authMiddleware, async (req, res) => {
           "- GPT가 연결되면 더 구체적으로 답해 드릴 수 있어요. 정답만 알려 달라는 식의 요청은 도와드리기 어려워요."
         ].join("\n");
       } else {
-        const topAction = snapshot.nextActions[0] || "첫 25분만 하는 블록부터 시작해 보세요.";
+        const topAction = snapshot.nextActions[0] || "첫 25분만 하는 공부부터 시작해 보세요.";
         replyText = [
           `${snapshot.heroNarrative} 흐름으로 보여요.`,
           buildCustomizedFallbackAction(effectiveParentCoachCustomization, topAction),

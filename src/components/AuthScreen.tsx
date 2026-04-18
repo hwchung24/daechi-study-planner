@@ -43,8 +43,8 @@ export function AuthScreen(props: {
           </h2>
           <p className="auth-desc">
             {authMode === "login"
-              ? "기존 계정으로 바로 이어서 학습을 시작하세요."
-              : "간단한 정보로 계정을 만들고 바로 로그인할 수 있어요."}
+              ? "계정으로 로그인해 이어서 공부할 수 있어요."
+              : "필요한 정보만 입력하면 바로 시작할 수 있어요."}
           </p>
           <div
             className={
@@ -107,7 +107,7 @@ export function AuthScreen(props: {
                   className={"auth-tab" + (authRole === "parent" ? " active" : "")}
                   onClick={() => onRoleChange("parent")}
                 >
-                  관리자
+                  학부모
                 </button>
               </div>
             </div>
@@ -151,10 +151,10 @@ export function AuthScreen(props: {
             {authError && <div className="auth-error">{authError}</div>}
             <button type="submit" className="auth-submit" disabled={authLeaving}>
               {authLeaving
-                ? "이동 중…"
+                ? "잠깐만요…"
                 : authMode === "login"
                   ? "로그인"
-                  : "회원가입 후 로그인"}
+                  : "계정 만들기"}
             </button>
           </form>
         </section>

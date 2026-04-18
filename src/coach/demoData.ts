@@ -184,7 +184,7 @@ export const demoTestimonials = [
   },
   {
     id: "t2",
-    name: "관리자 (데모)",
+    name: "학부모 (데모)",
     quote:
       "무작정 잔소리하기 전에 ‘오늘은 관찰만’ 같은 가이드가 있으니 대화가 훨씬 부드러워졌어요."
   },

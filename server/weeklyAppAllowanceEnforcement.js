@@ -488,7 +488,7 @@ async function syncStudentWeeklyAppAllowance(userId, options = {}) {
       reason: syncDeferred ? "rate_limited" : options.reason || "manual"
     };
   } catch (error) {
-    const message = error instanceof Error ? error.message : "허용 앱 제한 동기화에 실패했습니다.";
+    const message = error instanceof Error ? error.message : "허용 앱 제한을 기기에 반영하지 못했습니다.";
     await setStudentMdmAppAllowanceProfileSyncError(userId, message).catch(() => {});
     if (appliedRemotely) {
       return {

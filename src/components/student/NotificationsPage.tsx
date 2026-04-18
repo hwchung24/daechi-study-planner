@@ -237,7 +237,7 @@ export function NotificationsPage(props: {
           cache: "no-store"
         });
         if (!res.ok) {
-          throw new Error("알림 목록을 불러오지 못했습니다.");
+          throw new Error("알림을 불러오지 못했습니다.");
         }
         const data = await res.json();
         const next = Array.isArray(data?.notifications) ? data.notifications : [];
@@ -279,7 +279,7 @@ export function NotificationsPage(props: {
     <div className="notifications-page__modal-content">
       {loading ? (
         <p className="notifications-page__empty notifications-page__empty--modal">
-          알림을 불러오는 중입니다.
+          알림을 불러오는 중…
         </p>
       ) : error ? (
         <p className="notifications-page__empty notifications-page__empty--modal">
@@ -287,7 +287,7 @@ export function NotificationsPage(props: {
         </p>
       ) : !items.length ? (
         <p className="notifications-page__empty notifications-page__empty--modal">
-          새 알림이 없습니다.
+          알림이 없습니다.
         </p>
       ) : (
         <div className="notifications-page__list">

@@ -594,7 +594,7 @@ const App: React.FC = () => {
   const [authPassword, setAuthPassword] = useState("");
   const [authError, setAuthError] = useState("");
   const [blocks, setBlocks] = useState<StudyBlock[]>([]);
-  /** 오늘 탭에서 타임라인 주기적 재조회(학부모 승인 반영) */
+  /** 오늘 탭에서 공부 계획(블록) 주기적 재조회(학부모 승인 반영) */
   const [timelineRefreshNonce, setTimelineRefreshNonce] = useState(0);
 
   const [tab, setTab] = useState<TabKey>("today");
@@ -730,8 +730,8 @@ const App: React.FC = () => {
       setNetworkBanner({
         kind: online ? "online" : "offline",
         message: online
-          ? "인터넷 연결이 복구되어 온라인 모드로 전환되었습니다."
-          : "인터넷 연결이 끊겨 오프라인 모드로 전환되었습니다."
+          ? "다시 연결되었습니다."
+          : "오프라인입니다."
       });
       return;
     }
@@ -739,7 +739,7 @@ const App: React.FC = () => {
     if (!online) {
       setNetworkBanner({
         kind: "offline",
-        message: "인터넷 연결이 끊겨 오프라인 모드로 전환되었습니다."
+        message: "오프라인입니다."
       });
     }
   }, [online]);
@@ -1143,7 +1143,7 @@ const App: React.FC = () => {
           if (!fallbackRole) {
             setProfileLoadError(
               String((data as { error?: string }).error || "").trim() ||
-                "계정 정보를 불러오지 못했습니다."
+                "계정을 불러오지 못했습니다."
             );
             setMeRole(null);
           }
@@ -1248,7 +1248,7 @@ const App: React.FC = () => {
         if (!cancelled) {
           if (!fallbackRole) {
             setProfileLoadError(
-              `서버에 연결할 수 없습니다. API 주소(${API_BASE})에서 서버가 떠 있는지 확인해 주세요.`
+              `서버에 연결할 수 없어요. 같은 네트워크에서 서버가 켜져 있는지 확인하세요. (${API_BASE})`
             );
             setMeRole(null);
           }
@@ -1803,12 +1803,12 @@ const App: React.FC = () => {
     }
   }, [meRole]);
 
-  // 오늘 타임라인을 서버로 동기화 (study_blocks / study_days)
+  // 오늘 공부 계획(블록)을 서버로 동기화 (study_blocks / study_days)
   const syncBlocksToServer = async (
     nextBlocks: StudyBlock[]
   ): Promise<boolean> => {
     if (!authToken) {
-      setTimelineSyncError("로그인이 필요합니다.");
+      setTimelineSyncError("로그인해 주세요.");
       return false;
     }
     let payloadBlocks = nextBlocks;
@@ -1862,7 +1862,7 @@ const App: React.FC = () => {
         const data = await res.json().catch(() => ({}));
         setTimelineSyncError(
           String(data.error || "").trim() ||
-            "오늘 계획을 서버에 저장하지 못했습니다. 잠시 후 다시 시도해 주세요."
+            "오늘 계획을 저장하지 못했습니다. 잠시 후 다시 시도하세요."
         );
         hapticWarning();
         return false;
@@ -1876,7 +1876,7 @@ const App: React.FC = () => {
       return true;
     } catch {
       setTimelineSyncError(
-        "네트워크 오류로 저장하지 못했습니다. 연결을 확인해 주세요."
+        "저장하지 못했습니다. 연결을 확인하세요."
       );
       hapticWarning();
       return false;
@@ -2003,7 +2003,7 @@ const App: React.FC = () => {
     return () => window.removeEventListener(DAECHI_COACH_LOG_SAVED_EVENT, bump);
   }, [authToken, meRole]);
 
-  // 학생: 오늘 공부 타임라인 — DB study_blocks (항상 오늘이 속한 주만 조회, 주간 탭 offset과 무관)
+  // 학생: 오늘 공부 계획(블록) — DB study_blocks (항상 오늘이 속한 주만 조회, 주간 탭 offset과 무관)
   useEffect(() => {
     if (!authToken || meRole !== "student") {
       timelineBlocksSigRef.current = null;
@@ -2048,7 +2048,7 @@ const App: React.FC = () => {
     return () => window.clearInterval(id);
   }, [authToken, meRole, tab]);
 
-  // 다른 기기(학부모 승인 등) 후 앱으로 돌아올 때 타임라인 즉시 재조회
+  // 다른 기기(학부모 승인 등) 후 앱으로 돌아올 때 공부 계획(블록) 즉시 재조회
   useEffect(() => {
     if (!authToken || meRole !== "student") return;
     const onVis = () => {
@@ -2594,17 +2594,17 @@ const App: React.FC = () => {
     const parsedGrade = Number(studentSetupGrade);
 
     if (!Number.isInteger(parsedGrade) || parsedGrade < 1 || parsedGrade > 12) {
-      setStudentSetupError("학년은 1부터 12 사이 숫자로 입력해 주세요.");
+      setStudentSetupError("학년은 1–12 사이로 입력하세요.");
       hapticWarning();
       return;
     }
     if (!trimmedGoalUniversity) {
-      setStudentSetupError("목표 대학을 입력해 주세요.");
+      setStudentSetupError("목표 대학을 입력하세요.");
       hapticWarning();
       return;
     }
     if (!trimmedTargetGrade) {
-      setStudentSetupError("목표 성적을 입력해 주세요.");
+      setStudentSetupError("목표 성적을 입력하세요.");
       hapticWarning();
       return;
     }
@@ -2931,7 +2931,7 @@ const App: React.FC = () => {
 
   const handleAdd = async () => {
     if (!authToken) {
-      setTimelineSyncError("로그인이 필요합니다.");
+      setTimelineSyncError("로그인해 주세요.");
       return;
     }
     const book =
@@ -2969,7 +2969,7 @@ const App: React.FC = () => {
       if (!res.ok) {
         setTimelineSyncError(
           String(data.error || "").trim() ||
-            "요청을 보내지 못했습니다. 잠시 후 다시 시도해 주세요."
+            "보내지 못했습니다. 잠시 후 다시 시도하세요."
         );
         hapticWarning();
         return;
@@ -2977,12 +2977,12 @@ const App: React.FC = () => {
       setAddBlockPlan("");
       addModalReveal.beginClose(() => setShowAddModal(false));
       setPlanRequestNotice(
-        "관리자에게 요청을 보냈습니다. 승인되면 오늘 계획에 반영돼요."
+        "요청을 보냈어요. 승인되면 오늘 계획에 반영돼요."
       );
       hapticSuccess();
     } catch {
       setTimelineSyncError(
-        "네트워크 오류로 요청을 보내지 못했습니다. 연결을 확인해 주세요."
+        "요청을 보내지 못했습니다. 연결을 확인하세요."
       );
       hapticWarning();
     }
@@ -3056,48 +3056,48 @@ const App: React.FC = () => {
 
   const headerTitle = roleLoading
     ? route === "parent"
-      ? "관리자"
+      ? "학부모"
       : tab === "profile"
-        ? "프로필"
+        ? "내 정보"
         : ""
     : parentView
       ? meRole === "parent"
         ? coachParentMode
           ? coachParentTab === "manage"
-            ? "학생 관리"
+            ? "자녀"
             : coachParentTab === "records"
-                ? "학생 기록"
+                ? "기록"
                 : coachParentTab === "analysis"
-                  ? "학습 분석"
-                : "학생 설정"
+                  ? "분석"
+                : "자녀 설정"
           : parentTab === "profile"
-            ? "관리자 프로필"
-            : "관리자"
-        : "관리자"
+            ? "내 정보"
+            : "학부모"
+        : "학부모"
       : showStudentShell
         ? coachStudentMode
           ? isStudentAnalysisPage
-            ? "학습 분석"
+            ? "분석"
             : coachStudentTab === "home"
               ? tab === "profile"
-                ? "프로필"
+                ? "내 정보"
                 : tab === "today"
-                  ? "오늘 공부"
+                  ? "오늘"
                   : tab === "records"
                     ? "기록"
                     : tab === "store"
-                      ? "학습 앱스토어"
-                      : "오늘 공부"
-              : "AI 코치"
+                      ? "앱"
+                      : "오늘"
+              : "코치"
           : tab === "profile"
-            ? "프로필"
+            ? "내 정보"
             : tab === "today"
-              ? "오늘 공부"
+              ? "오늘"
               : tab === "records"
                 ? "기록"
                 : tab === "store"
-                  ? "학습 앱스토어"
-                  : "오늘 공부"
+                  ? "앱"
+                  : "오늘"
         : "";
 
   const appMainPageKey = useMemo(() => {
@@ -3145,11 +3145,11 @@ const App: React.FC = () => {
                 const password = authPassword;
     const studentName = authStudentName.trim();
                 if (!email) {
-                  setAuthError("이메일을 입력해 주세요.");
+                  setAuthError("이메일을 입력하세요.");
                   return;
                 }
     if (authMode === "signup" && authRole === "student" && !studentName) {
-      setAuthError("학생 이름을 입력해 주세요.");
+      setAuthError("이름을 입력하세요.");
                   return;
                 }
                 if (password.length < 4) {
@@ -3190,7 +3190,7 @@ const App: React.FC = () => {
                     const serverMessage = String(data?.error || "").trim();
                     const fallbackMessage =
                       res.status >= 500
-                        ? `서버 오류가 발생했습니다. 잠시 후 다시 시도해 주세요. (${res.status})`
+                        ? `문제가 발생했습니다. 잠시 후 다시 시도하세요. (${res.status})`
                         : `로그인에 실패했습니다. (${res.status})`;
                     setAuthError(serverMessage || fallbackMessage);
                     return;
@@ -3238,7 +3238,7 @@ const App: React.FC = () => {
                       ? ` ${error.message}`
                       : "";
                   setAuthError(
-                    `서버에 연결할 수 없습니다. API 주소(${API_BASE})와 같은 Wi-Fi 연결 상태를 확인해 주세요.${detail}`
+                    `서버에 연결할 수 없어요. Wi‑Fi·데이터와 서버 실행 여부를 확인하세요. (${API_BASE})${detail}`
                   );
                 }
   };
@@ -3255,8 +3255,8 @@ const App: React.FC = () => {
       )}
       {splashDone && !online && (
         <div className="offline-banner" role="status">
-          인터넷에 연결되어 있지 않습니다. 로그인·서버 동기화는 Wi‑Fi 또는 데이터 연결 후
-          가능합니다.
+          인터넷에 연결되어 있지 않아요. Wi‑Fi 또는 셀룰러에 연결한 뒤 다시 시도하세요. 로그인과 저장은
+          온라인일 때만 할 수 있어요.
         </div>
       )}
       {!splashDone && (
@@ -3688,12 +3688,12 @@ const App: React.FC = () => {
               }}
             >
               <div className="dday-modal-header">
-                <span className="dday-modal-title">오늘 계획 수정 요청</span>
+                <span className="dday-modal-title">계획 수정 요청</span>
               </div>
               <div className="dday-modal-body">
                 <div className="field">
                   <label className="field-label" id="add-plan-book-label">
-                    책
+                    교재
                   </label>
                   {progressBooks.length > 0 ? (
                     <div
@@ -3724,7 +3724,7 @@ const App: React.FC = () => {
                     </div>
                   ) : (
                     <p className="settings-hint" style={{ marginTop: 6 }}>
-                      등록된 책이 없습니다. 기록 탭에서 책을 추가해 주세요.
+                      교재가 없어요. 기록에서 추가하세요.
                     </p>
                   )}
                 </div>
@@ -3779,7 +3779,7 @@ const App: React.FC = () => {
                     !normalizeBlockTime(endInput)
                   }
                 >
-                  요청
+                  보내기
                 </button>
               </div>
             </div>
@@ -3808,8 +3808,8 @@ const App: React.FC = () => {
               <div className="dday-modal-body">
                 <p className="settings-hint" style={{ margin: 0, lineHeight: 1.5 }}>
                   {kioskPopupKind === "planner-enter"
-                    ? "지금은 계획표 작성 시간입니다. 계획표를 작성하고 잠금을 해제하세요"
-                    : "계획표 작성이 완료되었습니다. 곧 잠금이 해제됩니다"}
+                    ? "계획표 작성 시간이에요. 작성을 마치면 잠금이 풀려요."
+                    : "작성이 끝났어요. 곧 잠금이 풀려요."}
                 </p>
               </div>
               <div className="dday-modal-footer">
@@ -3853,8 +3853,8 @@ const App: React.FC = () => {
                   className="settings-hint"
                   style={{ margin: 0, lineHeight: 1.5 }}
                 >
-                  오늘 계획 수정 요청을 보내려면 연결된 학부모 계정이 있어야 합니다.
-                  프로필에서 학부모와 계정을 먼저 연결해 주세요.
+                  계획 수정 요청은 연결된 학부모가 있을 때 보낼 수 있어요. 내 정보에서 학부모와
+                  먼저 연결하세요.
                 </p>
               </div>
               <div className="dday-modal-footer">
@@ -3903,7 +3903,7 @@ const App: React.FC = () => {
                   className="settings-hint"
                   style={{ margin: "0 0 10px", lineHeight: 1.5 }}
                 >
-                  학생이 오늘 타임라인 계획 수정을 요청했습니다.
+                  학생이 오늘 공부 계획 수정을 요청했습니다.
                 </p>
                 <div className="parent-plan-add-request-detail">
                   <p className="parent-plan-add-request-line">
@@ -4397,11 +4397,11 @@ const App: React.FC = () => {
               }}
             >
               <div className="dday-modal-header">
-                <span className="dday-modal-title">처음 프로필 설정</span>
+                <span className="dday-modal-title">프로필</span>
               </div>
               <div className="dday-modal-body">
                 <p className="settings-hint" style={{ margin: 0, lineHeight: 1.5 }}>
-                  처음 한 번만 학생 학년과 목표를 설정해 주세요. 목표 대학과 목표 성적은 필수이고, 현재 고민과 취약점은 함께 기록해 둘 수 있습니다.
+                  학년·목표 대학·목표 성적은 필수예요. 고민과 취약점은 나중에도 바꿀 수 있어요.
                 </p>
                 <div className="field">
                   <label className="field-label" htmlFor="student-setup-grade">
@@ -4484,7 +4484,7 @@ const App: React.FC = () => {
                   onClick={() => void saveInitialStudentProfile()}
                   disabled={studentSetupSaving}
                 >
-                  {studentSetupSaving ? "저장 중…" : "저장하고 시작하기"}
+                  {studentSetupSaving ? "저장 중…" : "완료"}
                 </button>
               </div>
             </div>
@@ -4519,7 +4519,7 @@ const App: React.FC = () => {
               </div>
               <div className="dday-modal-body">
                 <p className="settings-hint" style={{ margin: 0, lineHeight: 1.5 }}>
-                  연결된 학생이 없어서 이 페이지는 아직 볼 수 없어요. 관리자 프로필에서 학생을 연결한 뒤 다시 들어와 주세요.
+                  연결된 학생이 없어서 이 페이지는 아직 볼 수 없어요. 학부모 프로필에서 학생을 연결한 뒤 다시 들어오세요.
                 </p>
               </div>
               <div className="dday-modal-footer">

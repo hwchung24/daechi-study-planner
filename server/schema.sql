@@ -560,7 +560,7 @@ CREATE TABLE IF NOT EXISTS student_weekly_app_allowance_slots (
 CREATE INDEX IF NOT EXISTS idx_student_weekly_app_allowance_user_day
   ON student_weekly_app_allowance_slots (user_id, weekday_key ASC, start_time ASC, created_at ASC);
 
--- 타임라인 블록에 책·계획 구간 (기존 DB는 migrate 시 컬럼 추가)
+-- 공부 계획(시간대) 블록에 책·계획 구간 (기존 DB는 migrate 시 컬럼 추가)
 ALTER TABLE study_blocks ADD COLUMN IF NOT EXISTS book_id BIGINT REFERENCES study_books(id) ON DELETE SET NULL;
 ALTER TABLE study_blocks ADD COLUMN IF NOT EXISTS planned_range TEXT;
 
@@ -596,7 +596,7 @@ CREATE INDEX IF NOT EXISTS idx_pian_user_unread
   ON parent_in_app_notifications (user_id)
   WHERE read_at IS NULL;
 
--- 학생 → 학부모 승인 대기: 오늘 타임라인 블록 추가 요청
+-- 학생 → 학부모 승인 대기: 오늘 공부 계획(시간대) 추가 요청
 CREATE TABLE IF NOT EXISTS parent_plan_add_requests (
   id BIGSERIAL PRIMARY KEY,
   student_user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,

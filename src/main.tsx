@@ -47,7 +47,7 @@ class RuntimeErrorBoundary extends React.Component<
         <div
           style={{
             width: "min(720px, 100%)",
-            borderRadius: "20px",
+            borderRadius: "var(--radius-xl)",
             padding: "20px",
             background: "#ffffff",
             boxShadow: "0 18px 48px rgba(15, 23, 42, 0.12)"
@@ -65,7 +65,7 @@ class RuntimeErrorBoundary extends React.Component<
               overflowX: "auto",
               whiteSpace: "pre-wrap",
               wordBreak: "break-word",
-              borderRadius: "14px",
+              borderRadius: "var(--radius-button)",
               padding: "14px",
               background: "#0f172a",
               color: "#e2e8f0",
@@ -98,10 +98,10 @@ function renderBootstrapError(error: unknown) {
 
   root.innerHTML = `
     <div style="min-height:100vh;display:flex;align-items:center;justify-content:center;padding:24px;background:#f8fafc;color:#0f172a;font-family:'SF Pro Text','Apple SD Gothic Neo','Noto Sans KR',sans-serif;">
-      <div style="width:min(720px,100%);border-radius:20px;padding:20px;background:#ffffff;box-shadow:0 18px 48px rgba(15,23,42,0.12);">
+      <div style="width:min(720px,100%);border-radius:var(--radius-xl);padding:20px;background:#ffffff;box-shadow:0 18px 48px rgba(15,23,42,0.12);">
         <h1 style="margin:0 0 12px;font-size:20px;">앱 시작 중 오류가 발생했습니다.</h1>
         <p style="margin:0 0 12px;line-height:1.6;">아래 메시지를 확인하면 흰 화면 원인을 바로 알 수 있습니다.</p>
-        <pre style="margin:0;overflow-x:auto;white-space:pre-wrap;word-break:break-word;border-radius:14px;padding:14px;background:#0f172a;color:#e2e8f0;font-size:13px;line-height:1.5;">${String(message).replace(/[&<>]/g, char => ({"&":"&amp;","<":"&lt;",">":"&gt;"}[char] || char))}</pre>
+        <pre style="margin:0;overflow-x:auto;white-space:pre-wrap;word-break:break-word;border-radius:var(--radius-button);padding:14px;background:#0f172a;color:#e2e8f0;font-size:13px;line-height:1.5;">${String(message).replace(/[&<>]/g, char => ({"&":"&amp;","<":"&lt;",">":"&gt;"}[char] || char))}</pre>
       </div>
     </div>
   `;

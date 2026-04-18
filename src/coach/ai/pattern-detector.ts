@@ -47,7 +47,7 @@ export function detectPatterns(logs7d: DailyLog[]): DetectedPattern[] {
         whyItMatters:
           "수면은 암기·문제풀이 모두에 영향을 줍니다. 특히 실수/멍함은 의지보다 회복 문제일 때가 많아요.",
         recommendation:
-          "오늘은 공부량을 늘리기보다, ‘취침 시간을 20분만 당기기 + 첫 블록을 가볍게 시작’으로 회복 루틴을 만드세요."
+          "오늘은 공부량을 늘리기보다, ‘취침 시간을 20분만 당기기 + 첫 공부를 가볍게 시작’으로 회복 루틴을 만드세요."
       });
     }
   }
@@ -101,7 +101,7 @@ export function detectPatterns(logs7d: DailyLog[]): DetectedPattern[] {
         whyItMatters:
           "이때는 공부법을 바꾸기보다, 실행 진입장벽을 낮추는 게 성과가 빠릅니다.",
         recommendation:
-          "오늘은 ‘25분 시작’만 성공 기준으로 잡고, 종료 후에만 다음 블록을 결정하세요."
+          "오늘은 ‘25분 시작’만 성공 기준으로 잡고, 종료 후에만 다음 공부를 정하세요."
       });
     }
   }
@@ -119,7 +119,7 @@ export function detectPatterns(logs7d: DailyLog[]): DetectedPattern[] {
         whyItMatters:
           "방해가 늘면 공부량을 늘릴수록 피로만 쌓이고, 자기효능감이 빠르게 떨어집니다.",
         recommendation:
-          "첫 블록만 ‘핸드폰 시야 밖 + 타이머 25분’으로 고정하고, 쉬는 시간에만 확인하는 규칙을 잡아보세요."
+          "첫 공부만 ‘핸드폰 시야 밖 + 타이머 25분’으로 고정하고, 쉬는 시간에만 확인하는 규칙을 잡아보세요."
       });
     }
   }

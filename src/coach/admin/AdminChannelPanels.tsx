@@ -449,7 +449,7 @@ export function StudentAdminChannelPanel(props: {
       const data = (await res.json().catch(() => ({}))) as StudentAdminChannelResponse & {
         error?: string;
       };
-      if (!res.ok) throw new Error(String(data.error || "관리자 채널을 불러오지 못했습니다."));
+      if (!res.ok) throw new Error(String(data.error || "학원 메시지를 불러오지 못했습니다."));
       const sig = stableStringify(data);
       if (channelSigRef.current !== sig) {
         channelSigRef.current = sig;
@@ -461,7 +461,7 @@ export function StudentAdminChannelPanel(props: {
       setError(
         fetchError instanceof Error && fetchError.message
           ? fetchError.message
-          : "관리자 채널을 불러오지 못했습니다."
+          : "학원 메시지를 불러오지 못했습니다."
       );
     } finally {
       setInitialSyncDone(true);
@@ -632,7 +632,7 @@ export function StudentAdminChannelPanel(props: {
   };
 
   if (initialSyncDone && error && !channel) {
-    return <EmptyState title="관리자 채널을 열 수 없어요" body={error} />;
+    return <EmptyState title="학원 메시지를 열 수 없어요" body={error} />;
   }
 
   if (
@@ -642,8 +642,8 @@ export function StudentAdminChannelPanel(props: {
   ) {
     return (
       <EmptyState
-        title="연결된 관리자가 아직 없어요"
-        body="프로필에서 관리자 연결을 완료하면 여기서 실시간 1:1 채팅과 숙제 제출을 사용할 수 있습니다."
+        title="연결된 학부모가 아직 없어요"
+        body="내 정보에서 학부모 연결을 마치면 1:1 채팅과 숙제 제출을 쓸 수 있어요."
       />
     );
   }
@@ -674,13 +674,13 @@ export function StudentAdminChannelPanel(props: {
         <AdminChatShell
           messages={channel?.messages || []}
           currentUserRole="student"
-          peerLabel="관리자"
+          peerLabel="학부모"
           draft={draft}
           setDraft={setDraft}
           sending={sending}
           onSend={sendMessage}
           emptyState={null}
-          triggerPlaceholder="관리자에게 메시지를 입력해 보세요"
+          triggerPlaceholder="학부모에게 메시지를 입력하세요"
           showFrame={false}
           showHeader={false}
           composerDisabled={awaitingFirstPayload}
@@ -735,7 +735,7 @@ export function StudentAdminChannelPanel(props: {
                 <textarea
                   className="coach-textarea coach-admin-upload-box__note"
                   value={note}
-                  placeholder="관리자에게 남길 메모가 있으면 적어 주세요"
+                  placeholder="학부모에게 남길 메모가 있으면 적으세요"
                   onChange={event => setNote(event.target.value)}
                 />
                 <div className="coach-admin-upload-box__actions">

@@ -313,9 +313,9 @@ export function ParentProfilePage(props: {
 
   const displayName = useMemo(() => {
     const email = String(userEmail || "").trim();
-    if (!email) return "관리자";
+    if (!email) return "학부모";
     const localPart = email.split("@")[0]?.trim();
-    return localPart || "관리자";
+    return localPart || "학부모";
   }, [userEmail]);
   const introText =
     localProfile?.intro ||
@@ -502,7 +502,7 @@ export function ParentProfilePage(props: {
       setAccountError(
         e instanceof Error && e.message
           ? e.message
-          : "네트워크 오류입니다. 연결과 API 주소를 확인해 주세요."
+          : "네트워크 오류입니다. 인터넷 연결을 확인해 주세요."
       );
       hapticWarning();
     } finally {

@@ -1,6 +1,6 @@
 /* 관리자 계획표 작성 시간 설정 카드 일관성 스타일 */
 .parent-planner-card {
-  border-radius: 16px;
+  border-radius: var(--radius-lg);
   background: var(--surface-base);
   border: var(--border-width) solid var(--border-neutral);
   box-shadow: var(--shadow-soft);
@@ -11,7 +11,7 @@
 .parent-planner-time-input {
   max-width: 150px;
   padding: 7px 10px;
-  border-radius: 10px;
+  border-radius: var(--radius-sm);
   border: var(--border-width) solid var(--border-neutral);
   background: var(--surface-base);
   font-size: var(--font-size-medium);
@@ -46,7 +46,7 @@
   border: 1px solid var(--accent);
   background: #fff;
   color: var(--accent);
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   padding: 8px 14px;
   font-size: var(--font-size-small);
   font-weight: var(--font-weight-semibold);
@@ -68,7 +68,7 @@
   content: "";
   width: 12px;
   height: 12px;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   border: 2px solid rgba(32, 63, 120, 0.28);
   border-top-color: var(--accent);
   animation: parent-header-toggle-spin 0.8s linear infinite;
@@ -91,7 +91,7 @@
   flex-shrink: 0;
   width: 18px;
   height: 18px;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   border: 2px solid rgba(var(--accent-rgb), 0.22);
   border-top-color: var(--accent);
   animation: parent-header-toggle-spin 0.75s linear infinite;
@@ -164,7 +164,7 @@
   color: var(--text-main);
   background: #fff;
   border: 1px solid var(--border-neutral, var(--stroke));
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   cursor: pointer;
 }
 
@@ -186,7 +186,7 @@
   display: block;
   width: 100%;
   margin-top: 0;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
 }
 
 .parent-mode-schedule-modal-backdrop {
@@ -278,7 +278,7 @@
   border: var(--border-width) solid var(--border-neutral);
   background: var(--surface-base);
   color: var(--text-strong);
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   padding: 7px 14px;
   font-size: var(--font-size-small);
   font-weight: var(--font-weight-semibold);
@@ -333,7 +333,7 @@
 .parent-mode-schedule-grid__chip {
   border: var(--border-width) solid var(--border-neutral);
   background: var(--surface-base);
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   padding: 8px 14px;
   font-size: var(--font-size-small);
   font-weight: var(--font-weight-semibold);
@@ -370,7 +370,7 @@
 .parent-mode-schedule-grid__night {
   border: var(--border-width) solid var(--border-neutral);
   background: var(--surface-base);
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   padding: 8px 14px;
   font-size: var(--font-size-small);
   font-weight: var(--font-weight-semibold);
@@ -450,7 +450,15 @@
   color-scheme: light;
   --app-viewport-height: 100vh;
   --app-viewport-offset-top: 0px;
-  --app-shell-inline-padding: 12px;
+  --app-shell-inline-padding: 16px;
+  /* iOS grouped UI — hairlines & separators (font sizes unchanged) */
+  --separator: rgba(60, 60, 67, 0.29);
+  --separator-subtle: rgba(60, 60, 67, 0.14);
+  --separator-row: rgba(60, 60, 67, 0.12);
+  /* Flat card edge + optional glass top highlight (font sizes unchanged) */
+  --surface-hairline: inset 0 0 0 0.5px var(--separator-subtle);
+  --surface-hairline-glass:
+    inset 0 0 0 0.5px var(--separator-subtle), inset 0 1px 0 rgba(255, 255, 255, 0.34);
   --font-family-base: "SF Pro Text", "Apple SD Gothic Neo", "Noto Sans KR",
     "Malgun Gothic", "Segoe UI", sans-serif;
   --font-size-xlarge: 26px;
@@ -467,7 +475,7 @@
   --neutral-surface-rgb: 255, 255, 255;
   --neutral-surface: #ffffff;
   --surface-base: var(--neutral-surface);
-  --bg: #f6f7fa;
+  --bg: #f2f2f7;
   --bg-elevated: rgba(255, 255, 255, 0.72);
   /* 포인트: 남색 (navy) */
   --accent-rgb: 36, 59, 107;
@@ -481,6 +489,38 @@
   --accent-ring: rgba(var(--accent-rgb), 0.35);
   --accent-tint-bg: rgba(var(--accent-rgb), 0.04);
   --accent-done-bg: #f0f3f9;
+  /*
+   * 남색 면 공통 질감: 아주 옅은 노이즈 + 상단 하이라이트 + 모서리 누르기
+   * (단색보다 천·에나멜에 가깝게; 성능은 정적 배경만 추가)
+   */
+  --navy-texture-grain: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='96' height='96'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.82' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.052'/%3E%3C/svg%3E");
+  --navy-fill-mid-image:
+    var(--navy-texture-grain),
+    radial-gradient(ellipse 130% 88% at 18% -8%, rgba(255, 255, 255, 0.13), transparent 46%),
+    radial-gradient(ellipse 100% 78% at 108% 108%, rgba(0, 0, 0, 0.22), transparent 54%),
+    linear-gradient(162deg, #1d4282 0%, #183a72 44%, #122a52 100%);
+  --navy-fill-mid-size: 96px 96px, 100% 100%, 100% 100%, 100% 100%;
+  --navy-fill-mid-repeat: repeat, no-repeat, no-repeat, no-repeat;
+  --navy-fill-deep-image:
+    var(--navy-texture-grain),
+    radial-gradient(ellipse 125% 92% at 14% 0%, rgba(55, 95, 160, 0.28), transparent 50%),
+    radial-gradient(ellipse 105% 85% at 100% 100%, rgba(0, 0, 0, 0.38), transparent 56%),
+    linear-gradient(168deg, #0f2749 0%, #0c1d3b 48%, #071226 100%);
+  --navy-fill-deep-size: var(--navy-fill-mid-size);
+  --navy-fill-deep-repeat: var(--navy-fill-mid-repeat);
+  /* 하단 탭 필: 기존 톤에 맞춘 살짝 더 밝은 상단면 */
+  --navy-fill-pill-image:
+    var(--navy-texture-grain),
+    radial-gradient(ellipse 140% 95% at 22% -12%, rgba(255, 255, 255, 0.11), transparent 44%),
+    radial-gradient(ellipse 95% 80% at 100% 105%, rgba(0, 0, 0, 0.2), transparent 52%),
+    linear-gradient(
+      180deg,
+      rgba(38, 62, 118, 0.98) 0%,
+      rgba(24, 46, 92, 0.99) 52%,
+      rgba(18, 38, 78, 1) 100%
+    );
+  --navy-fill-pill-size: 96px 96px, 100% 100%, 100% 100%, 100% 100%;
+  --navy-fill-pill-repeat: repeat, no-repeat, no-repeat, no-repeat;
   --surface-glass-strong: rgba(255, 255, 255, 0.78);
   --surface-glass: rgba(255, 255, 255, 0.66);
   --surface-glass-soft: rgba(var(--neutral-surface-rgb), 0.58);
@@ -498,8 +538,23 @@
   --border-soft: rgba(var(--neutral-rgb), 0.2);
   --stroke: rgba(var(--neutral-rgb), 0.35);
   --shadow-soft: none;
-  --radius-xl: 22px;
+  /*
+   * Corner radius — 단계만 쓰고 임의 px 금지 (카드·버튼·칩 일관)
+   * 중첩: 큰 면(lg) 안 작은 컨트롤은 2xs~sm·md 위주
+   */
+  --radius-3xs: 4px;
+  --radius-xs: 6px;
+  --radius-2xs: 8px;
+  --radius-sm: 10px;
+  --radius-md: 12px;
+  --radius-button: 14px;
   --radius-lg: 16px;
+  --radius-xl: 20px;
+  --radius-xxl: 22px;
+  --radius-sheet: 24px;
+  --radius-pill: 9999px;
+  /* lg(16)과 xl(20) 중간 — 태블릿 헤더·큰 셸 */
+  --radius-lg-xl-mid: calc((var(--radius-lg) + var(--radius-xl)) / 2);
   --ease-standard: cubic-bezier(0.22, 1, 0.36, 1);
   --ease-press: cubic-bezier(0.2, 0, 0, 1);
   --dur-fast: 160ms;
@@ -513,7 +568,7 @@
   --modal-backdrop-blur: 12px;
   --modal-surface-bg: #ffffff;
   --modal-surface-shadow: none;
-  --modal-radius: 18px;
+  --modal-radius: var(--radius-lg);
   --modal-inner-transform-from: scale(0.96) translateY(10px);
   /* 하단 플로팅 네비 바로 위까지 — 여백 최소(네비 높이·safe-area만) */
   --app-bottom-nav-clearance: 68px;
@@ -549,7 +604,7 @@ body {
   font-family: var(--font-family-base);
   font-size: var(--font-size-medium);
   font-weight: var(--font-weight-regular);
-  line-height: 1.5;
+  line-height: 1.47;
   background: var(--bg);
   color: var(--text-main);
   -webkit-font-smoothing: antialiased;
@@ -600,7 +655,7 @@ select {
   z-index: 100000;
   width: min(calc(100% - 24px), 460px);
   padding: 12px 16px;
-  border-radius: 16px;
+  border-radius: var(--radius-lg);
   box-shadow: 0 18px 40px rgba(15, 23, 42, 0.18);
   font-size: var(--font-size-small);
   line-height: 1.45;
@@ -739,7 +794,7 @@ body.app-keyboard-open .app-main {
   width: 100%;
   max-width: 100%;
   align-self: stretch;
-  background: linear-gradient(180deg, #f5f5f7 0%, #eef1f4 100%);
+  background: var(--bg);
   border-radius: 0;
   padding: 0 var(--app-shell-inline-padding) 10px;
   box-shadow: none;
@@ -794,7 +849,7 @@ body.app-keyboard-open .app-main {
   margin: 0 calc(var(--app-shell-inline-padding) * -1);
   padding: 0 var(--app-shell-inline-padding) 8px;
   /* 하단 .bottom-nav와 동일한 글래스 톤·투명도 */
-  background: rgba(249, 249, 251, 0.5);
+  background: rgba(242, 242, 247, 0.72);
   backdrop-filter: blur(28px) saturate(1.15);
   -webkit-backdrop-filter: blur(28px) saturate(1.15);
   border-bottom: 1px solid rgba(148, 163, 184, 0.1);
@@ -859,7 +914,7 @@ body.app-keyboard-open .app-main {
   height: 36px;
   padding: 0;
   border: none;
-  border-radius: 12px;
+  border-radius: var(--radius-md);
   background: transparent;
    color: var(--text-main);
   cursor: pointer;
@@ -912,7 +967,7 @@ body.app-keyboard-open .app-main {
 .today-badge {
   font-size: var(--font-size-small);
   padding: 4px 9px;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   background: var(--accent-muted);
   border: 0.5px solid var(--accent-border);
   color: var(--text-main);
@@ -921,7 +976,7 @@ body.app-keyboard-open .app-main {
 .progress-card {
   margin-top: 16px;
   padding: 14px 14px 12px;
-  border-radius: var(--radius-xl);
+  border-radius: var(--radius-lg);
   background: var(--surface-base);
   box-shadow: var(--shadow-soft);
   border: var(--border-width) solid var(--border-neutral);
@@ -947,7 +1002,7 @@ body.app-keyboard-open .app-main {
 .progress-bar-track {
   margin-top: 10px;
   height: 7px;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   background: rgba(209, 213, 219, 0.7);
   overflow: hidden;
 }
@@ -977,7 +1032,7 @@ body.app-keyboard-open .app-main {
 
 .lock-badge {
   padding: 3px 8px;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   border: 0.5px solid var(--accent-border);
   color: var(--text-accent);
   background: var(--accent-tint-bg);
@@ -996,7 +1051,7 @@ body.app-keyboard-open .app-main {
 .app-main {
   flex: 1;
   margin-top: -8px;
-  padding: 12px 2px 72px;
+  padding: 12px 0 72px;
   overflow-y: auto;
   -webkit-overflow-scrolling: touch;
   scroll-behavior: auto;
@@ -1023,7 +1078,7 @@ body.app-keyboard-open .app-main {
 .app-route-suspense-fallback__pulse {
   width: min(100%, 200px);
   height: 10px;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   background: linear-gradient(
     90deg,
     rgba(15, 23, 42, 0.06),
@@ -1230,7 +1285,7 @@ body.app-keyboard-open .app-main {
   width: 100%;
   min-height: 48px;
   border: var(--border-width) solid var(--border-neutral);
-  border-radius: 18px;
+  border-radius: var(--radius-lg);
   background: rgba(255, 255, 255, 0.9);
   padding: 12px 14px;
   display: flex;
@@ -1239,7 +1294,7 @@ body.app-keyboard-open .app-main {
   gap: 12px;
   color: var(--text-main);
   text-align: left;
-  box-shadow: 0 10px 24px rgba(15, 23, 42, 0.06);
+  box-shadow: var(--surface-hairline);
 }
 
 .coach-chat-trigger:disabled {
@@ -1258,7 +1313,7 @@ body.app-keyboard-open .app-main {
   width: 30px;
   min-width: 30px;
   height: 30px;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -1335,7 +1390,7 @@ body.app-keyboard-open .app-main {
   padding: 14px 18px 16px;
   background: var(--accent);
   border: none;
-  border-radius: var(--radius-xl);
+  border-radius: var(--radius-lg);
   box-shadow: var(--shadow-soft);
 }
 
@@ -1400,7 +1455,7 @@ body.app-keyboard-open .app-main {
 
 .notifications-page__item {
   border: var(--border-width) solid var(--border-neutral);
-  border-radius: 18px;
+  border-radius: var(--radius-lg);
   padding: 14px 16px;
   background: var(--surface-base);
   box-shadow: var(--shadow-soft);
@@ -1450,7 +1505,7 @@ body.app-keyboard-open .app-main {
   padding: 0;
   margin: 0 0 0 -6px;
   border: none;
-  border-radius: 12px;
+  border-radius: var(--radius-md);
   background: transparent;
   font-size: var(--font-size-medium);
   font-weight: var(--font-weight-bold);
@@ -1573,7 +1628,7 @@ body.app-keyboard-open .app-main {
   align-items: center;
   justify-content: center;
   padding: 6px 10px;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   font-size: var(--font-size-small);
   font-weight: var(--font-weight-bold);
   transition:
@@ -1610,7 +1665,7 @@ body.app-keyboard-open .app-main {
   width: 100%;
   border: var(--border-width) solid var(--border-neutral);
   background: rgba(248, 250, 252, 0.78);
-  border-radius: 16px;
+  border-radius: var(--radius-lg);
   padding: 12px 14px;
   display: flex;
   align-items: center;
@@ -1773,7 +1828,7 @@ body.app-keyboard-open .app-main {
   justify-content: center;
   gap: 4px;
   padding: 8px 6px;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   border: var(--border-width) solid var(--border-neutral);
   background: rgba(248, 250, 252, 0.92);
   color: var(--text-main);
@@ -1795,7 +1850,7 @@ body.app-keyboard-open .app-main {
   min-width: 18px;
   height: 18px;
   padding: 0 4px;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   background: rgba(36, 59, 107, 0.1);
   color: inherit;
   font-size: 11px;
@@ -1975,7 +2030,7 @@ body.app-keyboard-open .app-main {
 .parent-study-room-item__pill {
   display: inline-flex;
   align-items: center;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   padding: 4px 10px;
   background: rgba(15, 23, 42, 0.06);
   color: var(--text-sub);
@@ -2046,7 +2101,7 @@ body.app-keyboard-open .app-main {
 
 .parent-study-room-item__visit-item {
   padding: 12px 14px;
-  border-radius: 14px;
+  border-radius: var(--radius-button);
   background: rgba(248, 250, 252, 0.96);
   border: 1px solid rgba(148, 163, 184, 0.18);
 }
@@ -2069,7 +2124,7 @@ body.app-keyboard-open .app-main {
   align-items: center;
   min-height: 24px;
   padding: 0 8px;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   background: rgba(36, 59, 107, 0.08);
   color: var(--text-accent);
   font-size: 11px;
@@ -2186,7 +2241,7 @@ body.app-keyboard-open .app-main {
 
 .study-room-modal__result {
   border: 1px solid var(--border-neutral);
-  border-radius: 16px;
+  border-radius: var(--radius-lg);
   background: rgba(255, 255, 255, 0.92);
   padding: 12px 14px;
   text-align: left;
@@ -2222,7 +2277,7 @@ body.app-keyboard-open .app-main {
   position: relative;
   height: 280px;
   overflow: hidden;
-  border-radius: 22px;
+  border-radius: var(--radius-xxl);
   background:
     linear-gradient(135deg, rgba(224, 231, 255, 0.48), rgba(191, 219, 254, 0.28)),
     #f8fafc;
@@ -2255,7 +2310,7 @@ body.app-keyboard-open .app-main {
   align-items: center;
   min-height: 32px;
   padding: 0 12px;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   background: rgba(255, 255, 255, 0.92);
   color: var(--text-main);
   font-size: 12px;
@@ -2267,7 +2322,7 @@ body.app-keyboard-open .app-main {
   border: none;
   min-height: 32px;
   padding: 0 12px;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   background: rgba(15, 23, 42, 0.86);
   color: #fff;
   font-size: 12px;
@@ -2332,7 +2387,7 @@ body.app-keyboard-open .app-main {
   display: block;
   width: 22px;
   height: 22px;
-  border-radius: 999px 999px 999px 0;
+  border-radius: var(--radius-pill) var(--radius-pill) var(--radius-pill) 0;
   transform: rotate(-45deg);
   background: #ea580c;
   box-shadow: 0 12px 24px rgba(234, 88, 12, 0.28);
@@ -2345,7 +2400,7 @@ body.app-keyboard-open .app-main {
   top: 5px;
   width: 12px;
   height: 12px;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   background: #fff7ed;
 }
 
@@ -2361,7 +2416,7 @@ body.app-keyboard-open .app-main {
 
 .student-profile-link-input {
   margin-top: 8px;
-  border-radius: 12px;
+  border-radius: var(--radius-md);
   background: transparent;
 }
 
@@ -2565,7 +2620,7 @@ body.app-keyboard-open .app-main {
 .coach-tomorrow-collab__banner {
   margin: 0;
   padding: 10px 12px;
-  border-radius: 14px;
+  border-radius: var(--radius-button);
   font-size: var(--font-size-medium);
   line-height: 1.45;
   color: var(--text-main);
@@ -2640,7 +2695,7 @@ body.app-keyboard-open .app-main {
   box-sizing: border-box;
   border: 1px solid rgba(255, 255, 255, 0.22);
   background: var(--accent-strong);
-  border-radius: 12px;
+  border-radius: var(--radius-md);
   padding: 7px 12px;
   font-family: inherit;
   font-size: var(--font-size-medium);
@@ -2741,7 +2796,7 @@ body.app-keyboard-open .app-main {
   flex-direction: column;
   gap: 12px;
   align-self: stretch;
-  /* 스크롤 영역 세로를 꽉 채워 타임라인 카드가 아래 약속 카드 직전까지 이어짐 */
+  /* 스크롤 영역 세로를 꽉 채워 오늘 계획 카드가 아래 약속 카드 직전까지 이어짐 */
 }
 
 .timeline-page .progress-card {
@@ -2759,7 +2814,7 @@ body.app-keyboard-open .app-main {
   gap: 10px;
   padding: 10px 12px;
   margin-bottom: 10px;
-  border-radius: 12px;
+  border-radius: var(--radius-md);
   border: 0.5px solid rgba(248, 113, 113, 0.35);
   background: rgba(254, 242, 242, 0.96);
 }
@@ -2786,7 +2841,7 @@ body.app-keyboard-open .app-main {
   margin: 0;
   padding: 4px 10px;
   border: none;
-  border-radius: 8px;
+  border-radius: var(--radius-2xs);
   background: var(--surface-base);
   font-size: var(--font-size-small);
   font-weight: var(--font-weight-semibold);
@@ -2797,7 +2852,7 @@ body.app-keyboard-open .app-main {
 .parent-plan-add-request-detail {
   margin-top: 4px;
   padding: 12px 12px;
-  border-radius: 12px;
+  border-radius: var(--radius-md);
   border: var(--border-width) solid var(--border-neutral);
   background: rgba(248, 250, 252, 0.96);
   font-size: var(--font-size-medium);
@@ -2849,7 +2904,7 @@ body.app-keyboard-open .app-main {
   bottom: 12px;
   width: 40px;
   height: 40px;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   border: none;
   background: var(--accent-strong);
   color: #ffffff;
@@ -2924,6 +2979,8 @@ body.app-keyboard-open .app-main {
 .today-log-card {
   background: var(--surface-base);
   border: var(--border-width) solid var(--border-neutral);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
   box-shadow: var(--shadow-soft);
   color: var(--text-main);
   display: flex;
@@ -3032,7 +3089,7 @@ body.app-keyboard-open .app-main {
   flex-shrink: 0;
   margin: 0;
   padding: 6px 10px;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   border: 0.5px solid rgba(36, 59, 107, 0.18);
   background: rgba(255, 255, 255, 0.92);
   font-size: var(--font-size-small);
@@ -3066,7 +3123,7 @@ body.app-keyboard-open .app-main {
   flex-direction: column;
   gap: 10px;
   padding: 10px 12px;
-  border-radius: 12px;
+  border-radius: var(--radius-md);
   border: var(--border-width) solid var(--border-neutral);
   background: var(--neutral-surface);
 }
@@ -3084,7 +3141,7 @@ body.app-keyboard-open .app-main {
 
 .record-day-input,
 .progress-day-book--editable .books-plan-range.field-input {
-  border-radius: 12px;
+  border-radius: var(--radius-md);
   padding: 8px 10px;
   font-size: var(--font-size-medium);
   border: var(--border-width) solid var(--border-neutral);
@@ -3118,7 +3175,7 @@ body.app-keyboard-open .app-main {
   flex: 1;
   min-width: 0;
   height: 28px;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   background: rgba(var(--text-strong-rgb), 0.07);
   box-shadow: inset 0 1px 2px rgba(var(--text-strong-rgb), 0.06);
   overflow: hidden;
@@ -3162,7 +3219,7 @@ body.app-keyboard-open .app-main {
 
 .record-slider-pill__input:focus-visible {
   box-shadow: 0 0 0 2px var(--accent-ring);
-  border-radius: 10px;
+  border-radius: var(--radius-sm);
 }
 
 .record-slider-pill__input::-webkit-slider-runnable-track {
@@ -3178,7 +3235,7 @@ body.app-keyboard-open .app-main {
   height: 40px;
   margin-top: -6px;
   border: none;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   background: transparent;
   box-shadow: none;
   cursor: pointer;
@@ -3194,7 +3251,7 @@ body.app-keyboard-open .app-main {
   width: 52px;
   height: 40px;
   border: none;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   background: transparent;
   cursor: pointer;
 }
@@ -3272,7 +3329,7 @@ body.app-keyboard-open .app-main {
   flex-shrink: 0;
   width: 36px;
   height: 36px;
-  border-radius: 11px;
+  border-radius: var(--radius-md);
   background: var(--accent-soft);
   color: var(--accent);
 }
@@ -3309,14 +3366,14 @@ body.app-keyboard-open .app-main {
   flex-direction: column;
   gap: 10px;
   padding: 10px 12px;
-  border-radius: 12px;
+  border-radius: var(--radius-md);
   border: var(--border-width) solid var(--border-neutral);
   background: var(--neutral-surface);
 }
 
 .record-readonly-value {
   margin-top: 8px;
-  border-radius: 16px;
+  border-radius: var(--radius-lg);
   border: 1px solid rgba(var(--neutral-rgb), 0.12);
   background: rgba(var(--neutral-rgb), 0.04);
   padding: 12px 14px;
@@ -3331,14 +3388,14 @@ body.app-keyboard-open .app-main {
 }
 
 .record-readonly-empty {
-  border-radius: 16px;
+  border-radius: var(--radius-lg);
   border: 1px dashed rgba(var(--neutral-rgb), 0.18);
   background: rgba(var(--neutral-rgb), 0.03);
   padding: 14px;
   line-height: 1.5;
 }
 
-/* 학부모 학생 기록: 타임라인·체크인 + 주간 스크롤을 한 그리드로 정렬 */
+/* 학부모 학생 기록: 오늘 계획·체크인 + 주간 스크롤을 한 그리드로 정렬 */
 .coach-records-page-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -3355,7 +3412,7 @@ body.app-keyboard-open .app-main {
   min-height: 100%;
 }
 
-/* 타임라인 열과 동일 너비: 태블릿 이상에서 주간 카드만 1열에 배치 */
+/* 오늘 계획 열과 동일 너비: 태블릿 이상에서 주간 카드만 1열에 배치 */
 .coach-records-week-outer {
   margin: 0;
   padding: 0;
@@ -3390,7 +3447,7 @@ body.app-keyboard-open .app-main {
   display: inline-flex;
   align-items: center;
   align-self: flex-start;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   padding: 6px 12px;
   font-size: 12px;
   font-weight: 800;
@@ -3473,7 +3530,7 @@ body.app-keyboard-open .app-main {
 .timeline-save-button {
   width: 100%;
   border: none;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   padding: 12px 14px;
   font-size: var(--font-size-medium);
   font-weight: var(--font-weight-semibold);
@@ -3515,7 +3572,7 @@ body.app-keyboard-open .app-main {
   cursor: not-allowed;
 }
 
-/* 타임라인 페이지 안 오늘의 핵심: 카드 열과 동일 표면·간격만 열 gap으로 */
+/* 오늘 공부 화면 안 오늘의 핵심: 카드 열과 동일 표면·간격만 열 gap으로 */
 .timeline-page .coach-hero,
 .today-commitment-below-scroll .coach-hero {
   margin-bottom: 0;
@@ -3780,7 +3837,7 @@ button.practice-commitment-card:not(:disabled):active {
   top: 50%;
   height: 34px;
   transform: translateY(-50%);
-  border-radius: 10px;
+  border-radius: var(--radius-sm);
   border: var(--border-width) solid var(--border-neutral);
   background: rgba(var(--neutral-surface-rgb), 0.14);
   backdrop-filter: none;
@@ -3803,7 +3860,7 @@ button.practice-commitment-card:not(:disabled):active {
 .time-picker-inline .time-picker-col-scroll {
   overflow-y: auto;
   -webkit-overflow-scrolling: touch;
-  border-radius: 14px;
+  border-radius: var(--radius-button);
   border: var(--border-width) solid var(--border-neutral);
   background: var(--surface-base);
   padding: 56px 4px;
@@ -3819,7 +3876,7 @@ button.practice-commitment-card:not(:disabled):active {
   display: block;
   width: 100%;
   border: none;
-  border-radius: 10px;
+  border-radius: var(--radius-sm);
   background: transparent;
   padding: 8px 6px;
   font-size: var(--font-size-medium);
@@ -3919,7 +3976,7 @@ button.practice-commitment-card:not(:disabled):active {
   width: 36px;
   height: 36px;
   min-width: 36px;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   padding: 0;
   display: inline-flex;
   align-items: center;
@@ -4040,7 +4097,7 @@ button.practice-commitment-card:not(:disabled):active {
 .store-filter-btn {
   flex: 0 0 auto;
   padding: 8px 14px;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   border: var(--border-width) solid var(--border-neutral);
   background: var(--surface-base);
   font-size: var(--font-size-medium);
@@ -4081,7 +4138,7 @@ button.practice-commitment-card:not(:disabled):active {
 }
 
 .store-card {
-  border-radius: var(--radius-xl);
+  border-radius: var(--radius-lg);
   border: var(--border-width) solid var(--border-neutral);
   background: var(--surface-base);
   box-shadow: var(--shadow-soft);
@@ -4112,7 +4169,7 @@ button.practice-commitment-card:not(:disabled):active {
   cursor: pointer;
   color: inherit;
   font: inherit;
-  border-radius: 12px;
+  border-radius: var(--radius-md);
   -webkit-tap-highlight-color: transparent;
 }
 
@@ -4236,7 +4293,7 @@ button.practice-commitment-card:not(:disabled):active {
   align-items: center;
   justify-content: center;
   padding: 5px 9px;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   background: var(--accent-tint-bg);
   border: 0.5px solid var(--accent-border);
   color: var(--text-accent);
@@ -4254,7 +4311,7 @@ button.practice-commitment-card:not(:disabled):active {
 .app-allow-plan-collab {
   margin-top: 14px;
   padding: 12px;
-  border-radius: 16px;
+  border-radius: var(--radius-lg);
   border: var(--border-width) solid rgba(36, 59, 107, 0.12);
   background: linear-gradient(180deg, rgba(247, 250, 255, 0.98), rgba(240, 246, 255, 0.94));
 }
@@ -4281,7 +4338,7 @@ button.practice-commitment-card:not(:disabled):active {
 .app-allow-plan-collab__banner {
   margin: 10px 0 0;
   padding: 10px 12px;
-  border-radius: 12px;
+  border-radius: var(--radius-md);
   font-size: var(--font-size-small);
   line-height: 1.5;
   color: #8d2c22;
@@ -4330,7 +4387,7 @@ button.practice-commitment-card:not(:disabled):active {
 }
 
 .app-allow-plan-slot {
-  border-radius: 14px;
+  border-radius: var(--radius-button);
   border: var(--border-width) solid var(--border-neutral);
   background: rgba(248, 250, 252, 0.92);
   padding: 12px;
@@ -4363,7 +4420,7 @@ button.practice-commitment-card:not(:disabled):active {
   justify-content: center;
   min-width: 42px;
   padding: 4px 8px;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   background: var(--surface-base);
   border: var(--border-width) solid var(--border-neutral);
   font-size: var(--font-size-small);
@@ -4402,7 +4459,7 @@ button.practice-commitment-card:not(:disabled):active {
 .app-allow-plan-slot__time-input {
   width: 100%;
   min-height: 40px;
-  border-radius: 12px;
+  border-radius: var(--radius-md);
   border: var(--border-width) solid var(--border-neutral);
   background: var(--surface-base);
   padding: 8px 10px;
@@ -4413,7 +4470,7 @@ button.practice-commitment-card:not(:disabled):active {
 
 .app-allow-plan-slot__delete {
   min-height: 40px;
-  border-radius: 12px;
+  border-radius: var(--radius-md);
   border: var(--border-width) solid rgba(184, 67, 54, 0.24);
   background: rgba(184, 67, 54, 0.08);
   padding: 8px 12px;
@@ -4435,7 +4492,7 @@ button.practice-commitment-card:not(:disabled):active {
   align-items: center;
   justify-content: center;
   padding: 6px 10px;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   background: var(--surface-base);
   border: 0.5px solid rgba(36, 59, 107, 0.2);
   color: var(--text-accent);
@@ -4464,7 +4521,7 @@ button.practice-commitment-card:not(:disabled):active {
   justify-content: center;
   width: 16px;
   height: 16px;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   background: rgba(36, 59, 107, 0.08);
   font-size: 11px;
 }
@@ -4558,7 +4615,7 @@ button.practice-commitment-card:not(:disabled):active {
 }
 
 .parent-app-request-modal__card {
-  border-radius: 14px;
+  border-radius: var(--radius-button);
   border: var(--border-width) solid var(--border-neutral);
   background: rgba(248, 250, 252, 0.92);
   padding: 12px;
@@ -4587,7 +4644,7 @@ button.practice-commitment-card:not(:disabled):active {
 .app-allow-plan-empty {
   margin: 0;
   padding: 12px;
-  border-radius: 14px;
+  border-radius: var(--radius-button);
   background: rgba(248, 250, 252, 0.9);
   border: var(--border-width) solid var(--border-neutral);
   color: var(--text-sub);
@@ -4625,7 +4682,7 @@ button.practice-commitment-card:not(:disabled):active {
 .store-icon {
   width: 22px;
   height: 22px;
-  border-radius: 6px;
+  border-radius: var(--radius-xs);
   object-fit: contain;
   display: block;
 }
@@ -4636,7 +4693,7 @@ button.practice-commitment-card:not(:disabled):active {
   justify-content: center;
   min-width: 56px;
   padding: 4px 8px;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   font-size: var(--font-size-small);
   color: var(--text-accent);
   border: 0.5px solid var(--accent-border);
@@ -4671,7 +4728,7 @@ button.practice-commitment-card:not(:disabled):active {
 .store-open-btn {
   align-self: flex-start;
   border: none;
-  border-radius: 10px;
+  border-radius: var(--radius-sm);
   padding: 8px 12px;
   background: rgba(36, 59, 107, 0.08);
   color: var(--text-accent);
@@ -4689,7 +4746,7 @@ button.practice-commitment-card:not(:disabled):active {
 .store-install-btn {
   align-self: flex-start;
   border: none;
-  border-radius: 10px;
+  border-radius: var(--radius-sm);
   padding: 8px 12px;
   background: var(--accent-strong);
   color: var(--neutral-surface);
@@ -4734,7 +4791,7 @@ button.practice-commitment-card:not(:disabled):active {
 
 .timeline-item:active {
   transform: scale(0.982);
-  box-shadow: none;
+  box-shadow: var(--surface-hairline);
 }
 
 .timeline-item-done {
@@ -4776,7 +4833,7 @@ button.practice-commitment-card:not(:disabled):active {
 .check-circle {
   width: 22px;
   height: 22px;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   border: 2px solid rgba(var(--neutral-rgb), 0.45);
   display: inline-flex;
   align-items: center;
@@ -4791,7 +4848,7 @@ button.practice-commitment-card:not(:disabled):active {
 .check-dot {
   width: 10px;
   height: 10px;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   background: white;
 }
 
@@ -4811,7 +4868,7 @@ button.practice-commitment-card:not(:disabled):active {
 
 .add-card {
   padding: 12px 12px 12px;
-  border-radius: 22px;
+  border-radius: var(--radius-lg);
   background: var(--surface-base);
   border: var(--border-width) solid var(--border-neutral);
   box-shadow: var(--shadow-soft);
@@ -4839,7 +4896,7 @@ button.practice-commitment-card:not(:disabled):active {
 }
 
 .field-input {
-  border-radius: 14px;
+  border-radius: var(--radius-button);
   padding: 7px 11px;
   border: var(--border-width) solid var(--border-neutral);
   background: var(--surface-base);
@@ -4867,7 +4924,7 @@ button.practice-commitment-card:not(:disabled):active {
 
 .chip {
   padding: 4px 10px;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   border: var(--border-width) solid var(--border-neutral);
   background: rgba(248, 250, 252, 0.96);
   font-size: var(--font-size-small);
@@ -4902,7 +4959,7 @@ button.practice-commitment-card:not(:disabled):active {
 .primary-button {
   margin-top: 2px;
   width: 100%;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   padding: 9px 14px;
   border: none;
   background: var(--accent);
@@ -4938,7 +4995,7 @@ button.practice-commitment-card:not(:disabled):active {
   bottom: 76px;
   width: 46px;
   height: 46px;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   border: none;
   background: var(--accent);
   color: #ffffff;
@@ -5040,7 +5097,7 @@ button.practice-commitment-card:not(:disabled):active {
 
 .modal-secondary,
 .modal-primary {
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   padding: 7px 14px;
   font-size: var(--font-size-medium);
   border: none;
@@ -5164,7 +5221,7 @@ button.practice-commitment-card:not(:disabled):active {
 .auth-tabs {
   display: flex;
   padding: 3px;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   border: var(--border-width) solid var(--border-neutral);
   background: var(--surface-base);
 }
@@ -5181,7 +5238,7 @@ button.practice-commitment-card:not(:disabled):active {
   z-index: 0;
   width: calc(50% - 3px);
   height: calc(100% - 6px);
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   background: rgba(var(--accent-rgb), 0.12);
   box-shadow: 0 2px 8px rgba(2, 8, 23, 0.12);
   pointer-events: none;
@@ -5196,7 +5253,7 @@ button.practice-commitment-card:not(:disabled):active {
   position: relative;
   z-index: 1;
   flex: 1;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   border: none;
   background: transparent;
   font-size: var(--font-size-medium);
@@ -5300,7 +5357,7 @@ button.practice-commitment-card:not(:disabled):active {
 
 .auth-input {
   width: 100%;
-  border-radius: 12px;
+  border-radius: var(--radius-md);
   border: var(--border-width) solid var(--border-neutral);
   background: var(--surface-base);
   padding: 10px 12px;
@@ -5332,7 +5389,7 @@ button.practice-commitment-card:not(:disabled):active {
 .auth-submit {
   margin-top: 6px;
   width: 100%;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   border: none;
   background: var(--accent);
   color: #ffffff;
@@ -5364,7 +5421,7 @@ button.practice-commitment-card:not(:disabled):active {
   }
 
   .auth-panel {
-    border-radius: 24px;
+    border-radius: var(--radius-sheet);
   }
 }
 
@@ -5423,7 +5480,7 @@ button.practice-commitment-card:not(:disabled):active {
 .week-card {
   margin: 8px 4px 0;
   padding: 14px 14px 12px;
-  border-radius: var(--radius-xl);
+  border-radius: var(--radius-lg);
   background: var(--surface-base);
   border: var(--border-width) solid var(--border-neutral);
   box-shadow: var(--shadow-soft);
@@ -5474,7 +5531,7 @@ button.practice-commitment-card:not(:disabled):active {
 
 .week-switch-btn {
   min-width: 70px;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   border: var(--border-width) solid var(--border-neutral);
   background: var(--surface-base);
   font-size: var(--font-size-small);
@@ -5498,7 +5555,7 @@ button.practice-commitment-card:not(:disabled):active {
 .week-switch-underline {
   width: 64px;
   height: 3px;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   background: var(--accent);
 }
 
@@ -5523,7 +5580,7 @@ button.practice-commitment-card:not(:disabled):active {
   max-width: 100%;
   min-height: min(420px, calc(var(--app-viewport-height) - 220px));
   background: var(--surface-base);
-  border-radius: var(--radius-xl);
+  border-radius: var(--radius-lg);
   border: var(--border-width) solid var(--border-neutral);
   box-shadow: var(--shadow-soft);
   display: flex;
@@ -5550,7 +5607,7 @@ button.practice-commitment-card:not(:disabled):active {
 
 .progress-day-book {
   background: var(--surface-base);
-  border-radius: 12px;
+  border-radius: var(--radius-md);
   padding: 10px 12px;
   border: var(--border-width) solid var(--border-neutral);
 }
@@ -5600,7 +5657,7 @@ button.practice-commitment-card:not(:disabled):active {
 .progress-day-book--editable .books-plan-time-btn {
   flex: 1;
   min-width: 0;
-  border-radius: 12px;
+  border-radius: var(--radius-md);
   border: 0.5px solid var(--accent-border);
   background: var(--surface-base);
   padding: 8px 10px;
@@ -5642,7 +5699,7 @@ button.practice-commitment-card:not(:disabled):active {
 }
 
 .progress-pct-input {
-  border-radius: 8px;
+  border-radius: var(--radius-2xs);
   padding: 6px 8px;
   background: var(--neutral-surface);
   font-size: var(--font-size-small);
@@ -5658,7 +5715,7 @@ button.practice-commitment-card:not(:disabled):active {
 
 .progress-footer-btn {
   padding: 8px 12px;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   border: var(--border-width) solid var(--border-neutral);
   background: var(--surface-base);
   font-size: var(--font-size-small);
@@ -5695,7 +5752,7 @@ button.practice-commitment-card:not(:disabled):active {
 
 .books-delete {
   border: 0.5px solid var(--accent-border-strong);
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   padding: 5px 12px;
   font-size: var(--font-size-small);
   font-weight: var(--font-weight-semibold);
@@ -5767,7 +5824,7 @@ button.practice-commitment-card:not(:disabled):active {
 
 .settings-list {
   margin: 8px 4px 0;
-  border-radius: var(--radius-xl);
+  border-radius: var(--radius-lg);
   background: var(--surface-base);
   border: var(--border-width) solid var(--border-neutral);
   overflow: hidden;
@@ -5777,7 +5834,7 @@ button.practice-commitment-card:not(:disabled):active {
   width: 100%;
   padding: 10px 14px;
   border: none;
-  border-bottom: 0.5px solid rgba(229, 231, 235, 0.9);
+  border-bottom: 0.5px solid var(--separator-row);
   background: var(--surface-base);
   display: flex;
   align-items: center;
@@ -5810,9 +5867,9 @@ button.practice-commitment-card:not(:disabled):active {
   right: 18px;
   bottom: 10px;
   z-index: 9000;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   padding: 4px;
-  background: rgba(249, 249, 251, 0.5);
+  background: rgba(242, 242, 247, 0.72);
   border: none;
   display: flex;
   justify-content: space-between;
@@ -5829,15 +5886,15 @@ button.practice-commitment-card:not(:disabled):active {
 .bottom-nav__pill {
   position: absolute;
   z-index: 0;
-  border-radius: 999px;
-  background:
-    linear-gradient(
-      180deg,
-      rgba(34, 56, 109, 0.96) 0%,
-      rgba(22, 42, 86, 0.98) 100%
-    );
+  border-radius: var(--radius-pill);
+  background-color: rgba(24, 46, 92, 0.98);
+  background-image: var(--navy-fill-pill-image);
+  background-size: var(--navy-fill-pill-size);
+  background-repeat: var(--navy-fill-pill-repeat);
   border: none;
-  box-shadow: 0 8px 18px rgba(9, 20, 44, 0.18);
+  box-shadow:
+    0 8px 18px rgba(9, 20, 44, 0.2),
+    inset 0 1px 0 rgba(255, 255, 255, 0.12);
   pointer-events: none;
 }
 
@@ -5859,7 +5916,7 @@ button.practice-commitment-card:not(:disabled):active {
 
 .nav-item {
   flex: 1;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   padding: 6px 2px;
   border: none;
   background: transparent;
@@ -5924,10 +5981,6 @@ button:active:not(:disabled),
 
 /* Tablet layout: left navigation rail + content area */
 @media (min-width: 768px) {
-  :root {
-    --app-shell-inline-padding: 16px;
-  }
-
   .header-top {
     border-radius: var(--radius-xl);
   }
@@ -5954,7 +6007,7 @@ button:active:not(:disabled),
     justify-self: center;
     margin: 0 auto;
     padding: 6px 4px 12px;
-    border-radius: 18px;
+    border-radius: var(--radius-lg-xl-mid);
   }
 
   .app-shell.app-shell--analysis-focus .app-header,
@@ -5974,7 +6027,7 @@ button:active:not(:disabled),
     max-width: 1120px;
     justify-self: center;
     margin-top: -12px;
-    padding: 20px 4px 28px;
+    padding: 20px 0 28px;
   }
 
   .app-main.app-main--today-fixed {
@@ -5999,7 +6052,7 @@ button:active:not(:disabled),
     align-self: start;
     justify-self: stretch;
     margin: 0;
-    border-radius: 20px;
+    border-radius: var(--radius-xl);
     padding: 12px 10px;
     display: flex;
     flex-direction: column;
@@ -6013,7 +6066,7 @@ button:active:not(:disabled),
   }
 
   .bottom-nav__pill {
-    border-radius: 14px;
+    border-radius: var(--radius-button);
   }
 
   /* 슬라이딩 필과 겹치는 왼쪽 막대 제거 */
@@ -6031,7 +6084,7 @@ button:active:not(:disabled),
     align-items: center;
     text-align: left;
     color: var(--text-sub);
-    border-radius: 14px;
+    border-radius: var(--radius-button);
     position: relative;
   }
 
@@ -6039,7 +6092,7 @@ button:active:not(:disabled),
     content: "";
     width: 3px;
     height: 18px;
-    border-radius: 999px;
+    border-radius: var(--radius-pill);
     background: transparent;
     transition: background var(--dur-fast) var(--ease-press);
   }
@@ -6094,8 +6147,11 @@ button:active:not(:disabled),
   display: flex;
   align-items: center;
   justify-content: center;
-  /* splash-logo.png 배경색과 동일 (로고 주변 레터박스 없음) */
-  background: #0c1d3b;
+  /* splash-logo.png 배경색과 동일 (로고 주변 레터박스 없음) + 은은한 질감 */
+  background-color: #0c1d3b;
+  background-image: var(--navy-fill-deep-image);
+  background-size: var(--navy-fill-deep-size);
+  background-repeat: var(--navy-fill-deep-repeat);
   animation: splash-screen-fade var(--splash-duration-ms, 980ms) cubic-bezier(0.33, 0.86, 0.22, 1)
     forwards;
   pointer-events: none;
@@ -6257,7 +6313,7 @@ button:active:not(:disabled),
   overscroll-behavior-y: contain;
   -webkit-overflow-scrolling: touch;
   background: var(--bg);
-  box-shadow: -18px 0 36px rgba(15, 23, 42, 0.12);
+  box-shadow: -12px 0 28px rgba(0, 0, 0, 0.07);
 }
 
 .coach-page--chat {
@@ -6270,12 +6326,12 @@ button:active:not(:disabled),
 .coach-card {
   background: var(--surface-base);
   border: var(--border-width) solid var(--border-neutral);
-  border-radius: var(--radius-xl);
+  border-radius: var(--radius-lg);
   box-shadow: var(--shadow-soft);
 }
 
 .coach-card--padded {
-  padding: 14px 14px;
+  padding: 16px 16px;
 }
 
 .coach-profile-card {
@@ -6303,7 +6359,7 @@ button:active:not(:disabled),
 .coach-profile-card__avatar {
   width: 64px;
   height: 64px;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   background: var(--accent);
   border: 2px solid rgba(255, 255, 255, 0.9);
   display: flex;
@@ -6350,7 +6406,7 @@ button:active:not(:disabled),
 
 .coach-profile-card__grade-pill {
   padding: 4px 8px;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   border: var(--border-width) solid var(--border-neutral);
   background: rgba(248, 250, 252, 0.96);
   font-size: var(--font-size-small);
@@ -6359,7 +6415,7 @@ button:active:not(:disabled),
 }
 
 .coach-profile-card__edit-btn {
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   border: var(--border-width) solid var(--border-neutral);
   background: var(--surface-base);
   color: var(--text-accent);
@@ -6371,7 +6427,7 @@ button:active:not(:disabled),
 
 .coach-profile-card__meta {
   font-size: var(--font-size-small);
-  color: var(--text-main);
+  color: var(--text-sub);
 }
 
 .coach-profile-card__goal {
@@ -6398,7 +6454,7 @@ button:active:not(:disabled),
   min-height: 44px;
   margin-top: 10px;
   padding: 10px 12px;
-  border-radius: 12px;
+  border-radius: var(--radius-md);
   border: var(--border-width) solid var(--border-neutral);
   background: var(--surface-base);
   font-size: var(--font-size-medium);
@@ -6488,7 +6544,7 @@ button:active:not(:disabled),
 .coach-analysis-hero__action-box {
   margin-top: 12px;
   padding: 12px;
-  border-radius: 14px;
+  border-radius: var(--radius-button);
   border: var(--border-width) solid var(--border-soft);
   background: rgba(var(--neutral-rgb), 0.04);
 }
@@ -6551,7 +6607,7 @@ button:active:not(:disabled),
   letter-spacing: -0.01em;
   color: var(--text-accent);
   padding: 4px 9px;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   background: var(--accent-muted);
   border: 0.5px solid var(--accent-border);
 }
@@ -6575,8 +6631,9 @@ button:active:not(:disabled),
 .coach-primary-btn {
   width: 100%;
   border: none;
-  border-radius: 12px;
-  padding: 11px 12px;
+  border-radius: var(--radius-button);
+  min-height: 44px;
+  padding: 12px 16px;
   font-weight: var(--font-weight-strong);
   letter-spacing: -0.02em;
   color: #ffffff;
@@ -6593,16 +6650,18 @@ button:active:not(:disabled),
 
 .coach-primary-btn--sm {
   width: auto;
-  padding: 10px 12px;
-  border-radius: 12px;
+  min-height: 40px;
+  padding: 9px 14px;
+  border-radius: var(--radius-md);
   font-size: var(--font-size-medium);
 }
 
 .coach-ghost-btn {
   border: var(--border-width) solid var(--border-neutral);
   background: var(--surface-base);
-  border-radius: 12px;
-  padding: 10px 12px;
+  border-radius: var(--radius-button);
+  min-height: 44px;
+  padding: 11px 14px;
   font-weight: var(--font-weight-strong);
   letter-spacing: -0.01em;
   color: var(--text-strong);
@@ -6692,7 +6751,7 @@ button:active:not(:disabled),
 .coach-metric {
   background: var(--surface-base);
   border: var(--border-width) solid var(--border-neutral);
-  border-radius: var(--radius-xl);
+  border-radius: var(--radius-lg);
   padding: 12px 12px;
   box-shadow: var(--shadow-soft);
 }
@@ -6709,7 +6768,7 @@ button:active:not(:disabled),
   justify-content: center;
   width: 24px;
   height: 24px;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   color: var(--text-accent);
   background: var(--accent-muted);
   border: 0.5px solid var(--accent-border);
@@ -6733,7 +6792,7 @@ button:active:not(:disabled),
 .coach-metric__hint {
   margin-top: 4px;
   font-size: var(--font-size-small);
-  color: var(--text-main);
+  color: var(--text-sub);
 }
 
 /* 포인트 컬러는 남색 1개: 상태색 강조는 최소화 */
@@ -6775,7 +6834,7 @@ button:active:not(:disabled),
   flex-shrink: 0;
   width: 40px;
   height: 40px;
-  border-radius: 12px;
+  border-radius: var(--radius-md);
   background: var(--accent-soft);
   color: var(--accent);
 }
@@ -6937,7 +6996,7 @@ button:active:not(:disabled),
   margin: 6px 0 0;
   font-size: var(--font-size-small);
   line-height: 1.45;
-  color: var(--text-main);
+  color: var(--text-sub);
 }
 
 .coach-pill {
@@ -6945,7 +7004,7 @@ button:active:not(:disabled),
   align-items: center;
   gap: 8px;
   padding: 8px 10px;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   border: var(--border-width) solid var(--border-neutral);
   background: var(--surface-base);
 }
@@ -6964,7 +7023,7 @@ button:active:not(:disabled),
 
 .coach-chart {
   margin-top: 10px;
-  border-radius: var(--radius-xl);
+  border-radius: var(--radius-lg);
   overflow: hidden;
   background: var(--surface-base);
   border: var(--border-width) solid var(--border-neutral);
@@ -6997,7 +7056,7 @@ button:active:not(:disabled),
   border: var(--border-width) solid var(--border-neutral);
   background: var(--surface-base);
   color: var(--text-main);
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   padding: 8px 12px;
   font-size: var(--font-size-small);
   font-weight: var(--font-weight-strong);
@@ -7148,7 +7207,7 @@ button:active:not(:disabled),
   font-weight: var(--font-weight-strong);
   color: var(--text-accent);
   padding: 4px 8px;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   background: var(--accent-muted);
   border: 0.5px solid var(--accent-border);
   flex-shrink: 0;
@@ -7177,7 +7236,8 @@ button:active:not(:disabled),
   text-align: left;
   border: var(--border-width) solid var(--border-neutral);
   background: var(--surface-base);
-  border-radius: 16px;
+  border-radius: var(--radius-lg);
+  min-height: 44px;
   padding: 12px 12px;
   display: flex;
   align-items: flex-start;
@@ -7192,7 +7252,7 @@ button:active:not(:disabled),
 .coach-action__check {
   width: 22px;
   height: 22px;
-  border-radius: 8px;
+  border-radius: var(--radius-2xs);
   border: 2px solid rgba(36, 59, 107, 0.30);
   background: rgba(36, 59, 107, 0.05);
   margin-top: 2px;
@@ -7212,7 +7272,7 @@ button:active:not(:disabled),
   margin: auto;
   width: 10px;
   height: 10px;
-  border-radius: 4px;
+  border-radius: var(--radius-3xs);
   background: var(--accent-strong);
 }
 
@@ -7232,7 +7292,7 @@ button:active:not(:disabled),
   margin-top: 6px;
   font-size: var(--font-size-small);
   line-height: 1.45;
-  color: var(--text-main);
+  color: var(--text-sub);
 }
 
 .coach-tag {
@@ -7240,7 +7300,7 @@ button:active:not(:disabled),
   font-size: var(--font-size-small);
   font-weight: var(--font-weight-strong);
   padding: 6px 9px;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   background: var(--accent-tint-bg);
   border: 0.5px solid var(--accent-border);
   color: var(--text-accent);
@@ -7252,7 +7312,7 @@ button:active:not(:disabled),
   align-items: center;
   justify-content: center;
   padding: 6px 10px;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   font-size: var(--font-size-small);
   font-weight: var(--font-weight-strong);
   letter-spacing: -0.01em;
@@ -7396,7 +7456,7 @@ button:active:not(:disabled),
 .coach-admin-hydrate-shell__shimmer {
   height: 14px;
   max-width: 82%;
-  border-radius: 12px;
+  border-radius: var(--radius-md);
   background: linear-gradient(
     90deg,
     rgba(148, 163, 184, 0.22) 0%,
@@ -7440,7 +7500,7 @@ button:active:not(:disabled),
   min-height: 44px;
   align-items: center;
   padding: 10px 12px;
-  border-radius: 16px;
+  border-radius: var(--radius-lg);
   background: rgba(248, 250, 252, 0.85);
   border: var(--border-width) solid var(--border-neutral);
 }
@@ -7451,9 +7511,13 @@ button:active:not(:disabled),
 }
 
 .coach-admin-chat__avatar {
-  border-radius: 999px;
-  background: #183a72;
-  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: var(--radius-pill);
+  background-color: #183a72;
+  background-image: var(--navy-fill-mid-image);
+  background-size: var(--navy-fill-mid-size);
+  background-repeat: var(--navy-fill-mid-repeat);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.14);
 }
 
 .coach-admin-chat__avatar svg {
@@ -7549,7 +7613,7 @@ button:active:not(:disabled),
   flex-direction: column;
   gap: 10px;
   padding: 12px;
-  border-radius: 18px;
+  border-radius: var(--radius-lg-xl-mid);
   border: var(--border-width) solid var(--border-neutral);
   background: rgba(248, 250, 252, 0.7);
 }
@@ -7568,7 +7632,7 @@ button:active:not(:disabled),
   align-items: center;
   justify-content: center;
   gap: 8px;
-  border-radius: 14px;
+  border-radius: var(--radius-button);
   border: var(--border-width) solid var(--border-neutral);
   background: var(--surface-base);
   color: var(--text-strong);
@@ -7587,7 +7651,7 @@ button:active:not(:disabled),
 
 .coach-admin-upload-box__note {
   min-height: 88px;
-  border-radius: 16px;
+  border-radius: var(--radius-lg);
 }
 
 .coach-admin-upload-box__actions {
@@ -7599,14 +7663,21 @@ button:active:not(:disabled),
 .coach-admin-upload-box__submit {
   width: 100%;
   justify-content: center;
-  border-radius: 14px;
-  background: #183a72;
+  border-radius: var(--radius-button);
+  background-color: #183a72;
+  background-image: var(--navy-fill-mid-image);
+  background-size: var(--navy-fill-mid-size);
+  background-repeat: var(--navy-fill-mid-repeat);
   color: #ffffff;
   opacity: 1;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.12);
 }
 
 .coach-admin-upload-box__submit:disabled {
-  background: #183a72;
+  background-color: #183a72;
+  background-image: var(--navy-fill-mid-image);
+  background-size: var(--navy-fill-mid-size);
+  background-repeat: var(--navy-fill-mid-repeat);
   color: #ffffff;
   opacity: 1;
   cursor: default;
@@ -7642,7 +7713,7 @@ button:active:not(:disabled),
   align-items: center;
   gap: 8px;
   padding: 8px 12px;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   border: var(--border-width) solid var(--border-neutral);
   background: var(--surface-base);
   color: var(--text-sub);
@@ -7651,9 +7722,13 @@ button:active:not(:disabled),
 }
 
 .coach-admin-review-tabs__tab--active {
-  background: #183a72;
-  border-color: #183a72;
+  background-color: #183a72;
+  background-image: var(--navy-fill-mid-image);
+  background-size: var(--navy-fill-mid-size);
+  background-repeat: var(--navy-fill-mid-repeat);
+  border-color: rgba(24, 58, 114, 0.98);
   color: #ffffff;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.1);
 }
 
 .coach-admin-review-tabs__count {
@@ -7663,7 +7738,7 @@ button:active:not(:disabled),
   min-width: 22px;
   height: 22px;
   padding: 0 6px;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   background: rgba(148, 163, 184, 0.14);
   color: inherit;
   font-size: 11px;
@@ -7690,7 +7765,7 @@ button:active:not(:disabled),
 
 .coach-admin-homework__item {
   border: var(--border-width) solid var(--border-neutral);
-  border-radius: 16px;
+  border-radius: var(--radius-lg);
   background: var(--surface-base);
   padding: 12px;
   box-shadow: var(--shadow-soft);
@@ -7733,7 +7808,7 @@ button:active:not(:disabled),
 }
 
 .coach-admin-error {
-  border-radius: 14px;
+  border-radius: var(--radius-button);
   background: rgba(220, 38, 38, 0.08);
   color: #991b1b;
   padding: 10px 12px;
@@ -7797,7 +7872,7 @@ button:active:not(:disabled),
 .coach-textarea,
 .coach-chat-text {
   width: 100%;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   border: var(--border-width) solid var(--border-neutral);
   background: var(--surface-base);
   padding: 13px 16px;
@@ -7816,7 +7891,7 @@ button:active:not(:disabled),
 }
 
 .coach-textarea.coach-admin-upload-box__note {
-  border-radius: 16px;
+  border-radius: var(--radius-lg);
 }
 
 .coach-chat-header {
@@ -7835,7 +7910,7 @@ button:active:not(:disabled),
 }
 
 .coach-chat {
-  border-radius: 18px;
+  border-radius: var(--radius-lg-xl-mid);
   border: var(--border-width) solid var(--border-neutral);
   background: rgba(248, 250, 252, 0.7);
   padding: 12px 10px;
@@ -7858,7 +7933,7 @@ button:active:not(:disabled),
 .coach-avatar {
   width: 30px;
   height: 30px;
-  border-radius: 12px;
+  border-radius: var(--radius-md);
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -7886,7 +7961,7 @@ button:active:not(:disabled),
 
 .coach-bubble {
   max-width: 82%;
-  border-radius: 16px;
+  border-radius: var(--radius-lg);
   padding: 10px 12px;
   border: var(--border-width) solid var(--border-neutral);
   box-shadow: 0 12px 28px rgba(var(--text-strong-rgb), 0.06);
@@ -7929,7 +8004,7 @@ button:active:not(:disabled),
 .coach-typing .dot {
   width: 6px;
   height: 6px;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   background: rgba(var(--neutral-rgb), 0.75);
   animation: coach-dot 1.0s infinite ease-in-out;
 }
@@ -7952,7 +8027,7 @@ button:active:not(:disabled),
 .coach-starter {
   border: var(--border-width) solid var(--border-neutral);
   background: var(--surface-base);
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   padding: 10px 12px;
   font-size: var(--font-size-small);
   font-weight: var(--font-weight-strong);
@@ -7976,7 +8051,7 @@ button:active:not(:disabled),
   min-width: 34px;
   height: 34px;
   padding: 0;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -8001,12 +8076,12 @@ button:active:not(:disabled),
 .coach-muted {
   font-size: var(--font-size-medium);
   line-height: 1.55;
-  color: var(--text-main);
+  color: var(--text-sub);
 }
 
 .coach-divider {
   height: 1px;
-  background: rgba(var(--neutral-rgb), 0.22);
+  background: var(--separator);
   margin: 12px 0;
 }
 
@@ -8039,7 +8114,7 @@ button:active:not(:disabled),
   font-size: var(--font-size-small);
   font-weight: var(--font-weight-strong);
   padding: 6px 10px;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   background: rgba(36, 59, 107, 0.08);
   border: 1px solid rgba(36, 59, 107, 0.16);
   color: var(--text-accent);
@@ -8054,7 +8129,7 @@ button:active:not(:disabled),
 .coach-persona {
   border: var(--border-width) solid var(--border-neutral);
   background: var(--surface-base);
-  border-radius: 16px;
+  border-radius: var(--radius-lg);
   padding: 12px 12px;
   text-align: left;
   box-shadow: 0 12px 28px rgba(var(--text-strong-rgb), 0.06);
@@ -8095,7 +8170,7 @@ button:active:not(:disabled),
 .coach-guide-dot {
   width: 8px;
   height: 8px;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   background: rgba(36, 59, 107, 0.85);
   margin-top: 6px;
   flex-shrink: 0;
@@ -8113,7 +8188,7 @@ button:active:not(:disabled),
   text-align: left;
   border: var(--border-width) solid var(--border-neutral);
   background: var(--surface-base);
-  border-radius: 16px;
+  border-radius: var(--radius-lg);
   padding: 12px 12px;
   font-weight: var(--font-weight-strong);
   letter-spacing: -0.01em;
@@ -8127,13 +8202,15 @@ button:active:not(:disabled),
 .coach-phrase__hint {
   font-size: var(--font-size-small);
   font-weight: var(--font-weight-strong);
-  color: var(--text-main);
+  color: var(--text-sub);
 }
 
 .coach-rule {
   margin-top: 12px;
   display: flex;
   align-items: flex-start;
+  gap: 12px;
+}
 
 /* 전역 표면 그림자는 제거하고 하단 네비만 남긴다. */
 .notifications-page__bar,
@@ -8169,13 +8246,11 @@ button:active:not(:disabled),
 .coach-phrase {
   box-shadow: none;
 }
-  gap: 12px;
-}
 
 .coach-rule__dot {
   width: 10px;
   height: 10px;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   background: rgba(36, 59, 107, 0.75);
   margin-top: 6px;
   flex-shrink: 0;
@@ -8271,6 +8346,7 @@ button:active:not(:disabled),
   padding: 0;
   backdrop-filter: none;
   -webkit-backdrop-filter: none;
+  box-shadow: none;
 }
 
 .app-main.app-main--coach-chat .coach-bubble {
@@ -8284,9 +8360,13 @@ button:active:not(:disabled),
 }
 
 .app-main.app-main--coach-chat .coach-avatar.coach-admin-chat__avatar {
-  border-radius: 999px;
-  background: #183a72;
-  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: var(--radius-pill);
+  background-color: #183a72;
+  background-image: var(--navy-fill-mid-image);
+  background-size: var(--navy-fill-mid-size);
+  background-repeat: var(--navy-fill-mid-repeat);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.14);
 }
 
 .app-main.app-main--coach-chat .coach-avatar.coach-admin-chat__avatar svg {
@@ -8312,10 +8392,10 @@ button:active:not(:disabled),
 .auth-tabs,
 .auth-input,
 .coach-chat-text {
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.38);
+  box-shadow: var(--surface-hairline-glass);
 }
 
-/* 모바일 세로 한 줄, 태블릿(768px~) 이상 상단 2열 + 주간 블록은 타임라인 열 너비 */
+/* 모바일 세로 한 줄, 태블릿(768px~) 이상 상단 2열 + 주간 블록은 오늘 계획 열 너비 */
 @media (max-width: 767px) {
   .coach-records-page-grid {
     grid-template-columns: 1fr;
@@ -8334,6 +8414,7 @@ button:active:not(:disabled),
 }
 
 /* Remove outer card borders across the app while keeping internal controls and separators. */
+.parent-planner-card,
 .progress-card,
 .notifications-page__item,
 .today-log-card,
@@ -8356,12 +8437,48 @@ button:active:not(:disabled),
 .coach-persona,
 .coach-phrase,
 .coach-starter,
-.coach-chat {
+.coach-chat,
+.modal-sheet,
+.dday-modal-inner,
+.store-detail-sheet,
+.app-allow-plan-modal-inner {
   border: none;
 }
 
-/* 전역 border 제거 규칙 이후에도 부모 학생 설정 상태 카드는 남색 테두리 유지 */
+/* Unified hairline for all flat surfaces (glass controls use --surface-hairline-glass above). */
+.parent-planner-card,
+.progress-card,
+.notifications-page__item,
+.today-log-card,
+.parent-plan-add-request-detail,
+.record-day-block,
+.record-study-reflection-card,
+.store-card,
+.settings-list,
+.week-card,
+.progress-day-card,
+.progress-day-book,
+.timeline-item,
+.add-card,
+.auth-panel.coach-card,
+.coach-card,
+.coach-hero,
+.coach-metric,
+.coach-chart,
+.coach-action,
+.coach-persona,
+.coach-phrase,
+.coach-chat,
+.modal-sheet,
+.dday-modal-inner,
+.store-detail-sheet,
+.app-allow-plan-modal-inner {
+  box-shadow: var(--surface-hairline);
+}
+
+/* 전역 border·헤어라인 이후: 부모 학생 설정 상태 카드만 남색 테두리(헤어라인 없음) */
 .coach-card.coach-settings-status-card {
   border: var(--border-width) solid var(--accent);
+  box-shadow: none;
 }
 

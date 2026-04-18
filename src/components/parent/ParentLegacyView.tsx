@@ -115,7 +115,7 @@ export function ParentLegacyView(props: {
     return (
       <section className="section">
         <div className="section-header">
-          <h2 className="section-title">관리자</h2>
+          <h2 className="section-title">학부모</h2>
         </div>
       </section>
     );
@@ -221,7 +221,7 @@ export function ParentLegacyView(props: {
                     style={{
                       fontSize: "var(--font-size-medium)",
                       padding: "6px 8px",
-                      borderRadius: 10,
+                      borderRadius: "var(--radius-sm)",
                       border: "1px solid var(--stroke)",
                       background: "transparent"
                     }}

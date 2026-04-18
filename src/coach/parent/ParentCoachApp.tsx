@@ -681,7 +681,7 @@ function TimelineListView(props: {
   const blocks = sortBlocks(props.blocks);
 
   if (!hasCommitment && blocks.length === 0) {
-    return <div className="record-readonly-empty">{props.emptyText || "타임라인 기록이 없습니다."}</div>;
+    return <div className="record-readonly-empty">{props.emptyText || "등록된 계획이 없습니다."}</div>;
   }
 
   return (
@@ -823,7 +823,7 @@ function deriveGuide(report: ParentWeeklyReport | null, aiDaily: ParentAiDaily |
     guidanceLines.push(...report.summaryLines.slice(0, 3));
   }
   if (!guidanceLines.length) {
-    guidanceLines.push("연결된 학생 데이터를 불러오면 이번 주 흐름을 기반으로 관리자 가이드를 보여드립니다.");
+    guidanceLines.push("연결된 학생 데이터를 불러오면 이번 주 흐름을 기반으로 학부모 가이드를 보여드립니다.");
   }
 
   const headline =
@@ -1301,7 +1301,7 @@ function AiReportTab(props: {
         />
         {patternsLoading ? (
           <p className="coach-muted" style={{ padding: "10px 4px 0", fontSize: "var(--font-size-medium)" }}>
-            {aiPatterns.length > 0 ? "최신 패턴으로 동기화하는 중입니다." : "패턴을 분석하는 중입니다."}
+            {aiPatterns.length > 0 ? "최신 기록을 반영하는 중…" : "패턴을 분석하는 중…"}
           </p>
         ) : patternsError ? (
           <p className="coach-muted" style={{ padding: "10px 4px 0", fontSize: "var(--font-size-medium)" }}>
@@ -1333,7 +1333,7 @@ function AiReportTab(props: {
 
       <Card className="coach-card coach-card--padded" style={{ marginTop: 12 }}>
         <SectionHeader
-          title="AI 관리자 가이드"
+          title="AI 학부모 가이드"
           right={<Lightbulb className="coach-analysis-icon coach-analysis-icon--summary" aria-hidden />}
         />
         <div className="coach-guide-lines">
@@ -1652,7 +1652,7 @@ function RecordsTab(props: {
                 className="record-day-memo"
               />
               <ReadonlyTextField
-                label="오늘 공부한 내용을 설명해보세요"
+                label="오늘의 공부 메모"
                 value={dayLog?.metacognitionReflection}
                 className="record-day-memo"
               />
@@ -1661,8 +1661,8 @@ function RecordsTab(props: {
         ) : null}
         {dayBlocks.length > 0 ? (
           <div className="record-life-group">
-            <RecordSubgroupHeading icon={<ListChecks />}>학생 타임라인</RecordSubgroupHeading>
-            <TimelineListView blocks={dayBlocks} emptyText="타임라인이 없습니다." />
+            <RecordSubgroupHeading icon={<ListChecks />}>공부 계획</RecordSubgroupHeading>
+            <TimelineListView blocks={dayBlocks} emptyText="등록된 계획이 없습니다." />
           </div>
         ) : null}
         {isToday ? (
@@ -1781,7 +1781,7 @@ function RecordsTab(props: {
         blocks={dayBlocks}
         commitmentText={commitmentText}
         commitmentDone={commitmentDone}
-        emptyText="타임라인이 없습니다."
+        emptyText="등록된 계획이 없습니다."
       />
     );
   };
@@ -1825,13 +1825,13 @@ function RecordsTab(props: {
         setParentStudentId={props.setParentStudentId}
       />
       {!props.selectedStudent ? (
-        <EmptyState title="학생을 먼저 선택해 주세요." />
+        <EmptyState title="학생을 선택하세요" />
       ) : (
         <>
           <div className="coach-records-page-grid">
             <Card className="coach-card coach-card--padded coach-records-overview-card">
               <SectionHeader
-                title="학생 타임라인"
+                title="공부 계획"
                 icon={<ListChecks aria-hidden />}
                 right={(
                   <button
@@ -1864,7 +1864,7 @@ function RecordsTab(props: {
                             return;
                           }
                           setAiReportMessage(
-                            data.result?.message || "AI 리포트를 생성했습니다. AI 리포트 탭에서 확인해 주세요."
+                            data.result?.message || "리포트가 준비됐어요. 리포트 탭에서 확인하세요."
                           );
                         } catch (error) {
                           setAiReportMessage(
@@ -2395,7 +2395,7 @@ function StudentSettingsTab(props: {
           ? ` (${error.message})`
           : "";
       props.setParentPlannerMessage(
-        `일괄 제어 중 오류가 발생했습니다. API: ${props.apiBase}${detail}`
+        `일괄 제어 중 오류가 발생했습니다. 서버: ${props.apiBase}${detail}`
       );
       props.hapticWarning();
     } finally {
@@ -2501,7 +2501,7 @@ function StudentSettingsTab(props: {
           ? ` (${error.message})`
           : "";
       props.setParentPlannerMessage(
-        `키오스크 모드 제어 중 오류가 발생했습니다. API: ${props.apiBase}${detail}`
+        `키오스크 모드 제어 중 오류가 발생했습니다. 서버: ${props.apiBase}${detail}`
       );
       props.hapticWarning();
     } finally {
@@ -2536,7 +2536,7 @@ function StudentSettingsTab(props: {
       {!props.selectedStudent ? (
         <Card className="coach-card coach-card--padded">
           <SectionHeader title="학생 설정" icon={<UserRound />} />
-          <EmptyState title="학생을 먼저 선택해 주세요." body="학생을 선택하면 설정할 수 있습니다." />
+          <EmptyState title="학생을 선택하세요" body="선택하면 설정을 바꿀 수 있어요." />
         </Card>
       ) : (
         <>
@@ -2584,7 +2584,7 @@ function StudentSettingsTab(props: {
                       className="student-profile-alarm-item__time-btn parent-student-settings__time-btn"
                       style={{
                         fontSize: "1.05em",
-                        borderRadius: 8,
+                        borderRadius: "var(--radius-2xs)",
                         border: "1px solid var(--stroke)",
                         background: "#fff",
                         cursor: props.parentPlannerEnabled ? "pointer" : "not-allowed",
@@ -2683,7 +2683,7 @@ function StudentSettingsTab(props: {
           }
         />
         {!props.selectedStudent ? (
-          <EmptyState title="학생을 먼저 선택해 주세요." body="학생을 선택하면 설정할 수 있습니다." />
+          <EmptyState title="학생을 선택하세요" body="선택하면 설정을 바꿀 수 있어요." />
         ) : (
           <div style={{ marginTop: 12 }}>
             <ModeScheduleSettings
@@ -2727,7 +2727,7 @@ function ManageTab(props: {
 
       {!props.selectedStudent ? (
         <EmptyState
-          title="학생을 먼저 선택해 주세요."
+          title="학생을 선택하세요"
           body="학생을 선택하면 관리 채널을 확인할 수 있습니다."
         />
       ) : (
@@ -2748,7 +2748,7 @@ function ParentAnalysisTab(props: {
   parentAiDaily: ParentAiDaily | null;
 }) {
   if (!props.selectedStudent) {
-    return <EmptyState title="학생을 먼저 선택해 주세요." />;
+    return <EmptyState title="학생을 선택하세요" />;
   }
   const parentSuggestedPhrase = deriveGuide(props.parentReport, props.parentAiDaily).suggestedPhrases[0];
   return (

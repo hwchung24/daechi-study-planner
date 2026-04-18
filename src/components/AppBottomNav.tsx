@@ -149,7 +149,7 @@ export function AppBottomNav(props: {
         <nav
           ref={studentNavRef}
           className="bottom-nav bottom-nav--sliding-pill"
-          aria-label="하단 내비게이션"
+          aria-label="메인 탭"
         >
           <motion.div
             className="bottom-nav__pill"
@@ -211,7 +211,7 @@ export function AppBottomNav(props: {
             <NavIcon>
               <LayoutGrid size={20} strokeWidth={2} />
             </NavIcon>
-            <span className="nav-label">앱스토어</span>
+            <span className="nav-label">앱</span>
           </button>
           <button
             type="button"
@@ -224,7 +224,7 @@ export function AppBottomNav(props: {
             <NavIcon>
               <User size={20} strokeWidth={2} />
             </NavIcon>
-            <span className="nav-label">프로필</span>
+            <span className="nav-label">내 정보</span>
           </button>
         </nav>
       )}
@@ -233,7 +233,7 @@ export function AppBottomNav(props: {
         <nav
           ref={parentNavRef}
           className="bottom-nav bottom-nav--sliding-pill"
-          aria-label="하단 내비게이션"
+          aria-label="메인 탭"
         >
           <motion.div
             className="bottom-nav__pill"
@@ -258,7 +258,7 @@ export function AppBottomNav(props: {
             <NavIcon>
               <User size={20} strokeWidth={2} />
             </NavIcon>
-            <span className="nav-label">학생 관리</span>
+            <span className="nav-label">자녀</span>
           </button>
           <button
             type="button"
@@ -270,7 +270,7 @@ export function AppBottomNav(props: {
             <NavIcon>
               <ClipboardList size={20} strokeWidth={2} />
             </NavIcon>
-            <span className="nav-label">학생 기록</span>
+            <span className="nav-label">기록</span>
           </button>
           <button
             type="button"
@@ -282,7 +282,7 @@ export function AppBottomNav(props: {
             <NavIcon>
               <Settings size={20} strokeWidth={2} />
             </NavIcon>
-            <span className="nav-label">학생 설정</span>
+            <span className="nav-label">자녀 설정</span>
           </button>
           <button
             type="button"
@@ -294,7 +294,7 @@ export function AppBottomNav(props: {
             <NavIcon>
               <User size={20} strokeWidth={2} />
             </NavIcon>
-            <span className="nav-label">프로필</span>
+            <span className="nav-label">내 정보</span>
           </button>
         </nav>
       )}

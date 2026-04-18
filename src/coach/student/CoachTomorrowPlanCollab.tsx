@@ -201,7 +201,7 @@ function buildAppAllowanceAssistantOpening(plan: AppAllowancePlan) {
     })
     .join(", ");
   return [
-    plan.summary || "관리자에게 전달할 허용 앱 요청 내용을 정리했어요.",
+    plan.summary || "학부모에게 보낼 허용 앱 요청을 정리했어요.",
     "",
     preview ? `정리된 요청: ${preview}` : "",
     "",
@@ -248,7 +248,7 @@ function httpErrorMessage(res: Response, bodyText: string, fallback: string): st
   const flat = bodyText.trim().replace(/\s+/g, " ");
   const snip = flat.slice(0, 220);
   if (res.status === 404) {
-    return `API를 찾을 수 없습니다(404). 백엔드(server 폴더에서 npm start, 포트 3000)가 켜져 있고 index.js에 내일 계획 API가 포함된 최신 코드인지 확인해 주세요.`;
+    return `내일 계획을 불러올 수 없습니다(404). 서버가 실행 중인지, 주소가 맞는지 확인해 주세요.`;
   }
   if (snip && !snip.startsWith("<")) {
     return `서버 오류 ${res.status}: ${snip}`;
@@ -406,7 +406,7 @@ const TOMORROW_PLAN_STARTERS: { label: string; message: string }[] = [
   {
     label: APP_ALLOWANCE_STARTER_LABEL,
     message:
-      "허용 앱을 관리하고 싶어요. 제가 원하는 요일, 시간, 앱을 말하면 관리자에게 요청할 수 있게 정리해 주세요."
+      "허용 앱을 관리하고 싶어요. 원하는 요일·시간·앱을 말하면 학부모에게 보낼 수 있게 정리해 주세요."
   }
 ];
 
@@ -521,7 +521,7 @@ export function CoachTomorrowPlanCollab(props: CoachTomorrowPlanCollabProps) {
     }
     return {
       reply:
-        String(data.reply || "").trim() || "말씀하신 내용을 관리자 요청 형태로 정리했어요.",
+        String(data.reply || "").trim() || "말씀하신 내용을 학부모에게 보낼 형태로 정리했어요.",
       plan: hydrateAppAllowancePlan({
         summary: String(data.summary || "").trim(),
         slots: Array.isArray(data.slots) ? data.slots : [],
@@ -571,11 +571,11 @@ export function CoachTomorrowPlanCollab(props: CoachTomorrowPlanCollabProps) {
         throw new Error(
           String(data.error || "").trim() ||
             (data.code === "NO_LINKED_PARENT"
-              ? "연결된 관리자 계정이 없어 요청을 보낼 수 없습니다."
-              : "관리자에게 요청을 보내지 못했습니다.")
+              ? "연결된 학부모 계정이 없어 요청을 보낼 수 없습니다."
+              : "학부모에게 요청을 보내지 못했습니다.")
         );
       }
-      setBanner("관리자 페이지 알림으로 허용 앱 요청을 보냈습니다.");
+      setBanner("학부모 앱에 알림으로 허용 앱 요청을 보냈어요.");
     } catch (error) {
       setBanner(
         error instanceof Error && error.message
@@ -892,7 +892,7 @@ export function CoachTomorrowPlanCollab(props: CoachTomorrowPlanCollabProps) {
                     }
                     onClick={() => void requestParentAppAllowanceReview()}
                   >
-                    {appAllowanceRequesting ? "요청 중…" : "관리자에게 요청하기"}
+                    {appAllowanceRequesting ? "요청 중…" : "학부모에게 요청하기"}
                   </button>
                 </div>
               ) : null}

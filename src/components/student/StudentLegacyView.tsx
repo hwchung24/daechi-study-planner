@@ -1016,7 +1016,7 @@ export function StudentLegacyView(props: {
 
           <section className="section records-study-section">
             <div className="section-header records-section-header">
-              <h2 className="section-title">학습 기록</h2>
+              <h2 className="section-title">공부 기록</h2>
             </div>
             <div className="week-frame">
               <div className="progress-cards-scroll" ref={weekDayScrollRef}>
@@ -1105,7 +1105,7 @@ export function StudentLegacyView(props: {
                                     />
                                   </div>
                                   <div className="field record-day-field record-day-memo">
-                                    <label className="field-label">오늘 공부한 내용을 설명해보세요</label>
+                                    <label className="field-label">오늘의 공부 메모</label>
                                     <textarea
                                       className="field-input record-day-input"
                                       value={todayMetacognitionReflection}
@@ -1208,7 +1208,7 @@ export function StudentLegacyView(props: {
                                     void handleSaveTodayLog("study");
                                   }}
                                 >
-                                  {todayLogSaving ? "저장 중..." : "기록 저장"}
+                                  {todayLogSaving ? "저장 중…" : "저장"}
                                 </button>
                                 {todayLogMessage ? (
                                   <p className="settings-hint record-save-feedback">
@@ -1269,7 +1269,7 @@ export function StudentLegacyView(props: {
           <section className="section week-books-section">
             <div className="progress-card timeline-card-with-action week-books-card">
               <div className="section-header">
-                <h2 className="section-title">책 관리</h2>
+                <h2 className="section-title">교재</h2>
               </div>
               <ul className="books-list">
                 {progressBooks.map(book => (
@@ -1303,7 +1303,7 @@ export function StudentLegacyView(props: {
 
           <section className="section records-life-section">
             <div className="section-header records-section-header">
-              <h2 className="section-title">생활 기록</h2>
+              <h2 className="section-title">생활</h2>
             </div>
             <div className="week-frame">
               <div className="progress-cards-scroll" ref={lifeRecordScrollRef}>
@@ -1475,7 +1475,7 @@ export function StudentLegacyView(props: {
                                     void handleSaveTodayLog("life");
                                   }}
                                 >
-                                  {todayLogSaving ? "저장 중..." : "기록 저장"}
+                                  {todayLogSaving ? "저장 중…" : "저장"}
                                 </button>
                                 {todayLogMessage ? (
                                   <p className="settings-hint record-save-feedback">
@@ -1776,7 +1776,7 @@ export function StudentLegacyView(props: {
               >
                 <div className="dday-modal-header">
                   <span className="dday-modal-title" id="coach-plan-hint-title">
-                    오늘 기록을 먼저 작성해 주세요
+                    오늘 기록을 먼저 작성하세요
                   </span>
                 </div>
                 <div className="dday-modal-body">
@@ -1790,7 +1790,7 @@ export function StudentLegacyView(props: {
                   >
                     AI 코치와 내일 계획을 세울 때는, 기록 탭에 적어 둔 오늘 생활 좋았던 점과
                     나빴던 점, 그리고 오늘 탭에서 공부한 내용을 함께 참고하는 방식으로
-                    이어갈 예정이에요. 먼저 아래 항목을 채운 뒤 다시 눌러 주세요.
+                    아래 항목을 채운 뒤 다시 눌러 주세요.
                   </p>
                   {coachPlanHintKind === "study" ? (
                     <ul
@@ -1804,7 +1804,7 @@ export function StudentLegacyView(props: {
                     >
                       <li>오늘 학습 시간</li>
                       <li>오늘 공부 좋았던 점과 나빴던 점</li>
-                      <li>오늘 공부한 내용을 설명해보세요</li>
+                      <li>오늘의 공부 메모</li>
                     </ul>
                   ) : (
                     <ul

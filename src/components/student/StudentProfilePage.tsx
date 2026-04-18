@@ -666,7 +666,7 @@ export function StudentProfilePage(props: {
       headers: { Authorization: `Bearer ${token}` }
     });
     if (!res.ok) {
-      throw new Error("연결된 관리자 목록을 불러오지 못했습니다.");
+      throw new Error("연결된 학부모 목록을 불러오지 못했습니다.");
     }
     const data = await res.json();
     const nextParents = Array.isArray(data?.parents) ? data.parents : [];
@@ -1267,7 +1267,7 @@ export function StudentProfilePage(props: {
       const msg =
         e instanceof Error && e.message
           ? e.message
-          : "네트워크 오류입니다. 연결과 API 주소를 확인해 주세요.";
+          : "네트워크 오류입니다. 인터넷 연결을 확인해 주세요.";
       setAccountError(msg);
       hapticWarning();
     } finally {
@@ -1436,7 +1436,7 @@ export function StudentProfilePage(props: {
 
         {/* 관리카드 */}
         <Card className="coach-card coach-card--padded student-profile-manage-card">
-          <SectionHeader title="관리" />
+          <SectionHeader title="바로가기" />
           <div className="student-profile-settings-list">
             <button
               type="button"
@@ -1451,7 +1451,7 @@ export function StudentProfilePage(props: {
               className="settings-item"
               onClick={openWeeklyAppManagementModal}
             >
-              <span className="settings-label">일주일 허용 앱 관리</span>
+              <span className="settings-label">허용 앱 일정</span>
               <span className="settings-value">{weeklyAppSummary}</span>
             </button>
             {meRole === "student" ? (
@@ -1489,7 +1489,7 @@ export function StudentProfilePage(props: {
                 className="settings-item"
                 onClick={openParentManagementModal}
               >
-                <span className="settings-label">관리자 설정</span>
+                <span className="settings-label">학부모 연결</span>
                 <span className="settings-value">{parentManagementSummary}</span>
               </button>
             ) : null}
@@ -1689,7 +1689,7 @@ export function StudentProfilePage(props: {
                 onClick={e => e.stopPropagation()}
               >
                 <div className="dday-modal-header">
-                  <span className="dday-modal-title">일주일 허용 앱 관리</span>
+                  <span className="dday-modal-title">허용 앱 일정</span>
                 </div>
                 <div className="dday-modal-body student-profile-schedule-modal-body">
                   {weeklyAppError ? (
@@ -1718,7 +1718,7 @@ export function StudentProfilePage(props: {
                     })}
                   </div>
                   {weeklyAppLoading ? (
-                    <p className="app-allow-plan-empty">주간 허용 앱 시간표를 불러오는 중이에요.</p>
+                    <p className="app-allow-plan-empty">허용 앱 일정을 불러오는 중…</p>
                   ) : selectedWeeklyAppDaySlots.length > 0 ? (
                     <div className="app-allow-plan-slot-list student-weekly-app-slot-list">
                       {selectedWeeklyAppDaySlots.map(slot => (
@@ -1958,7 +1958,7 @@ export function StudentProfilePage(props: {
                         </span>
                       ) : (
                         <span className="student-profile-link-status__hint">
-                          연결된 관리자가 독서실 위치를 먼저 설정해야 합니다.
+                          학부모 또는 학원에서 독서실 위치를 먼저 설정해야 합니다.
                         </span>
                       )}
                       {preferredStudyRoom ? (
@@ -2007,7 +2007,7 @@ export function StudentProfilePage(props: {
             >
               <div className="dday-modal-inner" onClick={e => e.stopPropagation()}>
                 <div className="dday-modal-header">
-                  <span className="dday-modal-title">관리자 설정</span>
+                  <span className="dday-modal-title">학부모 연결</span>
                 </div>
                 <div className="dday-modal-body">
                   {linkedParent && (
@@ -2042,7 +2042,7 @@ export function StudentProfilePage(props: {
                                     hapticWarning();
                                     return;
                                   }
-                                  setParentLinkFeedback("관리자에게 연결 끊기 요청을 보냈습니다.");
+                                  setParentLinkFeedback("학부모에게 연결 해제 요청을 보냈어요.");
                                   hapticSuccess();
                                 } catch {
                                   setParentLinkFeedback("네트워크 오류로 요청을 보내지 못했습니다.");
@@ -2061,7 +2061,7 @@ export function StudentProfilePage(props: {
                   )}
                   <div className="field" style={{ marginTop: 12 }}>
                     <label className="field-label" htmlFor="student-parent-email">
-                      관리자 이메일
+                      학부모 이메일
                     </label>
                     <input
                       id="student-parent-email"
@@ -2085,7 +2085,7 @@ export function StudentProfilePage(props: {
                       }
                       const parentEmail = studentParentEmail.trim();
                       if (!parentEmail) {
-                        setParentLinkFeedback("관리자 이메일을 입력해 주세요.");
+                        setParentLinkFeedback("학부모 이메일을 입력하세요.");
                         hapticWarning();
                         return;
                       }
@@ -2111,7 +2111,7 @@ export function StudentProfilePage(props: {
                         setStudentParentEmail("");
                         await refreshStudentLinkRequests();
                         await refreshLinkedParents();
-                        setParentLinkFeedback("관리자에게 연결 요청을 보냈어요.");
+                        setParentLinkFeedback("학부모에게 연결 요청을 보냈어요.");
                         hapticSuccess();
                       } catch {
                         setParentLinkFeedback("네트워크 오류로 연결 요청을 보내지 못했습니다.");
@@ -2123,7 +2123,7 @@ export function StudentProfilePage(props: {
                   </button>
                   {hasPendingParentLink ? (
                     <p className="settings-hint" style={{ marginTop: 10 }}>
-                      진행 중인 관리자 연결 요청이 있어서 새 요청은 잠시 막아 두었습니다.
+                      처리 중인 연결 요청이 있어요. 끝난 뒤 다시 시도하세요.
                     </p>
                   ) : null}
                   {parentLinkFeedback ? (
@@ -2133,7 +2133,7 @@ export function StudentProfilePage(props: {
                   ) : null}
                   {studentWaitingOnParent.length > 0 && (
                     <div className="student-profile-link-status">
-                      <span className="student-profile-link-status__title">관리자 승인 대기</span>
+                      <span className="student-profile-link-status__title">학부모 승인 대기</span>
                       {studentWaitingOnParent.map(row => (
                         <span key={row.id} className="student-profile-link-status__hint">
                           {row.parent_email}
@@ -2143,7 +2143,7 @@ export function StudentProfilePage(props: {
                   )}
                   {studentWaitingOnMe.length > 0 && (
                     <div className="student-profile-link-status student-profile-link-status--requests">
-                      <span className="student-profile-link-status__title">관리자 연결 요청</span>
+                      <span className="student-profile-link-status__title">학부모 연결 요청</span>
                       {studentWaitingOnMe.map(row => (
                         <div key={row.id} className="student-profile-link-request-row">
                           <span className="student-profile-link-status__hint">{row.parent_email}</span>
@@ -2172,11 +2172,11 @@ export function StudentProfilePage(props: {
                                 }
                                 await refreshStudentLinkRequests();
                                 await refreshLinkedParents();
-                                setParentLinkFeedback("관리자 계정과 연결했어요.");
+                                setParentLinkFeedback("학부모 계정과 연결했어요.");
                                 hapticSuccess();
                               }}
                             >
-                              {hasLinkedParent ? "이미 관리자 연결됨" : "승인 — 이 관리자와 연결"}
+                              {hasLinkedParent ? "이미 연결됨" : "승인하고 연결"}
                             </button>
                             <button
                               type="button"
@@ -2271,7 +2271,7 @@ export function StudentProfilePage(props: {
                     </div>
                     <div className="settings-item settings-item--stack student-profile-alarm-item">
                       <span className="student-profile-alarm-item__body">
-                        <span className="student-profile-alarm-item__label">관리자 연결 알림</span>
+                        <span className="student-profile-alarm-item__label">학부모 연결 알림</span>
                         <span className="student-profile-alarm-item__copy">
                           연결 요청, 승인, 거절, 해제 알림이 와요.
                         </span>
@@ -2313,9 +2313,9 @@ export function StudentProfilePage(props: {
                     </div>
                     <div className="settings-item settings-item--stack student-profile-alarm-item">
                       <span className="student-profile-alarm-item__body">
-                        <span className="student-profile-alarm-item__label">관리자 메시지 알림</span>
+                        <span className="student-profile-alarm-item__label">학원 메시지 알림</span>
                         <span className="student-profile-alarm-item__copy">
-                          관리자 채팅 새 메시지가 오면 알려줘요.
+                          학원에서 보낸 새 메시지가 오면 알려줘요.
                         </span>
                       </span>
                       <button

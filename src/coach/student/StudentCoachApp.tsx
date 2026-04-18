@@ -291,7 +291,7 @@ function buildFallbackAnalysis(
         ? `${studyRoom?.consistencyHint || "독서실 체류 흐름을 함께 보고 있어요."}`
         : "핵심 지표를 1~2개만 집중해서 보면 현재 상태를 더 빠르게 읽을 수 있어요.",
     recommendedAction:
-      snapshot?.nextActions?.[0] || "첫 블록은 25분만 시작하기",
+      snapshot?.nextActions?.[0] || "첫 공부는 25분만 시작하기",
     focusMetricKey: hasStudyRoomGap
       ? "studyRoomMinutes"
       : studyRoomMinutes > 0
@@ -692,7 +692,7 @@ function CoachStudentUnified(props: {
 }) {
   const token = props.apiToken;
   const apiScope = props.apiScope === "parent" ? "parent" : "student";
-  const actionLabel = apiScope === "parent" ? "지금 추천하는 한마디" : "지금 추천하는 한 가지";
+  const actionLabel = apiScope === "parent" ? "추천 한마디" : "추천 한 가지";
   const scopedStudentId =
     apiScope === "parent" && Number.isFinite(Number(props.parentStudentId))
       ? Number(props.parentStudentId)
@@ -1147,7 +1147,7 @@ function CoachStudentUnified(props: {
       ) : null}
 
       <Card className="coach-card coach-card--padded coach-analysis-trend-card">
-        <SectionHeader title={selectedChart?.title || "이번 주 변화"} />
+        <SectionHeader title={selectedChart?.title || "이번 주 추이"} />
         <div className="coach-analysis-trend-tabs" role="tablist" aria-label="분석 추세 지표 선택">
           {availableCharts.map(chart => (
             <button
@@ -1184,15 +1184,15 @@ function CoachStudentUnified(props: {
       </Card>
 
       <div className="coach-stack">
-        <SectionHeader title="AI가 본 이번 주 패턴" />
+        <SectionHeader title="이번 주 패턴" />
         {patternsLoading && (
           <p
             className="coach-muted"
             style={{ padding: "0 4px 10px", fontSize: "var(--font-size-medium)" }}
           >
             {displayPatterns.length > 0
-              ? "최신 패턴으로 동기화하는 중…"
-              : "이번 주 기록을 바탕으로 패턴을 분석하는 중…"}
+              ? "최신 기록을 반영하는 중…"
+              : "이번 주 기록을 분석하는 중…"}
           </p>
         )}
         {!patternsLoading && patternsError && token && (
@@ -1219,15 +1219,15 @@ function CoachStudentUnified(props: {
         ) : (
           !patternsLoading && (
             <EmptyState
-              title="표시할 패턴이 없어요"
+              title="아직 패턴이 없어요"
               body={
                 !token
-                  ? "로그인하면 저장된 이번 주 기록을 바탕으로 패턴을 불러옵니다."
+                  ? "로그인하면 이번 주 기록으로 패턴을 보여 드려요."
                   : patternsError
                     ? undefined
                     : !patternsUsedOpenAi
-                      ? "서버에 OPENAI_API_KEY가 설정되어 있어야 이번 주 DB 기록으로 AI 패턴 분석이 됩니다."
-                      : "이번 주 오늘 공부 탭 기록을 더 남기면 분석이 풍부해져요."
+                      ? "패턴 분석은 서버에서 이 기능을 켠 뒤 이용할 수 있어요."
+                      : "이번 주 기록을 더 남기면 분석이 더 정확해져요."
               }
             />
           )
@@ -1277,7 +1277,7 @@ function CoachStudentUnified(props: {
           }
           onClick={() => selectCoachPanel("admin")}
         >
-          관리자 1:1
+          학부모 1:1
         </button>
       </div>
 
@@ -1318,8 +1318,8 @@ function CoachStudentUnified(props: {
           ) : (
             <div className="coach-stack">
               <EmptyState
-                title="내일 계획 협업을 불러올 수 없어요"
-                body="앱 메인에서 학생으로 로그인한 뒤 다시 시도해 주세요."
+                title="내일 계획을 함께 보는 화면을 열 수 없어요"
+                body="앱에서 학생으로 로그인한 뒤 다시 시도해 주세요."
               />
             </div>
           )}
@@ -1466,7 +1466,7 @@ function CoachChatTabConnected(props: { apiToken: string }) {
       const msg =
         e instanceof Error
           ? e.message
-          : "네트워크 또는 서버 오류입니다. API 서버와 OPENAI_API_KEY 설정을 확인해 주세요.";
+          : "연결이 불안정하거나 서버에 문제가 있을 수 있어요. 잠시 후 다시 시도해 주세요.";
       addMessage({
         id: `c_${Date.now()}`,
         role: "coach",
@@ -1584,9 +1584,7 @@ function CoachChatTabConnected(props: { apiToken: string }) {
             lineHeight: 1.45
           }}
         >
-          GPT 연결 없이 규칙 기반 답변입니다. 실제 GPT를 쓰려면 서버 폴더의{" "}
-          <code style={{ fontSize: "var(--font-size-small)" }}>.env</code>에{" "}
-          <code style={{ fontSize: "var(--font-size-small)" }}>OPENAI_API_KEY</code>를 넣고 서버를 다시 실행하세요.
+          지금은 준비된 규칙으로만 답해요. 서버에서 대화 기능을 켜면 더 자연스러운 답변이 가능해요.
         </p>
       )}
       <div ref={chatScrollRef} className="coach-chat">

@@ -77,7 +77,7 @@ export function generateCoachReply(args: {
     last && last.sleepHours < 6
       ? "\n\n추가로, 어제/오늘 수면이 짧아서 ‘멍함’이 더 크게 느껴질 수 있어요. 오늘은 20분만 당겨도 체감이 납니다."
       : last && last.phoneDistractions >= 14
-        ? "\n\n추가로, 방해(폰)가 많았던 날이에요. 첫 블록만 ‘시야 밖’ 규칙을 걸어보세요."
+        ? "\n\n추가로, 방해(폰)가 많았던 날이에요. 첫 공부만 ‘시야 밖’ 규칙을 걸어보세요."
         : "";
 
   // 디버깅: 실제 입력 메시지 확인

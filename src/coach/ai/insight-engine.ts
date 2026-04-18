@@ -34,7 +34,7 @@ function chooseHeroNarrative(logs7d: DailyLog[], risk: Severity) {
     return "지금은 의지로 버티는 단계가 아니라, 루틴을 회복시키는 ‘구조 조정’이 필요한 타이밍이에요.";
   }
   if (concAvg <= 3.0) {
-    return "집중이 떨어지는 날이 늘고 있어요. 시작 진입장벽을 낮추고, 첫 블록의 성공률을 올려봅시다.";
+    return "집중이 떨어지는 날이 늘고 있어요. 시작 진입장벽을 낮추고, 첫 공부의 성공률을 올려봅시다.";
   }
   return "이번 주는 흐름이 나쁘지 않아요. 다만 작은 흔들림을 ‘습관’으로 굳히지 않도록 보정하면 더 안정적입니다.";
 }
@@ -61,7 +61,7 @@ function nextActionsFromPatterns(patterns: WeeklyInsight["patterns"]): NextActio
   for (const p of patterns) {
     if (p.key === "sleep_deficit") {
       add("취침 시간을 20분만 당기기", "‘완벽’이 아니라 ‘연속 3일’이 목표예요.", "수면");
-      add("첫 블록은 25분 가볍게 시작", "시작만 빠르게 만들면 뒤가 따라옵니다.", "집중");
+      add("첫 공부는 25분 가볍게 시작", "시작만 빠르게 만들면 뒤가 따라옵니다.", "집중");
     }
     if (p.key === "irregular_meals") {
       add("최소 1끼 식사 시간 고정", "시간만 고정해도 컨디션 변동이 줄어요.", "루틴");
@@ -77,7 +77,7 @@ function nextActionsFromPatterns(patterns: WeeklyInsight["patterns"]): NextActio
       add("첫 할 일을 10분 단위로 쪼개기", "진입 장벽을 줄여요.", "집중");
     }
     if (p.key === "falling_concentration") {
-      add("첫 블록은 ‘폰 시야 밖’으로", "쉬는 시간에만 확인 규칙을 만들어요.", "집중");
+      add("첫 공부는 ‘폰 시야 밖’으로", "쉬는 시간에만 확인 규칙을 만들어요.", "집중");
     }
   }
 

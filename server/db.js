@@ -813,14 +813,14 @@ async function parentRequestLink(parentUserId, studentEmail) {
       if (Number(linked.user_id) === Number(parentUserId)) {
         return { ok: false, error: "이미 연결된 학생입니다." };
       }
-      return { ok: false, error: "이 학생은 이미 다른 관리자와 연결되어 있습니다." };
+      return { ok: false, error: "이 학생은 이미 다른 학부모와 연결되어 있습니다." };
     }
     const pending = await findPendingLinkRequestForStudentWithClient(client, student.id);
     if (pending) {
       if (Number(pending.parent_user_id) === Number(parentUserId)) {
         return { ok: false, error: "이미 진행 중인 연결 요청이 있습니다." };
       }
-      return { ok: false, error: "이 학생은 이미 다른 관리자와 연결 요청을 진행 중입니다." };
+      return { ok: false, error: "이 학생은 이미 다른 학부모와 연결 요청을 진행 중입니다." };
     }
     const ins = await client.query(
       `INSERT INTO parent_student_link_requests
@@ -854,16 +854,16 @@ async function studentRequestParent(studentUserId, parentEmail) {
     const linked = await findLinkedParentForStudentWithClient(client, studentUserId);
     if (linked) {
       if (Number(linked.user_id) === Number(parentUser.id)) {
-        return { ok: false, error: "이미 연결된 관리자입니다." };
+        return { ok: false, error: "이미 연결된 학부모입니다." };
       }
-      return { ok: false, error: "이미 연결된 관리자가 있습니다." };
+      return { ok: false, error: "이미 연결된 학부모가 있습니다." };
     }
     const pending = await findPendingLinkRequestForStudentWithClient(client, studentUserId);
     if (pending) {
       if (Number(pending.parent_user_id) === Number(parentUser.id)) {
         return { ok: false, error: "이미 진행 중인 연결 요청이 있습니다." };
       }
-      return { ok: false, error: "이미 다른 관리자와 연결 요청을 진행 중입니다." };
+      return { ok: false, error: "이미 다른 학부모와 연결 요청을 진행 중입니다." };
     }
     const ins = await client.query(
       `INSERT INTO parent_student_link_requests
@@ -955,7 +955,7 @@ async function studentConfirmLinkRequest(studentUserId, requestId) {
     }
     const linked = await findLinkedParentForStudentWithClient(client, studentUserId);
     if (linked && Number(linked.user_id) !== Number(row.parent_user_id)) {
-      return { ok: false, error: "이미 다른 관리자와 연결되어 있습니다." };
+      return { ok: false, error: "이미 다른 학부모와 연결되어 있습니다." };
     }
     const parent = await getParentIdByUserIdWithClient(client, row.parent_user_id);
     if (!parent) return { ok: false, error: "학부모 정보를 찾을 수 없습니다." };
@@ -1003,7 +1003,7 @@ async function parentConfirmLinkRequest(parentUserId, requestId) {
     }
     const linked = await findLinkedParentForStudentWithClient(client, row.student_user_id);
     if (linked && Number(linked.user_id) !== Number(parentUserId)) {
-      return { ok: false, error: "이 학생은 이미 다른 관리자와 연결되어 있습니다." };
+      return { ok: false, error: "이 학생은 이미 다른 학부모와 연결되어 있습니다." };
     }
     const parent = await getParentIdByUserIdWithClient(client, parentUserId);
     if (!parent) return { ok: false, error: "학부모 정보를 찾을 수 없습니다." };
@@ -1054,7 +1054,7 @@ async function rejectLinkRequest(userId, requestId) {
 async function unlinkParentStudentWithClient(client, parentUserId, studentUserId) {
   const parent = await getParentIdByUserIdWithClient(client, parentUserId);
   if (!parent) {
-    return { ok: false, error: "관리자 정보를 찾을 수 없습니다." };
+    return { ok: false, error: "학부모 정보를 찾을 수 없습니다." };
   }
 
   const linked = await client.query(
@@ -1104,7 +1104,7 @@ async function createUnlinkRequest({ actorUserId, actorRole, parentUserId, stude
 
     const parent = await getParentIdByUserIdWithClient(client, parentUserId);
     if (!parent) {
-      return { ok: false, error: "관리자 정보를 찾을 수 없습니다." };
+      return { ok: false, error: "학부모 정보를 찾을 수 없습니다." };
     }
 
     const linked = await client.query(
@@ -2675,7 +2675,7 @@ async function setStudentMdmKioskProfileSyncError(userId, errorMessage) {
                last_synced_at,
                last_error,
                updated_at`,
-    [userId, String(errorMessage || '동기화 실패')]
+    [userId, String(errorMessage || '설정 반영 실패')]
   );
   return res.rows[0] || null;
 }
@@ -2699,7 +2699,7 @@ async function setStudentMdmAppAllowanceProfileSyncError(userId, errorMessage) {
                last_synced_at,
                last_error,
                updated_at`,
-    [userId, String(errorMessage || '동기화 실패')]
+    [userId, String(errorMessage || '설정 반영 실패')]
   );
   return res.rows[0] || null;
 }
