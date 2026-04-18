@@ -666,6 +666,23 @@ html.os-android body {
   font-family: Roboto, "Noto Sans KR", "Malgun Gothic", "Segoe UI", sans-serif;
 }
 
+/*
+ * 학부모 로그인 세션 (App.tsx에서 html.parent-session)
+ * 데스크톱·태블릿 웹에서 정보 밀도 높이 — 학생 네이티브와 구분
+ */
+html.parent-session {
+  --font-size-xlarge: 22px;
+  --font-size-large: 16px;
+  --font-size-medium: 12px;
+  --font-size-small: 11px;
+  --app-shell-inline-padding: 12px;
+  --radius-lg: 14px;
+  --radius-md: 10px;
+  --radius-sm: 8px;
+  --radius-button: 12px;
+  --radius-xl: 18px;
+}
+
 /* 전역: 가로·세로 스크롤은 유지, 스크롤바(막대)만 숨김 */
 * {
   scrollbar-width: none;

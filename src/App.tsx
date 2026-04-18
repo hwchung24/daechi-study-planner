@@ -1293,6 +1293,16 @@ const App: React.FC = () => {
     return () => window.clearTimeout(t);
   }, [authToken, meRole, meRoleResolved]);
 
+  /** 학부모 세션: 큰 화면(웹) 전제로 토큰·패딩 조밀 — 포털 모달까지 html에서 상속 */
+  useEffect(() => {
+    const active =
+      splashDone && route !== "auth" && meRole === "parent";
+    document.documentElement.classList.toggle("parent-session", active);
+    return () => {
+      document.documentElement.classList.remove("parent-session");
+    };
+  }, [splashDone, route, meRole]);
+
   useEffect(() => {
     if (
       !authToken ||
