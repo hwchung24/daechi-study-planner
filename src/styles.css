@@ -497,7 +497,7 @@
   --border-width: 1px;
   --border-soft: rgba(var(--neutral-rgb), 0.2);
   --stroke: rgba(var(--neutral-rgb), 0.35);
-  --shadow-soft: 0 6px 18px rgba(15, 23, 42, 0.06);
+  --shadow-soft: none;
   --radius-xl: 22px;
   --radius-lg: 16px;
   --ease-standard: cubic-bezier(0.22, 1, 0.36, 1);
@@ -512,7 +512,7 @@
   --modal-overlay-opacity: 0.38;
   --modal-backdrop-blur: 12px;
   --modal-surface-bg: #ffffff;
-  --modal-surface-shadow: 0 12px 30px rgba(15, 23, 42, 0.12);
+  --modal-surface-shadow: none;
   --modal-radius: 18px;
   --modal-inner-transform-from: scale(0.96) translateY(10px);
   /* 하단 플로팅 네비 바로 위까지 — 여백 최소(네비 높이·safe-area만) */
