@@ -222,16 +222,6 @@ async function hasUtilityFreeOrBlockNamedProfileAssigned(groupId) {
   return false;
 }
 
-/** 주간 동적 프로파일 적용 전: 같은 그룹의 앱 제한/허용 경쟁 프로파일(named·app_restrictions·주간 커스텀) 제거 */
-async function unassignAllNamedAppAllowanceProfilesFromGroup(groupId) {
-  const named = getConfiguredNamedAllowanceProfileNameSet();
-  await unassignCompetingAppAllowanceProfilesFromGroup(groupId, {
-    targetProfileId: 0,
-    managedNameKeys: named
-  });
-  await syncProfiles(groupId).catch(() => {});
-}
-
 function escapeXml(value) {
   return String(value || "")
     .replace(/&/g, "&amp;")
@@ -437,8 +427,6 @@ async function syncStudentWeeklyAppAllowance(userId, options = {}) {
       };
     }
 
-    await unassignAllNamedAppAllowanceProfilesFromGroup(assignmentGroup.id);
-
     const mobileconfig = buildRestrictionsMobileconfig({ userId, bundleIds });
     const profile = await upsertProfileForStudent(userId, profileState, mobileconfig);
     deviceId = Number(device.id);
@@ -447,6 +435,12 @@ async function syncStudentWeeklyAppAllowance(userId, options = {}) {
 
     await assignProfileToGroup(assignmentGroup.id, profile.profileId);
     appliedRemotely = true;
+
+    const namedKeys = getConfiguredNamedAllowanceProfileNameSet();
+    await unassignCompetingAppAllowanceProfilesFromGroup(assignmentGroup.id, {
+      targetProfileId: profile.profileId,
+      managedNameKeys: namedKeys
+    });
 
     if (
       profile.replacedProfileId &&
@@ -459,6 +453,7 @@ async function syncStudentWeeklyAppAllowance(userId, options = {}) {
 
     let syncDeferred = false;
     try {
+      // 할당·경쟁 프로파일 제거·(구 프로파일 정리)까지 끝난 뒤 sync_profiles 한 번
       await syncProfiles(assignmentGroup.id);
     } catch (error) {
       if (error?.status === 429) {
@@ -556,7 +551,11 @@ async function reconcileAllStudentWeeklyAppAllowances(options = {}) {
   };
 }
 
-async function removeStudentWeeklyAppAllowanceRestriction(userId) {
+/**
+ * @param {{ syncAfterUnassign?: boolean }} [options] - false면 그룹에서 뗀 뒤 sync_profiles 호출 안 함(호출부에서 한 번만 할 때)
+ */
+async function removeStudentWeeklyAppAllowanceRestriction(userId, options = {}) {
+  const syncAfterUnassign = options.syncAfterUnassign !== false;
   const profileState = await getStudentMdmAppAllowanceProfileState(userId);
   if (!profileState?.profile_id) {
     await deleteStudentMdmAppAllowanceProfileState(userId).catch(() => {});
@@ -573,7 +572,9 @@ async function removeStudentWeeklyAppAllowanceRestriction(userId) {
 
   if (assignmentGroupId > 0 && profileId > 0) {
     await unassignProfileFromGroup(assignmentGroupId, profileId).catch(() => {});
-    await syncProfiles(assignmentGroupId).catch(() => {});
+    if (syncAfterUnassign) {
+      await syncProfiles(assignmentGroupId).catch(() => {});
+    }
   }
   if (profileId > 0) {
     await deleteCustomConfigurationProfile(profileId).catch(() => {});

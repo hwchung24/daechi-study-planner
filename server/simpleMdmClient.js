@@ -566,7 +566,8 @@ function shouldUnassignProfileForAllowanceSlot(profileRow, targetProfileId, mana
 }
 
 /**
- * 새 허용앱 프로파일을 붙이기 전, 같은 그룹에 남아 있는 경쟁 프로파일을 모두 그룹에서 뗀다(계정에서 삭제하지 않음).
+ * 같은 그룹에 남아 있는 경쟁 허용앱/앱제한 프로파일을 그룹에서 뗀다(계정에서 삭제하지 않음).
+ * 보통 대상 프로파일을 먼저 assign한 뒤 호출해, 적용 공백을 줄인다.
  */
 async function unassignCompetingAppAllowanceProfilesFromGroup(groupId, options = {}) {
   const targetProfileId = Number(options.targetProfileId || 0);

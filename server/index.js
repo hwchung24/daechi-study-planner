@@ -478,7 +478,9 @@ async function applyNamedAppAllowanceProfileForStudent(userId, modeKey) {
   }
 
   // 기본/유틸/자유(이름 기반 프로파일)은 일괄잠금(override)·주간 동적 프로파일과 동시에 적용되지 않음
-  await removeStudentWeeklyAppAllowanceRestriction(userId).catch(() => {});
+  await removeStudentWeeklyAppAllowanceRestriction(userId, {
+    syncAfterUnassign: false
+  }).catch(() => {});
   await clearStudentMdmAppAllowanceOverride(userId).catch(() => {});
 
   const group = await ensureStudentAssignmentGroupForProfile(userId, Number(device.id));
@@ -493,12 +495,12 @@ async function applyNamedAppAllowanceProfileForStudent(userId, modeKey) {
       .filter(Boolean)
   );
   const targetProfileId = Number(targetProfile.id);
+  // 1) 그룹에 대상 프로파일 할당 → 2) 경쟁 프로파일 그룹에서 제거 → 3) sync_profiles 한 번
+  await assignProfileToGroup(group.id, targetProfileId);
   const removedProfileIds = await unassignCompetingAppAllowanceProfilesFromGroup(group.id, {
     targetProfileId,
     managedNameKeys: managedProfileNameSet
   });
-
-  await assignProfileToGroup(group.id, targetProfileId);
   await syncProfiles(group.id);
 
   const persistedName = String(targetProfile?.attributes?.name || profileName).trim();
