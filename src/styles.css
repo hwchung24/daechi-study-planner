@@ -658,6 +658,14 @@ html.web-app {
   }
 }
 
+/*
+ * 안드로이드만 — main.tsx에서 `navigator.userAgent`에 Android 있으면 html.os-android
+ * (웹 크롬·삼성 인터넷·Capacitor 안드로이드 공통). iOS 전용 패치와 분리해 여기만 수정.
+ */
+html.os-android body {
+  font-family: Roboto, "Noto Sans KR", "Malgun Gothic", "Segoe UI", sans-serif;
+}
+
 /* 전역: 가로·세로 스크롤은 유지, 스크롤바(막대)만 숨김 */
 * {
   scrollbar-width: none;

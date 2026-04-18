@@ -12,6 +12,10 @@ if (typeof document !== "undefined") {
   document.documentElement.classList.add(
     Capacitor.isNativePlatform() ? "capacitor-app" : "web-app"
   );
+  /* 안드로이드 웹·네이티브 공통 — UA 기준 (styles.css `html.os-android`) */
+  if (typeof navigator !== "undefined" && /\bAndroid\b/i.test(navigator.userAgent)) {
+    document.documentElement.classList.add("os-android");
+  }
 }
 
 type RuntimeErrorState = {
