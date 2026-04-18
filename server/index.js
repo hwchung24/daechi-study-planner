@@ -149,7 +149,11 @@ const {
 } = require("./lockService");
 const {
   isSimpleMdmConfigured,
+  simpleMdmRequest,
   findDeviceBySerial,
+  getDeviceById,
+  getAssignmentGroupIdsFromDevice,
+  findStudentAssignmentGroupOnDevice,
   findAppByBundleIdOrName,
   listInstalledAppsForDevice,
   findInstalledAppForDevice,
@@ -4548,13 +4552,99 @@ app.get(
       }
 
       const groupRow = await getStudentMdmGroup(studentId);
+      const dbGroupId =
+        groupRow && Number(groupRow.assignment_group_id) > 0
+          ? Number(groupRow.assignment_group_id)
+          : 0;
+
+      let deviceDetailPayload = null;
+      try {
+        deviceDetailPayload = await getDeviceById(deviceId);
+      } catch (devDetailErr) {
+        console.warn(
+          "simplemdm-device-profiles getDeviceById",
+          deviceId,
+          devDetailErr?.message || devDetailErr
+        );
+      }
+      const deviceGroupIds = getAssignmentGroupIdsFromDevice(deviceDetailPayload);
+
+      let targetGroupId = 0;
+      let resolvedGroupName = groupRow
+        ? String(groupRow.assignment_group_name || "")
+        : "";
+      let assignmentGroupResolution = {
+        source: "none",
+        dbGroupId: dbGroupId || null,
+        deviceGroupIdsFromMdm: deviceGroupIds,
+        correctedDb: false
+      };
+
+      if (dbGroupId > 0 && deviceGroupIds.includes(dbGroupId)) {
+        targetGroupId = dbGroupId;
+        assignmentGroupResolution.source = "db_matches_device";
+      } else if (dbGroupId > 0 && !deviceGroupIds.includes(dbGroupId)) {
+        const found = await findStudentAssignmentGroupOnDevice(
+          deviceGroupIds,
+          studentId
+        );
+        if (found) {
+          targetGroupId = found.id;
+          resolvedGroupName = found.name;
+          assignmentGroupResolution.source = "resolved_student_name_on_device";
+          assignmentGroupResolution.correctedDb = true;
+          await upsertStudentMdmGroup(studentId, found.id, found.name).catch(
+            upErr => {
+              console.warn(
+                "simplemdm-device-profiles upsertStudentMdmGroup",
+                studentId,
+                upErr?.message || upErr
+              );
+            }
+          );
+        } else {
+          targetGroupId = dbGroupId;
+          assignmentGroupResolution.source = "db_not_on_device_fallback_db_id";
+        }
+      } else if (dbGroupId === 0 && deviceGroupIds.length) {
+        const found = await findStudentAssignmentGroupOnDevice(
+          deviceGroupIds,
+          studentId
+        );
+        if (found) {
+          targetGroupId = found.id;
+          resolvedGroupName = found.name;
+          assignmentGroupResolution.source = "resolved_from_device_only";
+          await upsertStudentMdmGroup(studentId, found.id, found.name).catch(
+            upErr => {
+              console.warn(
+                "simplemdm-device-profiles upsertStudentMdmGroup",
+                studentId,
+                upErr?.message || upErr
+              );
+            }
+          );
+        } else if (deviceGroupIds.length === 1) {
+          targetGroupId = deviceGroupIds[0];
+          assignmentGroupResolution.source = "device_single_group";
+          try {
+            const agData = await simpleMdmRequest(
+              `/assignment_groups/${encodeURIComponent(String(targetGroupId))}`
+            );
+            resolvedGroupName = String(
+              agData?.data?.attributes?.name || ""
+            ).trim();
+          } catch {
+            // ignore
+          }
+        }
+      }
+
       let profilesOnAssignmentGroup = [];
       let profilesOnGroupError = null;
-      if (groupRow && Number(groupRow.assignment_group_id) > 0) {
+      if (targetGroupId > 0) {
         try {
-          const rows = await listProfilesForAssignmentGroup(
-            Number(groupRow.assignment_group_id)
-          );
+          const rows = await listProfilesForAssignmentGroup(targetGroupId);
           profilesOnAssignmentGroup = rows
             .map(normalizeSimpleMdmProfileRowForParent)
             .filter(p => p.id != null || p.name);
@@ -4562,27 +4652,37 @@ app.get(
           profilesOnGroupError = String(err?.message || err);
           console.error(
             "listProfilesForAssignmentGroup parent",
-            groupRow.assignment_group_id,
+            targetGroupId,
             err
           );
         }
       }
 
+      const assignmentGroupOut =
+        targetGroupId > 0
+          ? {
+              assignment_group_id: targetGroupId,
+              assignment_group_name: resolvedGroupName || `group-${targetGroupId}`
+            }
+          : groupRow && dbGroupId > 0
+            ? {
+                assignment_group_id: dbGroupId,
+                assignment_group_name: String(groupRow.assignment_group_name || "")
+              }
+            : null;
+
       return res.json({
         ok: true,
         device: deviceSummary,
-        assignmentGroup: groupRow
-          ? {
-              assignment_group_id: Number(groupRow.assignment_group_id),
-              assignment_group_name: String(groupRow.assignment_group_name || "")
-            }
-          : null,
+        assignmentGroup: assignmentGroupOut,
+        assignmentGroupResolution,
         profilesDirectOnDevice,
         ...(profilesDirectError ? { profilesDirectError } : {}),
         profilesOnAssignmentGroup,
         ...(profilesOnGroupError ? { profilesOnGroupError } : {}),
         apiNotes: [
-          "GET /devices/{id}/profiles 는 기기에 직접 할당된 프로파일만 반환합니다. 그룹으로 내려가는 프로파일은 아래 assignment group 목록을 보세요."
+          "GET /devices/{id}/profiles 는 기기에 직접 할당된 프로파일만 반환합니다.",
+          "할당 그룹에 연결된 프로파일은 Simple MDM에서 GET /profiles 의 relationships.groups 로 조회합니다(구형 GET /assignment_groups/:id/profiles 목록은 404인 경우가 많음)."
         ]
       });
     } catch (e) {

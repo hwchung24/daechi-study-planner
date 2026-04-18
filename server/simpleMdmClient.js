@@ -69,6 +69,59 @@ async function findDeviceBySerial(serial) {
   );
 }
 
+async function getDeviceById(deviceId) {
+  const id = Number(deviceId);
+  if (!Number.isFinite(id) || id <= 0) {
+    throw new Error("deviceId가 올바르지 않습니다.");
+  }
+  return simpleMdmRequest(`/devices/${id}`);
+}
+
+/** GET /devices/:id 의 relationships.groups (assignment group id 목록) */
+function getAssignmentGroupIdsFromDevice(deviceDetailResponse) {
+  const rows = deviceDetailResponse?.data?.relationships?.groups?.data;
+  if (!Array.isArray(rows)) return [];
+  return rows
+    .map(r => Number(r?.id))
+    .filter(n => Number.isFinite(n) && n > 0);
+}
+
+function profileReferencesAssignmentGroup(row, assignmentGroupId) {
+  const target = Number(assignmentGroupId);
+  if (!Number.isFinite(target) || target <= 0) return false;
+  const groups = row?.relationships?.groups?.data;
+  if (!Array.isArray(groups)) return false;
+  return groups.some(g => Number(g?.id) === target);
+}
+
+/** 문서상 GET /assignment_groups/:id/profiles 목록이 없어 404가 나는 경우가 많음 → 계정 /profiles 로 대체 */
+async function listProfilesFilteredByAssignmentGroupId(assignmentGroupId) {
+  const rows = await listPaginatedCollection("/profiles");
+  return (Array.isArray(rows) ? rows : []).filter(row =>
+    profileReferencesAssignmentGroup(row, assignmentGroupId)
+  );
+}
+
+/** 기기가 속한 그룹 id들 중 이름이 student-{userId} 인 할당 그룹 찾기 */
+async function findStudentAssignmentGroupOnDevice(deviceGroupIds, studentUserId) {
+  const wantName = `student-${Number(studentUserId)}`;
+  const ids = Array.isArray(deviceGroupIds)
+    ? deviceGroupIds.map(n => Number(n)).filter(n => Number.isFinite(n) && n > 0)
+    : [];
+  for (const gid of ids) {
+    try {
+      const data = await simpleMdmRequest(`/assignment_groups/${gid}`);
+      const name = String(data?.data?.attributes?.name || "").trim();
+      if (name === wantName) {
+        return { id: gid, name };
+      }
+    } catch {
+      // 다음 후보
+    }
+  }
+  return null;
+}
+
 async function createAssignmentGroup(name) {
   const body = new URLSearchParams({
     name,
@@ -449,7 +502,16 @@ async function listProfilesForAssignmentGroup(groupId) {
   if (!Number.isFinite(numericGroupId) || numericGroupId <= 0) {
     throw new Error("assignment group id가 올바르지 않습니다.");
   }
-  return listPaginatedCollection(`/assignment_groups/${numericGroupId}/profiles`);
+  try {
+    return await listPaginatedCollection(
+      `/assignment_groups/${numericGroupId}/profiles`
+    );
+  } catch (err) {
+    if (Number(err?.status) === 404) {
+      return listProfilesFilteredByAssignmentGroupId(numericGroupId);
+    }
+    throw err;
+  }
 }
 
 /** 기기에 직접 할당된 프로파일(SimpleMDM). 그룹 경유 프로파일은 목록에 안 나올 수 있음. */
@@ -465,6 +527,10 @@ module.exports = {
   isSimpleMdmConfigured,
   simpleMdmRequest,
   findDeviceBySerial,
+  getDeviceById,
+  getAssignmentGroupIdsFromDevice,
+  findStudentAssignmentGroupOnDevice,
+  profileReferencesAssignmentGroup,
   findAppByBundleId,
   findAppByName,
   findAppByBundleIdOrName,
