@@ -25,7 +25,7 @@ import {
 } from "../../lib/weekDates";
 import { ParentAdminChannelPanel } from "../admin/AdminChannelPanels";
 import { StudentCoachApp } from "../student/StudentCoachApp";
-import { Card, EmptyState, GradientHeroCard, MetricCard, RiskBadge, SectionHeader, StatPill } from "../ui/components";
+import { Card, EmptyState, GradientHeroCard, MetricCard, RiskBadge, SectionHeader } from "../ui/components";
 import { formatMinutes } from "../utils/format";
 import type { ParentStudentRow } from "../../types/parent";
 import type { StudyRoomVisitSession } from "../../types/studyRoomTracking";
@@ -1996,10 +1996,6 @@ function StudentSettingsTab(props: {
   const [mdmSurfaceMode, setMdmSurfaceMode] = useState<ParentMdmSurfaceMode | null>(null);
   /** 서버가 직접 내려주는 일괄잠금(override) — surface 문자열과 불일치할 때 배너 보정 */
   const [bulkLockOverrideFromApi, setBulkLockOverrideFromApi] = useState(false);
-  /** device-control-state가 내려주는 DB 동기화 스냅샷(직접 확인용) */
-  const [deviceProfileSnapshot, setDeviceProfileSnapshot] = useState<unknown>(null);
-  /** Simple MDM API로 실시간 조회한 기기·그룹 프로파일 */
-  const [simpleMdmLiveSnapshot, setSimpleMdmLiveSnapshot] = useState<unknown>(null);
   /** 학생 전환·Strict Mode에서 옛 요청이 상태를 덮어쓰지 않도록 세대 번호 */
   const deviceUiLoadGenerationRef = useRef(0);
   const [activatingAppMode, setActivatingAppMode] = useState<"utility" | "free" | "default" | null>(null);
@@ -2072,7 +2068,6 @@ function StudentSettingsTab(props: {
         mdmSurfaceMode?: string;
         kioskEnabled?: boolean;
         bulkLockOverride?: boolean;
-        profileSnapshot?: unknown;
       };
 
       if (
@@ -2085,30 +2080,8 @@ function StudentSettingsTab(props: {
       if (!res.ok) {
         setBulkLockOverrideFromApi(false);
         setMdmSurfaceMode("default");
-        const errBody = data as { error?: string };
-        setDeviceProfileSnapshot({
-          requestFailed: true,
-          httpStatus: res.status,
-          error: errBody?.error || null,
-          raw: data
-        });
         return;
       }
-
-      const snapshot =
-        data.profileSnapshot != null
-          ? data.profileSnapshot
-          : {
-              _clientFallback: true,
-              hint: "서버 응답에 profileSnapshot 필드가 없습니다. API/배포 버전을 확인하세요.",
-              topLevel: {
-                mdmSurfaceMode: data.mdmSurfaceMode,
-                appAllowanceMode: data.appAllowanceMode,
-                bulkLockOverride: data.bulkLockOverride,
-                kioskEnabled: data.kioskEnabled
-              }
-            };
-      setDeviceProfileSnapshot(snapshot);
 
       const parsedSurface = parseParentMdmSurfaceMode(data.mdmSurfaceMode);
       const effectiveSurface: ParentMdmSurfaceMode = parsedSurface ?? "default";
@@ -2135,57 +2108,12 @@ function StudentSettingsTab(props: {
     [props.apiBase, props.authToken, props.parentStudentId, refreshStudents]
   );
 
-  const reloadSimpleMdmLiveProfiles = useCallback(
-    async (options?: {
-      targetStudentId?: number | null;
-      loadGeneration?: number;
-    }) => {
-      if (!props.authToken) return;
-      const sid = options?.targetStudentId ?? props.parentStudentId;
-      if (!sid) return;
-
-      const res = await fetch(
-        `${props.apiBase}/api/parent/students/${encodeURIComponent(String(sid))}/simplemdm-device-profiles`,
-        {
-          headers: {
-            Authorization: `Bearer ${props.authToken}`
-          }
-        }
-      );
-
-      const data = (await res.json().catch(() => ({}))) as Record<string, unknown>;
-
-      if (
-        options?.loadGeneration !== undefined &&
-        options.loadGeneration !== deviceUiLoadGenerationRef.current
-      ) {
-        return;
-      }
-
-      if (!res.ok) {
-        const errBody = data as { error?: string };
-        setSimpleMdmLiveSnapshot({
-          requestFailed: true,
-          httpStatus: res.status,
-          error: errBody?.error || null,
-          raw: data
-        });
-        return;
-      }
-
-      setSimpleMdmLiveSnapshot(data);
-    },
-    [props.apiBase, props.authToken, props.parentStudentId]
-  );
-
   useEffect(() => {
     if (!props.authToken || !props.parentStudentId) {
       setActiveAppAllowanceMode(null);
       setIsBulkKioskEnabled(false);
       setMdmSurfaceMode(null);
       setBulkLockOverrideFromApi(false);
-      setDeviceProfileSnapshot(null);
-      setSimpleMdmLiveSnapshot(null);
       setDeviceControlStateLoading(false);
       setActivatingAppMode(null);
       return;
@@ -2207,17 +2135,8 @@ function StudentSettingsTab(props: {
           setDeviceControlStateLoading(false);
         }
       }
-      void reloadSimpleMdmLiveProfiles({
-        targetStudentId: sid,
-        loadGeneration
-      });
     })();
-  }, [
-    props.authToken,
-    props.parentStudentId,
-    reloadStudentDeviceUi,
-    reloadSimpleMdmLiveProfiles
-  ]);
+  }, [props.authToken, props.parentStudentId, reloadStudentDeviceUi]);
 
   const saveStudyRoomSetting = (value: StudyRoomSetting) => {
     if (!props.authToken) return;
@@ -2375,7 +2294,7 @@ function StudentSettingsTab(props: {
         props.hapticWarning();
       } else {
         props.hapticSuccess();
-        await Promise.all([reloadStudentDeviceUi(), reloadSimpleMdmLiveProfiles()]);
+        await reloadStudentDeviceUi();
       }
     } catch (error) {
       const detail =
@@ -2430,7 +2349,7 @@ function StudentSettingsTab(props: {
       }
       props.setParentPlannerMessage(data.message || "허용앱 프로파일을 적용했습니다.");
       props.hapticSuccess();
-      await Promise.all([reloadStudentDeviceUi(), reloadSimpleMdmLiveProfiles()]);
+      await reloadStudentDeviceUi();
     } catch (error) {
       const detail = error instanceof Error && error.message ? ` (${error.message})` : "";
       props.setParentPlannerMessage(`허용앱 프로파일 적용 중 오류가 발생했습니다.${detail}`);
@@ -2481,7 +2400,7 @@ function StudentSettingsTab(props: {
         props.hapticWarning();
       } else {
         props.hapticSuccess();
-        await Promise.all([reloadStudentDeviceUi(), reloadSimpleMdmLiveProfiles()]);
+        await reloadStudentDeviceUi();
       }
     } catch (error) {
       const detail =
@@ -2505,84 +2424,22 @@ function StudentSettingsTab(props: {
         setParentStudentId={props.setParentStudentId}
       />
       {props.selectedStudent ? (
-        <div
-          className={
-            "parent-mdm-status" +
-            (!deviceControlStateLoading ? " parent-mdm-status--on" : " parent-mdm-status--off")
-          }
-          style={{
-            marginTop: 12,
-            marginBottom: 12,
-            padding: "12px 14px",
-            borderRadius: 12,
-            border: "1px solid var(--stroke)",
-            background: !deviceControlStateLoading
-              ? "color-mix(in srgb, var(--success, #22c55e) 12%, transparent)"
-              : "color-mix(in srgb, var(--muted-foreground, #64748b) 8%, transparent)"
-          }}
-        >
-          <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 4 }}>휴대폰 허용앱 모드</div>
-          <div style={{ fontSize: 14, lineHeight: 1.45, color: "var(--foreground)" }}>
-            {deviceControlStateLoading ? (
-              "기기·프로필 상태를 확인하는 중입니다."
-            ) : (
-              <>
-                일괄잠금·유틸리티·자유시간·기본(계획표 포함) 중 하나로만 동작합니다.
-                <div style={{ marginTop: 8, fontSize: 14 }}>
-                  현재 모드: {surfaceModeLabel}
-                </div>
-                <details style={{ marginTop: 12 }}>
-                  <summary style={{ cursor: "pointer", fontSize: 13, color: "var(--muted-foreground)" }}>
-                    DB에 동기화된 값 보기 (학생 프로파일·MDM 메타)
-                  </summary>
-                  <pre
-                    style={{
-                      marginTop: 8,
-                      padding: 10,
-                      fontSize: 11,
-                      lineHeight: 1.4,
-                      overflow: "auto",
-                      maxHeight: 280,
-                      borderRadius: 8,
-                      background: "color-mix(in srgb, var(--foreground) 6%, transparent)",
-                      border: "1px solid var(--stroke)",
-                      whiteSpace: "pre-wrap",
-                      wordBreak: "break-word"
-                    }}
-                  >
-                    {deviceProfileSnapshot != null
-                      ? JSON.stringify(deviceProfileSnapshot, null, 2)
-                      : "(조회된 스냅샷 없음)"}
-                  </pre>
-                </details>
-                <details style={{ marginTop: 10 }}>
-                  <summary style={{ cursor: "pointer", fontSize: 13, color: "var(--muted-foreground)" }}>
-                    Simple MDM에서 조회한 이 기기의 프로파일 (실시간 API)
-                  </summary>
-                  <pre
-                    style={{
-                      marginTop: 8,
-                      padding: 10,
-                      fontSize: 11,
-                      lineHeight: 1.4,
-                      overflow: "auto",
-                      maxHeight: 320,
-                      borderRadius: 8,
-                      background: "color-mix(in srgb, var(--foreground) 6%, transparent)",
-                      border: "1px solid var(--stroke)",
-                      whiteSpace: "pre-wrap",
-                      wordBreak: "break-word"
-                    }}
-                  >
-                    {simpleMdmLiveSnapshot != null
-                      ? JSON.stringify(simpleMdmLiveSnapshot, null, 2)
-                      : "(조회된 Simple MDM 데이터 없음)"}
-                  </pre>
-                </details>
-              </>
-            )}
-          </div>
-        </div>
+        <Card className="coach-card coach-card--padded" style={{ marginTop: 12 }}>
+          {deviceControlStateLoading ? (
+            <p className="settings-hint" style={{ margin: 0 }}>
+              확인 중입니다.
+            </p>
+          ) : (
+            <p
+              className="student-profile-alarm-item__copy"
+              style={{ margin: 0, lineHeight: 1.55, color: "var(--text-main)" }}
+            >
+              {isBulkKioskEnabled
+                ? `학생 휴대폰은 현재 ${surfaceModeLabel} 모드이며 현재 계획표 작성 시간입니다.`
+                : `학생 휴대폰은 현재 ${surfaceModeLabel} 모드입니다.`}
+            </p>
+          )}
+        </Card>
       ) : null}
       <Card className="coach-card coach-card--padded">
         <SectionHeader title="학생 설정" />
