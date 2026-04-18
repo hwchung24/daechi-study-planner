@@ -605,6 +605,7 @@ const App: React.FC = () => {
   /** 로그인 직후 인증 화면 페이드아웃 → 메인 페이드인 */
   const [authLeaving, setAuthLeaving] = useState(false);
   const [mainEnter, setMainEnter] = useState(false);
+  const [headerScrolled, setHeaderScrolled] = useState(false);
   const [meRole, setMeRole] = useState<string | null>(
     () => readCachedMeState()?.role ?? null
   );
@@ -3121,6 +3122,18 @@ const App: React.FC = () => {
   ]);
 
   useEffect(() => {
+    setHeaderScrolled(false);
+  }, [appMainPageKey]);
+
+  const handleAppMainScroll = useCallback(
+    (event: React.UIEvent<HTMLElement>) => {
+      const nextScrolled = event.currentTarget.scrollTop > 8;
+      setHeaderScrolled(prev => (prev === nextScrolled ? prev : nextScrolled));
+    },
+    []
+  );
+
+  useEffect(() => {
     if (!mainEnter) return;
     const id = window.setTimeout(() => setMainEnter(false), 520);
     return () => clearTimeout(id);
@@ -3289,7 +3302,7 @@ const App: React.FC = () => {
           (isStandaloneAnalysisPage ? " app-shell--analysis-focus" : "")
         }
       >
-        <header className="app-header">
+        <header className={`app-header${headerScrolled ? " app-header--scrolled" : ""}`}>
           <div className="header-top">
             {isStandaloneAnalysisPage ? (
               <button
@@ -3369,6 +3382,7 @@ const App: React.FC = () => {
               ? " app-main--coach-chat"
               : "")
           }
+          onScroll={handleAppMainScroll}
         >
           <PageTransition
             pageKey={appMainPageKey}

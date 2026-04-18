@@ -1,13 +1,25 @@
 import ModeScheduleSettings from "./ModeScheduleSettings";
-import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import React, {
+  startTransition,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState
+} from "react";
 import {
+  BookOpen,
   Brain,
   CalendarClock,
   CalendarRange,
+  CheckCircle2,
   ClipboardList,
   LayoutGrid,
+  Library,
   Lightbulb,
+  ListChecks,
   MapPin,
+  NotebookPen,
   ShieldAlert,
   Sparkles,
   TrendingUp,
@@ -618,6 +630,17 @@ function ReadonlyTextField(props: {
         {empty ? props.emptyText || "미입력" : text}
       </div>
     </div>
+  );
+}
+
+function RecordSubgroupHeading(props: { icon: React.ReactNode; children: React.ReactNode }) {
+  return (
+    <h3 className="record-life-group-title record-life-group-title--with-icon">
+      <span className="record-life-group-title__glyph" aria-hidden>
+        {props.icon}
+      </span>
+      <span>{props.children}</span>
+    </h3>
   );
 }
 
@@ -1385,23 +1408,17 @@ function RecordsTab(props: {
     studyRoomLiveStatus.currentDistanceMeters != null
       ? studyRoomLiveStatus.currentDistanceMeters
       : latestVisitDistance;
-  const studyRoomVisitGroups = useMemo(() => {
-    const grouped = new Map<string, { label: string; visits: StudyRoomVisitSession[] }>();
+  const studyRoomVisitsByDate = useMemo(() => {
+    const grouped = new Map<string, StudyRoomVisitSession[]>();
     for (const visit of studyRoomVisits) {
       const keySource = visit.enteredAt || visit.lastSeenAt || visit.exitedAt || "";
-      const date = new Date(keySource);
-      const key = Number.isNaN(date.getTime())
-        ? "unknown"
-        : `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
-      if (!grouped.has(key)) {
-        grouped.set(key, {
-          label: formatStudyRoomVisitDateLabel(keySource),
-          visits: []
-        });
-      }
-      grouped.get(key)?.visits.push(visit);
+      const key = seoulDateKeyFromApiValue(keySource);
+      if (!key) continue;
+      const list = grouped.get(key) || [];
+      list.push(visit);
+      grouped.set(key, list);
     }
-    return Array.from(grouped.values());
+    return grouped;
   }, [studyRoomVisits]);
 
   const refreshStudyRoomVisits = useCallback(
@@ -1622,7 +1639,7 @@ function RecordsTab(props: {
       <>
         {hasStudyLogContent(dayLog) ? (
           <div className="record-life-group">
-            <h3 className="record-life-group-title">오늘 기록</h3>
+            <RecordSubgroupHeading icon={<BookOpen />}>오늘 기록</RecordSubgroupHeading>
             <div className="record-study-reflection-card">
               <ReadonlySliderField
                 label="오늘 학습 시간"
@@ -1644,25 +1661,25 @@ function RecordsTab(props: {
         ) : null}
         {dayBlocks.length > 0 ? (
           <div className="record-life-group">
-            <h3 className="record-life-group-title">학생 타임라인</h3>
+            <RecordSubgroupHeading icon={<ListChecks />}>학생 타임라인</RecordSubgroupHeading>
             <TimelineListView blocks={dayBlocks} emptyText="타임라인이 없습니다." />
           </div>
         ) : null}
         {isToday ? (
           <div className="record-life-group">
-            <h3 className="record-life-group-title">내일 계획</h3>
+            <RecordSubgroupHeading icon={<CalendarRange />}>내일 계획</RecordSubgroupHeading>
             <PlanList plans={tomorrowPlans} emptyText="내일 계획이 아직 없습니다." />
           </div>
         ) : null}
         {isTomorrow ? (
           <div className="record-life-group">
-            <h3 className="record-life-group-title">내일 계획</h3>
+            <RecordSubgroupHeading icon={<CalendarRange />}>내일 계획</RecordSubgroupHeading>
             <PlanList plans={dayPlans} emptyText="내일 계획이 아직 없습니다." />
           </div>
         ) : null}
         {!isToday && !isTomorrow && dayPlans.length > 0 ? (
           <div className="record-life-group">
-            <h3 className="record-life-group-title">저장된 계획</h3>
+            <RecordSubgroupHeading icon={<CalendarRange />}>저장된 계획</RecordSubgroupHeading>
             <PlanList plans={dayPlans} emptyText="저장된 계획이 없습니다." />
           </div>
         ) : null}
@@ -1685,7 +1702,7 @@ function RecordsTab(props: {
       <>
         {dayLog ? (
           <div className="record-life-group">
-            <h3 className="record-life-group-title">오늘 기록</h3>
+            <RecordSubgroupHeading icon={<NotebookPen />}>오늘 기록</RecordSubgroupHeading>
             <div className="record-day-block">
               <ReadonlySliderField
                 label="수면시간"
@@ -1712,7 +1729,7 @@ function RecordsTab(props: {
         ) : null}
         {trimText(dayLog?.tomorrowPractice) ? (
           <div className="record-life-group">
-            <h3 className="record-life-group-title">내일 계획</h3>
+            <RecordSubgroupHeading icon={<CalendarRange />}>내일 계획</RecordSubgroupHeading>
             <div className="record-day-block">
               <ReadonlyTextField
                 label="내일 실천할 한 가지"
@@ -1724,7 +1741,7 @@ function RecordsTab(props: {
         ) : null}
         {commitmentText ? (
           <div className="record-life-group">
-            <h3 className="record-life-group-title">이행여부</h3>
+            <RecordSubgroupHeading icon={<CheckCircle2 />}>이행여부</RecordSubgroupHeading>
             <div className="record-day-block">
               <ReadonlyTextField
                 label="어제 정한 실천"
@@ -1748,6 +1765,58 @@ function RecordsTab(props: {
     );
   };
 
+  const renderTimelineOverviewCard = (dayKey: string) => {
+    const day = daysByDate.get(dayKey) || null;
+    const dayIdNum = day != null ? Number(day.id) : NaN;
+    const dayBlocks =
+      day && Number.isFinite(dayIdNum)
+        ? sortBlocks(blocksByDayId.get(dayIdNum) || [])
+        : [];
+    const prevLog = logsByDate.get(shiftDateKey(dayKey, -1)) || null;
+    const commitmentText = trimText(prevLog?.tomorrowPractice);
+    const commitmentDone = logsByDate.get(dayKey)?.tomorrowPracticeDone ?? null;
+
+    return (
+      <TimelineListView
+        blocks={dayBlocks}
+        commitmentText={commitmentText}
+        commitmentDone={commitmentDone}
+        emptyText="타임라인이 없습니다."
+      />
+    );
+  };
+
+  const renderStudyRoomVisitOverviewCard = (dayKey: string) => {
+    const dayVisits = studyRoomVisitsByDate.get(dayKey) || [];
+    if (!hasStudyRoomConfig) {
+      return <div className="record-readonly-empty">등록된 독서실이 없습니다.</div>;
+    }
+    if (studyRoomVisitsLoading && studyRoomVisits.length === 0) {
+      return <div className="record-readonly-empty">불러오는 중...</div>;
+    }
+    if (dayVisits.length === 0) {
+      return <div className="record-readonly-empty">해당 날짜 체크인 기록이 없습니다.</div>;
+    }
+    return (
+      <div className="parent-study-room-item__visit-list">
+        {dayVisits.map(visit => (
+          <div key={visit.id} className="parent-study-room-item__visit-item">
+            <div className="parent-study-room-item__visit-row">
+              <span className="parent-study-room-item__visit-name">{visit.studyRoomName}</span>
+              <span className="parent-study-room-item__visit-pill">
+                {visit.exitedAt ? "체크아웃" : "체크인"}
+              </span>
+            </div>
+            <div className="parent-study-room-item__visit-meta">{formatStudyRoomVisitTimeRange(visit)}</div>
+            <div className="parent-study-room-item__visit-meta">
+              {visit.lastDistanceMeters != null ? `마지막 거리 ${Math.round(visit.lastDistanceMeters)}m` : "-"}
+            </div>
+          </div>
+        ))}
+      </div>
+    );
+  };
+
   return (
     <div className="coach-page">
       <StudentSelectorCard
@@ -1759,10 +1828,11 @@ function RecordsTab(props: {
         <EmptyState title="학생을 먼저 선택해 주세요." />
       ) : (
         <>
-          <div className="coach-records-overview-grid">
+          <div className="coach-records-page-grid">
             <Card className="coach-card coach-card--padded coach-records-overview-card">
               <SectionHeader
                 title="학생 타임라인"
+                icon={<ListChecks aria-hidden />}
                 right={(
                   <button
                     type="button"
@@ -1818,121 +1888,117 @@ function RecordsTab(props: {
                   {aiReportMessage}
                 </p>
               ) : null}
-              <div style={{ marginTop: 12 }}>
-                <TimelineListView
-                  blocks={todayBlocks}
-                  commitmentText={todayCommitment}
-                  commitmentDone={todayCommitmentDone}
-                  emptyText="오늘 타임라인이 없습니다."
-                />
+              <div className="week-frame coach-records-week-frame">
+                <div className="progress-cards-scroll">
+                  <div className="progress-cards-container">
+                    {getWeekDaysIncludingTomorrowSeoul(0).map(day => (
+                      <div
+                        key={`parent-overview-timeline-${day.key}`}
+                        className={
+                          "progress-day-card" + (day.key === todayKey ? " progress-day-card--today" : "")
+                        }
+                      >
+                        <div className="progress-day-card-header">{day.label}</div>
+                        <div className="progress-day-card-body">
+                          {renderTimelineOverviewCard(day.key)}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
               </div>
             </Card>
-          </div>
 
-          <Card className="coach-card coach-card--padded" style={{ marginTop: 12 }}>
-            <SectionHeader
-              title="독서실 체크인 기록"
-            />
-            <div style={{ marginTop: 12 }}>
-              {hasStudyRoomConfig ? (
-                <div className="parent-study-room-item__visit-empty" style={{ marginBottom: 10 }}>
-                  {displayDistanceMeters != null
-                    ? `${studyRoomLiveStatus.currentDistanceMeters != null ? "현재 거리" : "최근 거리"} ${Math.round(displayDistanceMeters)}m${
-                        typeof studyRoomLiveStatus.currentWithinRadius === "boolean"
-                          ? ` · ${studyRoomLiveStatus.currentWithinRadius ? "체크인됨" : "체크아웃됨"}`
-                          : ""
-                      }`
-                    : "아직 실시간 거리 정보가 없습니다."}
-                  {studyRoomLiveStatus.currentHeartbeatAt
-                    ? ` · 기준 ${formatStudyRoomVisitDateTime(studyRoomLiveStatus.currentHeartbeatAt)}`
-                    : ""}
-                </div>
-              ) : null}
-              {!hasStudyRoomConfig ? (
-                <EmptyState
-                  title="등록된 독서실이 없습니다."
-                />
-              ) : studyRoomVisitsLoading && studyRoomVisits.length === 0 ? (
-                <div className="parent-study-room-item__visit-empty">불러오는 중...</div>
-              ) : studyRoomVisits.length === 0 ? (
-                <div className="parent-study-room-item__visit-empty">체크인 기록 없음</div>
-              ) : (
-                <div className="parent-study-room-item__visit-list">
-                  {studyRoomVisitGroups.map(group => (
-                    <div key={group.label} className="parent-study-room-item__visit-group">
-                      <div className="parent-study-room-item__visit-date">{group.label}</div>
-                      {group.visits.map(visit => (
-                        <div key={visit.id} className="parent-study-room-item__visit-item">
-                          <div className="parent-study-room-item__visit-row">
-                            <span className="parent-study-room-item__visit-name">{visit.studyRoomName}</span>
-                            <span className="parent-study-room-item__visit-pill">
-                              {visit.exitedAt ? "체크아웃" : "체크인"}
-                            </span>
-                          </div>
-                          <div className="parent-study-room-item__visit-meta">
-                            {formatStudyRoomVisitTimeRange(visit)}
-                          </div>
-                          <div className="parent-study-room-item__visit-meta">
-                            {visit.lastDistanceMeters != null
-                              ? `마지막 거리 ${Math.round(visit.lastDistanceMeters)}m`
-                              : "-"}
+            <Card className="coach-card coach-card--padded coach-records-overview-card">
+              <SectionHeader
+                title="독서실 체크인 기록"
+                icon={<Library aria-hidden />}
+              />
+              <div style={{ marginTop: 12 }}>
+                {hasStudyRoomConfig ? (
+                  <div className="parent-study-room-item__visit-empty" style={{ marginBottom: 10 }}>
+                    {displayDistanceMeters != null
+                      ? `${studyRoomLiveStatus.currentDistanceMeters != null ? "현재 거리" : "최근 거리"} ${Math.round(displayDistanceMeters)}m${
+                          typeof studyRoomLiveStatus.currentWithinRadius === "boolean"
+                            ? ` · ${studyRoomLiveStatus.currentWithinRadius ? "체크인됨" : "체크아웃됨"}`
+                            : ""
+                        }`
+                      : "아직 실시간 거리 정보가 없습니다."}
+                    {studyRoomLiveStatus.currentHeartbeatAt
+                      ? ` · 기준 ${formatStudyRoomVisitDateTime(studyRoomLiveStatus.currentHeartbeatAt)}`
+                      : ""}
+                  </div>
+                ) : null}
+                <div className="week-frame coach-records-week-frame">
+                  <div className="progress-cards-scroll">
+                    <div className="progress-cards-container">
+                      {getWeekDaysIncludingTomorrowSeoul(0).map(day => (
+                        <div
+                          key={`parent-overview-checkin-${day.key}`}
+                          className={
+                            "progress-day-card" + (day.key === todayKey ? " progress-day-card--today" : "")
+                          }
+                        >
+                          <div className="progress-day-card-header">{day.label}</div>
+                          <div className="progress-day-card-body">
+                            {renderStudyRoomVisitOverviewCard(day.key)}
                           </div>
                         </div>
                       ))}
                     </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          </Card>
-
-          <section className="section records-study-section" style={{ marginTop: 12 }}>
-            <div className="section-header records-section-header">
-              <h2 className="section-title">학습 기록</h2>
-            </div>
-            <div className="week-frame">
-              <div className="progress-cards-scroll">
-                <div className="progress-cards-container">
-                  {getWeekDaysIncludingTomorrowSeoul(0).map(day => (
-                    <div
-                      key={`parent-study-${day.key}`}
-                      className={
-                        "progress-day-card" +
-                        (day.key === todayKey ? " progress-day-card--today" : "")
-                      }
-                    >
-                      <div className="progress-day-card-header">{day.label}</div>
-                      <div className="progress-day-card-body">{renderStudyCard(day.key)}</div>
-                    </div>
-                  ))}
+                  </div>
                 </div>
               </div>
-            </div>
-          </section>
+            </Card>
 
-          <section className="section records-life-section" style={{ marginTop: 12 }}>
-            <div className="section-header records-section-header">
-              <h2 className="section-title">생활 기록</h2>
-            </div>
-            <div className="week-frame">
-              <div className="progress-cards-scroll">
-                <div className="progress-cards-container">
-                  {getWeekDaysIncludingTomorrowSeoul(0).map(day => (
-                    <div
-                      key={`parent-life-${day.key}`}
-                      className={
-                        "progress-day-card" +
-                        (day.key === todayKey ? " progress-day-card--today" : "")
-                      }
-                    >
-                      <div className="progress-day-card-header">{day.label}</div>
-                      <div className="progress-day-card-body">{renderLifeCard(day.key)}</div>
+            <section className="records-study-section coach-records-week-outer" aria-label="학습 기록">
+              <Card className="coach-card coach-card--padded coach-records-overview-card">
+                <SectionHeader title="학습 기록" icon={<ClipboardList aria-hidden />} />
+                <div className="week-frame coach-records-week-frame">
+                  <div className="progress-cards-scroll">
+                    <div className="progress-cards-container">
+                      {getWeekDaysIncludingTomorrowSeoul(0).map(day => (
+                        <div
+                          key={`parent-study-${day.key}`}
+                          className={
+                            "progress-day-card" +
+                            (day.key === todayKey ? " progress-day-card--today" : "")
+                          }
+                        >
+                          <div className="progress-day-card-header">{day.label}</div>
+                          <div className="progress-day-card-body">{renderStudyCard(day.key)}</div>
+                        </div>
+                      ))}
                     </div>
-                  ))}
+                  </div>
                 </div>
-              </div>
-            </div>
-          </section>
+              </Card>
+            </section>
+
+            <section className="records-life-section coach-records-week-outer" aria-label="생활 기록">
+              <Card className="coach-card coach-card--padded coach-records-overview-card">
+                <SectionHeader title="생활 기록" icon={<NotebookPen aria-hidden />} />
+                <div className="week-frame coach-records-week-frame">
+                  <div className="progress-cards-scroll">
+                    <div className="progress-cards-container">
+                      {getWeekDaysIncludingTomorrowSeoul(0).map(day => (
+                        <div
+                          key={`parent-life-${day.key}`}
+                          className={
+                            "progress-day-card" +
+                            (day.key === todayKey ? " progress-day-card--today" : "")
+                          }
+                        >
+                          <div className="progress-day-card-header">{day.label}</div>
+                          <div className="progress-day-card-body">{renderLifeCard(day.key)}</div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              </Card>
+            </section>
+          </div>
         </>
       )}
     </div>
@@ -1998,12 +2064,13 @@ function StudentSettingsTab(props: {
   const [isBulkKioskEnabled, setIsBulkKioskEnabled] = useState(false);
   const [activeAppAllowanceMode, setActiveAppAllowanceMode] =
     useState<AppAllowanceModeKey | null>(null);
-  const [deviceControlStateLoading, setDeviceControlStateLoading] = useState(false);
   const [mdmSurfaceMode, setMdmSurfaceMode] = useState<ParentMdmSurfaceMode | null>(null);
   /** 서버가 직접 내려주는 일괄잠금(override) — surface 문자열과 불일치할 때 배너 보정 */
   const [bulkLockOverrideFromApi, setBulkLockOverrideFromApi] = useState(false);
   /** 학생 전환·Strict Mode에서 옛 요청이 상태를 덮어쓰지 않도록 세대 번호 */
   const deviceUiLoadGenerationRef = useRef(0);
+  /** 이전에 기기 UI를 불러온 학생 id — 콜백 참조 변경만으로는 상태를 비우지 않기 위함 */
+  const deviceUiPrevStudentIdRef = useRef<number | null>(null);
   const [activatingAppMode, setActivatingAppMode] = useState<"utility" | "free" | "default" | null>(null);
   /** block 프로파일(일괄잠금) — 계획표 수동 잠금과 별개 */
   const isBulkDaechiRootLockActive =
@@ -2017,10 +2084,7 @@ function StudentSettingsTab(props: {
     isBulkDaechiRootLockActive ? "block" : (mdmSurfaceMode ?? "default")
   ) as ParentMdmSurfaceMode;
 
-  const allowanceScheduleBusy =
-    deviceControlStateLoading ||
-    bulkDaechiRootLockSaving ||
-    activatingAppMode != null;
+  const allowanceScheduleBusy = bulkDaechiRootLockSaving || activatingAppMode != null;
 
   useEffect(() => {
     setStudyRoomMessage("");
@@ -2093,24 +2157,28 @@ function StudentSettingsTab(props: {
       }
 
       if (!res.ok) {
-        setBulkLockOverrideFromApi(false);
-        setMdmSurfaceMode("default");
+        startTransition(() => {
+          setBulkLockOverrideFromApi(false);
+          setMdmSurfaceMode("default");
+        });
         return;
       }
 
       const parsedSurface = parseParentMdmSurfaceMode(data.mdmSurfaceMode);
       const effectiveSurface: ParentMdmSurfaceMode = parsedSurface ?? "default";
-      setMdmSurfaceMode(effectiveSurface);
-      setBulkLockOverrideFromApi(
-        effectiveSurface === "block" || Boolean(data.bulkLockOverride)
-      );
+      startTransition(() => {
+        setMdmSurfaceMode(effectiveSurface);
+        setBulkLockOverrideFromApi(
+          effectiveSurface === "block" || Boolean(data.bulkLockOverride)
+        );
 
-      setActiveAppAllowanceMode(
-        data.appAllowanceMode === "utility" || data.appAllowanceMode === "free"
-          ? data.appAllowanceMode
-          : null
-      );
-      setIsBulkKioskEnabled(Boolean(data.kioskEnabled));
+        setActiveAppAllowanceMode(
+          data.appAllowanceMode === "utility" || data.appAllowanceMode === "free"
+            ? data.appAllowanceMode
+            : null
+        );
+        setIsBulkKioskEnabled(Boolean(data.kioskEnabled));
+      });
 
       if (
         options?.loadGeneration !== undefined &&
@@ -2123,35 +2191,45 @@ function StudentSettingsTab(props: {
     [props.apiBase, props.authToken, props.parentStudentId, refreshStudents]
   );
 
+  const reloadStudentDeviceUiRef = useRef(reloadStudentDeviceUi);
+  reloadStudentDeviceUiRef.current = reloadStudentDeviceUi;
+
   useEffect(() => {
     if (!props.authToken || !props.parentStudentId) {
       setActiveAppAllowanceMode(null);
       setIsBulkKioskEnabled(false);
       setMdmSurfaceMode(null);
       setBulkLockOverrideFromApi(false);
-      setDeviceControlStateLoading(false);
       setActivatingAppMode(null);
+      deviceUiPrevStudentIdRef.current = null;
       return;
     }
     const sid = props.parentStudentId;
+    const switched =
+      deviceUiPrevStudentIdRef.current !== null && deviceUiPrevStudentIdRef.current !== sid;
+    deviceUiPrevStudentIdRef.current = sid;
+
     const loadGeneration = ++deviceUiLoadGenerationRef.current;
-    setMdmSurfaceMode(null);
-    setBulkLockOverrideFromApi(false);
-    setIsBulkKioskEnabled(false);
-    setDeviceControlStateLoading(true);
+    if (switched) {
+      startTransition(() => {
+        setMdmSurfaceMode(null);
+        setBulkLockOverrideFromApi(false);
+        setIsBulkKioskEnabled(false);
+        setActiveAppAllowanceMode(null);
+      });
+    }
+
     void (async () => {
       try {
-        await reloadStudentDeviceUi({
+        await reloadStudentDeviceUiRef.current({
           targetStudentId: sid,
           loadGeneration
         });
-      } finally {
-        if (loadGeneration === deviceUiLoadGenerationRef.current) {
-          setDeviceControlStateLoading(false);
-        }
+      } catch {
+        /* 네트워크 오류는 조용히 무시 — 다음 동작 시 재시도 */
       }
     })();
-  }, [props.authToken, props.parentStudentId, reloadStudentDeviceUi]);
+  }, [props.authToken, props.parentStudentId]);
 
   const saveStudyRoomSetting = (value: StudyRoomSetting) => {
     if (!props.authToken) return;
@@ -2440,27 +2518,19 @@ function StudentSettingsTab(props: {
       />
       {props.selectedStudent ? (
         <Card className="coach-card coach-card--padded coach-settings-status-card" style={{ marginTop: 12 }}>
-          {deviceControlStateLoading ? (
-            <div className="coach-settings-banner">
-              <p className="coach-settings-banner__body coach-settings-banner__body--loading">
-                확인 중입니다.
+          <div className="coach-settings-banner">
+            <div className="coach-settings-banner__text-stack">
+              <p className="coach-settings-banner__body">
+                학생 휴대폰은 현재{" "}
+                <span className="coach-settings-banner__mode">{surfaceModeLabel}</span> 모드입니다.
               </p>
-            </div>
-          ) : (
-            <div className="coach-settings-banner">
-              <div className="coach-settings-banner__text-stack">
+              {isBulkKioskEnabled ? (
                 <p className="coach-settings-banner__body">
-                  학생 휴대폰은 현재{" "}
-                  <span className="coach-settings-banner__mode">{surfaceModeLabel}</span> 모드입니다.
+                  현재 <span className="coach-settings-banner__mode">계획표</span> 작성 시간입니다.
                 </p>
-                {isBulkKioskEnabled ? (
-                  <p className="coach-settings-banner__body">
-                    현재 <span className="coach-settings-banner__mode">계획표</span> 작성 시간입니다.
-                  </p>
-                ) : null}
-              </div>
+              ) : null}
             </div>
-          )}
+          </div>
         </Card>
       ) : null}
       {!props.selectedStudent ? (
@@ -2470,117 +2540,126 @@ function StudentSettingsTab(props: {
         </Card>
       ) : (
         <>
-          <Card className="coach-card coach-card--padded">
-            <SectionHeader title="학습 위치 설정" icon={<MapPin />} />
-            <div className="parent-settings-primary-action" style={{ marginTop: 12 }}>
-              <button
-                type="button"
-                className="timeline-save-button study-room-editor__save-button parent-mode-schedule-item__activate"
-                onClick={() => setStudyRoomModalOpen(true)}
-              >
-                독서실 선택
-              </button>
-            </div>
-            {studyRoomMessage ? (
-              <p className="settings-hint" style={{ marginTop: 12 }}>
-                {studyRoomMessage}
-              </p>
-            ) : null}
-            <StudyRoomPickerModal
-              open={studyRoomModalOpen}
-              student={props.selectedStudent}
-              initialValue={props.selectedStudent?.studyRoom || undefined}
-              authToken={props.authToken}
-              saving={studyRoomSaving}
-              onClose={() => setStudyRoomModalOpen(false)}
-              onSave={value => {
-                setStudyRoomModalOpen(false);
-                saveStudyRoomSetting(value);
-              }}
-            />
-          </Card>
-
-          <Card className="coach-card coach-card--padded" style={{ marginTop: 12 }}>
-            <SectionHeader
-              title="계획표 작성 시간"
-              icon={<CalendarClock />}
-              right={
-                <div className="parent-student-settings__planner-controls parent-student-settings__planner-controls--header">
-                  <button
-                    type="button"
-                    className="student-profile-alarm-item__time-btn parent-student-settings__time-btn"
-                    style={{
-                      fontSize: "1.05em",
-                      borderRadius: 8,
-                      border: "1px solid var(--stroke)",
-                      background: "#fff",
-                      cursor: props.parentPlannerEnabled ? "pointer" : "not-allowed",
-                      opacity: props.parentPlannerEnabled ? 1 : 0.5
-                    }}
-                    disabled={!props.parentPlannerEnabled}
-                    onClick={() => props.parentPlannerEnabled && setPlannerTimeSheetOpen(true)}
-                    aria-label="계획표 작성 강제 시각"
-                  >
-                    {props.parentPlannerTime}
-                  </button>
-                  <button
-                    type="button"
-                    className={
-                      "student-profile-alarm-item__toggle student-profile-alarm-item__toggle-button" +
-                      (props.parentPlannerEnabled
-                        ? " student-profile-alarm-item__toggle--on"
-                        : " student-profile-alarm-item__toggle--off")
-                    }
-                    onClick={async () => {
-                      const nextEnabled = !props.parentPlannerEnabled;
-                      props.setParentPlannerEnabled(nextEnabled);
-                      await savePlannerRule({
-                        enabled: nextEnabled,
-                        lockTime: props.parentPlannerTime
-                      });
-                    }}
-                    aria-pressed={props.parentPlannerEnabled}
-                    aria-label={props.parentPlannerEnabled ? "강제 잠금 켜짐" : "강제 잠금 꺼짐"}
-                  >
-                    {props.parentPlannerEnabled ? "켜짐" : "꺼짐"}
-                  </button>
-                </div>
-              }
-            />
-            <TimePickerSheet
-              open={plannerTimeSheetOpen}
-              value={props.parentPlannerTime}
-              onClose={() => setPlannerTimeSheetOpen(false)}
-              onSave={async (newTime: string) => {
-                setPlannerTimeSheetOpen(false);
-                props.setParentPlannerTime(newTime);
-                await savePlannerRule({
-                  enabled: props.parentPlannerEnabled,
-                  lockTime: newTime
-                });
-              }}
-              disabled={!props.parentPlannerEnabled}
-            />
-            <div className="parent-settings-primary-action" style={{ marginTop: 12 }}>
-              <button
-                type="button"
-                className={
-                  ("timeline-save-button study-room-editor__save-button parent-mode-schedule-item__activate") +
-                  (isBulkKioskEnabled ? " student-profile-link-action-btn--danger" : "")
-                }
-                disabled={bulkKioskSaving || deviceControlStateLoading}
-                onClick={() => {
-                  void toggleBulkKioskMode(!isBulkKioskEnabled);
+          <div className="parent-student-settings__location-planner-row">
+            <Card className="coach-card coach-card--padded">
+              <SectionHeader title="학습 위치 설정" icon={<MapPin />} />
+              <div className="parent-settings-primary-action" style={{ marginTop: 12 }}>
+                <button
+                  type="button"
+                  className="timeline-save-button study-room-editor__save-button parent-mode-schedule-item__activate"
+                  onClick={() => setStudyRoomModalOpen(true)}
+                >
+                  독서실 선택
+                </button>
+              </div>
+              {studyRoomMessage ? (
+                <p className="settings-hint" style={{ marginTop: 12 }}>
+                  {studyRoomMessage}
+                </p>
+              ) : null}
+              <StudyRoomPickerModal
+                open={studyRoomModalOpen}
+                student={props.selectedStudent}
+                initialValue={props.selectedStudent?.studyRoom || undefined}
+                authToken={props.authToken}
+                saving={studyRoomSaving}
+                onClose={() => setStudyRoomModalOpen(false)}
+                onSave={value => {
+                  setStudyRoomModalOpen(false);
+                  saveStudyRoomSetting(value);
                 }}
-              >
-                {bulkKioskSaving || deviceControlStateLoading
-                  ? "처리 중..."
-                  : isBulkKioskEnabled
-                    ? "지금 끄기"
-                    : "지금 켜기"}
-              </button>
-            </div>
-          </Card>
+              />
+            </Card>
+
+            <Card className="coach-card coach-card--padded parent-student-settings__planner-card">
+              <SectionHeader
+                title="계획표 작성 시간"
+                titleNarrow="계획표 작성"
+                titleMinimal="계획표"
+                icon={<CalendarClock />}
+                right={
+                  <div className="parent-student-settings__planner-controls parent-student-settings__planner-controls--header">
+                    <button
+                      type="button"
+                      className="student-profile-alarm-item__time-btn parent-student-settings__time-btn"
+                      style={{
+                        fontSize: "1.05em",
+                        borderRadius: 8,
+                        border: "1px solid var(--stroke)",
+                        background: "#fff",
+                        cursor: props.parentPlannerEnabled ? "pointer" : "not-allowed",
+                        opacity: props.parentPlannerEnabled ? 1 : 0.5
+                      }}
+                      disabled={!props.parentPlannerEnabled}
+                      onClick={() => props.parentPlannerEnabled && setPlannerTimeSheetOpen(true)}
+                      aria-label="계획표 작성 강제 시각"
+                    >
+                      {props.parentPlannerTime}
+                    </button>
+                    <button
+                      type="button"
+                      className={
+                        "student-profile-alarm-item__toggle student-profile-alarm-item__toggle-button" +
+                        (props.parentPlannerEnabled
+                          ? " student-profile-alarm-item__toggle--on"
+                          : " student-profile-alarm-item__toggle--off")
+                      }
+                      onClick={async () => {
+                        const nextEnabled = !props.parentPlannerEnabled;
+                        props.setParentPlannerEnabled(nextEnabled);
+                        await savePlannerRule({
+                          enabled: nextEnabled,
+                          lockTime: props.parentPlannerTime
+                        });
+                      }}
+                      aria-pressed={props.parentPlannerEnabled}
+                      aria-label={props.parentPlannerEnabled ? "강제 잠금 켜짐" : "강제 잠금 꺼짐"}
+                    >
+                      {props.parentPlannerEnabled ? "켜짐" : "꺼짐"}
+                    </button>
+                  </div>
+                }
+              />
+              <TimePickerSheet
+                open={plannerTimeSheetOpen}
+                value={props.parentPlannerTime}
+                onClose={() => setPlannerTimeSheetOpen(false)}
+                onSave={async (newTime: string) => {
+                  setPlannerTimeSheetOpen(false);
+                  props.setParentPlannerTime(newTime);
+                  await savePlannerRule({
+                    enabled: props.parentPlannerEnabled,
+                    lockTime: newTime
+                  });
+                }}
+                disabled={!props.parentPlannerEnabled}
+              />
+              <div className="parent-settings-primary-action" style={{ marginTop: 12 }}>
+                <button
+                  type="button"
+                  className={
+                    ("timeline-save-button study-room-editor__save-button parent-mode-schedule-item__activate") +
+                    (isBulkKioskEnabled ? " student-profile-link-action-btn--danger" : "") +
+                    (bulkKioskSaving ? " parent-settings-btn--spinner-only" : "")
+                  }
+                  disabled={bulkKioskSaving}
+                  onClick={() => {
+                    void toggleBulkKioskMode(!isBulkKioskEnabled);
+                  }}
+                  aria-busy={bulkKioskSaving}
+                  aria-label={isBulkKioskEnabled ? "지금 끄기" : "지금 켜기"}
+                >
+                  {bulkKioskSaving ? (
+                    <span className="parent-settings-inline-spinner parent-settings-inline-spinner--inverse" aria-hidden />
+                  ) : isBulkKioskEnabled ? (
+                    "지금 끄기"
+                  ) : (
+                    "지금 켜기"
+                  )}
+                </button>
+              </div>
+            </Card>
+          </div>
         </>
       )}
 
@@ -2610,7 +2689,6 @@ function StudentSettingsTab(props: {
             <ModeScheduleSettings
               activeMode={activeAppAllowanceMode}
               activatingMode={activatingAppMode === "default" ? null : activatingAppMode}
-              stateLoading={deviceControlStateLoading}
               blockActive={isBulkDaechiRootLockActive}
               blockActivating={bulkDaechiRootLockSaving}
               scheduleModalOpen={allowanceScheduleModalOpen}

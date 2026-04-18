@@ -3,14 +3,37 @@ import type { Severity } from "../types";
 
 export function SectionHeader(props: {
   title: string;
+  /** 좁은 카드(부모에 `container-type`, 예: `.parent-student-settings__planner-card`)에서 짧은 제목 */
+  titleNarrow?: string;
+  /** 더 좁을 때 한 단어 수준 제목 */
+  titleMinimal?: string;
   subtitle?: string;
   right?: React.ReactNode;
   /** 섹션 제목 옆에 표시할 아이콘 (예: lucide-react) */
   icon?: React.ReactNode;
 }) {
+  const titleEl =
+    props.titleNarrow != null && props.titleNarrow !== "" ? (
+      <h2 className="coach-section-title coach-section-title--responsive">
+        <span className="coach-section-title__segment coach-section-title__segment--full">
+          {props.title}
+        </span>
+        <span className="coach-section-title__segment coach-section-title__segment--narrow">
+          {props.titleNarrow}
+        </span>
+        {props.titleMinimal != null && props.titleMinimal !== "" ? (
+          <span className="coach-section-title__segment coach-section-title__segment--minimal">
+            {props.titleMinimal}
+          </span>
+        ) : null}
+      </h2>
+    ) : (
+      <h2 className="coach-section-title">{props.title}</h2>
+    );
+
   const titleBlock = (
     <>
-      <h2 className="coach-section-title">{props.title}</h2>
+      {titleEl}
       {props.subtitle && (
         <p className="coach-section-subtitle">{props.subtitle}</p>
       )}

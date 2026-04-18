@@ -85,6 +85,46 @@
   }
 }
 
+/** 학생 설정 등 — 문구 대신 스피너 (parent-header-toggle-spin 재사용) */
+.parent-settings-inline-spinner {
+  display: inline-block;
+  flex-shrink: 0;
+  width: 18px;
+  height: 18px;
+  border-radius: 999px;
+  border: 2px solid rgba(var(--accent-rgb), 0.22);
+  border-top-color: var(--accent);
+  animation: parent-header-toggle-spin 0.75s linear infinite;
+  vertical-align: middle;
+}
+
+/** 남색 채움 버튼 위(흰색 링) */
+.parent-settings-inline-spinner--inverse {
+  border-color: rgba(255, 255, 255, 0.38);
+  border-top-color: #ffffff;
+}
+
+.parent-settings-btn--spinner-only {
+  display: flex !important;
+  align-items: center;
+  justify-content: center;
+  min-height: 44px;
+}
+
+.coach-settings-banner--loading {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: 40px;
+  gap: 10px;
+}
+
+.coach-settings-banner--loading .parent-settings-inline-spinner {
+  width: 22px;
+  height: 22px;
+}
+
 .parent-mode-schedule-item {
   margin-bottom: 0;
 }
@@ -427,7 +467,7 @@
   --neutral-surface-rgb: 255, 255, 255;
   --neutral-surface: #ffffff;
   --surface-base: var(--neutral-surface);
-  --bg: #f3f4f6;
+  --bg: #f6f7fa;
   --bg-elevated: rgba(255, 255, 255, 0.72);
   /* 포인트: 남색 (navy) */
   --accent-rgb: 36, 59, 107;
@@ -451,13 +491,13 @@
   --text-strong: #000000;
   --text-main: var(--text-strong);
   --text-accent: var(--text-strong);
-  --text-sub: var(--text-strong);
-  --text-soft: var(--text-strong);
-  --border-neutral: rgba(var(--neutral-rgb), 0.28);
+  --text-sub: #334155;
+  --text-soft: #64748b;
+  --border-neutral: rgba(var(--neutral-rgb), 0.22);
   --border-width: 1px;
   --border-soft: rgba(var(--neutral-rgb), 0.2);
   --stroke: rgba(var(--neutral-rgb), 0.35);
-  --shadow-soft: none;
+  --shadow-soft: 0 6px 18px rgba(15, 23, 42, 0.06);
   --radius-xl: 22px;
   --radius-lg: 16px;
   --ease-standard: cubic-bezier(0.22, 1, 0.36, 1);
@@ -472,7 +512,7 @@
   --modal-overlay-opacity: 0.38;
   --modal-backdrop-blur: 12px;
   --modal-surface-bg: #ffffff;
-  --modal-surface-shadow: none;
+  --modal-surface-shadow: 0 12px 30px rgba(15, 23, 42, 0.12);
   --modal-radius: 18px;
   --modal-inner-transform-from: scale(0.96) translateY(10px);
   /* 하단 플로팅 네비 바로 위까지 — 여백 최소(네비 높이·safe-area만) */
@@ -748,7 +788,26 @@ body.app-keyboard-open .app-main {
 }
 
 .app-header {
-  padding: 0 0 10px;
+  position: sticky;
+  top: 0;
+  z-index: 40;
+  margin: 0 calc(var(--app-shell-inline-padding) * -1);
+  padding: 0 var(--app-shell-inline-padding) 8px;
+  /* 하단 .bottom-nav와 동일한 글래스 톤·투명도 */
+  background: rgba(249, 249, 251, 0.5);
+  backdrop-filter: blur(28px) saturate(1.15);
+  -webkit-backdrop-filter: blur(28px) saturate(1.15);
+  border-bottom: 1px solid rgba(148, 163, 184, 0.1);
+  transition: background-color 180ms ease, border-color 180ms ease, box-shadow 180ms ease,
+    backdrop-filter 180ms ease, -webkit-backdrop-filter 180ms ease;
+}
+
+.app-header.app-header--scrolled {
+  background: rgba(249, 249, 251, 0.5);
+  backdrop-filter: blur(28px) saturate(1.15);
+  -webkit-backdrop-filter: blur(28px) saturate(1.15);
+  border-bottom-color: rgba(148, 163, 184, 0.14);
+  box-shadow: 0 10px 26px rgba(var(--text-strong-rgb), 0.08);
 }
 
 .header-top {
@@ -936,7 +995,8 @@ body.app-keyboard-open .app-main {
 
 .app-main {
   flex: 1;
-  padding: 4px 2px 72px;
+  margin-top: -8px;
+  padding: 12px 2px 72px;
   overflow-y: auto;
   -webkit-overflow-scrolling: touch;
   scroll-behavior: auto;
@@ -2932,6 +2992,27 @@ body.app-keyboard-open .app-main {
   color: var(--text-accent);
 }
 
+.record-life-group-title--with-icon {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.record-life-group-title__glyph {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  color: var(--text-accent);
+  opacity: 0.9;
+}
+
+.record-life-group-title__glyph svg {
+  width: 16px;
+  height: 16px;
+  stroke-width: 2.25;
+}
+
 .record-life-group-head-row {
   display: flex;
   flex-direction: row;
@@ -3177,6 +3258,31 @@ body.app-keyboard-open .app-main {
   margin-bottom: 6px;
 }
 
+/* 학부모 학생 기록: 학습·생활 섹션 제목 아이콘 */
+.records-section-title {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.records-section-title__icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 36px;
+  height: 36px;
+  border-radius: 11px;
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.records-section-title__icon svg {
+  width: 18px;
+  height: 18px;
+  stroke-width: 2;
+}
+
 .records-section-hint {
   margin: 4px 0 0;
   font-size: var(--font-size-small);
@@ -3190,6 +3296,11 @@ body.app-keyboard-open .app-main {
 .records-life-section,
 .records-study-section {
   margin-top: 2px;
+}
+
+.coach-records-page-grid .records-life-section,
+.coach-records-page-grid .records-study-section {
+  margin-top: 0;
 }
 
 /* 학습 기록 오늘 카드: 공부 좋았던/나빴던 점·오늘 공부한 내용 — 생활 record-day-block · 편집 책 행과 동일 표면 */
@@ -3227,15 +3338,39 @@ body.app-keyboard-open .app-main {
   line-height: 1.5;
 }
 
-.coach-records-overview-grid {
+/* 학부모 학생 기록: 타임라인·체크인 + 주간 스크롤을 한 그리드로 정렬 */
+.coach-records-page-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 12px;
   margin-top: 12px;
+  align-items: start;
+}
+
+.coach-records-page-grid > * {
+  min-width: 0;
 }
 
 .coach-records-overview-card {
   min-height: 100%;
+}
+
+/* 타임라인 열과 동일 너비: 태블릿 이상에서 주간 카드만 1열에 배치 */
+.coach-records-week-outer {
+  margin: 0;
+  padding: 0;
+  border: none;
+  background: transparent;
+}
+
+.coach-records-week-frame {
+  margin-top: 8px;
+}
+
+@media (min-width: 768px) {
+  .coach-records-page-grid > .coach-records-week-outer {
+    grid-column: 1;
+  }
 }
 
 .coach-records-commitment-body {
@@ -5817,7 +5952,9 @@ button:active:not(:disabled),
     width: 100%;
     max-width: 1120px;
     justify-self: center;
-    padding: 6px 4px 14px;
+    margin: 0 auto;
+    padding: 6px 4px 12px;
+    border-radius: 18px;
   }
 
   .app-shell.app-shell--analysis-focus .app-header,
@@ -5836,7 +5973,8 @@ button:active:not(:disabled),
     width: 100%;
     max-width: 1120px;
     justify-self: center;
-    padding: 8px 4px 28px;
+    margin-top: -12px;
+    padding: 20px 4px 28px;
   }
 
   .app-main.app-main--today-fixed {
@@ -6708,6 +6846,73 @@ button:active:not(:disabled),
 
 .parent-student-settings__planner-controls--header {
   margin-left: 4px;
+}
+
+/* 학생 설정: 학습 위치 + 계획표 — 모바일 세로, 태블릿 이상 가로 */
+.parent-student-settings__location-planner-row {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+@media (min-width: 768px) {
+  .parent-student-settings__location-planner-row {
+    flex-direction: row;
+    align-items: stretch;
+  }
+
+  .parent-student-settings__location-planner-row > .coach-card {
+    flex: 1 1 0;
+    min-width: 0;
+  }
+}
+
+/* 계획표 카드 너비에 따라 제목: 전체 → 짧게 → 한 단어 (줄바꿈 방지) */
+.parent-student-settings__planner-card {
+  container-type: inline-size;
+  container-name: parent-planner-card;
+}
+
+.coach-section-title--responsive .coach-section-title__segment {
+  white-space: nowrap;
+}
+
+.coach-section-title--responsive .coach-section-title__segment--narrow,
+.coach-section-title--responsive .coach-section-title__segment--minimal {
+  display: none;
+}
+
+.coach-section-title--responsive .coach-section-title__segment--full {
+  display: inline;
+}
+
+@container parent-planner-card (max-width: 380px) {
+  .parent-student-settings__planner-card .coach-section-title__segment--full {
+    display: none;
+  }
+
+  .parent-student-settings__planner-card .coach-section-title__segment--narrow {
+    display: inline;
+  }
+
+  .parent-student-settings__planner-card .coach-section-title__segment--minimal {
+    display: none;
+  }
+}
+
+@container parent-planner-card (max-width: 260px) {
+  .parent-student-settings__planner-card .coach-section-title__segment--full {
+    display: none;
+  }
+
+  .parent-student-settings__planner-card:has(.coach-section-title__segment--minimal)
+    .coach-section-title__segment--narrow {
+    display: none;
+  }
+
+  .parent-student-settings__planner-card .coach-section-title__segment--minimal {
+    display: inline;
+  }
 }
 
 .parent-student-settings__time-btn {
@@ -8110,9 +8315,14 @@ button:active:not(:disabled),
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.38);
 }
 
-@media (max-width: 820px) {
-  .coach-records-overview-grid {
+/* 모바일 세로 한 줄, 태블릿(768px~) 이상 상단 2열 + 주간 블록은 타임라인 열 너비 */
+@media (max-width: 767px) {
+  .coach-records-page-grid {
     grid-template-columns: 1fr;
+  }
+
+  .coach-records-page-grid > .coach-records-week-outer {
+    grid-column: auto;
   }
 }
 

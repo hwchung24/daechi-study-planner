@@ -21,7 +21,6 @@ export default function ModeScheduleSettings(props: {
   blockActive?: boolean;
   blockActivating?: boolean;
   onToggleBlockNow?: (nextLocked: boolean) => void;
-  stateLoading?: boolean;
   /** 부모 SectionHeader의 + 구간 추가와 연동 */
   scheduleModalOpen?: boolean;
   onScheduleModalClose?: () => void;
@@ -85,9 +84,10 @@ export default function ModeScheduleSettings(props: {
                 type="button"
                 className={
                   "timeline-save-button study-room-editor__save-button parent-mode-schedule-item__activate" +
-                  (isBlock && rowActive ? " student-profile-link-action-btn--danger" : "")
+                  (isBlock && rowActive ? " student-profile-link-action-btn--danger" : "") +
+                  (rowActivating ? " parent-settings-btn--spinner-only" : "")
                 }
-                disabled={Boolean(props.stateLoading) || anyActivating}
+                disabled={anyActivating}
                 onClick={() => {
                   if (isBlock) {
                     props.onToggleBlockNow?.(!rowActive);
@@ -95,14 +95,16 @@ export default function ModeScheduleSettings(props: {
                     props.onToggleModeNow?.(mode.key, props.activeMode !== mode.key);
                   }
                 }}
+                aria-busy={rowActivating}
+                aria-label={rowActivating ? "처리 중" : rowActive ? "지금 끄기" : "지금 켜기"}
               >
-                {props.stateLoading
-                  ? "확인 중..."
-                  : rowActivating
-                    ? "처리 중..."
-                    : rowActive
-                      ? "지금 끄기"
-                      : "지금 켜기"}
+                {rowActivating ? (
+                  <span className="parent-settings-inline-spinner parent-settings-inline-spinner--inverse" aria-hidden />
+                ) : rowActive ? (
+                  "지금 끄기"
+                ) : (
+                  "지금 켜기"
+                )}
               </button>
             </div>
           </div>
