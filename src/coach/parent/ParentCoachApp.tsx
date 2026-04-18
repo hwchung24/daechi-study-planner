@@ -2407,9 +2407,24 @@ function StudentSettingsTab(props: {
           studentIds: [props.parentStudentId]
         })
       });
-      const data = (await res.json().catch(() => ({}))) as { error?: string; message?: string };
+      const data = (await res.json().catch(() => ({}))) as {
+        error?: string;
+        message?: string;
+        ok?: boolean;
+        summary?: { failed?: number };
+        results?: Array<{ ok?: boolean; error?: string }>;
+      };
       if (!res.ok) {
         props.setParentPlannerMessage(data.error || "허용앱 프로파일 적용에 실패했습니다.");
+        props.hapticWarning();
+        return;
+      }
+      const failed = Number(data.summary?.failed ?? 0) > 0 || data.ok === false;
+      if (failed) {
+        const rowErr = data.results?.find(r => r && r.ok === false)?.error;
+        props.setParentPlannerMessage(
+          rowErr || data.message || "허용앱 프로파일 적용에 실패했습니다."
+        );
         props.hapticWarning();
         return;
       }

@@ -69,6 +69,7 @@ const {
   setStudentMdmAppAllowanceOverride,
   clearStudentMdmAppAllowanceOverride,
   getStudentMdmAppAllowanceProfileState,
+  upsertStudentMdmAppAllowanceProfileState,
   upsertStudentMdmAppAllowanceUiSurfaceMode,
   getStudentMdmKioskProfileState,
   upsertStudentCoachProfile,
@@ -507,12 +508,26 @@ async function applyNamedAppAllowanceProfileForStudent(userId, modeKey) {
   await assignProfileToGroup(group.id, targetProfileId);
   await syncProfiles(group.id);
 
+  const persistedName = String(targetProfile?.attributes?.name || profileName).trim();
+  const persistedIdentifier =
+    targetProfile?.attributes?.profile_identifier != null
+      ? String(targetProfile.attributes.profile_identifier).trim()
+      : null;
+  await upsertStudentMdmAppAllowanceProfileState(userId, {
+    profileId: targetProfileId,
+    profileName: persistedName,
+    profileIdentifier: persistedIdentifier || null,
+    lastPayloadHash: null,
+    lastSyncedAt: new Date().toISOString(),
+    lastError: null
+  });
+
   await upsertStudentCoachProfile(userId, { mdmApplied: true }).catch(() => {});
 
   return {
     mode: normalizedMode,
     profileId: targetProfileId,
-    profileName: String(targetProfile?.attributes?.name || profileName),
+    profileName: persistedName,
     removedProfileIds,
     groupId: group.id
   };
