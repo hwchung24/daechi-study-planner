@@ -439,7 +439,8 @@ async function syncStudentWeeklyAppAllowance(userId, options = {}) {
     const namedKeys = getConfiguredNamedAllowanceProfileNameSet();
     await unassignCompetingAppAllowanceProfilesFromGroup(assignmentGroup.id, {
       targetProfileId: profile.profileId,
-      managedNameKeys: namedKeys
+      managedNameKeys: namedKeys,
+      syncAfter: false
     });
 
     if (

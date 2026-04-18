@@ -544,6 +544,12 @@ async function unassignProfileFromGroup(groupId, profileId) {
   );
 }
 
+async function syncProfiles(groupId) {
+  await simpleMdmRequest(`/assignment_groups/${groupId}/sync_profiles`, {
+    method: "POST"
+  });
+}
+
 /**
  * 앱 허용/제한 슬롯을 차지하는 프로파일인지 — 그룹에는 이 계열만 하나 두는 전제.
  * - Simple MDM 네이티브 App Restrictions (`app_restrictions`)
@@ -568,6 +574,8 @@ function shouldUnassignProfileForAllowanceSlot(profileRow, targetProfileId, mana
 /**
  * 같은 그룹에 남아 있는 경쟁 허용앱/앱제한 프로파일을 그룹에서 뗀다(계정에서 삭제하지 않음).
  * 보통 대상 프로파일을 먼저 assign한 뒤 호출해, 적용 공백을 줄인다.
+ * @param {{ targetProfileId?: number, managedNameKeys?: Set<string>, syncAfter?: boolean }} [options]
+ *        syncAfter 기본 true — 그룹 프로필 변경 후 sync_profiles. 이후에 또 unassign 할 일이 있으면 false.
  */
 async function unassignCompetingAppAllowanceProfilesFromGroup(groupId, options = {}) {
   const targetProfileId = Number(options.targetProfileId || 0);
@@ -575,6 +583,7 @@ async function unassignCompetingAppAllowanceProfilesFromGroup(groupId, options =
     options.managedNameKeys instanceof Set
       ? options.managedNameKeys
       : new Set();
+  const syncAfter = options.syncAfter !== false;
   const assigned = await listProfilesForAssignmentGroup(groupId).catch(() => []);
   const removedIds = [];
   for (const profile of Array.isArray(assigned) ? assigned : []) {
@@ -586,13 +595,13 @@ async function unassignCompetingAppAllowanceProfilesFromGroup(groupId, options =
     await unassignProfileFromGroup(groupId, pid).catch(() => {});
     removedIds.push(pid);
   }
+  if (syncAfter) {
+    const gid = Number(groupId);
+    if (Number.isFinite(gid) && gid > 0) {
+      await syncProfiles(gid).catch(() => {});
+    }
+  }
   return removedIds;
-}
-
-async function syncProfiles(groupId) {
-  await simpleMdmRequest(`/assignment_groups/${groupId}/sync_profiles`, {
-    method: "POST"
-  });
 }
 
 async function listProfiles(search = "") {

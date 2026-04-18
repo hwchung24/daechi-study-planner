@@ -170,7 +170,6 @@ const {
   assignProfileToGroup,
   unassignProfileFromGroup,
   unassignCompetingAppAllowanceProfilesFromGroup,
-  syncProfiles,
   findProfileByName,
   listProfilesForAssignmentGroup,
   listDeviceProfiles
@@ -495,13 +494,11 @@ async function applyNamedAppAllowanceProfileForStudent(userId, modeKey) {
       .filter(Boolean)
   );
   const targetProfileId = Number(targetProfile.id);
-  // 1) 그룹에 대상 프로파일 할당 → 2) 경쟁 프로파일 그룹에서 제거 → 3) sync_profiles 한 번
   await assignProfileToGroup(group.id, targetProfileId);
   const removedProfileIds = await unassignCompetingAppAllowanceProfilesFromGroup(group.id, {
     targetProfileId,
     managedNameKeys: managedProfileNameSet
   });
-  await syncProfiles(group.id);
 
   const persistedName = String(targetProfile?.attributes?.name || profileName).trim();
   const persistedIdentifier =
@@ -6761,6 +6758,10 @@ app.post("/api/parent/kiosk-mode/bulk-disable", authMiddleware, async (req, res)
         if (!sync.ok) {
           throw new Error(sync.error || "SimpleMDM 동기화에 실패했습니다.");
         }
+        /** 학부모가 수동으로 끄면 계획표를 다 작성한 것과 동일하게 처리해, 같은 날 다시 키오스크가 잠기지 않게 함 */
+        await markStudentDailyRecordSectionSaved(student.id, "study").catch(() => {});
+        await markStudentDailyRecordSectionSaved(student.id, "life").catch(() => {});
+        invalidatePatternInsightsCacheForStudent(student.id);
         results.push({
           studentId: student.id,
           email: student.email,
