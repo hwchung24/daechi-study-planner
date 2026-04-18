@@ -266,7 +266,10 @@ async function listParentStudents(parentUserId) {
     mdmApplied: Boolean(row.mdmApplied),
     appAllowanceSurface:
       row.app_allowance_surface != null && String(row.app_allowance_surface).trim() !== ""
-        ? String(row.app_allowance_surface).trim().toLowerCase()
+        ? (() => {
+            const raw = String(row.app_allowance_surface).trim().toLowerCase();
+            return raw === "bulk_lock" ? "block" : raw;
+          })()
         : null,
     kioskActive: Boolean(row.kiosk_active),
     studyRoom:
@@ -2398,8 +2401,9 @@ async function getStudentMdmAppAllowanceProfileState(userId) {
 /** 허용앱 표면 모드 스냅샷 — 부모 UI·device-control-state와 동기화 */
 async function upsertStudentMdmAppAllowanceUiSurfaceMode(userId, surfaceMode) {
   const mode = String(surfaceMode || "default").trim().toLowerCase();
-  const allowed = new Set(["bulk_lock", "schedule", "utility", "free", "default"]);
-  const normalized = allowed.has(mode) ? mode : "default";
+  const allowed = new Set(["bulk_lock", "block", "schedule", "utility", "free", "default"]);
+  let normalized = allowed.has(mode) ? mode : "default";
+  if (normalized === "bulk_lock") normalized = "block";
   const res = await query(
     `INSERT INTO student_mdm_app_allowance_profiles
       (user_id, provider, ui_surface_mode, updated_at)

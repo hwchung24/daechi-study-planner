@@ -1934,10 +1934,10 @@ function RecordsTab(props: {
   );
 }
 
-type ParentMdmSurfaceMode = "bulk_lock" | "schedule" | "utility" | "free" | "default";
+type ParentMdmSurfaceMode = "block" | "schedule" | "utility" | "free" | "default";
 
 const PARENT_MDM_SURFACE_LABEL: Record<ParentMdmSurfaceMode, string> = {
-  bulk_lock: "일괄잠금",
+  block: "일괄잠금",
   schedule: "계획표",
   utility: "유틸리티",
   free: "자유시간",
@@ -1948,8 +1948,9 @@ function parseParentMdmSurfaceMode(raw: unknown): ParentMdmSurfaceMode | null {
   const s = String(raw || "")
     .trim()
     .toLowerCase();
+  if (s === "bulk_lock") return "block";
   if (
-    s === "bulk_lock" ||
+    s === "block" ||
     s === "schedule" ||
     s === "utility" ||
     s === "free" ||
@@ -2002,16 +2003,16 @@ function StudentSettingsTab(props: {
   /** 학생 전환·Strict Mode에서 옛 요청이 상태를 덮어쓰지 않도록 세대 번호 */
   const deviceUiLoadGenerationRef = useRef(0);
   const [activatingAppMode, setActivatingAppMode] = useState<"utility" | "free" | "default" | null>(null);
-  /** MDM 일괄잠금(대치루트 전용 override) — 계획표 수동 잠금과 별개 */
+  /** block 프로파일(일괄잠금) — 계획표 수동 잠금과 별개 */
   const isBulkDaechiRootLockActive =
-    mdmSurfaceMode === "bulk_lock" || bulkLockOverrideFromApi;
+    mdmSurfaceMode === "block" || bulkLockOverrideFromApi;
 
   /**
    * API가 `mdmSurfaceMode`는 default인데 `bulkLockOverride`만 true인 경우가 있어,
    * 라벨은 일괄잠금으로 통일한다.
    */
   const mdmDisplaySurfaceMode = (
-    isBulkDaechiRootLockActive ? "bulk_lock" : (mdmSurfaceMode ?? "default")
+    isBulkDaechiRootLockActive ? "block" : (mdmSurfaceMode ?? "default")
   ) as ParentMdmSurfaceMode;
 
   useEffect(() => {
@@ -2113,7 +2114,7 @@ function StudentSettingsTab(props: {
       const effectiveSurface: ParentMdmSurfaceMode = parsedSurface ?? "default";
       setMdmSurfaceMode(effectiveSurface);
       setBulkLockOverrideFromApi(
-        effectiveSurface === "bulk_lock" || Boolean(data.bulkLockOverride)
+        effectiveSurface === "block" || Boolean(data.bulkLockOverride)
       );
 
       setActiveAppAllowanceMode(

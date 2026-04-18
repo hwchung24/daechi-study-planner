@@ -209,7 +209,8 @@ const DAECHI_ROOT_BUNDLE_ID = "com.daechiroot.ios";
 const APP_ALLOWANCE_MODE_TO_PROFILE_NAME = Object.freeze({
   default: String(process.env.SIMPLEMDM_APP_ALLOWANCE_DEFAULT_PROFILE || "default").trim(),
   utility: String(process.env.SIMPLEMDM_APP_ALLOWANCE_UTILITY_PROFILE || "utility").trim(),
-  free: String(process.env.SIMPLEMDM_APP_ALLOWANCE_FREE_PROFILE || "free").trim()
+  free: String(process.env.SIMPLEMDM_APP_ALLOWANCE_FREE_PROFILE || "free").trim(),
+  block: String(process.env.SIMPLEMDM_APP_ALLOWANCE_BLOCK_PROFILE || "block").trim()
 });
 
 function resolveAppAllowanceModeFromProfileName(profileNameRaw) {
@@ -264,11 +265,12 @@ function isDaechiRootBulkLockOverride(overrideBundleIds) {
   return ids.length === 1 && ids[0] === DAECHI_ROOT_BUNDLE_ID.toLowerCase();
 }
 
-/** UI용: 일괄잠금 / 계획표(주간 슬롯) / 유틸리티 / 자유시간 / 기본 */
+/** UI용: block(일괄잠금) / 계획표(주간 슬롯) / 유틸리티 / 자유시간 / 기본 */
 function resolveMdmSurfaceMode(appAllowanceModeKey, weeklySlotCount) {
   const mode = String(appAllowanceModeKey || "default").trim().toLowerCase();
   if (mode === "utility") return "utility";
   if (mode === "free") return "free";
+  if (mode === "block") return "block";
   if (mode === "default") {
     return Number(weeklySlotCount) > 0 ? "schedule" : "default";
   }
@@ -276,8 +278,10 @@ function resolveMdmSurfaceMode(appAllowanceModeKey, weeklySlotCount) {
 }
 
 function resolveMdmSurfaceModeForParent(appAllowanceState, appAllowanceModeKey, weeklySlotCount) {
+  const mode = String(appAllowanceModeKey || "default").trim().toLowerCase();
+  if (mode === "block") return "block";
   if (isDaechiRootBulkLockOverride(appAllowanceState?.override_bundle_ids)) {
-    return "bulk_lock";
+    return "block";
   }
   return resolveMdmSurfaceMode(appAllowanceModeKey, weeklySlotCount);
 }
@@ -523,11 +527,14 @@ async function ensureBaselineAppAllowanceForStudent(userId, options = {}) {
     return { ok: false, skipped: true, reason: "simplemdm_not_configured" };
   }
   const allowanceState = await getStudentMdmAppAllowanceProfileState(userId);
+  const namedMode = resolveAppAllowanceModeFromProfileName(allowanceState?.profile_name);
+  if (namedMode === "block") {
+    return { ok: true, skipped: true, reason: "block_named_profile" };
+  }
   if (isDaechiRootBulkLockOverride(allowanceState?.override_bundle_ids)) {
-    return syncStudentWeeklyAppAllowance(userId, {
-      force: true,
-      reason: options.reason || "ensure_baseline"
-    });
+    await clearStudentMdmAppAllowanceOverride(userId).catch(() => {});
+    await applyNamedAppAllowanceProfileForStudent(userId, "block");
+    return { ok: true, applied: "block_named", legacyOverrideMigrated: true };
   }
   const slots = await listStudentWeeklyAppAllowanceSlots(userId);
   if (slots.length > 0) {
@@ -4384,7 +4391,9 @@ app.get("/api/parent/students/:studentId/device-control-state", authMiddleware, 
       listStudentWeeklyAppAllowanceSlots(studentId)
     ]);
     const appAllowanceMode = resolveAppAllowanceModeFromProfileName(appAllowanceState?.profile_name);
-    const bulkLockOverride = isDaechiRootBulkLockOverride(appAllowanceState?.override_bundle_ids);
+    const bulkLockOverride =
+      isDaechiRootBulkLockOverride(appAllowanceState?.override_bundle_ids) ||
+      appAllowanceMode === "block";
     const mdmSurfaceMode = resolveMdmSurfaceModeForParent(
       appAllowanceState,
       appAllowanceMode,
@@ -6396,21 +6405,16 @@ app.post("/api/parent/app-allowance/bulk-daechiroot-lock", authMiddleware, async
       students,
       async student => {
         try {
-          await setStudentMdmAppAllowanceOverride(student.id, [DAECHI_ROOT_BUNDLE_ID]);
-          const sync = await syncStudentWeeklyAppAllowance(student.id, {
-            force: true,
-            reason: "parent_bulk_daechiroot_lock"
-          });
-          if (!sync.ok) {
-            throw new Error(sync.error || "SimpleMDM 동기화에 실패했습니다.");
-          }
+          await clearStudentMdmAppAllowanceOverride(student.id).catch(() => {});
+          const applied = await applyNamedAppAllowanceProfileForStudent(student.id, "block");
           return {
             studentId: student.id,
             email: student.email,
             ok: true,
-            queued: Boolean(sync.queued),
-            warning: sync.warning || null,
-            partial: Boolean(sync.partial)
+            mode: applied.mode,
+            profileId: applied.profileId,
+            profileName: applied.profileName,
+            groupId: applied.groupId
           };
         } catch (error) {
           return {
@@ -6476,7 +6480,7 @@ app.post("/api/parent/app-allowance/bulk-daechiroot-unlock", authMiddleware, asy
       students,
       async student => {
         try {
-          await clearStudentMdmAppAllowanceOverride(student.id);
+          await clearStudentMdmAppAllowanceOverride(student.id).catch(() => {});
           const [scheduleRows, profileState] = await Promise.all([
             listStudentWeeklyAppAllowanceSlots(student.id),
             getStudentMdmAppAllowanceProfileState(student.id)
@@ -6575,7 +6579,9 @@ app.post("/api/parent/app-allowance/activate-mode", authMiddleware, async (req, 
 
     const mode = normalizeModeKey(req.body?.mode);
     if (!APP_ALLOWANCE_MODE_TO_PROFILE_NAME[mode]) {
-      return res.status(400).json({ error: "mode는 default, utility, free 중 하나여야 합니다." });
+      return res.status(400).json({
+        error: "mode는 default, utility, free, block 중 하나여야 합니다."
+      });
     }
 
     let studentIds = Array.isArray(req.body?.studentIds)

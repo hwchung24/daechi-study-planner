@@ -9,7 +9,13 @@ export type ParentStudyRoomSetting = {
   updatedAt: string;
 };
 
-export type ParentMdmSurfaceKey = "bulk_lock" | "schedule" | "utility" | "free" | "default";
+export type ParentMdmSurfaceKey =
+  | "block"
+  | "bulk_lock"
+  | "schedule"
+  | "utility"
+  | "free"
+  | "default";
 
 export type ParentStudentRow = {
   id: number;
