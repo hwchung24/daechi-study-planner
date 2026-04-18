@@ -2007,63 +2007,95 @@ function StudentSettingsTab(props: {
     setStudyRoomMessage("");
   }, [props.selectedStudent?.id]);
 
-  const refreshStudents = useCallback(async () => {
-    if (!props.authToken) return;
-    const res = await fetch(`${props.apiBase}/api/parent/students`, {
-      headers: {
-        Authorization: `Bearer ${props.authToken}`
-      }
-    });
-    if (!res.ok) return;
-    const data = await res.json().catch(() => ({}));
-    const next = Array.isArray(data.students) ? data.students : [];
-    props.setParentStudents(next);
-    const preserved = next.find(student => student.id === props.parentStudentId) || next[0] || null;
-    props.setParentStudentId(preserved?.id ?? null);
-  }, [
-    props.apiBase,
-    props.authToken,
-    props.parentStudentId,
-    props.setParentStudentId,
-    props.setParentStudents
-  ]);
-
-  const reloadStudentDeviceUi = useCallback(async () => {
-    if (!props.authToken || !props.parentStudentId) return;
-    await refreshStudents();
-    const res = await fetch(
-      `${props.apiBase}/api/parent/students/${encodeURIComponent(String(props.parentStudentId))}/device-control-state`,
-      {
+  const refreshStudents = useCallback(
+    async (preferStudentId?: number | null) => {
+      if (!props.authToken) return;
+      const res = await fetch(`${props.apiBase}/api/parent/students`, {
         headers: {
           Authorization: `Bearer ${props.authToken}`
         }
+      });
+      if (!res.ok) return;
+      const data = await res.json().catch(() => ({}));
+      const next = Array.isArray(data.students) ? data.students : [];
+      props.setParentStudents(next);
+      const want = preferStudentId ?? props.parentStudentId;
+      const preserved =
+        next.find(student => Number(student.id) === Number(want)) ||
+        next.find(student => Number(student.id) === Number(props.parentStudentId)) ||
+        next[0] ||
+        null;
+      props.setParentStudentId(preserved?.id ?? null);
+    },
+    [
+      props.apiBase,
+      props.authToken,
+      props.parentStudentId,
+      props.setParentStudentId,
+      props.setParentStudents
+    ]
+  );
+
+  const reloadStudentDeviceUi = useCallback(
+    async (options?: { targetStudentId?: number | null; isStale?: () => boolean }) => {
+      if (!props.authToken) return;
+      const sid = options?.targetStudentId ?? props.parentStudentId;
+      if (!sid) return;
+      const isStale = options?.isStale;
+
+      const res = await fetch(
+        `${props.apiBase}/api/parent/students/${encodeURIComponent(String(sid))}/device-control-state`,
+        {
+          headers: {
+            Authorization: `Bearer ${props.authToken}`
+          }
+        }
+      );
+      if (isStale?.()) return;
+
+      const data = (await res.json().catch(() => ({}))) as {
+        appAllowanceMode?: "default" | AppAllowanceModeKey;
+        mdmSurfaceMode?: string;
+        kioskEnabled?: boolean;
+        bulkLockOverride?: boolean;
+      };
+      if (isStale?.()) return;
+
+      if (!res.ok) {
+        if (isStale?.()) return;
+        setBulkLockOverrideFromApi(false);
+        setMdmSurfaceMode("default");
+        return;
       }
-    );
-    const data = (await res.json().catch(() => ({}))) as {
-      appAllowanceMode?: "default" | AppAllowanceModeKey;
-      mdmSurfaceMode?: string;
-      kioskEnabled?: boolean;
-      bulkLockOverride?: boolean;
-    };
-    if (!res.ok) {
-      setBulkLockOverrideFromApi(false);
-      setMdmSurfaceMode("default");
-      return;
-    }
-    setActiveAppAllowanceMode(
-      data.appAllowanceMode === "utility" || data.appAllowanceMode === "free"
-        ? data.appAllowanceMode
-        : null
-    );
-    setIsBulkKioskEnabled(Boolean(data.kioskEnabled));
-    setBulkLockOverrideFromApi(Boolean(data.bulkLockOverride));
-    const parsedSurface = parseParentMdmSurfaceMode(data.mdmSurfaceMode);
-    const effectiveSurface: ParentMdmSurfaceMode =
-      Boolean(data.bulkLockOverride) && parsedSurface !== "bulk_lock"
+
+      const rawSurface = String(data.mdmSurfaceMode || "")
+        .trim()
+        .toLowerCase();
+      const parsedSurface = parseParentMdmSurfaceMode(data.mdmSurfaceMode);
+      const isBulkLock =
+        parsedSurface === "bulk_lock" ||
+        rawSurface === "bulk_lock" ||
+        Boolean(data.bulkLockOverride);
+
+      if (isStale?.()) return;
+
+      setActiveAppAllowanceMode(
+        data.appAllowanceMode === "utility" || data.appAllowanceMode === "free"
+          ? data.appAllowanceMode
+          : null
+      );
+      setIsBulkKioskEnabled(Boolean(data.kioskEnabled));
+      setBulkLockOverrideFromApi(isBulkLock);
+      const effectiveSurface: ParentMdmSurfaceMode = isBulkLock
         ? "bulk_lock"
         : parsedSurface ?? "default";
-    setMdmSurfaceMode(effectiveSurface);
-  }, [props.apiBase, props.authToken, props.parentStudentId, refreshStudents]);
+      setMdmSurfaceMode(effectiveSurface);
+
+      if (isStale?.()) return;
+      await refreshStudents(sid);
+    },
+    [props.apiBase, props.authToken, props.parentStudentId, refreshStudents]
+  );
 
   useEffect(() => {
     if (!props.authToken || !props.parentStudentId) {
@@ -2074,12 +2106,16 @@ function StudentSettingsTab(props: {
       return;
     }
     let cancelled = false;
+    const sid = props.parentStudentId;
     setMdmSurfaceMode(null);
     setBulkLockOverrideFromApi(false);
     setDeviceControlStateLoading(true);
     void (async () => {
       try {
-        await reloadStudentDeviceUi();
+        await reloadStudentDeviceUi({
+          targetStudentId: sid,
+          isStale: () => cancelled
+        });
       } finally {
         if (!cancelled) setDeviceControlStateLoading(false);
       }

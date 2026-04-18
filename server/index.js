@@ -229,6 +229,20 @@ function coerceOverrideBundleIdsArray(raw) {
       return [];
     }
   }
+  if (typeof Buffer !== "undefined" && Buffer.isBuffer(raw)) {
+    try {
+      const p = JSON.parse(raw.toString("utf8"));
+      return Array.isArray(p) ? p : [];
+    } catch {
+      return [];
+    }
+  }
+  if (typeof raw === "object") {
+    const vals = Object.values(raw);
+    if (vals.length > 0 && vals.every(v => typeof v === "string")) {
+      return vals;
+    }
+  }
   return [];
 }
 
