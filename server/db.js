@@ -238,7 +238,8 @@ async function listParentStudents(parentUserId) {
             COALESCE(scp.mdm_applied, false) AS "mdmApplied",
             mdm_app.ui_surface_mode AS app_allowance_surface,
             CASE
-              WHEN mdm_kiosk.profile_id IS NOT NULL AND mdm_kiosk.profile_id::bigint > 0 THEN true
+              WHEN mdm_kiosk.locked_bundle_id IS NOT NULL
+                   AND btrim(mdm_kiosk.locked_bundle_id::text) <> '' THEN true
               ELSE false
             END AS kiosk_active,
             pssr.name AS study_room_name,

@@ -19,7 +19,6 @@ const {
   assignDeviceToGroup,
   createCustomConfigurationProfile,
   updateCustomConfigurationProfile,
-  deleteCustomConfigurationProfile,
   assignProfileToGroup,
   unassignProfileFromGroup,
   syncProfiles
@@ -261,7 +260,6 @@ async function enableStudentKioskMode(userId, options = {}) {
       Number(profile.replacedProfileId) !== Number(profile.profileId)
     ) {
       await unassignProfileFromGroup(assignmentGroup.id, profile.replacedProfileId).catch(() => {});
-      await deleteCustomConfigurationProfile(profile.replacedProfileId).catch(() => {});
     }
 
     let syncDeferred = false;
@@ -318,9 +316,19 @@ async function disableStudentKioskMode(userId) {
 
   try {
     const kioskState = await getStudentMdmKioskProfileState(userId);
-    if (!kioskState?.profile_id) {
+    const lockedBundle = String(kioskState?.locked_bundle_id || "").trim();
+    if (!kioskState?.profile_id && !lockedBundle) {
       await deleteStudentMdmKioskProfileState(userId).catch(() => {});
       return { ok: true, removed: false, reason: "profile_not_found" };
+    }
+    /** 이미 해제됨(프로파일 리소스는 Simple MDM에 남겨 재사용) */
+    if (!lockedBundle) {
+      return {
+        ok: true,
+        removed: false,
+        reason: "already_inactive",
+        profileId: kioskState?.profile_id ? Number(kioskState.profile_id) : null
+      };
     }
     const assignmentGroup = await getStudentMdmGroup(userId).catch(() => null);
     const profileId = Number(kioskState.profile_id || 0);
@@ -329,16 +337,23 @@ async function disableStudentKioskMode(userId) {
       await unassignProfileFromGroup(assignmentGroupId, profileId).catch(() => {});
       await syncProfiles(assignmentGroupId).catch(() => {});
     }
-    if (profileId > 0) {
-      await deleteCustomConfigurationProfile(profileId).catch(() => {});
-    }
-    await deleteStudentMdmKioskProfileState(userId).catch(() => {});
+    await upsertStudentMdmKioskProfileState(userId, {
+      profileId: profileId > 0 ? profileId : null,
+      profileName: kioskState.profile_name != null ? String(kioskState.profile_name) : null,
+      profileIdentifier:
+        kioskState.profile_identifier != null ? String(kioskState.profile_identifier) : null,
+      lockedBundleId: null,
+      activationSource: null,
+      autoReleaseExempt: false,
+      lastSyncedAt: new Date().toISOString(),
+      lastError: null
+    });
     return {
       ok: true,
       removed: true,
-      profileId,
+      profileId: profileId > 0 ? profileId : null,
       assignmentGroupId: assignmentGroupId > 0 ? assignmentGroupId : null,
-      reason: "removed"
+      reason: "unassigned_profile_retained"
     };
   } catch (error) {
     const message = error instanceof Error ? error.message : "키오스크 모드 해제에 실패했습니다.";
@@ -354,7 +369,7 @@ async function disableStudentKioskMode(userId) {
 async function getStudentKioskModeStatus(userId) {
   const state = await getStudentMdmKioskProfileState(userId);
   return {
-    active: Boolean(state?.profile_id),
+    active: Boolean(state?.locked_bundle_id && String(state.locked_bundle_id).trim()),
     profileId: state?.profile_id ? Number(state.profile_id) : null,
     lockedBundleId: state?.locked_bundle_id ? String(state.locked_bundle_id) : null,
     activationSource: state?.activation_source

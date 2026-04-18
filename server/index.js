@@ -4409,7 +4409,9 @@ app.get("/api/parent/students/:studentId/device-control-state", authMiddleware, 
       appAllowanceMode,
       weeklySlots.length
     );
-    const kioskEnabled = Boolean(kioskState?.profile_id);
+    const kioskEnabled = Boolean(
+      kioskState?.locked_bundle_id && String(kioskState.locked_bundle_id).trim()
+    );
     try {
       await upsertStudentMdmAppAllowanceUiSurfaceMode(studentId, mdmSurfaceMode);
     } catch (persistErr) {
