@@ -5,8 +5,10 @@ type Props = {
 };
 
 const SPLASH_SEEN_STORAGE_KEY = "daechi_splash_seen";
-const FIRST_SPLASH_MS = 980;
-const RETURNING_SPLASH_MS = 260;
+/** 첫 실행: 로고 인지 + 충분히 유지 후 페이드아웃 */
+const FIRST_SPLASH_MS = 2800;
+/** 재방문: 첫만큼 길지는 않지만 충분히 보이게 */
+const RETURNING_SPLASH_MS = 2000;
 
 function resolveSplashDurationMs(): number {
   if (typeof window === "undefined") return FIRST_SPLASH_MS;
@@ -39,7 +41,7 @@ const SplashScreen: React.FC<Props> = ({ onComplete }) => {
     } catch {
       // ignore
     }
-    const t = setTimeout(finish, durationMsRef.current + 180);
+    const t = setTimeout(finish, durationMsRef.current + 240);
     return () => clearTimeout(t);
   }, []);
 

@@ -521,6 +521,11 @@
     );
   --navy-fill-pill-size: 96px 96px, 100% 100%, 100% 100%, 100% 100%;
   --navy-fill-pill-repeat: repeat, no-repeat, no-repeat, no-repeat;
+  /*
+   * 런치 스플래시: public/splash-logo.png 캔버스 배경과 동일 단색
+   * (그라데이션·노이즈를 깔면 PNG 직사각형 경계가 보임)
+   */
+  --splash-screen-bg: #0e1f3d;
   --surface-glass-strong: rgba(255, 255, 255, 0.78);
   --surface-glass: rgba(255, 255, 255, 0.66);
   --surface-glass-soft: rgba(var(--neutral-surface-rgb), 0.58);
@@ -6147,12 +6152,10 @@ button:active:not(:disabled),
   display: flex;
   align-items: center;
   justify-content: center;
-  /* splash-logo.png 배경색과 동일 (로고 주변 레터박스 없음) + 은은한 질감 */
-  background-color: #0c1d3b;
-  background-image: var(--navy-fill-deep-image);
-  background-size: var(--navy-fill-deep-size);
-  background-repeat: var(--navy-fill-deep-repeat);
-  animation: splash-screen-fade var(--splash-duration-ms, 980ms) cubic-bezier(0.33, 0.86, 0.22, 1)
+  /* splash-logo.png와 동일 단색만 — 질감/그라데이션 금지 */
+  background-color: var(--splash-screen-bg);
+  background-image: none;
+  animation: splash-screen-fade var(--splash-duration-ms, 2800ms) cubic-bezier(0.4, 0, 0.2, 1)
     forwards;
   pointer-events: none;
   will-change: opacity, transform;
@@ -6172,53 +6175,60 @@ button:active:not(:disabled),
   max-height: min(68vh, 520px);
   object-fit: contain;
   /* 입장만 부드럽게; 퇴장은 부모 페이드에 맡김(이중 페이드·튐 방지) */
-  animation: splash-logo-motion var(--splash-duration-ms, 980ms) cubic-bezier(0.33, 0.86, 0.22, 1)
+  animation: splash-logo-motion var(--splash-duration-ms, 2800ms) cubic-bezier(0.4, 0, 0.2, 1)
     forwards;
 }
 
 @keyframes splash-screen-fade {
   0% {
     opacity: 0;
-    transform: translate3d(0, 18px, 0);
+    transform: translate3d(0, 10px, 0);
   }
-  22% {
+  /* 천천히 나타남 */
+  26% {
     opacity: 1;
     transform: translate3d(0, 0, 0);
   }
-  72% {
+  /* 충분히 유지 */
+  58% {
     opacity: 1;
     transform: translate3d(0, 0, 0);
   }
+  /* 퇴장은 길게·부드럽게 */
   100% {
     opacity: 0;
-    transform: translate3d(0, -22px, 0);
+    transform: translate3d(0, -10px, 0);
   }
 }
 
-/* 화면 전체가 아래→위로 들어온 뒤, 퇴장 시 위로 빠짐 — 로고는 스케일만 */
+/* 로고: 함께 페이드 아웃해 화면과 어긋남 방지 */
 @keyframes splash-logo-motion {
   0% {
     opacity: 0;
-    transform: scale(0.94);
+    transform: scale(0.96);
   }
-  28% {
+  30% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  56% {
     opacity: 1;
     transform: scale(1);
   }
   100% {
-    opacity: 1;
-    transform: scale(1);
+    opacity: 0;
+    transform: scale(0.99);
   }
 }
 
 @media (prefers-reduced-motion: reduce) {
   .splash-screen {
-    animation: splash-screen-fade-reduced var(--splash-duration-ms, 420ms) cubic-bezier(0.25, 0.1, 0.25, 1)
+    animation: splash-screen-fade-reduced var(--splash-duration-ms, 680ms) cubic-bezier(0.25, 0.1, 0.25, 1)
       forwards;
   }
 
   .splash-screen__logo {
-    animation: splash-logo-motion-reduced var(--splash-duration-ms, 420ms) cubic-bezier(0.25, 0.1, 0.25, 1)
+    animation: splash-logo-motion-reduced var(--splash-duration-ms, 680ms) cubic-bezier(0.25, 0.1, 0.25, 1)
       forwards;
   }
 }
@@ -6226,19 +6236,19 @@ button:active:not(:disabled),
 @keyframes splash-screen-fade-reduced {
   0% {
     opacity: 0;
-    transform: translate3d(0, 8px, 0);
+    transform: translate3d(0, 6px, 0);
   }
-  35% {
+  30% {
     opacity: 1;
     transform: translate3d(0, 0, 0);
   }
-  72% {
+  55% {
     opacity: 1;
     transform: translate3d(0, 0, 0);
   }
   100% {
     opacity: 0;
-    transform: translate3d(0, -10px, 0);
+    transform: translate3d(0, -4px, 0);
   }
 }
 
@@ -6246,8 +6256,14 @@ button:active:not(:disabled),
   0% {
     opacity: 0;
   }
-  100% {
+  32% {
     opacity: 1;
+  }
+  52% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
   }
 }
 
