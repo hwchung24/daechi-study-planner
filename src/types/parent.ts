@@ -12,6 +12,8 @@ export type ParentStudyRoomSetting = {
 export type ParentStudentRow = {
   id: number;
   email: string;
+  /** 서버 `student_coach_profiles.mdm_applied` — 기기 연결·MDM 연동 여부 */
+  mdmApplied?: boolean;
   studyRoom?: ParentStudyRoomSetting | null;
 };
 

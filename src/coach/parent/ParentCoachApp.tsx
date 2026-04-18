@@ -1973,6 +1973,27 @@ function StudentSettingsTab(props: {
     setStudyRoomMessage("");
   }, [props.selectedStudent?.id]);
 
+  const refreshStudents = useCallback(async () => {
+    if (!props.authToken) return;
+    const res = await fetch(`${props.apiBase}/api/parent/students`, {
+      headers: {
+        Authorization: `Bearer ${props.authToken}`
+      }
+    });
+    if (!res.ok) return;
+    const data = await res.json().catch(() => ({}));
+    const next = Array.isArray(data.students) ? data.students : [];
+    props.setParentStudents(next);
+    const preserved = next.find(student => student.id === props.parentStudentId) || next[0] || null;
+    props.setParentStudentId(preserved?.id ?? null);
+  }, [
+    props.apiBase,
+    props.authToken,
+    props.parentStudentId,
+    props.setParentStudentId,
+    props.setParentStudents
+  ]);
+
   useEffect(() => {
     if (!props.authToken || !props.parentStudentId) {
       setActiveAppAllowanceMode(null);
@@ -1983,6 +2004,8 @@ function StudentSettingsTab(props: {
     setDeviceControlStateLoading(true);
     void (async () => {
       try {
+        await refreshStudents();
+        if (cancelled) return;
         const res = await fetch(
           `${props.apiBase}/api/parent/students/${encodeURIComponent(String(props.parentStudentId))}/device-control-state`,
           {
@@ -2009,22 +2032,7 @@ function StudentSettingsTab(props: {
     return () => {
       cancelled = true;
     };
-  }, [props.apiBase, props.authToken, props.parentStudentId]);
-
-  const refreshStudents = async () => {
-    if (!props.authToken) return;
-    const res = await fetch(`${props.apiBase}/api/parent/students`, {
-      headers: {
-        Authorization: `Bearer ${props.authToken}`
-      }
-    });
-    if (!res.ok) return;
-    const data = await res.json().catch(() => ({}));
-    const next = Array.isArray(data.students) ? data.students : [];
-    props.setParentStudents(next);
-    const preserved = next.find(student => student.id === props.parentStudentId) || next[0] || null;
-    props.setParentStudentId(preserved?.id ?? null);
-  };
+  }, [props.apiBase, props.authToken, props.parentStudentId, refreshStudents]);
 
   const saveStudyRoomSetting = (value: StudyRoomSetting) => {
     if (!props.authToken) return;
@@ -2292,6 +2300,32 @@ function StudentSettingsTab(props: {
         parentStudentId={props.parentStudentId}
         setParentStudentId={props.setParentStudentId}
       />
+      {props.selectedStudent ? (
+        <div
+          className={
+            "parent-mdm-status" +
+            (props.selectedStudent.mdmApplied === true ? " parent-mdm-status--on" : " parent-mdm-status--off")
+          }
+          style={{
+            marginTop: 12,
+            marginBottom: 12,
+            padding: "12px 14px",
+            borderRadius: 12,
+            border: "1px solid var(--stroke)",
+            background:
+              props.selectedStudent.mdmApplied === true
+                ? "color-mix(in srgb, var(--success, #22c55e) 12%, transparent)"
+                : "color-mix(in srgb, var(--muted-foreground, #64748b) 8%, transparent)"
+          }}
+        >
+          <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 4 }}>휴대폰 MDM 상태</div>
+          <div style={{ fontSize: 14, lineHeight: 1.45, color: "var(--foreground)" }}>
+            {props.selectedStudent.mdmApplied === true
+              ? "현재 선택한 학생 휴대폰은 MDM이 적용된 상태입니다."
+              : "현재 선택한 학생 휴대폰은 MDM이 적용되어 있지 않습니다. 학생 앱에서 기기가 연결되면 적용으로 갱신됩니다."}
+          </div>
+        </div>
+      ) : null}
       <Card className="coach-card coach-card--padded">
         <SectionHeader title="학생 설정" />
         {!props.selectedStudent ? (
