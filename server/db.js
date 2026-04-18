@@ -236,6 +236,11 @@ async function listParentStudents(parentUserId) {
     `SELECT u.id,
             u.email,
             COALESCE(scp.mdm_applied, false) AS "mdmApplied",
+            mdm_app.ui_surface_mode AS app_allowance_surface,
+            CASE
+              WHEN mdm_kiosk.profile_id IS NOT NULL AND mdm_kiosk.profile_id::bigint > 0 THEN true
+              ELSE false
+            END AS kiosk_active,
             pssr.name AS study_room_name,
             pssr.address AS study_room_address,
             pssr.latitude AS study_room_latitude,
@@ -245,6 +250,10 @@ async function listParentStudents(parentUserId) {
      FROM parents_students ps
      JOIN users u ON u.id = ps.student_id
      LEFT JOIN student_coach_profiles scp ON scp.user_id = u.id
+     LEFT JOIN student_mdm_app_allowance_profiles mdm_app
+       ON mdm_app.user_id = u.id AND mdm_app.provider = 'simplemdm'
+     LEFT JOIN student_mdm_kiosk_profiles mdm_kiosk
+       ON mdm_kiosk.user_id = u.id AND mdm_kiosk.provider = 'simplemdm'
      LEFT JOIN parent_student_study_rooms pssr
        ON pssr.parent_user_id = $2 AND pssr.student_user_id = u.id
      WHERE ps.parent_id = $1
@@ -255,6 +264,11 @@ async function listParentStudents(parentUserId) {
     id: Number(row.id),
     email: String(row.email || ""),
     mdmApplied: Boolean(row.mdmApplied),
+    appAllowanceSurface:
+      row.app_allowance_surface != null && String(row.app_allowance_surface).trim() !== ""
+        ? String(row.app_allowance_surface).trim().toLowerCase()
+        : null,
+    kioskActive: Boolean(row.kiosk_active),
     studyRoom:
       row.study_room_name &&
       Number.isFinite(Number(row.study_room_latitude)) &&
@@ -2367,6 +2381,7 @@ async function getStudentMdmAppAllowanceProfileState(userId) {
             profile_identifier,
             override_bundle_ids,
             override_updated_at,
+            ui_surface_mode,
             last_payload_hash,
             last_synced_at,
             last_error,
@@ -2376,6 +2391,25 @@ async function getStudentMdmAppAllowanceProfileState(userId) {
        AND provider = 'simplemdm'
      LIMIT 1`,
     [userId]
+  );
+  return res.rows[0] || null;
+}
+
+/** 허용앱 표면 모드 스냅샷 — 부모 UI·device-control-state와 동기화 */
+async function upsertStudentMdmAppAllowanceUiSurfaceMode(userId, surfaceMode) {
+  const mode = String(surfaceMode || "default").trim().toLowerCase();
+  const allowed = new Set(["bulk_lock", "schedule", "utility", "free", "default"]);
+  const normalized = allowed.has(mode) ? mode : "default";
+  const res = await query(
+    `INSERT INTO student_mdm_app_allowance_profiles
+      (user_id, provider, ui_surface_mode, updated_at)
+     VALUES ($1, 'simplemdm', $2, now())
+     ON CONFLICT (user_id)
+     DO UPDATE SET
+       ui_surface_mode = EXCLUDED.ui_surface_mode,
+       updated_at = now()
+     RETURNING ui_surface_mode`,
+    [userId, normalized]
   );
   return res.rows[0] || null;
 }
@@ -3676,6 +3710,7 @@ module.exports = {
   upsertStudentMdmGroup,
   getStudentMdmAppAllowanceProfileState,
   upsertStudentMdmAppAllowanceProfileState,
+  upsertStudentMdmAppAllowanceUiSurfaceMode,
   setStudentMdmAppAllowanceOverride,
   clearStudentMdmAppAllowanceOverride,
   deleteStudentMdmAppAllowanceProfileState,

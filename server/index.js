@@ -69,6 +69,7 @@ const {
   setStudentMdmAppAllowanceOverride,
   clearStudentMdmAppAllowanceOverride,
   getStudentMdmAppAllowanceProfileState,
+  upsertStudentMdmAppAllowanceUiSurfaceMode,
   getStudentMdmKioskProfileState,
   upsertStudentCoachProfile,
   getStudentCoachProfile,
@@ -4385,12 +4386,19 @@ app.get("/api/parent/students/:studentId/device-control-state", authMiddleware, 
       weeklySlots.length
     );
     const kioskEnabled = Boolean(kioskState?.profile_id);
+    try {
+      await upsertStudentMdmAppAllowanceUiSurfaceMode(studentId, mdmSurfaceMode);
+    } catch (persistErr) {
+      console.error("device-control-state ui_surface_mode persist", studentId, persistErr);
+    }
     return res.json({
       appAllowanceMode,
       mdmSurfaceMode,
       kioskEnabled,
       /** 클라이언트 배너: surface 문자열과 별도로 override 기준 일괄잠금 명시 */
-      bulkLockOverride
+      bulkLockOverride,
+      /** DB에 방금 동기화한 허용앱 표면 모드 스냅샷(ui_surface_mode) */
+      appAllowanceSurface: mdmSurfaceMode
     });
   } catch (e) {
     console.error("/api/parent/students/:studentId/device-control-state GET error", e);

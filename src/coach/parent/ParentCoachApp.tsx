@@ -2107,8 +2107,13 @@ function StudentSettingsTab(props: {
     }
     let cancelled = false;
     const sid = props.parentStudentId;
-    setMdmSurfaceMode(null);
-    setBulkLockOverrideFromApi(false);
+    const hintRow = props.parentStudents.find(s => Number(s.id) === Number(sid));
+    const hintParsed = hintRow?.appAllowanceSurface
+      ? parseParentMdmSurfaceMode(String(hintRow.appAllowanceSurface))
+      : null;
+    setMdmSurfaceMode(hintParsed);
+    setBulkLockOverrideFromApi(hintParsed === "bulk_lock");
+    setIsBulkKioskEnabled(Boolean(hintRow?.kioskActive));
     setDeviceControlStateLoading(true);
     void (async () => {
       try {

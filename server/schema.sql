@@ -349,6 +349,10 @@ ALTER TABLE student_mdm_app_allowance_profiles
 ALTER TABLE student_mdm_app_allowance_profiles
   ADD COLUMN IF NOT EXISTS override_updated_at TIMESTAMPTZ;
 
+-- 학부모 UI·버튼과 동기화하는 허용앱 표면 모드 스냅샷(bulk_lock|schedule|utility|free|default)
+ALTER TABLE student_mdm_app_allowance_profiles
+  ADD COLUMN IF NOT EXISTS ui_surface_mode TEXT;
+
 CREATE TABLE IF NOT EXISTS student_mdm_kiosk_profiles (
   user_id BIGINT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
   provider TEXT NOT NULL DEFAULT 'simplemdm',
