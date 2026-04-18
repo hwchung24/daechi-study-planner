@@ -4391,14 +4391,57 @@ app.get("/api/parent/students/:studentId/device-control-state", authMiddleware, 
     } catch (persistErr) {
       console.error("device-control-state ui_surface_mode persist", studentId, persistErr);
     }
+    const freshAllowance = await getStudentMdmAppAllowanceProfileState(studentId);
+    const allowedSurfaces = new Set(["bulk_lock", "schedule", "utility", "free", "default"]);
+    const dbUi = String(freshAllowance?.ui_surface_mode || "")
+      .trim()
+      .toLowerCase();
+    const mdmSurfaceModeResolved = allowedSurfaces.has(dbUi) ? dbUi : mdmSurfaceMode;
+
+    const toIso = v => (v ? new Date(v).toISOString() : null);
+    const profileSnapshot = {
+      studentUserId: studentId,
+      weeklySlotCount: weeklySlots.length,
+      appAllowanceRow: freshAllowance
+        ? {
+            profile_id: freshAllowance.profile_id,
+            profile_name: freshAllowance.profile_name,
+            profile_identifier: freshAllowance.profile_identifier,
+            override_bundle_ids: freshAllowance.override_bundle_ids,
+            ui_surface_mode: freshAllowance.ui_surface_mode,
+            override_updated_at: toIso(freshAllowance.override_updated_at),
+            last_synced_at: toIso(freshAllowance.last_synced_at),
+            last_error: freshAllowance.last_error,
+            updated_at: toIso(freshAllowance.updated_at)
+          }
+        : null,
+      kioskRow: kioskState
+        ? {
+            profile_id: kioskState.profile_id,
+            profile_name: kioskState.profile_name,
+            profile_identifier: kioskState.profile_identifier,
+            locked_bundle_id: kioskState.locked_bundle_id,
+            activation_source: kioskState.activation_source,
+            auto_release_exempt: kioskState.auto_release_exempt,
+            last_synced_at: toIso(kioskState.last_synced_at),
+            last_error: kioskState.last_error,
+            updated_at: toIso(kioskState.updated_at)
+          }
+        : null,
+      computedForSync: {
+        appAllowanceMode,
+        mdmSurfaceModeBeforeDb: mdmSurfaceMode,
+        bulkLockOverride
+      }
+    };
+
     return res.json({
       appAllowanceMode,
-      mdmSurfaceMode,
+      mdmSurfaceMode: mdmSurfaceModeResolved,
       kioskEnabled,
-      /** 클라이언트 배너: surface 문자열과 별도로 override 기준 일괄잠금 명시 */
       bulkLockOverride,
-      /** DB에 방금 동기화한 허용앱 표면 모드 스냅샷(ui_surface_mode) */
-      appAllowanceSurface: mdmSurfaceMode
+      appAllowanceSurface: mdmSurfaceModeResolved,
+      profileSnapshot
     });
   } catch (e) {
     console.error("/api/parent/students/:studentId/device-control-state GET error", e);

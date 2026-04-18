@@ -1995,6 +1995,10 @@ function StudentSettingsTab(props: {
   const [mdmSurfaceMode, setMdmSurfaceMode] = useState<ParentMdmSurfaceMode | null>(null);
   /** 서버가 직접 내려주는 일괄잠금(override) — surface 문자열과 불일치할 때 배너 보정 */
   const [bulkLockOverrideFromApi, setBulkLockOverrideFromApi] = useState(false);
+  /** device-control-state가 내려주는 DB 동기화 스냅샷(직접 확인용) */
+  const [deviceProfileSnapshot, setDeviceProfileSnapshot] = useState<unknown>(null);
+  /** 학생 전환·Strict Mode에서 옛 요청이 상태를 덮어쓰지 않도록 세대 번호 */
+  const deviceUiLoadGenerationRef = useRef(0);
   const [activatingAppMode, setActivatingAppMode] = useState<"utility" | "free" | "default" | null>(null);
   /** MDM 일괄잠금(대치루트 전용 override) — 계획표 수동 잠금과 별개 */
   const isBulkDaechiRootLockActive =
@@ -2037,11 +2041,14 @@ function StudentSettingsTab(props: {
   );
 
   const reloadStudentDeviceUi = useCallback(
-    async (options?: { targetStudentId?: number | null; isStale?: () => boolean }) => {
+    async (options?: {
+      targetStudentId?: number | null;
+      /** effect에서만 넘김 — 마지막 요청만 UI 반영 */
+      loadGeneration?: number;
+    }) => {
       if (!props.authToken) return;
       const sid = options?.targetStudentId ?? props.parentStudentId;
       if (!sid) return;
-      const isStale = options?.isStale;
 
       const res = await fetch(
         `${props.apiBase}/api/parent/students/${encodeURIComponent(String(sid))}/device-control-state`,
@@ -2051,33 +2058,56 @@ function StudentSettingsTab(props: {
           }
         }
       );
-      if (isStale?.()) return;
 
       const data = (await res.json().catch(() => ({}))) as {
         appAllowanceMode?: "default" | AppAllowanceModeKey;
         mdmSurfaceMode?: string;
         kioskEnabled?: boolean;
         bulkLockOverride?: boolean;
+        profileSnapshot?: unknown;
       };
-      if (isStale?.()) return;
 
-      if (!res.ok) {
-        if (isStale?.()) return;
-        setBulkLockOverrideFromApi(false);
-        setMdmSurfaceMode("default");
+      if (
+        options?.loadGeneration !== undefined &&
+        options.loadGeneration !== deviceUiLoadGenerationRef.current
+      ) {
         return;
       }
 
-      const rawSurface = String(data.mdmSurfaceMode || "")
-        .trim()
-        .toLowerCase();
-      const parsedSurface = parseParentMdmSurfaceMode(data.mdmSurfaceMode);
-      const isBulkLock =
-        parsedSurface === "bulk_lock" ||
-        rawSurface === "bulk_lock" ||
-        Boolean(data.bulkLockOverride);
+      if (!res.ok) {
+        setBulkLockOverrideFromApi(false);
+        setMdmSurfaceMode("default");
+        const errBody = data as { error?: string };
+        setDeviceProfileSnapshot({
+          requestFailed: true,
+          httpStatus: res.status,
+          error: errBody?.error || null,
+          raw: data
+        });
+        return;
+      }
 
-      if (isStale?.()) return;
+      const snapshot =
+        data.profileSnapshot != null
+          ? data.profileSnapshot
+          : {
+              _clientFallback: true,
+              hint: "서버 응답에 profileSnapshot 필드가 없습니다. API/배포 버전을 확인하세요.",
+              topLevel: {
+                mdmSurfaceMode: data.mdmSurfaceMode,
+                appAllowanceMode: data.appAllowanceMode,
+                bulkLockOverride: data.bulkLockOverride,
+                kioskEnabled: data.kioskEnabled
+              }
+            };
+      setDeviceProfileSnapshot(snapshot);
+
+      const parsedSurface = parseParentMdmSurfaceMode(data.mdmSurfaceMode);
+      const effectiveSurface: ParentMdmSurfaceMode = parsedSurface ?? "default";
+      setMdmSurfaceMode(effectiveSurface);
+      setBulkLockOverrideFromApi(
+        effectiveSurface === "bulk_lock" || Boolean(data.bulkLockOverride)
+      );
 
       setActiveAppAllowanceMode(
         data.appAllowanceMode === "utility" || data.appAllowanceMode === "free"
@@ -2085,13 +2115,13 @@ function StudentSettingsTab(props: {
           : null
       );
       setIsBulkKioskEnabled(Boolean(data.kioskEnabled));
-      setBulkLockOverrideFromApi(isBulkLock);
-      const effectiveSurface: ParentMdmSurfaceMode = isBulkLock
-        ? "bulk_lock"
-        : parsedSurface ?? "default";
-      setMdmSurfaceMode(effectiveSurface);
 
-      if (isStale?.()) return;
+      if (
+        options?.loadGeneration !== undefined &&
+        options.loadGeneration !== deviceUiLoadGenerationRef.current
+      ) {
+        return;
+      }
       await refreshStudents(sid);
     },
     [props.apiBase, props.authToken, props.parentStudentId, refreshStudents]
@@ -2103,10 +2133,11 @@ function StudentSettingsTab(props: {
       setIsBulkKioskEnabled(false);
       setMdmSurfaceMode(null);
       setBulkLockOverrideFromApi(false);
+      setDeviceProfileSnapshot(null);
       return;
     }
-    let cancelled = false;
     const sid = props.parentStudentId;
+    const loadGeneration = ++deviceUiLoadGenerationRef.current;
     const hintRow = props.parentStudents.find(s => Number(s.id) === Number(sid));
     const hintParsed = hintRow?.appAllowanceSurface
       ? parseParentMdmSurfaceMode(String(hintRow.appAllowanceSurface))
@@ -2119,15 +2150,14 @@ function StudentSettingsTab(props: {
       try {
         await reloadStudentDeviceUi({
           targetStudentId: sid,
-          isStale: () => cancelled
+          loadGeneration
         });
       } finally {
-        if (!cancelled) setDeviceControlStateLoading(false);
+        if (loadGeneration === deviceUiLoadGenerationRef.current) {
+          setDeviceControlStateLoading(false);
+        }
       }
     })();
-    return () => {
-      cancelled = true;
-    };
   }, [props.authToken, props.parentStudentId, reloadStudentDeviceUi]);
 
   const saveStudyRoomSetting = (value: StudyRoomSetting) => {
@@ -2427,6 +2457,30 @@ function StudentSettingsTab(props: {
                 <div style={{ marginTop: 8, fontSize: 14 }}>
                   현재 모드: {surfaceModeLabel}
                 </div>
+                <details style={{ marginTop: 12 }}>
+                  <summary style={{ cursor: "pointer", fontSize: 13, color: "var(--muted-foreground)" }}>
+                    DB에 동기화된 값 보기 (학생 프로파일·MDM 메타)
+                  </summary>
+                  <pre
+                    style={{
+                      marginTop: 8,
+                      padding: 10,
+                      fontSize: 11,
+                      lineHeight: 1.4,
+                      overflow: "auto",
+                      maxHeight: 280,
+                      borderRadius: 8,
+                      background: "color-mix(in srgb, var(--foreground) 6%, transparent)",
+                      border: "1px solid var(--stroke)",
+                      whiteSpace: "pre-wrap",
+                      wordBreak: "break-word"
+                    }}
+                  >
+                    {deviceProfileSnapshot != null
+                      ? JSON.stringify(deviceProfileSnapshot, null, 2)
+                      : "(조회된 스냅샷 없음)"}
+                  </pre>
+                </details>
               </>
             )}
           </div>
