@@ -545,18 +545,18 @@
   --shadow-soft: none;
   /*
    * Corner radius — 단계만 쓰고 임의 px 금지 (카드·버튼·칩 일관)
-   * 중첩: 큰 면(lg) 안 작은 컨트롤은 2xs~sm·md 위주
+   * 전역적으로 한 단계 둥글게 (중첩 시 안쪽은 2xs~md)
    */
-  --radius-3xs: 4px;
-  --radius-xs: 6px;
-  --radius-2xs: 8px;
-  --radius-sm: 10px;
-  --radius-md: 12px;
-  --radius-button: 14px;
-  --radius-lg: 16px;
-  --radius-xl: 20px;
-  --radius-xxl: 22px;
-  --radius-sheet: 24px;
+  --radius-3xs: 5px;
+  --radius-xs: 7px;
+  --radius-2xs: 10px;
+  --radius-sm: 12px;
+  --radius-md: 14px;
+  --radius-button: 16px;
+  --radius-lg: 18px;
+  --radius-xl: 22px;
+  --radius-xxl: 26px;
+  --radius-sheet: 28px;
   --radius-pill: 9999px;
   /* lg(16)과 xl(20) 중간 — 태블릿 헤더·큰 셸 */
   --radius-lg-xl-mid: calc((var(--radius-lg) + var(--radius-xl)) / 2);
@@ -671,20 +671,11 @@ html.os-android body {
  * 데스크톱·태블릿 웹에서 정보 밀도 높이 — 학생 네이티브와 구분
  */
 html.parent-session {
-  --font-size-xlarge: 19px;
-  --font-size-large: 14px;
-  --font-size-medium: 11px;
-  --font-size-small: 10px;
-  --app-shell-inline-padding: 10px;
-  --radius-lg: 12px;
-  --radius-md: 8px;
-  --radius-sm: 6px;
-  --radius-button: 10px;
-  --radius-xl: 14px;
-  --radius-xxl: 18px;
-  --radius-sheet: 18px;
-  --radius-lg-xl-mid: 12px;
-  --app-bottom-nav-clearance: 60px;
+  --font-size-xlarge: 22px;
+  --font-size-large: 16px;
+  --font-size-medium: 12px;
+  --font-size-small: 11px;
+  --app-shell-inline-padding: 12px;
 }
 
 /* 전역: 가로·세로 스크롤은 유지, 스크롤바(막대)만 숨김 */
