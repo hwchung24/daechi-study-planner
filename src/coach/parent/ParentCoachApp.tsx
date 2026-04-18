@@ -1934,9 +1934,10 @@ function RecordsTab(props: {
   );
 }
 
-type ParentMdmSurfaceMode = "schedule" | "utility" | "free" | "default";
+type ParentMdmSurfaceMode = "bulk_lock" | "schedule" | "utility" | "free" | "default";
 
 const PARENT_MDM_SURFACE_LABEL: Record<ParentMdmSurfaceMode, string> = {
+  bulk_lock: "일괄잠금",
   schedule: "계획표",
   utility: "유틸리티",
   free: "자유시간",
@@ -1947,7 +1948,14 @@ function parseParentMdmSurfaceMode(raw: unknown): ParentMdmSurfaceMode | null {
   const s = String(raw || "")
     .trim()
     .toLowerCase();
-  if (s === "schedule" || s === "utility" || s === "free" || s === "default") return s;
+  if (
+    s === "bulk_lock" ||
+    s === "schedule" ||
+    s === "utility" ||
+    s === "free" ||
+    s === "default"
+  )
+    return s as ParentMdmSurfaceMode;
   return null;
 }
 
@@ -1992,6 +2000,7 @@ function StudentSettingsTab(props: {
   const mdmEffectiveApplied =
     props.selectedStudent?.mdmApplied === true ||
     isBulkKioskEnabled ||
+    mdmSurfaceMode === "bulk_lock" ||
     mdmSurfaceMode === "utility" ||
     mdmSurfaceMode === "free" ||
     mdmSurfaceMode === "schedule" ||
@@ -2368,7 +2377,6 @@ function StudentSettingsTab(props: {
                       현재 선택한 학생 휴대폰은 MDM이 적용된 상태입니다.
                       <div style={{ marginTop: 8, fontSize: 14 }}>
                         적용 모드: {surfaceModeLabel}
-                        {isBulkKioskEnabled ? " · 키오스크" : ""}
                       </div>
                     </>
                   )

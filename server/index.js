@@ -217,7 +217,19 @@ function resolveAppAllowanceModeFromProfileName(profileNameRaw) {
   return "default";
 }
 
-/** UI용: 계획표(주간 슬롯) / 유틸리티 / 자유시간 / 기본 — 넷 중 하나 */
+/** 대치루트만 허용하는 일괄잠금(override) 여부 */
+function isDaechiRootBulkLockOverride(overrideBundleIds) {
+  const ids = Array.from(
+    new Set(
+      (Array.isArray(overrideBundleIds) ? overrideBundleIds : [])
+        .map(value => String(value || "").trim().toLowerCase())
+        .filter(Boolean)
+    )
+  ).sort();
+  return ids.length === 1 && ids[0] === DAECHI_ROOT_BUNDLE_ID.toLowerCase();
+}
+
+/** UI용: 일괄잠금 / 계획표(주간 슬롯) / 유틸리티 / 자유시간 / 기본 */
 function resolveMdmSurfaceMode(appAllowanceModeKey, weeklySlotCount) {
   const mode = String(appAllowanceModeKey || "default").trim().toLowerCase();
   if (mode === "utility") return "utility";
@@ -226,6 +238,13 @@ function resolveMdmSurfaceMode(appAllowanceModeKey, weeklySlotCount) {
     return Number(weeklySlotCount) > 0 ? "schedule" : "default";
   }
   return "default";
+}
+
+function resolveMdmSurfaceModeForParent(appAllowanceState, appAllowanceModeKey, weeklySlotCount) {
+  if (isDaechiRootBulkLockOverride(appAllowanceState?.override_bundle_ids)) {
+    return "bulk_lock";
+  }
+  return resolveMdmSurfaceMode(appAllowanceModeKey, weeklySlotCount);
 }
 
 fs.mkdirSync(HOMEWORK_UPLOADS_DIR, { recursive: true });
@@ -4300,7 +4319,11 @@ app.get("/api/parent/students/:studentId/device-control-state", authMiddleware, 
       listStudentWeeklyAppAllowanceSlots(studentId)
     ]);
     const appAllowanceMode = resolveAppAllowanceModeFromProfileName(appAllowanceState?.profile_name);
-    const mdmSurfaceMode = resolveMdmSurfaceMode(appAllowanceMode, weeklySlots.length);
+    const mdmSurfaceMode = resolveMdmSurfaceModeForParent(
+      appAllowanceState,
+      appAllowanceMode,
+      weeklySlots.length
+    );
     const kioskEnabled = Boolean(kioskState?.profile_id);
     return res.json({
       appAllowanceMode,
