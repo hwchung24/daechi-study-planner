@@ -12,6 +12,8 @@ export default function ModeScheduleSettings(props: {
   activeMode?: ModeKey | null;
   onToggleModeNow?: (mode: ModeKey, nextEnabled: boolean) => void;
   activatingMode?: ModeKey | null;
+  /** 기기 제어 상태(device-control-state) 로딩 중이면 다른 버튼과 같이 비활성화 */
+  stateLoading?: boolean;
 }) {
   const [popup, setPopup] = useState<{ open: boolean; mode: ModeKey | null }>({
     open: false,
@@ -46,16 +48,18 @@ export default function ModeScheduleSettings(props: {
             <button
               type="button"
               className="timeline-save-button study-room-editor__save-button parent-mode-schedule-item__activate"
-              disabled={Boolean(props.activatingMode)}
+              disabled={Boolean(props.stateLoading) || Boolean(props.activatingMode)}
               onClick={() =>
                 props.onToggleModeNow?.(mode.key, props.activeMode !== mode.key)
               }
             >
-              {props.activatingMode === mode.key
-                ? "처리 중..."
-                : props.activeMode === mode.key
-                  ? "지금 끄기"
-                  : "지금 켜기"}
+              {props.stateLoading
+                ? "확인 중..."
+                : props.activatingMode === mode.key
+                  ? "처리 중..."
+                  : props.activeMode === mode.key
+                    ? "지금 끄기"
+                    : "지금 켜기"}
             </button>
           </div>
         </div>

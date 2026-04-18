@@ -2186,6 +2186,8 @@ function StudentSettingsTab(props: {
       setBulkLockOverrideFromApi(false);
       setDeviceProfileSnapshot(null);
       setSimpleMdmLiveSnapshot(null);
+      setDeviceControlStateLoading(false);
+      setActivatingAppMode(null);
       return;
     }
     const sid = props.parentStudentId;
@@ -2710,18 +2712,12 @@ function StudentSettingsTab(props: {
                   "parent-settings-header-toggle" +
                   (isBulkDaechiRootLockActive ? " parent-settings-header-toggle--danger" : "")
                 }
-                disabled={
-                  bulkDaechiRootLockSaving ||
-                  deviceControlStateLoading ||
-                  activatingAppMode === "default"
-                }
+                disabled={bulkDaechiRootLockSaving || deviceControlStateLoading}
                 onClick={() => {
                   void toggleBulkDaechiRootLock(!isBulkDaechiRootLockActive);
                 }}
               >
-                {bulkDaechiRootLockSaving ||
-                deviceControlStateLoading ||
-                activatingAppMode === "default"
+                {bulkDaechiRootLockSaving || deviceControlStateLoading
                   ? "처리 중..."
                   : isBulkDaechiRootLockActive
                     ? "잠금 해제"
@@ -2737,6 +2733,7 @@ function StudentSettingsTab(props: {
             <ModeScheduleSettings
               activeMode={activeAppAllowanceMode}
               activatingMode={activatingAppMode === "default" ? null : activatingAppMode}
+              stateLoading={deviceControlStateLoading}
               onToggleModeNow={(mode, nextEnabled) => {
                 void activateAppAllowanceMode(nextEnabled ? mode : "default");
               }}
