@@ -206,6 +206,17 @@ const APP_ALLOWANCE_MODE_TO_PROFILE_NAME = Object.freeze({
   free: String(process.env.SIMPLEMDM_APP_ALLOWANCE_FREE_PROFILE || "free").trim()
 });
 
+function resolveAppAllowanceModeFromProfileName(profileNameRaw) {
+  const profileName = normalizeSimpleMdmProfileName(profileNameRaw);
+  if (!profileName) return "default";
+  for (const [mode, configuredProfileName] of Object.entries(APP_ALLOWANCE_MODE_TO_PROFILE_NAME)) {
+    if (normalizeSimpleMdmProfileName(configuredProfileName) === profileName) {
+      return mode;
+    }
+  }
+  return "default";
+}
+
 fs.mkdirSync(HOMEWORK_UPLOADS_DIR, { recursive: true });
 
 function normalizeModeKey(value) {
@@ -4256,6 +4267,36 @@ app.get("/api/parent/students", authMiddleware, async (req, res) => {
   }
 });
 
+app.get("/api/parent/students/:studentId/device-control-state", authMiddleware, async (req, res) => {
+  try {
+    const me = await getMe(req.userId);
+    if (!me || me.role !== "parent") {
+      return res.status(403).json({ error: "권한이 없습니다." });
+    }
+    const studentId = Number(req.params.studentId || 0);
+    if (!studentId) {
+      return res.status(400).json({ error: "studentId가 필요합니다." });
+    }
+    const has = await parentHasStudent(req.userId, studentId);
+    if (!has) {
+      return res.status(403).json({ error: "연결된 학생만 조회할 수 있습니다." });
+    }
+    const [appAllowanceState, kioskState] = await Promise.all([
+      getStudentMdmAppAllowanceProfileState(studentId),
+      getStudentMdmKioskProfileState(studentId)
+    ]);
+    const appAllowanceMode = resolveAppAllowanceModeFromProfileName(appAllowanceState?.profile_name);
+    const kioskEnabled = Boolean(kioskState?.profile_id);
+    return res.json({
+      appAllowanceMode,
+      kioskEnabled
+    });
+  } catch (e) {
+    console.error("/api/parent/students/:studentId/device-control-state GET error", e);
+    return res.status(500).json({ error: "학생 기기 제어 상태를 불러오지 못했습니다." });
+  }
+});
+
 app.put("/api/parent/students/:studentId/study-room", authMiddleware, async (req, res) => {
   try {
     const me = await getMe(req.userId);
@@ -6182,7 +6223,14 @@ app.post("/api/parent/kiosk-mode/bulk-enable", authMiddleware, async (req, res) 
     if (!me || me.role !== "parent") {
       return res.status(403).json({ error: "권한이 없습니다." });
     }
-    const students = await listParentStudents(req.userId);
+    let studentIds = Array.isArray(req.body?.studentIds) ? req.body.studentIds.map(Number).filter(Boolean) : [];
+    let students;
+    if (studentIds.length > 0) {
+      const allStudents = await listParentStudents(req.userId);
+      students = allStudents.filter(student => studentIds.includes(student.id));
+    } else {
+      students = await listParentStudents(req.userId);
+    }
     if (!students.length) {
       return res.status(400).json({ error: "관리 중인 학생이 없습니다." });
     }
@@ -6248,7 +6296,14 @@ app.post("/api/parent/kiosk-mode/bulk-disable", authMiddleware, async (req, res)
     if (!me || me.role !== "parent") {
       return res.status(403).json({ error: "권한이 없습니다." });
     }
-    const students = await listParentStudents(req.userId);
+    let studentIds = Array.isArray(req.body?.studentIds) ? req.body.studentIds.map(Number).filter(Boolean) : [];
+    let students;
+    if (studentIds.length > 0) {
+      const allStudents = await listParentStudents(req.userId);
+      students = allStudents.filter(student => studentIds.includes(student.id));
+    } else {
+      students = await listParentStudents(req.userId);
+    }
     if (!students.length) {
       return res.status(400).json({ error: "관리 중인 학생이 없습니다." });
     }
@@ -6569,6 +6624,28 @@ app.put("/api/student/coach/profile", authMiddleware, async (req, res) => {
   } catch (e) {
     console.error("/api/student/coach/profile error", e);
     res.status(500).json({ error: "프로필 저장에 실패했습니다." });
+  }
+});
+
+app.post("/api/student/mdm-status", authMiddleware, async (req, res) => {
+  try {
+    const me = await getMe(req.userId);
+    if (!me || me.role !== "student") {
+      return res.status(403).json({ error: "권한이 없습니다." });
+    }
+    if (!Object.prototype.hasOwnProperty.call(req.body || {}, "mdmApplied")) {
+      return res.status(400).json({ error: "mdmApplied 값이 필요합니다." });
+    }
+    const saved = await upsertStudentCoachProfile(req.userId, {
+      mdmApplied: Boolean((req.body || {}).mdmApplied)
+    });
+    res.json({
+      ok: true,
+      mdmApplied: Boolean(saved?.mdm_applied)
+    });
+  } catch (e) {
+    console.error("/api/student/mdm-status error", e);
+    res.status(500).json({ error: "MDM 상태 저장에 실패했습니다." });
   }
 });
 

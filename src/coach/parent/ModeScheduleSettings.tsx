@@ -9,7 +9,8 @@ const MODES = [
 type ModeKey = (typeof MODES)[number]["key"];
 
 export default function ModeScheduleSettings(props: {
-  onActivateModeNow?: (mode: ModeKey) => void;
+  activeMode?: ModeKey | null;
+  onToggleModeNow?: (mode: ModeKey, nextEnabled: boolean) => void;
   activatingMode?: ModeKey | null;
 }) {
   const [popup, setPopup] = useState<{ open: boolean; mode: ModeKey | null }>({
@@ -46,9 +47,15 @@ export default function ModeScheduleSettings(props: {
               type="button"
               className="timeline-save-button study-room-editor__save-button parent-mode-schedule-item__activate"
               disabled={Boolean(props.activatingMode)}
-              onClick={() => props.onActivateModeNow?.(mode.key)}
+              onClick={() =>
+                props.onToggleModeNow?.(mode.key, props.activeMode !== mode.key)
+              }
             >
-              {props.activatingMode === mode.key ? "적용 중..." : "지금 켜기"}
+              {props.activatingMode === mode.key
+                ? "처리 중..."
+                : props.activeMode === mode.key
+                  ? "지금 끄기"
+                  : "지금 켜기"}
             </button>
           </div>
         </div>

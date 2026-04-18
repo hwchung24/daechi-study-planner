@@ -73,6 +73,7 @@ async function getMe(userId) {
             scp.target_grade,
             scp.current_concern,
             scp.weakness,
+            COALESCE(scp.mdm_applied, false) AS "mdmApplied",
                  COALESCE(scp.alarm_schedule_reminders, true) AS "scheduleReminders",
                  COALESCE(scp.alarm_parent_link_alerts, true) AS "parentLinkAlerts",
                  COALESCE(scp.alarm_study_room_alerts, true) AS "studyRoomAlerts",
@@ -234,6 +235,7 @@ async function listParentStudents(parentUserId) {
   const res = await query(
     `SELECT u.id,
             u.email,
+            COALESCE(scp.mdm_applied, false) AS "mdmApplied",
             pssr.name AS study_room_name,
             pssr.address AS study_room_address,
             pssr.latitude AS study_room_latitude,
@@ -242,6 +244,7 @@ async function listParentStudents(parentUserId) {
             pssr.updated_at AS study_room_updated_at
      FROM parents_students ps
      JOIN users u ON u.id = ps.student_id
+     LEFT JOIN student_coach_profiles scp ON scp.user_id = u.id
      LEFT JOIN parent_student_study_rooms pssr
        ON pssr.parent_user_id = $2 AND pssr.student_user_id = u.id
      WHERE ps.parent_id = $1
@@ -251,6 +254,7 @@ async function listParentStudents(parentUserId) {
   return res.rows.map(row => ({
     id: Number(row.id),
     email: String(row.email || ""),
+    mdmApplied: Boolean(row.mdmApplied),
     studyRoom:
       row.study_room_name &&
       Number.isFinite(Number(row.study_room_latitude)) &&
@@ -1830,16 +1834,36 @@ async function linkDeviceToUserBySerial(userId, serial) {
       [serial]
     );
 
-    await client.query(
+    const deactivated = await client.query(
       `UPDATE user_device_links
        SET is_active = false,
            unlinked_at = now(),
            unlink_reason = 'reassigned'
        WHERE serial_number = $1
          AND is_active = true
-         AND user_id <> $2`,
+         AND user_id <> $2
+       RETURNING user_id`,
       [serial, userId]
     );
+
+    if (deactivated.rows.length) {
+      await client.query(
+        `UPDATE student_coach_profiles scp
+         SET mdm_applied = false
+         WHERE scp.user_id IN (
+           SELECT DISTINCT d.user_id
+           FROM (SELECT unnest($1::bigint[]) AS user_id) d
+           JOIN users u
+             ON u.id = d.user_id
+            AND u.role = 'student'
+           LEFT JOIN user_device_links udl
+             ON udl.user_id = d.user_id
+            AND udl.is_active = true
+           WHERE udl.user_id IS NULL
+         )`,
+        [deactivated.rows.map((row) => row.user_id)]
+      );
+    }
 
     await client.query(
       `INSERT INTO user_device_links (user_id, serial_number, is_active)
@@ -1847,6 +1871,17 @@ async function linkDeviceToUserBySerial(userId, serial) {
        ON CONFLICT (user_id, serial_number, is_active)
        DO NOTHING`,
       [userId, serial]
+    );
+
+    await client.query(
+      `INSERT INTO student_coach_profiles (user_id, mdm_applied)
+       SELECT id, true
+       FROM users
+       WHERE id = $1
+         AND role = 'student'
+       ON CONFLICT (user_id)
+       DO UPDATE SET mdm_applied = true`,
+      [userId]
     );
     await client.query("COMMIT");
   } catch (e) {
@@ -2631,8 +2666,8 @@ async function listStudentIdsForWeeklyAppAllowanceEnforcement() {
 async function upsertStudentCoachProfile(userId, input = {}) {
   const res = await query(
     `INSERT INTO student_coach_profiles
-      (user_id, name, school_level, grade, goal, goal_university, target_grade, current_concern, weakness, target_subjects, weak_subjects, sleep_time, wake_time, alarm_schedule_reminders, alarm_parent_link_alerts, alarm_study_room_alerts, alarm_message_alerts, alarm_homework_alerts, wake_alarm_enabled, wake_alarm_time, initial_profile_completed, updated_at)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10::text[], $11::text[], $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, now())
+      (user_id, name, school_level, grade, goal, goal_university, target_grade, current_concern, weakness, target_subjects, weak_subjects, sleep_time, wake_time, alarm_schedule_reminders, alarm_parent_link_alerts, alarm_study_room_alerts, alarm_message_alerts, alarm_homework_alerts, wake_alarm_enabled, wake_alarm_time, mdm_applied, initial_profile_completed, updated_at)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10::text[], $11::text[], $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, now())
      ON CONFLICT (user_id)
      DO UPDATE SET
        name = COALESCE(EXCLUDED.name, student_coach_profiles.name),
@@ -2654,6 +2689,7 @@ async function upsertStudentCoachProfile(userId, input = {}) {
       alarm_homework_alerts = COALESCE(EXCLUDED.alarm_homework_alerts, student_coach_profiles.alarm_homework_alerts),
        wake_alarm_enabled = COALESCE(EXCLUDED.wake_alarm_enabled, student_coach_profiles.wake_alarm_enabled),
        wake_alarm_time = COALESCE(EXCLUDED.wake_alarm_time, student_coach_profiles.wake_alarm_time),
+      mdm_applied = COALESCE(EXCLUDED.mdm_applied, student_coach_profiles.mdm_applied),
        initial_profile_completed = COALESCE(
          EXCLUDED.initial_profile_completed,
          student_coach_profiles.initial_profile_completed
@@ -2693,6 +2729,9 @@ async function upsertStudentCoachProfile(userId, input = {}) {
         ? Boolean(input.wakeAlarmEnabled)
         : null,
       input.wakeAlarmTime || null,
+      Object.prototype.hasOwnProperty.call(input, "mdmApplied")
+        ? Boolean(input.mdmApplied)
+        : null,
       Object.prototype.hasOwnProperty.call(input, "initialProfileCompleted")
         ? Boolean(input.initialProfileCompleted)
         : null

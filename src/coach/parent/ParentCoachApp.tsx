@@ -1955,20 +1955,61 @@ function StudentSettingsTab(props: {
   hapticWarning: () => void;
   hapticSuccess: () => void;
 }) {
+  type AppAllowanceModeKey = "utility" | "free";
   const [studyRoomSaving, setStudyRoomSaving] = useState(false);
   const [studyRoomMessage, setStudyRoomMessage] = useState("");
   const [studyRoomModalOpen, setStudyRoomModalOpen] = useState(false);
   const [plannerTimeSheetOpen, setPlannerTimeSheetOpen] = useState(false);
   const [bulkDaechiRootLockSaving, setBulkDaechiRootLockSaving] = useState(false);
   const [bulkKioskSaving, setBulkKioskSaving] = useState(false);
-  // 키오스크 모드 상태값
   const [isBulkKioskEnabled, setIsBulkKioskEnabled] = useState(false);
+  const [activeAppAllowanceMode, setActiveAppAllowanceMode] =
+    useState<AppAllowanceModeKey | null>(null);
+  const [deviceControlStateLoading, setDeviceControlStateLoading] = useState(false);
   const [activatingAppMode, setActivatingAppMode] = useState<"utility" | "free" | "default" | null>(null);
   const isAppAllowanceLocked = Boolean(props.parentLockStatus?.locked);
 
   useEffect(() => {
     setStudyRoomMessage("");
   }, [props.selectedStudent?.id]);
+
+  useEffect(() => {
+    if (!props.authToken || !props.parentStudentId) {
+      setActiveAppAllowanceMode(null);
+      setIsBulkKioskEnabled(false);
+      return;
+    }
+    let cancelled = false;
+    setDeviceControlStateLoading(true);
+    void (async () => {
+      try {
+        const res = await fetch(
+          `${props.apiBase}/api/parent/students/${encodeURIComponent(String(props.parentStudentId))}/device-control-state`,
+          {
+            headers: {
+              Authorization: `Bearer ${props.authToken}`
+            }
+          }
+        );
+        const data = (await res.json().catch(() => ({}))) as {
+          appAllowanceMode?: "default" | AppAllowanceModeKey;
+          kioskEnabled?: boolean;
+        };
+        if (!res.ok || cancelled) return;
+        setActiveAppAllowanceMode(
+          data.appAllowanceMode === "utility" || data.appAllowanceMode === "free"
+            ? data.appAllowanceMode
+            : null
+        );
+        setIsBulkKioskEnabled(Boolean(data.kioskEnabled));
+      } finally {
+        if (!cancelled) setDeviceControlStateLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [props.apiBase, props.authToken, props.parentStudentId]);
 
   const refreshStudents = async () => {
     if (!props.authToken) return;
@@ -2179,6 +2220,7 @@ function StudentSettingsTab(props: {
         return;
       }
       props.setParentPlannerMessage(data.message || "허용앱 프로파일을 적용했습니다.");
+      setActiveAppAllowanceMode(mode === "default" ? null : mode);
       props.hapticSuccess();
     } catch (error) {
       const detail = error instanceof Error && error.message ? ` (${error.message})` : "";
@@ -2190,9 +2232,8 @@ function StudentSettingsTab(props: {
   };
 
   const toggleBulkKioskMode = async (nextEnabled: boolean) => {
-    if (!props.authToken || props.parentStudents.length === 0) return;
+    if (!props.authToken || !props.parentStudentId) return;
     setBulkKioskSaving(true);
-    setIsBulkKioskEnabled(nextEnabled);
     props.setParentPlannerMessage("");
     try {
       const res = await fetch(
@@ -2202,7 +2243,8 @@ function StudentSettingsTab(props: {
           headers: {
             "Content-Type": "application/json",
             Authorization: `Bearer ${props.authToken}`
-          }
+          },
+          body: JSON.stringify({ studentIds: [props.parentStudentId] })
         }
       );
       const data = (await res.json().catch(() => ({}))) as {
@@ -2217,6 +2259,7 @@ function StudentSettingsTab(props: {
         props.hapticWarning();
         return;
       }
+      setIsBulkKioskEnabled(nextEnabled);
       props.setParentPlannerMessage(
         data.message ||
           (nextEnabled
@@ -2346,12 +2389,12 @@ function StudentSettingsTab(props: {
                   ("timeline-save-button study-room-editor__save-button parent-mode-schedule-item__activate") +
                   (isBulkKioskEnabled ? " student-profile-link-action-btn--danger" : "")
                 }
-                disabled={bulkKioskSaving}
+                disabled={bulkKioskSaving || deviceControlStateLoading}
                 onClick={() => {
                   void toggleBulkKioskMode(!isBulkKioskEnabled);
                 }}
               >
-                {bulkKioskSaving
+                {bulkKioskSaving || deviceControlStateLoading
                   ? "처리 중..."
                   : isBulkKioskEnabled
                     ? "지금 끄기"
@@ -2415,9 +2458,10 @@ function StudentSettingsTab(props: {
         ) : (
           <div style={{ marginTop: 12 }}>
             <ModeScheduleSettings
+              activeMode={activeAppAllowanceMode}
               activatingMode={activatingAppMode === "default" ? null : activatingAppMode}
-              onActivateModeNow={mode => {
-                void activateAppAllowanceMode(mode);
+              onToggleModeNow={(mode, nextEnabled) => {
+                void activateAppAllowanceMode(nextEnabled ? mode : "default");
               }}
             />
           </div>

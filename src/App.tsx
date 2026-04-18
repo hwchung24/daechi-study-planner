@@ -685,10 +685,10 @@ const App: React.FC = () => {
     useState<ActiveStudyReminder | null>(null);
   const studyReminderScheduleSignatureRef = useRef("");
   const lastStudyReminderScopeRef = useRef<string | null>(null);
-  const initialLocationPermissionPromptedRef = useRef(false);
   const autoLocationPermissionScopeRef = useRef<string | null>(null);
   const autoTrackingBootstrapScopeRef = useRef<string | null>(null);
   const autoPushRegistrationScopeRef = useRef<string | null>(null);
+  const studentLockStatusFastSyncUntilRef = useRef(0);
 
   useEffect(() => {
     if (!networkBanner?.message) return;
@@ -954,6 +954,7 @@ const App: React.FC = () => {
   const studentLinkWaitSigRef = useRef<string | null>(null);
   const coachTodayRowSigRef = useRef<string | null>(null);
   const storeAppsSigRef = useRef<string | null>(null);
+  const mdmAppliedRef = useRef(false);
 
   useEffect(() => {
     try {
@@ -985,7 +986,6 @@ const App: React.FC = () => {
     const run = async () => {
       try {
         const currentSerial = resolvePreferredSerial();
-        if (currentSerial) return;
         let managedSerial = "";
         for (const key of ["serial_number", "serial"]) {
           const result = await AppConfig.getValue({ key });
@@ -993,8 +993,11 @@ const App: React.FC = () => {
           if (managedSerial) break;
         }
         if (!managedSerial) return;
-        injectSerialIntoLocation(managedSerial);
-        persistSerial(managedSerial);
+        mdmAppliedRef.current = true;
+        if (!currentSerial) {
+          injectSerialIntoLocation(managedSerial);
+          persistSerial(managedSerial);
+        }
       } catch {
         // ignore: web or unmanaged install path
       }
@@ -1383,9 +1386,6 @@ const App: React.FC = () => {
 
   useEffect(() => {
     if (!Capacitor.isNativePlatform()) return;
-    if (initialLocationPermissionPromptedRef.current) return;
-
-    initialLocationPermissionPromptedRef.current = true;
 
     let cancelled = false;
     const requestInitialLocationPermission = async () => {
@@ -1476,6 +1476,15 @@ const App: React.FC = () => {
 
     return () => {
       cancelled = true;
+      // React 18 Strict Mode runs mount → cleanup → remount; refs were set
+      // synchronously before the async work, so the second mount would skip
+      // ensureLocationTrackingReady and never show the system prompt.
+      if (autoLocationPermissionScopeRef.current === permissionScope) {
+        autoLocationPermissionScopeRef.current = null;
+      }
+      if (autoTrackingBootstrapScopeRef.current === permissionScope) {
+        autoTrackingBootstrapScopeRef.current = null;
+      }
     };
   }, [authToken, meRole, meRoleResolved, route, userEmail]);
 
@@ -1483,6 +1492,15 @@ const App: React.FC = () => {
     if (!authToken || meRole !== "student") return;
     const run = async () => {
       try {
+        await fetch(`${API_BASE}/api/student/mdm-status`, {
+          method: "POST",
+          credentials: "include",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${authToken}`
+          },
+          body: JSON.stringify({ mdmApplied: mdmAppliedRef.current })
+        });
         const preferredSerial = resolvePreferredSerial();
         if (preferredSerial) {
           await fetch(`${API_BASE}/api/device/link-serial`, {
@@ -1576,14 +1594,24 @@ const App: React.FC = () => {
   useEffect(() => {
     if (!authToken || meRole !== "student") return;
     let cancelled = false;
+    let inFlight = false;
+    let timerId: number | null = null;
     const lockStatusPollIntervalMs =
       tab === "today" || tab === "records" ? 20000 : 60000;
-    const run = async () => {
-      if (!isDocumentVisible()) return;
+    const lockStatusFastPollIntervalMs = 7000;
+    const lockStatusFastPollWindowMs = 120000;
+    const run = async (fastSync = false) => {
+      if (!isDocumentVisible() || inFlight) return;
+      if (fastSync) {
+        studentLockStatusFastSyncUntilRef.current =
+          Date.now() + lockStatusFastPollWindowMs;
+      }
+      inFlight = true;
       try {
         const res = await trackAsync("poll.studentLockStatus", () =>
           fetch(`${API_BASE}/api/student/lock-status`, {
-            headers: { Authorization: `Bearer ${authToken}` }
+            headers: { Authorization: `Bearer ${authToken}` },
+            cache: "no-store"
           })
         );
         if (!res.ok) return;
@@ -1593,32 +1621,60 @@ const App: React.FC = () => {
           if (data.lockStatus?.forceRecordsPage && getAppPath() !== "#/records") {
             setAppPath("#/records");
           }
+          if (data.lockStatus?.kioskMode?.active || data.lockStatus?.forceRecordsPage) {
+            studentLockStatusFastSyncUntilRef.current =
+              Date.now() + lockStatusFastPollWindowMs;
+          }
           if (!data.lockStatus?.locked) {
             setStudentLockMessage("");
           }
         }
       } catch {
         // ignore
+      } finally {
+        inFlight = false;
+        if (cancelled) return;
+        const inFastSyncWindow =
+          Date.now() < studentLockStatusFastSyncUntilRef.current;
+        const nextDelay = inFastSyncWindow
+          ? lockStatusFastPollIntervalMs
+          : lockStatusPollIntervalMs;
+        timerId = window.setTimeout(() => {
+          void run();
+        }, nextDelay);
       }
     };
-    void run();
+    void run(true);
     const onLogSaved = () => {
       if (!cancelled) {
-        void run();
+        void run(true);
       }
     };
     const onVisibilityChange = () => {
       if (document.visibilityState !== "visible" || cancelled) return;
-      void run();
+      void run(true);
+    };
+    const onFocus = () => {
+      if (cancelled) return;
+      void run(true);
+    };
+    const onOnline = () => {
+      if (cancelled) return;
+      void run(true);
     };
     window.addEventListener(DAECHI_COACH_LOG_SAVED_EVENT, onLogSaved);
     document.addEventListener("visibilitychange", onVisibilityChange);
-    const timerId = window.setInterval(run, lockStatusPollIntervalMs);
+    window.addEventListener("focus", onFocus);
+    window.addEventListener("online", onOnline);
     return () => {
       cancelled = true;
-      window.clearInterval(timerId);
+      if (timerId !== null) {
+        window.clearTimeout(timerId);
+      }
       window.removeEventListener(DAECHI_COACH_LOG_SAVED_EVENT, onLogSaved);
       document.removeEventListener("visibilitychange", onVisibilityChange);
+      window.removeEventListener("focus", onFocus);
+      window.removeEventListener("online", onOnline);
     };
   }, [authToken, meRole, tab, applyStudentLockStatus]);
 

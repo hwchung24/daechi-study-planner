@@ -395,6 +395,7 @@ CREATE TABLE IF NOT EXISTS student_coach_profiles (
   alarm_homework_alerts BOOLEAN NOT NULL DEFAULT true,
   wake_alarm_enabled BOOLEAN NOT NULL DEFAULT false,
   wake_alarm_time TEXT NOT NULL DEFAULT '06:30',
+  mdm_applied BOOLEAN NOT NULL DEFAULT false,
   initial_profile_completed BOOLEAN NOT NULL DEFAULT false,
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
@@ -435,6 +436,9 @@ ADD COLUMN IF NOT EXISTS wake_alarm_enabled BOOLEAN NOT NULL DEFAULT false;
 
 ALTER TABLE student_coach_profiles
 ADD COLUMN IF NOT EXISTS wake_alarm_time TEXT NOT NULL DEFAULT '06:30';
+
+ALTER TABLE student_coach_profiles
+ADD COLUMN IF NOT EXISTS mdm_applied BOOLEAN NOT NULL DEFAULT false;
 
 CREATE TABLE IF NOT EXISTS student_coach_logs (
   id BIGSERIAL PRIMARY KEY,
