@@ -622,6 +622,42 @@ body {
   padding-bottom: max(env(safe-area-inset-bottom), 0px);
 }
 
+/*
+ * 웹 브라우저: 모바일 세로는 :root 타이포 유지, 넓은 뷰에서만 IPA에 가깝게 조밀하게
+ * (Capacitor/IPA는 .capacitor-app)
+ */
+html.web-app {
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+}
+
+@media (min-width: 640px) {
+  html.web-app {
+    --font-size-xlarge: 24px;
+    --font-size-large: 17px;
+    --font-size-medium: 13px;
+    --font-size-small: 11px;
+  }
+}
+
+/* 모바일 레이아웃인데 창만 넓은 경우(브라우저 리사이즈 등): 휴대폰 폭에 가깝게 */
+@media (min-width: 520px) and (max-width: 767px) {
+  html.web-app #root {
+    max-width: min(430px, 100%);
+    margin-left: auto;
+    margin-right: auto;
+  }
+}
+
+/* 태블릿 그리드 구간: 전체가 과하게 퍼지지 않도록 상한 (내부 max-width와 맞춤) */
+@media (min-width: 768px) {
+  html.web-app #root {
+    max-width: min(1120px, 100%);
+    margin-left: auto;
+    margin-right: auto;
+  }
+}
+
 /* 전역: 가로·세로 스크롤은 유지, 스크롤바(막대)만 숨김 */
 * {
   scrollbar-width: none;
