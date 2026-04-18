@@ -5,13 +5,30 @@ export function SectionHeader(props: {
   title: string;
   subtitle?: string;
   right?: React.ReactNode;
+  /** 섹션 제목 옆에 표시할 아이콘 (예: lucide-react) */
+  icon?: React.ReactNode;
 }) {
+  const titleBlock = (
+    <>
+      <h2 className="coach-section-title">{props.title}</h2>
+      {props.subtitle && (
+        <p className="coach-section-subtitle">{props.subtitle}</p>
+      )}
+    </>
+  );
+
   return (
     <div className="coach-section-header">
       <div className="coach-section-header__left">
-        <h2 className="coach-section-title">{props.title}</h2>
-        {props.subtitle && (
-          <p className="coach-section-subtitle">{props.subtitle}</p>
+        {props.icon ? (
+          <div className="coach-section-header__headline">
+            <span className="coach-section-header__icon-wrap" aria-hidden="true">
+              {props.icon}
+            </span>
+            <div className="coach-section-header__titles">{titleBlock}</div>
+          </div>
+        ) : (
+          titleBlock
         )}
       </div>
       {props.right && <div className="coach-section-header__right">{props.right}</div>}

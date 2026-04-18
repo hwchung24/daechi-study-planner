@@ -386,7 +386,8 @@ export function StudyRoomPickerEditor(props: {
 
 export function StudyRoomPickerModal(props: {
   open: boolean;
-  revealed: boolean;
+  /** @deprecated 열림 애니메이션은 내부 처리 — 전달해도 무시 */
+  revealed?: boolean;
   student: { id: number; email: string } | null;
   initialValue?: StudyRoomSetting;
   authToken?: string | null;
@@ -394,17 +395,44 @@ export function StudyRoomPickerModal(props: {
   onClose: () => void;
   onSave: (value: StudyRoomSetting) => void;
 }) {
-  const { open, revealed, student, initialValue, authToken = null, saving, onClose, onSave } = props;
+  const { open, student, initialValue, authToken = null, saving, onClose, onSave } = props;
+  const show = Boolean(open && student);
+  const [isRendered, setIsRendered] = useState(show);
+  const [isAnimOpen, setIsAnimOpen] = useState(false);
+
+  useEffect(() => {
+    if (show) {
+      setIsRendered(true);
+    }
+  }, [show]);
+
+  useEffect(() => {
+    if (!isRendered) return;
+    if (show) {
+      const id = requestAnimationFrame(() => {
+        requestAnimationFrame(() => setIsAnimOpen(true));
+      });
+      return () => cancelAnimationFrame(id);
+    }
+    setIsAnimOpen(false);
+  }, [show, isRendered]);
+
+  useEffect(() => {
+    if (show || isAnimOpen || !isRendered) return;
+    const id = window.setTimeout(() => setIsRendered(false), 380);
+    return () => clearTimeout(id);
+  }, [show, isAnimOpen, isRendered]);
+
   const activeStudentName = useMemo(() => {
     if (!student) return "학생";
     return studentAlias(student.email);
   }, [student]);
 
-  if (!open || !student) return null;
+  if (!isRendered || !student) return null;
 
   return (
     <div
-      className={"dday-modal study-room-modal" + (revealed ? " dday-modal--open" : "")}
+      className={"dday-modal study-room-modal" + (isAnimOpen ? " dday-modal--open" : "")}
       onClick={onClose}
     >
       <div className="dday-modal-inner" onClick={event => event.stopPropagation()}>

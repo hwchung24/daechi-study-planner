@@ -2,11 +2,16 @@ import ModeScheduleSettings from "./ModeScheduleSettings";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Brain,
+  CalendarClock,
+  CalendarRange,
   ClipboardList,
+  LayoutGrid,
   Lightbulb,
+  MapPin,
   ShieldAlert,
   Sparkles,
-  TrendingUp
+  TrendingUp,
+  UserRound
 } from "lucide-react";
 import { TabTransitionPanel } from "../../components/PageTransition";
 import { Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
@@ -1987,6 +1992,7 @@ function StudentSettingsTab(props: {
   const [studyRoomMessage, setStudyRoomMessage] = useState("");
   const [studyRoomModalOpen, setStudyRoomModalOpen] = useState(false);
   const [plannerTimeSheetOpen, setPlannerTimeSheetOpen] = useState(false);
+  const [allowanceScheduleModalOpen, setAllowanceScheduleModalOpen] = useState(false);
   const [bulkDaechiRootLockSaving, setBulkDaechiRootLockSaving] = useState(false);
   const [bulkKioskSaving, setBulkKioskSaving] = useState(false);
   const [isBulkKioskEnabled, setIsBulkKioskEnabled] = useState(false);
@@ -2011,9 +2017,18 @@ function StudentSettingsTab(props: {
     isBulkDaechiRootLockActive ? "block" : (mdmSurfaceMode ?? "default")
   ) as ParentMdmSurfaceMode;
 
+  const allowanceScheduleBusy =
+    deviceControlStateLoading ||
+    bulkDaechiRootLockSaving ||
+    activatingAppMode != null;
+
   useEffect(() => {
     setStudyRoomMessage("");
   }, [props.selectedStudent?.id]);
+
+  useEffect(() => {
+    if (!props.selectedStudent) setAllowanceScheduleModalOpen(false);
+  }, [props.selectedStudent]);
 
   const refreshStudents = useCallback(
     async (preferStudentId?: number | null) => {
@@ -2424,65 +2439,78 @@ function StudentSettingsTab(props: {
         setParentStudentId={props.setParentStudentId}
       />
       {props.selectedStudent ? (
-        <Card className="coach-card coach-card--padded" style={{ marginTop: 12 }}>
+        <Card className="coach-card coach-card--padded coach-settings-status-card" style={{ marginTop: 12 }}>
           {deviceControlStateLoading ? (
-            <p className="settings-hint" style={{ margin: 0 }}>
-              확인 중입니다.
-            </p>
+            <div className="coach-settings-banner">
+              <p className="coach-settings-banner__body coach-settings-banner__body--loading">
+                확인 중입니다.
+              </p>
+            </div>
           ) : (
-            <p
-              className="student-profile-alarm-item__copy"
-              style={{ margin: 0, lineHeight: 1.55, color: "var(--text-main)" }}
-            >
-              {isBulkKioskEnabled
-                ? `학생 휴대폰은 현재 ${surfaceModeLabel} 모드이며 현재 계획표 작성 시간입니다.`
-                : `학생 휴대폰은 현재 ${surfaceModeLabel} 모드입니다.`}
-            </p>
+            <div className="coach-settings-banner">
+              <div className="coach-settings-banner__text-stack">
+                <p className="coach-settings-banner__body">
+                  학생 휴대폰은 현재{" "}
+                  <span className="coach-settings-banner__mode">{surfaceModeLabel}</span> 모드입니다.
+                </p>
+                {isBulkKioskEnabled ? (
+                  <p className="coach-settings-banner__body">
+                    현재 <span className="coach-settings-banner__mode">계획표</span> 작성 시간입니다.
+                  </p>
+                ) : null}
+              </div>
+            </div>
           )}
         </Card>
       ) : null}
-      <Card className="coach-card coach-card--padded">
-        <SectionHeader title="학생 설정" />
-        {!props.selectedStudent ? (
+      {!props.selectedStudent ? (
+        <Card className="coach-card coach-card--padded">
+          <SectionHeader title="학생 설정" icon={<UserRound />} />
           <EmptyState title="학생을 먼저 선택해 주세요." body="학생을 선택하면 설정할 수 있습니다." />
-        ) : (
-          <div className="student-profile-alarm-list" style={{ marginTop: 12 }}>
-            <div className="parent-settings-block">
-              <div className="settings-item settings-item--stack student-profile-alarm-item student-profile-alarm-item--detail">
-                <div className="student-profile-alarm-item__row">
-                  <span className="student-profile-alarm-item__body">
-                    <span className="student-profile-alarm-item__label">학습 위치 설정</span>
-                    <span className="student-profile-alarm-item__copy">
-                      체크인 기준 위치를 설정합니다.
-                    </span>
-                  </span>
-                </div>
-              </div>
-              <div className="parent-settings-primary-action">
-                <button
-                  type="button"
-                  className="timeline-save-button study-room-editor__save-button parent-mode-schedule-item__activate"
-                  onClick={() => setStudyRoomModalOpen(true)}
-                >
-                  학습 위치 설정
-                </button>
-              </div>
+        </Card>
+      ) : (
+        <>
+          <Card className="coach-card coach-card--padded">
+            <SectionHeader title="학습 위치 설정" icon={<MapPin />} />
+            <div className="parent-settings-primary-action" style={{ marginTop: 12 }}>
+              <button
+                type="button"
+                className="timeline-save-button study-room-editor__save-button parent-mode-schedule-item__activate"
+                onClick={() => setStudyRoomModalOpen(true)}
+              >
+                독서실 선택
+              </button>
             </div>
-            <div className="settings-item settings-item--stack student-profile-alarm-item student-profile-alarm-item--detail">
-              <div className="student-profile-alarm-item__row" style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                <span className="student-profile-alarm-item__body">
-                  <span className="student-profile-alarm-item__label">계획표 작성 시간</span>
-                  <span className="student-profile-alarm-item__copy">
-                    작성 시간과 잠금을 설정합니다.
-                  </span>
-                </span>
-                <span style={{ display: "flex", gap: 8, alignItems: "center" }}>
+            {studyRoomMessage ? (
+              <p className="settings-hint" style={{ marginTop: 12 }}>
+                {studyRoomMessage}
+              </p>
+            ) : null}
+            <StudyRoomPickerModal
+              open={studyRoomModalOpen}
+              student={props.selectedStudent}
+              initialValue={props.selectedStudent?.studyRoom || undefined}
+              authToken={props.authToken}
+              saving={studyRoomSaving}
+              onClose={() => setStudyRoomModalOpen(false)}
+              onSave={value => {
+                setStudyRoomModalOpen(false);
+                saveStudyRoomSetting(value);
+              }}
+            />
+          </Card>
+
+          <Card className="coach-card coach-card--padded" style={{ marginTop: 12 }}>
+            <SectionHeader
+              title="계획표 작성 시간"
+              icon={<CalendarClock />}
+              right={
+                <div className="parent-student-settings__planner-controls parent-student-settings__planner-controls--header">
                   <button
                     type="button"
-                    className="student-profile-alarm-item__time-btn"
+                    className="student-profile-alarm-item__time-btn parent-student-settings__time-btn"
                     style={{
-                      fontSize: "1.1em",
-                      padding: "4px 12px",
+                      fontSize: "1.05em",
                       borderRadius: 8,
                       border: "1px solid var(--stroke)",
                       background: "#fff",
@@ -2491,6 +2519,7 @@ function StudentSettingsTab(props: {
                     }}
                     disabled={!props.parentPlannerEnabled}
                     onClick={() => props.parentPlannerEnabled && setPlannerTimeSheetOpen(true)}
+                    aria-label="계획표 작성 강제 시각"
                   >
                     {props.parentPlannerTime}
                   </button>
@@ -2511,27 +2540,28 @@ function StudentSettingsTab(props: {
                       });
                     }}
                     aria-pressed={props.parentPlannerEnabled}
+                    aria-label={props.parentPlannerEnabled ? "강제 잠금 켜짐" : "강제 잠금 꺼짐"}
                   >
                     {props.parentPlannerEnabled ? "켜짐" : "꺼짐"}
                   </button>
-                </span>
-              </div>
-              <TimePickerSheet
-                open={plannerTimeSheetOpen}
-                value={props.parentPlannerTime}
-                onClose={() => setPlannerTimeSheetOpen(false)}
-                onSave={async (newTime: string) => {
-                  setPlannerTimeSheetOpen(false);
-                  props.setParentPlannerTime(newTime);
-                  await savePlannerRule({
-                    enabled: props.parentPlannerEnabled,
-                    lockTime: newTime
-                  });
-                }}
-                disabled={!props.parentPlannerEnabled}
-              />
-            </div>
-            <div className="parent-settings-primary-action">
+                </div>
+              }
+            />
+            <TimePickerSheet
+              open={plannerTimeSheetOpen}
+              value={props.parentPlannerTime}
+              onClose={() => setPlannerTimeSheetOpen(false)}
+              onSave={async (newTime: string) => {
+                setPlannerTimeSheetOpen(false);
+                props.setParentPlannerTime(newTime);
+                await savePlannerRule({
+                  enabled: props.parentPlannerEnabled,
+                  lockTime: newTime
+                });
+              }}
+              disabled={!props.parentPlannerEnabled}
+            />
+            <div className="parent-settings-primary-action" style={{ marginTop: 12 }}>
               <button
                 type="button"
                 className={
@@ -2550,50 +2580,25 @@ function StudentSettingsTab(props: {
                     : "지금 켜기"}
               </button>
             </div>
-          </div>
-        )}
-        {studyRoomMessage ? (
-          <p className="settings-hint" style={{ marginTop: 12 }}>
-            {studyRoomMessage}
-          </p>
-        ) : null}
-        <StudyRoomPickerModal
-          open={studyRoomModalOpen}
-          revealed={studyRoomModalOpen}
-          student={props.selectedStudent}
-          initialValue={props.selectedStudent?.studyRoom || undefined}
-          authToken={props.authToken}
-          saving={studyRoomSaving}
-          onClose={() => setStudyRoomModalOpen(false)}
-          onSave={value => {
-            setStudyRoomModalOpen(false);
-            saveStudyRoomSetting(value);
-          }}
-        />
-      </Card>
+          </Card>
+        </>
+      )}
 
       {/* 모드별 시간 예약 설정 카드 */}
       <Card className="coach-card coach-card--padded" style={{ marginTop: 12 }}>
         <SectionHeader
           title="허용앱 설정"
+          icon={<LayoutGrid />}
           right={
             props.selectedStudent ? (
               <button
                 type="button"
-                className={
-                  "parent-settings-header-toggle" +
-                  (isBulkDaechiRootLockActive ? " parent-settings-header-toggle--danger" : "")
-                }
-                disabled={bulkDaechiRootLockSaving || deviceControlStateLoading}
-                onClick={() => {
-                  void toggleBulkDaechiRootLock(!isBulkDaechiRootLockActive);
-                }}
+                className="parent-mode-schedule-header__schedule-btn"
+                disabled={allowanceScheduleBusy}
+                onClick={() => setAllowanceScheduleModalOpen(true)}
               >
-                {bulkDaechiRootLockSaving || deviceControlStateLoading
-                  ? "처리 중..."
-                  : isBulkDaechiRootLockActive
-                    ? "잠금 해제"
-                    : "일괄 잠금"}
+                <CalendarRange aria-hidden />
+                시간표
               </button>
             ) : null
           }
@@ -2606,6 +2611,13 @@ function StudentSettingsTab(props: {
               activeMode={activeAppAllowanceMode}
               activatingMode={activatingAppMode === "default" ? null : activatingAppMode}
               stateLoading={deviceControlStateLoading}
+              blockActive={isBulkDaechiRootLockActive}
+              blockActivating={bulkDaechiRootLockSaving}
+              scheduleModalOpen={allowanceScheduleModalOpen}
+              onScheduleModalClose={() => setAllowanceScheduleModalOpen(false)}
+              onToggleBlockNow={nextLocked => {
+                void toggleBulkDaechiRootLock(nextLocked);
+              }}
               onToggleModeNow={(mode, nextEnabled) => {
                 void activateAppAllowanceMode(nextEnabled ? mode : "default");
               }}

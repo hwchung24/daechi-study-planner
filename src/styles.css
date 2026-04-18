@@ -20,7 +20,16 @@
 .parent-mode-schedule-list {
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 0;
+  border-top: var(--border-width) solid var(--border-neutral);
+  padding-top: 12px;
+}
+
+/* 허용앱 설정 제목 아래 첫 모드 전은 위쪽 border로 처리, 모드 블록 사이 구분선 */
+.parent-mode-schedule-list > .parent-settings-block + .parent-settings-block {
+  border-top: var(--border-width) solid var(--border-neutral);
+  margin-top: 12px;
+  padding-top: 12px;
 }
 
 .parent-settings-block {
@@ -101,6 +110,38 @@
   border-color: var(--accent);
 }
 
+/** 허용앱 설정 카드 헤더 우측 — 흰 배경 */
+.parent-mode-schedule-header__schedule-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-width: 72px;
+  padding: 6px 14px;
+  font-size: var(--font-size-small);
+  font-weight: var(--font-weight-semibold, 600);
+  line-height: 1;
+  color: var(--text-main);
+  background: #fff;
+  border: 1px solid var(--border-neutral, var(--stroke));
+  border-radius: 999px;
+  cursor: pointer;
+}
+
+.parent-mode-schedule-header__schedule-btn svg {
+  flex-shrink: 0;
+  display: block;
+  width: 16px;
+  height: 16px;
+  stroke-width: 2;
+  opacity: 0.85;
+}
+
+.parent-mode-schedule-header__schedule-btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
 .parent-mode-schedule-item__activate {
   display: block;
   width: 100%;
@@ -111,24 +152,65 @@
 .parent-mode-schedule-modal-backdrop {
   position: fixed;
   inset: 0;
-  width: 100vw;
-  height: 100vh;
-  background: rgba(0, 0, 0, 0.35);
-  z-index: 1000;
+  z-index: 100000;
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 20px;
+  padding: max(12px, env(safe-area-inset-top)) max(12px, env(safe-area-inset-right))
+    max(12px, env(safe-area-inset-bottom)) max(12px, env(safe-area-inset-left));
+  box-sizing: border-box;
+  width: 100vw;
+  min-height: 100vh;
+  background: rgba(var(--modal-overlay-rgb), 0);
+  opacity: 0;
+  pointer-events: none;
+  transition:
+    opacity var(--dur-modal) var(--ease-standard),
+    background var(--dur-modal) var(--ease-standard);
+}
+
+.parent-mode-schedule-modal-backdrop.parent-mode-schedule-modal-backdrop--open {
+  background: rgba(var(--modal-overlay-rgb), var(--modal-overlay-opacity));
+  opacity: 1;
+  pointer-events: auto;
 }
 
 .parent-mode-schedule-modal {
-  width: min(960px, calc(100vw - 24px));
-  max-height: min(84vh, 920px);
-  overflow-y: auto;
-  background: #fff;
-  border-radius: 16px;
-  padding: 20px;
-  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.12);
+  width: min(92vw, 560px);
+  max-height: min(82vh, 720px);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--modal-surface-bg);
+  border-radius: var(--modal-radius);
+  padding: 0;
+  border: var(--border-width) solid var(--border-neutral);
+  box-shadow: var(--modal-surface-shadow);
+  transform: var(--modal-inner-transform-from);
+  opacity: 0;
+  transition:
+    opacity var(--dur-modal) var(--ease-standard),
+    transform var(--dur-modal) var(--ease-standard);
+}
+
+.parent-mode-schedule-modal-backdrop--open .parent-mode-schedule-modal {
+  opacity: 1;
+  transform: scale(1) translateY(0);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .parent-mode-schedule-modal-backdrop,
+  .parent-mode-schedule-modal {
+    transition-duration: 0.2s;
+  }
+
+  .parent-mode-schedule-modal {
+    transform: translateY(6px);
+  }
+
+  .parent-mode-schedule-modal-backdrop--open .parent-mode-schedule-modal {
+    transform: translateY(0);
+  }
 }
 
 .parent-mode-schedule-modal__header {
@@ -136,23 +218,193 @@
   justify-content: space-between;
   align-items: center;
   gap: 12px;
-  margin-bottom: 14px;
+  flex-shrink: 0;
+  padding: 14px 16px;
+  margin-bottom: 0;
+  border-bottom: var(--border-width) solid var(--border-neutral);
 }
 
 .parent-mode-schedule-modal__title {
-  font-weight: var(--font-weight-bold);
-  font-size: var(--font-size-large);
-  color: var(--text-main);
+  margin: 0;
+  min-width: 0;
+  font-weight: var(--font-weight-strong);
+  font-size: var(--font-size-medium);
+  letter-spacing: -0.02em;
+  color: var(--text-strong);
 }
 
 .parent-mode-schedule-modal__close {
+  flex-shrink: 0;
   border: var(--border-width) solid var(--border-neutral);
   background: var(--surface-base);
-  color: var(--text-main);
-  border-radius: 10px;
-  padding: 6px 14px;
+  color: var(--text-strong);
+  border-radius: 999px;
+  padding: 7px 14px;
+  font-size: var(--font-size-small);
   font-weight: var(--font-weight-semibold);
+  line-height: 1;
   cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition:
+    background var(--dur-fast) var(--ease-standard),
+    border-color var(--dur-fast) var(--ease-standard),
+    color var(--dur-fast) var(--ease-standard);
+}
+
+.parent-mode-schedule-modal__close:hover {
+  background: var(--accent-muted);
+  border-color: var(--accent-border);
+}
+
+.parent-mode-schedule-modal__close:active {
+  background: var(--accent-soft);
+}
+
+.parent-mode-schedule-modal__body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  padding: 14px 16px 16px;
+}
+
+.parent-mode-schedule-modal__lead {
+  margin: 0 0 12px;
+  font-size: var(--font-size-small);
+  line-height: 1.45;
+  color: var(--text-sub);
+}
+
+/* 허용앱 시간표 그리드 — 코치 카드 토큰과 정렬 */
+.parent-mode-schedule-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.parent-mode-schedule-grid__chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.parent-mode-schedule-grid__chip {
+  border: var(--border-width) solid var(--border-neutral);
+  background: var(--surface-base);
+  border-radius: 999px;
+  padding: 8px 14px;
+  font-size: var(--font-size-small);
+  font-weight: var(--font-weight-semibold);
+  line-height: 1.2;
+  color: var(--text-main);
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition:
+    background var(--dur-fast) var(--ease-standard),
+    border-color var(--dur-fast) var(--ease-standard),
+    color var(--dur-fast) var(--ease-standard),
+    box-shadow var(--dur-fast) var(--ease-standard);
+}
+
+.parent-mode-schedule-grid__chip--selected.parent-mode-schedule-grid__chip--utility,
+.parent-mode-schedule-grid__chip--selected.parent-mode-schedule-grid__chip--free {
+  border-color: transparent;
+  color: #ffffff;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08);
+  background: var(--chip-fill, var(--accent));
+}
+
+.parent-mode-schedule-grid__chip--selected.parent-mode-schedule-grid__chip--delete {
+  border-color: var(--text-strong);
+  color: var(--text-strong);
+  background: rgba(var(--neutral-rgb), 0.08);
+}
+
+.parent-mode-schedule-grid__night-wrap {
+  display: flex;
+  justify-content: flex-start;
+}
+
+.parent-mode-schedule-grid__night {
+  border: var(--border-width) solid var(--border-neutral);
+  background: var(--surface-base);
+  border-radius: 999px;
+  padding: 8px 14px;
+  font-size: var(--font-size-small);
+  font-weight: var(--font-weight-semibold);
+  line-height: 1.2;
+  color: var(--text-main);
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition:
+    background var(--dur-fast) var(--ease-standard),
+    border-color var(--dur-fast) var(--ease-standard),
+    color var(--dur-fast) var(--ease-standard);
+}
+
+.parent-mode-schedule-grid__night--active {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #ffffff;
+}
+
+.parent-mode-schedule-grid__table-wrap {
+  overflow-x: auto;
+  border-radius: var(--radius-xl);
+  border: var(--border-width) solid var(--border-neutral);
+  background: var(--surface-base);
+}
+
+.parent-mode-schedule-grid__table {
+  width: 100%;
+  min-width: 700px;
+  border-collapse: collapse;
+  font-family: var(--font-family-base);
+}
+
+.parent-mode-schedule-grid__th {
+  padding: 8px 6px;
+  font-size: var(--font-size-small);
+  font-weight: var(--font-weight-semibold);
+  color: var(--text-strong);
+  text-align: center;
+  background: rgba(var(--accent-rgb), 0.06);
+  border-bottom: var(--border-width) solid var(--border-neutral);
+}
+
+.parent-mode-schedule-grid__th--corner {
+  width: 40px;
+  background: rgba(var(--accent-rgb), 0.04);
+}
+
+.parent-mode-schedule-grid__time {
+  text-align: right;
+  padding: 2px 6px 2px 4px;
+  font-size: var(--font-size-small);
+  font-variant-numeric: tabular-nums;
+  color: var(--text-sub);
+  white-space: nowrap;
+  vertical-align: middle;
+  background: rgba(var(--neutral-rgb), 0.03);
+  border-right: var(--border-width) solid var(--border-neutral);
+}
+
+.parent-mode-schedule-grid__cell {
+  width: 32px;
+  height: 20px;
+  padding: 0;
+  border: var(--border-width) solid rgba(var(--neutral-rgb), 0.12);
+  background: rgba(var(--neutral-rgb), 0.04);
+  cursor: pointer;
+  transition: background var(--dur-fast) var(--ease-standard);
+  vertical-align: middle;
+}
+
+.parent-mode-schedule-grid__cell[data-filled="true"] {
+  background: var(--cell-fill, var(--accent));
+  border-color: rgba(0, 0, 0, 0.06);
 }
 :root {
   color-scheme: light;
@@ -6355,9 +6607,117 @@ button:active:not(:disabled),
 
 .coach-section-header {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   justify-content: space-between;
   gap: 12px;
+}
+
+.coach-section-header__right {
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+}
+
+.coach-section-header__headline {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+
+.coach-section-header__titles {
+  min-width: 0;
+  flex: 1;
+}
+
+.coach-section-header__icon-wrap {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 40px;
+  height: 40px;
+  border-radius: 12px;
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.coach-section-header__icon-wrap svg {
+  width: 20px;
+  height: 20px;
+  stroke-width: 2;
+}
+
+/** 학생 설정 상단 상태 카드 — 아래 카드와 간격 */
+.coach-settings-status-card {
+  margin-bottom: 16px;
+}
+
+.coach-settings-banner {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  text-align: center;
+}
+
+.coach-settings-banner__text-stack {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+
+/* 학생 휴대폰 상태 문구 — 본문은 일반 굵기, 모드명만 볼드(아래 .coach-settings-banner__mode) */
+.coach-settings-banner__body {
+  margin: 0;
+  max-width: 100%;
+  font-size: var(--font-size-medium);
+  font-weight: var(--font-weight-regular);
+  line-height: 1.45;
+  letter-spacing: -0.02em;
+  text-align: center;
+  color: var(--text-strong);
+}
+
+.coach-settings-banner__body--loading {
+  margin: 0;
+  font-size: var(--font-size-medium);
+  font-weight: var(--font-weight-regular);
+  line-height: 1.45;
+  letter-spacing: -0.02em;
+  text-align: center;
+  color: var(--text-strong);
+}
+
+/** 상태 카드: 일괄잠금·유틸리티·자유시간·계획표·기본 — 남색 + 볼드 */
+.coach-settings-banner__mode {
+  color: var(--accent);
+  font-weight: var(--font-weight-strong);
+}
+
+/* 부모 학생 설정 — 계획표: 시간·토글 (헤더 우측) */
+.parent-student-settings__planner-controls {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.parent-student-settings__planner-controls--header {
+  margin-left: 4px;
+}
+
+.parent-student-settings__time-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
+  min-height: 32px;
+  padding: 4px 12px;
+  box-sizing: border-box;
 }
 
 .coach-section-title {
@@ -7788,5 +8148,10 @@ button:active:not(:disabled),
 .coach-starter,
 .coach-chat {
   border: none;
+}
+
+/* 전역 border 제거 규칙 이후에도 부모 학생 설정 상태 카드는 남색 테두리 유지 */
+.coach-card.coach-settings-status-card {
+  border: var(--border-width) solid var(--accent);
 }
 
