@@ -217,11 +217,26 @@ function resolveAppAllowanceModeFromProfileName(profileNameRaw) {
   return "default";
 }
 
+/** jsonb / 직렬화 이슈로 배열이 아닌 형태로 올 수 있음 */
+function coerceOverrideBundleIdsArray(raw) {
+  if (raw == null) return [];
+  if (Array.isArray(raw)) return raw;
+  if (typeof raw === "string") {
+    try {
+      const p = JSON.parse(raw);
+      return Array.isArray(p) ? p : [];
+    } catch {
+      return [];
+    }
+  }
+  return [];
+}
+
 /** 대치루트만 허용하는 일괄잠금(override) 여부 */
 function isDaechiRootBulkLockOverride(overrideBundleIds) {
   const ids = Array.from(
     new Set(
-      (Array.isArray(overrideBundleIds) ? overrideBundleIds : [])
+      coerceOverrideBundleIdsArray(overrideBundleIds)
         .map(value => String(value || "").trim().toLowerCase())
         .filter(Boolean)
     )
@@ -4349,6 +4364,7 @@ app.get("/api/parent/students/:studentId/device-control-state", authMiddleware, 
       listStudentWeeklyAppAllowanceSlots(studentId)
     ]);
     const appAllowanceMode = resolveAppAllowanceModeFromProfileName(appAllowanceState?.profile_name);
+    const bulkLockOverride = isDaechiRootBulkLockOverride(appAllowanceState?.override_bundle_ids);
     const mdmSurfaceMode = resolveMdmSurfaceModeForParent(
       appAllowanceState,
       appAllowanceMode,
@@ -4358,7 +4374,9 @@ app.get("/api/parent/students/:studentId/device-control-state", authMiddleware, 
     return res.json({
       appAllowanceMode,
       mdmSurfaceMode,
-      kioskEnabled
+      kioskEnabled,
+      /** 클라이언트 배너: surface 문자열과 별도로 override 기준 일괄잠금 명시 */
+      bulkLockOverride
     });
   } catch (e) {
     console.error("/api/parent/students/:studentId/device-control-state GET error", e);

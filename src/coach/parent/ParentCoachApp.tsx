@@ -1993,20 +1993,15 @@ function StudentSettingsTab(props: {
     useState<AppAllowanceModeKey | null>(null);
   const [deviceControlStateLoading, setDeviceControlStateLoading] = useState(false);
   const [mdmSurfaceMode, setMdmSurfaceMode] = useState<ParentMdmSurfaceMode | null>(null);
+  /** 서버가 직접 내려주는 일괄잠금(override) — surface 문자열과 불일치할 때 배너 보정 */
+  const [bulkLockOverrideFromApi, setBulkLockOverrideFromApi] = useState(false);
   const [activatingAppMode, setActivatingAppMode] = useState<"utility" | "free" | "default" | null>(null);
   /** MDM 일괄잠금(대치루트 전용 override) — 계획표 수동 잠금과 별개 */
-  const isBulkDaechiRootLockActive = mdmSurfaceMode === "bulk_lock";
+  const isBulkDaechiRootLockActive =
+    mdmSurfaceMode === "bulk_lock" || bulkLockOverrideFromApi;
 
-  /** DB `mdm_applied` 또는 실제 SimpleMDM 프로필(키오스크·유틸·자유·주간 계획) 적용 여부 */
-  const mdmEffectiveApplied =
-    props.selectedStudent?.mdmApplied === true ||
-    isBulkKioskEnabled ||
-    mdmSurfaceMode === "bulk_lock" ||
-    mdmSurfaceMode === "utility" ||
-    mdmSurfaceMode === "free" ||
-    mdmSurfaceMode === "schedule" ||
-    (mdmSurfaceMode === "default" &&
-      (props.selectedStudent?.mdmApplied === true || isBulkKioskEnabled));
+  /** 조회 완료 후 표시용 — 항상 네 축(bulk_lock / utility / free / schedule|default) 중 하나로 간주 */
+  const mdmDisplaySurfaceMode = (mdmSurfaceMode ?? "default") as ParentMdmSurfaceMode;
 
   useEffect(() => {
     setStudyRoomMessage("");
@@ -2048,15 +2043,26 @@ function StudentSettingsTab(props: {
       appAllowanceMode?: "default" | AppAllowanceModeKey;
       mdmSurfaceMode?: string;
       kioskEnabled?: boolean;
+      bulkLockOverride?: boolean;
     };
-    if (!res.ok) return;
+    if (!res.ok) {
+      setBulkLockOverrideFromApi(false);
+      setMdmSurfaceMode("default");
+      return;
+    }
     setActiveAppAllowanceMode(
       data.appAllowanceMode === "utility" || data.appAllowanceMode === "free"
         ? data.appAllowanceMode
         : null
     );
     setIsBulkKioskEnabled(Boolean(data.kioskEnabled));
-    setMdmSurfaceMode(parseParentMdmSurfaceMode(data.mdmSurfaceMode));
+    setBulkLockOverrideFromApi(Boolean(data.bulkLockOverride));
+    const parsedSurface = parseParentMdmSurfaceMode(data.mdmSurfaceMode);
+    const effectiveSurface: ParentMdmSurfaceMode =
+      Boolean(data.bulkLockOverride) && parsedSurface !== "bulk_lock"
+        ? "bulk_lock"
+        : parsedSurface ?? "default";
+    setMdmSurfaceMode(effectiveSurface);
   }, [props.apiBase, props.authToken, props.parentStudentId, refreshStudents]);
 
   useEffect(() => {
@@ -2064,9 +2070,12 @@ function StudentSettingsTab(props: {
       setActiveAppAllowanceMode(null);
       setIsBulkKioskEnabled(false);
       setMdmSurfaceMode(null);
+      setBulkLockOverrideFromApi(false);
       return;
     }
     let cancelled = false;
+    setMdmSurfaceMode(null);
+    setBulkLockOverrideFromApi(false);
     setDeviceControlStateLoading(true);
     void (async () => {
       try {
@@ -2287,8 +2296,7 @@ function StudentSettingsTab(props: {
   };
 
   const surfaceModeLabel =
-    PARENT_MDM_SURFACE_LABEL[(mdmSurfaceMode ?? "default") as ParentMdmSurfaceMode] ??
-    PARENT_MDM_SURFACE_LABEL.default;
+    PARENT_MDM_SURFACE_LABEL[mdmDisplaySurfaceMode] ?? PARENT_MDM_SURFACE_LABEL.default;
 
   const toggleBulkKioskMode = async (nextEnabled: boolean) => {
     if (!props.authToken || !props.parentStudentId) return;
@@ -2355,7 +2363,7 @@ function StudentSettingsTab(props: {
         <div
           className={
             "parent-mdm-status" +
-            (mdmEffectiveApplied ? " parent-mdm-status--on" : " parent-mdm-status--off")
+            (!deviceControlStateLoading ? " parent-mdm-status--on" : " parent-mdm-status--off")
           }
           style={{
             marginTop: 12,
@@ -2363,25 +2371,23 @@ function StudentSettingsTab(props: {
             padding: "12px 14px",
             borderRadius: 12,
             border: "1px solid var(--stroke)",
-            background: mdmEffectiveApplied
+            background: !deviceControlStateLoading
               ? "color-mix(in srgb, var(--success, #22c55e) 12%, transparent)"
               : "color-mix(in srgb, var(--muted-foreground, #64748b) 8%, transparent)"
           }}
         >
-          <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 4 }}>휴대폰 MDM 상태</div>
+          <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 4 }}>휴대폰 허용앱 모드</div>
           <div style={{ fontSize: 14, lineHeight: 1.45, color: "var(--foreground)" }}>
-            {deviceControlStateLoading && !mdmEffectiveApplied
-              ? "기기·프로필 상태를 확인하는 중입니다."
-              : mdmEffectiveApplied
-                ? (
-                    <>
-                      현재 선택한 학생 휴대폰은 MDM이 적용된 상태입니다.
-                      <div style={{ marginTop: 8, fontSize: 14 }}>
-                        적용 모드: {surfaceModeLabel}
-                      </div>
-                    </>
-                  )
-                : "현재 선택한 학생 휴대폰은 MDM이 적용되어 있지 않습니다. 학생 앱에서 기기가 연결되면 적용으로 갱신됩니다."}
+            {deviceControlStateLoading ? (
+              "기기·프로필 상태를 확인하는 중입니다."
+            ) : (
+              <>
+                일괄잠금·유틸리티·자유시간·기본(계획표 포함) 중 하나로만 동작합니다.
+                <div style={{ marginTop: 8, fontSize: 14 }}>
+                  현재 모드: {surfaceModeLabel}
+                </div>
+              </>
+            )}
           </div>
         </div>
       ) : null}
