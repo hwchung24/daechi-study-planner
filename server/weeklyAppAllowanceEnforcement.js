@@ -22,7 +22,8 @@ const {
   deleteCustomConfigurationProfile,
   assignProfileToGroup,
   unassignProfileFromGroup,
-  syncProfiles
+  syncProfiles,
+  listProfilesForAssignmentGroup
 } = require("./simpleMdmClient");
 
 const SEOUL_TIME_ZONE = "Asia/Seoul";
@@ -176,6 +177,59 @@ function buildPayloadHash(bundleIds) {
     .createHash("sha256")
     .update(JSON.stringify(Array.isArray(bundleIds) ? bundleIds : []))
     .digest("hex");
+}
+
+function normalizeAllowanceModeProfileName(value) {
+  return String(value || "")
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, " ");
+}
+
+/** SimpleMDM에 올라가는 기본/유틸/자유 이름 프로파일(env와 동일 규칙) */
+function getConfiguredNamedAllowanceProfileNameSet() {
+  return new Set(
+    [
+      String(process.env.SIMPLEMDM_APP_ALLOWANCE_DEFAULT_PROFILE || "default").trim(),
+      String(process.env.SIMPLEMDM_APP_ALLOWANCE_UTILITY_PROFILE || "utility").trim(),
+      String(process.env.SIMPLEMDM_APP_ALLOWANCE_FREE_PROFILE || "free").trim()
+    ]
+      .map(normalizeAllowanceModeProfileName)
+      .filter(Boolean)
+  );
+}
+
+function isDaechiRootBulkLockOverrideBundleIds(overrideBundleIds) {
+  const ids = normalizeBundleIds(Array.isArray(overrideBundleIds) ? overrideBundleIds : []);
+  return ids.length === 1 && ids[0] === DAECHI_ROOT_BUNDLE_ID.toLowerCase();
+}
+
+async function hasUtilityOrFreeNamedProfileAssigned(groupId) {
+  const utilityKey = normalizeAllowanceModeProfileName(
+    process.env.SIMPLEMDM_APP_ALLOWANCE_UTILITY_PROFILE || "utility"
+  );
+  const freeKey = normalizeAllowanceModeProfileName(
+    process.env.SIMPLEMDM_APP_ALLOWANCE_FREE_PROFILE || "free"
+  );
+  const assigned = await listProfilesForAssignmentGroup(groupId).catch(() => []);
+  for (const profile of Array.isArray(assigned) ? assigned : []) {
+    const key = normalizeAllowanceModeProfileName(profile?.attributes?.name);
+    if (key === utilityKey || key === freeKey) return true;
+  }
+  return false;
+}
+
+/** 주간 동적 프로파일 적용 전 이름 기반 default/utility/free 제거 */
+async function unassignAllNamedAppAllowanceProfilesFromGroup(groupId) {
+  const named = getConfiguredNamedAllowanceProfileNameSet();
+  const assigned = await listProfilesForAssignmentGroup(groupId).catch(() => []);
+  for (const profile of Array.isArray(assigned) ? assigned : []) {
+    const profileId = Number(profile?.id);
+    const key = normalizeAllowanceModeProfileName(profile?.attributes?.name);
+    if (!profileId || !named.has(key)) continue;
+    await unassignProfileFromGroup(groupId, profileId).catch(() => {});
+  }
+  await syncProfiles(groupId).catch(() => {});
 }
 
 function escapeXml(value) {
@@ -359,6 +413,24 @@ async function syncStudentWeeklyAppAllowance(userId, options = {}) {
     }
 
     const assignmentGroup = await ensureStudentAssignmentGroup(userId, Number(device.id));
+
+    // 유틸/자유 이름 프로파일이 켜져 있으면 주간 동기화로 덮어쓰지 않음(일괄잠금 override 적용 시에는 제외)
+    const namedUtilityOrFreeBlocksWeekly =
+      (await hasUtilityOrFreeNamedProfileAssigned(assignmentGroup.id)) &&
+      !options.force &&
+      !isDaechiRootBulkLockOverrideBundleIds(profileState?.override_bundle_ids);
+    if (namedUtilityOrFreeBlocksWeekly) {
+      return {
+        ok: true,
+        skipped: true,
+        reason: "named_utility_or_free_active",
+        bundleIds,
+        deviceId: Number(device.id)
+      };
+    }
+
+    await unassignAllNamedAppAllowanceProfilesFromGroup(assignmentGroup.id);
+
     const mobileconfig = buildRestrictionsMobileconfig({ userId, bundleIds });
     const profile = await upsertProfileForStudent(userId, profileState, mobileconfig);
     deviceId = Number(device.id);

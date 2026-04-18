@@ -1994,7 +1994,8 @@ function StudentSettingsTab(props: {
   const [deviceControlStateLoading, setDeviceControlStateLoading] = useState(false);
   const [mdmSurfaceMode, setMdmSurfaceMode] = useState<ParentMdmSurfaceMode | null>(null);
   const [activatingAppMode, setActivatingAppMode] = useState<"utility" | "free" | "default" | null>(null);
-  const isAppAllowanceLocked = Boolean(props.parentLockStatus?.locked);
+  /** MDM 일괄잠금(대치루트 전용 override) — 계획표 수동 잠금과 별개 */
+  const isBulkDaechiRootLockActive = mdmSurfaceMode === "bulk_lock";
 
   /** DB `mdm_applied` 또는 실제 SimpleMDM 프로필(키오스크·유틸·자유·주간 계획) 적용 여부 */
   const mdmEffectiveApplied =
@@ -2525,22 +2526,24 @@ function StudentSettingsTab(props: {
                 type="button"
                 className={
                   "parent-settings-header-toggle" +
-                  (isAppAllowanceLocked ? " parent-settings-header-toggle--danger" : "")
+                  (isBulkDaechiRootLockActive ? " parent-settings-header-toggle--danger" : "")
                 }
-                disabled={bulkDaechiRootLockSaving || activatingAppMode === "default"}
+                disabled={
+                  bulkDaechiRootLockSaving ||
+                  deviceControlStateLoading ||
+                  activatingAppMode === "default"
+                }
                 onClick={() => {
-                  if (isAppAllowanceLocked) {
-                    void activateAppAllowanceMode("default");
-                  } else {
-                    void toggleBulkDaechiRootLock(true);
-                  }
+                  void toggleBulkDaechiRootLock(!isBulkDaechiRootLockActive);
                 }}
               >
-                {bulkDaechiRootLockSaving || activatingAppMode === "default"
+                {bulkDaechiRootLockSaving ||
+                deviceControlStateLoading ||
+                activatingAppMode === "default"
                   ? "처리 중..."
-                  : isAppAllowanceLocked
-                    ? "일괄해제"
-                    : "일괄잠금"}
+                  : isBulkDaechiRootLockActive
+                    ? "잠금 해제"
+                    : "일괄 잠금"}
               </button>
             ) : null
           }

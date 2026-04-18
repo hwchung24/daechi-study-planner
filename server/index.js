@@ -436,6 +436,10 @@ async function applyNamedAppAllowanceProfileForStudent(userId, modeKey) {
     throw new Error("SimpleMDM에서 학생 기기를 찾을 수 없습니다.");
   }
 
+  // 기본/유틸/자유(이름 기반 프로파일)은 일괄잠금(override)·주간 동적 프로파일과 동시에 적용되지 않음
+  await removeStudentWeeklyAppAllowanceRestriction(userId).catch(() => {});
+  await clearStudentMdmAppAllowanceOverride(userId).catch(() => {});
+
   const group = await ensureStudentAssignmentGroupForProfile(userId, Number(device.id));
   const targetProfile = await findProfileByName(profileName);
   if (!targetProfile?.id) {
@@ -473,6 +477,32 @@ async function applyNamedAppAllowanceProfileForStudent(userId, modeKey) {
     removedProfileIds,
     groupId: group.id
   };
+}
+
+/**
+ * 네 가지 축 중 "기본"(계획표 주간 프로파일 또는 이름 기반 default)이 비지 않도록 맞춘다.
+ * 일괄잠금(override)·유틸·자유가 아닐 때는 슬롯이 있으면 주간 동기화, 없으면 default 이름 프로파일을 올린다.
+ */
+async function ensureBaselineAppAllowanceForStudent(userId, options = {}) {
+  if (!isSimpleMdmConfigured()) {
+    return { ok: false, skipped: true, reason: "simplemdm_not_configured" };
+  }
+  const allowanceState = await getStudentMdmAppAllowanceProfileState(userId);
+  if (isDaechiRootBulkLockOverride(allowanceState?.override_bundle_ids)) {
+    return syncStudentWeeklyAppAllowance(userId, {
+      force: true,
+      reason: options.reason || "ensure_baseline"
+    });
+  }
+  const slots = await listStudentWeeklyAppAllowanceSlots(userId);
+  if (slots.length > 0) {
+    return syncStudentWeeklyAppAllowance(userId, {
+      force: true,
+      reason: options.reason || "ensure_baseline"
+    });
+  }
+  await applyNamedAppAllowanceProfileForStudent(userId, "default");
+  return { ok: true, applied: "default_named" };
 }
 
 function resolveHomeworkUploadPath(fileUrl) {
@@ -6107,6 +6137,17 @@ app.post("/api/parent/app-allowance/bulk-daechiroot-unlock", authMiddleware, asy
 
           if (scheduleRows.length === 0) {
             const removal = await removeStudentWeeklyAppAllowanceRestriction(student.id);
+            try {
+              await ensureBaselineAppAllowanceForStudent(student.id, {
+                reason: "parent_bulk_daechiroot_unlock_empty_schedule"
+              });
+            } catch (baselineError) {
+              console.error(
+                "ensureBaselineAppAllowanceForStudent after bulk unlock",
+                student.id,
+                baselineError
+              );
+            }
             return {
               studentId: student.id,
               email: student.email,
@@ -8145,6 +8186,11 @@ app.post("/api/device/link-serial", authMiddleware, async (req, res) => {
     }
     await linkDeviceToUserBySerial(req.userId, serial);
     const activeSerial = await getActiveDeviceSerialForUser(req.userId);
+    if (me.role === "student" && activeSerial) {
+      void ensureBaselineAppAllowanceForStudent(req.userId, {
+        reason: "device_link_serial"
+      }).catch(err => console.error("ensureBaseline after link-serial", req.userId, err));
+    }
     res.json({
       ok: true,
       linked: Boolean(activeSerial),
