@@ -4397,11 +4397,8 @@ app.get("/api/parent/students/:studentId/device-control-state", authMiddleware, 
       console.error("device-control-state ui_surface_mode persist", studentId, persistErr);
     }
     const freshAllowance = await getStudentMdmAppAllowanceProfileState(studentId);
-    const allowedSurfaces = new Set(["bulk_lock", "schedule", "utility", "free", "default"]);
-    const dbUi = String(freshAllowance?.ui_surface_mode || "")
-      .trim()
-      .toLowerCase();
-    const mdmSurfaceModeResolved = allowedSurfaces.has(dbUi) ? dbUi : mdmSurfaceMode;
+    /** 응답은 매 요청마다 계산한 모드를 쓴다. DB `ui_surface_mode`는 캐시라 지연·불일치가 날 수 있어 우선하지 않는다. */
+    const mdmSurfaceModeResolved = mdmSurfaceMode;
 
     const toIso = v => (v ? new Date(v).toISOString() : null);
     const profileSnapshot = {

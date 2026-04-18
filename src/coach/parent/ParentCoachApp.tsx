@@ -2006,8 +2006,13 @@ function StudentSettingsTab(props: {
   const isBulkDaechiRootLockActive =
     mdmSurfaceMode === "bulk_lock" || bulkLockOverrideFromApi;
 
-  /** 조회 완료 후 표시용 — 항상 네 축(bulk_lock / utility / free / schedule|default) 중 하나로 간주 */
-  const mdmDisplaySurfaceMode = (mdmSurfaceMode ?? "default") as ParentMdmSurfaceMode;
+  /**
+   * API가 `mdmSurfaceMode`는 default인데 `bulkLockOverride`만 true인 경우가 있어,
+   * 라벨은 일괄잠금으로 통일한다.
+   */
+  const mdmDisplaySurfaceMode = (
+    isBulkDaechiRootLockActive ? "bulk_lock" : (mdmSurfaceMode ?? "default")
+  ) as ParentMdmSurfaceMode;
 
   useEffect(() => {
     setStudyRoomMessage("");
@@ -2184,31 +2189,25 @@ function StudentSettingsTab(props: {
     }
     const sid = props.parentStudentId;
     const loadGeneration = ++deviceUiLoadGenerationRef.current;
-    const hintRow = props.parentStudents.find(s => Number(s.id) === Number(sid));
-    const hintParsed = hintRow?.appAllowanceSurface
-      ? parseParentMdmSurfaceMode(String(hintRow.appAllowanceSurface))
-      : null;
-    setMdmSurfaceMode(hintParsed);
-    setBulkLockOverrideFromApi(hintParsed === "bulk_lock");
-    setIsBulkKioskEnabled(Boolean(hintRow?.kioskActive));
+    setMdmSurfaceMode(null);
+    setBulkLockOverrideFromApi(false);
+    setIsBulkKioskEnabled(false);
     setDeviceControlStateLoading(true);
     void (async () => {
       try {
-        await Promise.all([
-          reloadStudentDeviceUi({
-            targetStudentId: sid,
-            loadGeneration
-          }),
-          reloadSimpleMdmLiveProfiles({
-            targetStudentId: sid,
-            loadGeneration
-          })
-        ]);
+        await reloadStudentDeviceUi({
+          targetStudentId: sid,
+          loadGeneration
+        });
       } finally {
         if (loadGeneration === deviceUiLoadGenerationRef.current) {
           setDeviceControlStateLoading(false);
         }
       }
+      void reloadSimpleMdmLiveProfiles({
+        targetStudentId: sid,
+        loadGeneration
+      });
     })();
   }, [
     props.authToken,
