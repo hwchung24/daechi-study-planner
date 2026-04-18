@@ -452,6 +452,15 @@ async function listProfilesForAssignmentGroup(groupId) {
   return listPaginatedCollection(`/assignment_groups/${numericGroupId}/profiles`);
 }
 
+/** 기기에 직접 할당된 프로파일(SimpleMDM). 그룹 경유 프로파일은 목록에 안 나올 수 있음. */
+async function listDeviceProfiles(deviceId) {
+  const numericDeviceId = Number(deviceId);
+  if (!Number.isFinite(numericDeviceId) || numericDeviceId <= 0) {
+    throw new Error("deviceId가 올바르지 않습니다.");
+  }
+  return listPaginatedCollection(`/devices/${numericDeviceId}/profiles`);
+}
+
 module.exports = {
   isSimpleMdmConfigured,
   simpleMdmRequest,
@@ -478,5 +487,6 @@ module.exports = {
   syncProfiles,
   listProfiles,
   findProfileByName,
-  listProfilesForAssignmentGroup
+  listProfilesForAssignmentGroup,
+  listDeviceProfiles
 };

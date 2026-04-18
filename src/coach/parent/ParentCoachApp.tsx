@@ -1997,6 +1997,8 @@ function StudentSettingsTab(props: {
   const [bulkLockOverrideFromApi, setBulkLockOverrideFromApi] = useState(false);
   /** device-control-state가 내려주는 DB 동기화 스냅샷(직접 확인용) */
   const [deviceProfileSnapshot, setDeviceProfileSnapshot] = useState<unknown>(null);
+  /** Simple MDM API로 실시간 조회한 기기·그룹 프로파일 */
+  const [simpleMdmLiveSnapshot, setSimpleMdmLiveSnapshot] = useState<unknown>(null);
   /** 학생 전환·Strict Mode에서 옛 요청이 상태를 덮어쓰지 않도록 세대 번호 */
   const deviceUiLoadGenerationRef = useRef(0);
   const [activatingAppMode, setActivatingAppMode] = useState<"utility" | "free" | "default" | null>(null);
@@ -2127,6 +2129,49 @@ function StudentSettingsTab(props: {
     [props.apiBase, props.authToken, props.parentStudentId, refreshStudents]
   );
 
+  const reloadSimpleMdmLiveProfiles = useCallback(
+    async (options?: {
+      targetStudentId?: number | null;
+      loadGeneration?: number;
+    }) => {
+      if (!props.authToken) return;
+      const sid = options?.targetStudentId ?? props.parentStudentId;
+      if (!sid) return;
+
+      const res = await fetch(
+        `${props.apiBase}/api/parent/students/${encodeURIComponent(String(sid))}/simplemdm-device-profiles`,
+        {
+          headers: {
+            Authorization: `Bearer ${props.authToken}`
+          }
+        }
+      );
+
+      const data = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+
+      if (
+        options?.loadGeneration !== undefined &&
+        options.loadGeneration !== deviceUiLoadGenerationRef.current
+      ) {
+        return;
+      }
+
+      if (!res.ok) {
+        const errBody = data as { error?: string };
+        setSimpleMdmLiveSnapshot({
+          requestFailed: true,
+          httpStatus: res.status,
+          error: errBody?.error || null,
+          raw: data
+        });
+        return;
+      }
+
+      setSimpleMdmLiveSnapshot(data);
+    },
+    [props.apiBase, props.authToken, props.parentStudentId]
+  );
+
   useEffect(() => {
     if (!props.authToken || !props.parentStudentId) {
       setActiveAppAllowanceMode(null);
@@ -2134,6 +2179,7 @@ function StudentSettingsTab(props: {
       setMdmSurfaceMode(null);
       setBulkLockOverrideFromApi(false);
       setDeviceProfileSnapshot(null);
+      setSimpleMdmLiveSnapshot(null);
       return;
     }
     const sid = props.parentStudentId;
@@ -2148,17 +2194,28 @@ function StudentSettingsTab(props: {
     setDeviceControlStateLoading(true);
     void (async () => {
       try {
-        await reloadStudentDeviceUi({
-          targetStudentId: sid,
-          loadGeneration
-        });
+        await Promise.all([
+          reloadStudentDeviceUi({
+            targetStudentId: sid,
+            loadGeneration
+          }),
+          reloadSimpleMdmLiveProfiles({
+            targetStudentId: sid,
+            loadGeneration
+          })
+        ]);
       } finally {
         if (loadGeneration === deviceUiLoadGenerationRef.current) {
           setDeviceControlStateLoading(false);
         }
       }
     })();
-  }, [props.authToken, props.parentStudentId, reloadStudentDeviceUi]);
+  }, [
+    props.authToken,
+    props.parentStudentId,
+    reloadStudentDeviceUi,
+    reloadSimpleMdmLiveProfiles
+  ]);
 
   const saveStudyRoomSetting = (value: StudyRoomSetting) => {
     if (!props.authToken) return;
@@ -2316,7 +2373,7 @@ function StudentSettingsTab(props: {
         props.hapticWarning();
       } else {
         props.hapticSuccess();
-        await reloadStudentDeviceUi();
+        await Promise.all([reloadStudentDeviceUi(), reloadSimpleMdmLiveProfiles()]);
       }
     } catch (error) {
       const detail =
@@ -2356,7 +2413,7 @@ function StudentSettingsTab(props: {
       }
       props.setParentPlannerMessage(data.message || "허용앱 프로파일을 적용했습니다.");
       props.hapticSuccess();
-      await reloadStudentDeviceUi();
+      await Promise.all([reloadStudentDeviceUi(), reloadSimpleMdmLiveProfiles()]);
     } catch (error) {
       const detail = error instanceof Error && error.message ? ` (${error.message})` : "";
       props.setParentPlannerMessage(`허용앱 프로파일 적용 중 오류가 발생했습니다.${detail}`);
@@ -2407,7 +2464,7 @@ function StudentSettingsTab(props: {
         props.hapticWarning();
       } else {
         props.hapticSuccess();
-        await reloadStudentDeviceUi();
+        await Promise.all([reloadStudentDeviceUi(), reloadSimpleMdmLiveProfiles()]);
       }
     } catch (error) {
       const detail =
@@ -2479,6 +2536,30 @@ function StudentSettingsTab(props: {
                     {deviceProfileSnapshot != null
                       ? JSON.stringify(deviceProfileSnapshot, null, 2)
                       : "(조회된 스냅샷 없음)"}
+                  </pre>
+                </details>
+                <details style={{ marginTop: 10 }}>
+                  <summary style={{ cursor: "pointer", fontSize: 13, color: "var(--muted-foreground)" }}>
+                    Simple MDM에서 조회한 이 기기의 프로파일 (실시간 API)
+                  </summary>
+                  <pre
+                    style={{
+                      marginTop: 8,
+                      padding: 10,
+                      fontSize: 11,
+                      lineHeight: 1.4,
+                      overflow: "auto",
+                      maxHeight: 320,
+                      borderRadius: 8,
+                      background: "color-mix(in srgb, var(--foreground) 6%, transparent)",
+                      border: "1px solid var(--stroke)",
+                      whiteSpace: "pre-wrap",
+                      wordBreak: "break-word"
+                    }}
+                  >
+                    {simpleMdmLiveSnapshot != null
+                      ? JSON.stringify(simpleMdmLiveSnapshot, null, 2)
+                      : "(조회된 Simple MDM 데이터 없음)"}
                   </pre>
                 </details>
               </>

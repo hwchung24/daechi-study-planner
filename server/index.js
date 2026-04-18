@@ -166,7 +166,8 @@ const {
   unassignProfileFromGroup,
   syncProfiles,
   findProfileByName,
-  listProfilesForAssignmentGroup
+  listProfilesForAssignmentGroup,
+  listDeviceProfiles
 } = require("./simpleMdmClient");
 
 const JWT_SECRET = String(process.env.JWT_SECRET || "");
@@ -4448,6 +4449,148 @@ app.get("/api/parent/students/:studentId/device-control-state", authMiddleware, 
     return res.status(500).json({ error: "학생 기기 제어 상태를 불러오지 못했습니다." });
   }
 });
+
+function normalizeSimpleMdmProfileRowForParent(row) {
+  const attrs = row?.attributes || {};
+  const id = row?.id != null ? Number(row.id) : null;
+  return {
+    id: Number.isFinite(id) && id > 0 ? id : null,
+    type: row?.type != null ? String(row.type) : null,
+    name: String(attrs.name || "").trim() || null,
+    profile_identifier: String(attrs.profile_identifier || "").trim() || null,
+    user_scope: Boolean(attrs.user_scope),
+    attribute_support: Boolean(attrs.attribute_support),
+    declarative:
+      attrs.declarative === undefined ? undefined : Boolean(attrs.declarative)
+  };
+}
+
+/** Simple MDM에서 실시간 조회: 기기 직접 할당 프로파일 + 학생 할당 그룹 프로파일 */
+app.get(
+  "/api/parent/students/:studentId/simplemdm-device-profiles",
+  authMiddleware,
+  async (req, res) => {
+    try {
+      const me = await getMe(req.userId);
+      if (!me || me.role !== "parent") {
+        return res.status(403).json({ error: "권한이 없습니다." });
+      }
+      const studentId = Number(req.params.studentId || 0);
+      if (!studentId) {
+        return res.status(400).json({ error: "studentId가 필요합니다." });
+      }
+      const has = await parentHasStudent(req.userId, studentId);
+      if (!has) {
+        return res.status(403).json({ error: "연결된 학생만 조회할 수 있습니다." });
+      }
+
+      if (!isSimpleMdmConfigured()) {
+        return res.json({
+          ok: true,
+          skipped: true,
+          reason: "simplemdm_not_configured",
+          message: "서버에 SIMPLEMDM_API_KEY가 설정되어 있지 않습니다."
+        });
+      }
+
+      const serialRaw = await getActiveDeviceSerialForUser(studentId);
+      const serial = serialRaw != null ? String(serialRaw).trim() : "";
+      if (!serial) {
+        return res.json({
+          ok: true,
+          skipped: true,
+          reason: "no_active_device_serial",
+          message: "연결된 활성 기기 시리얼이 없습니다."
+        });
+      }
+
+      let device = null;
+      try {
+        device = await findDeviceBySerial(serial);
+      } catch (err) {
+        console.error("simplemdm-device-profiles findDevice", studentId, err);
+        return res.status(502).json({
+          error: "SimpleMDM 기기 조회에 실패했습니다.",
+          detail: String(err?.message || err)
+        });
+      }
+
+      if (!device) {
+        return res.json({
+          ok: true,
+          skipped: true,
+          reason: "device_not_in_simplemdm",
+          serial,
+          message: "SimpleMDM에서 해당 시리얼의 기기를 찾지 못했습니다."
+        });
+      }
+
+      const deviceId = Number(device.id);
+      const devAttrs = device.attributes || {};
+      const deviceSummary = {
+        simplemdmDeviceId: Number.isFinite(deviceId) && deviceId > 0 ? deviceId : null,
+        serialNumber: String(devAttrs.serial_number || serial || "").trim() || null,
+        deviceName: String(devAttrs.device_name || devAttrs.name || "").trim() || null,
+        model: String(devAttrs.model || devAttrs.model_name || "").trim() || null,
+        osVersion: String(devAttrs.os_version || "").trim() || null
+      };
+
+      let profilesDirectOnDevice = [];
+      let profilesDirectError = null;
+      try {
+        const rows = await listDeviceProfiles(deviceId);
+        profilesDirectOnDevice = rows
+          .map(normalizeSimpleMdmProfileRowForParent)
+          .filter(p => p.id != null || p.name);
+      } catch (err) {
+        profilesDirectError = String(err?.message || err);
+        console.error("listDeviceProfiles parent", deviceId, err);
+      }
+
+      const groupRow = await getStudentMdmGroup(studentId);
+      let profilesOnAssignmentGroup = [];
+      let profilesOnGroupError = null;
+      if (groupRow && Number(groupRow.assignment_group_id) > 0) {
+        try {
+          const rows = await listProfilesForAssignmentGroup(
+            Number(groupRow.assignment_group_id)
+          );
+          profilesOnAssignmentGroup = rows
+            .map(normalizeSimpleMdmProfileRowForParent)
+            .filter(p => p.id != null || p.name);
+        } catch (err) {
+          profilesOnGroupError = String(err?.message || err);
+          console.error(
+            "listProfilesForAssignmentGroup parent",
+            groupRow.assignment_group_id,
+            err
+          );
+        }
+      }
+
+      return res.json({
+        ok: true,
+        device: deviceSummary,
+        assignmentGroup: groupRow
+          ? {
+              assignment_group_id: Number(groupRow.assignment_group_id),
+              assignment_group_name: String(groupRow.assignment_group_name || "")
+            }
+          : null,
+        profilesDirectOnDevice,
+        ...(profilesDirectError ? { profilesDirectError } : {}),
+        profilesOnAssignmentGroup,
+        ...(profilesOnGroupError ? { profilesOnGroupError } : {}),
+        apiNotes: [
+          "GET /devices/{id}/profiles 는 기기에 직접 할당된 프로파일만 반환합니다. 그룹으로 내려가는 프로파일은 아래 assignment group 목록을 보세요."
+        ]
+      });
+    } catch (e) {
+      console.error("/api/parent/students/:studentId/simplemdm-device-profiles GET error", e);
+      return res.status(500).json({ error: "SimpleMDM 프로파일 정보를 불러오지 못했습니다." });
+    }
+  }
+);
 
 app.put("/api/parent/students/:studentId/study-room", authMiddleware, async (req, res) => {
   try {
