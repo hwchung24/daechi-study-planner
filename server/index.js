@@ -130,7 +130,10 @@ const {
 const { startDailyAiReportCron } = require("./dailyReportCron");
 const { startPlannerLockCron } = require("./plannerLockCron");
 const { startWeeklyAppAllowanceCron } = require("./weeklyAppAllowanceCron");
-const { runParentAppModeScheduleEnforcement } = require("./parentAppModeScheduleCron");
+const {
+  runParentAppModeScheduleEnforcement,
+  startParentAppModeScheduleTicker
+} = require("./parentAppModeScheduleCron");
 const { runOnePair } = require("./aiReportService");
 const { sendPushToUser, sendPushToUsers } = require("./pushService");
 const {
@@ -173,6 +176,7 @@ const {
   assignProfileToGroup,
   unassignProfileFromGroup,
   unassignCompetingAppAllowanceProfilesFromGroup,
+  syncProfiles,
   findProfileByName,
   listProfilesForAssignmentGroup,
   listDeviceProfiles
@@ -479,12 +483,6 @@ async function applyNamedAppAllowanceProfileForStudent(userId, modeKey) {
     throw new Error("SimpleMDM에서 학생 기기를 찾을 수 없습니다.");
   }
 
-  // 기본/유틸/자유(이름 기반 프로파일)은 일괄잠금(override)·주간 동적 프로파일과 동시에 적용되지 않음
-  await removeStudentWeeklyAppAllowanceRestriction(userId, {
-    syncAfterUnassign: false
-  }).catch(() => {});
-  await clearStudentMdmAppAllowanceOverride(userId).catch(() => {});
-
   const group = await ensureStudentAssignmentGroupForProfile(userId, Number(device.id));
   const targetProfile = await findProfileByName(profileName);
   if (!targetProfile?.id) {
@@ -497,11 +495,22 @@ async function applyNamedAppAllowanceProfileForStudent(userId, modeKey) {
       .filter(Boolean)
   );
   const targetProfileId = Number(targetProfile.id);
+
+  // 목표 이름 프로파일을 먼저 붙인 뒤 나머지를 뗀다. (기존에 block 등만 있을 때
+  // 주간 sync가 utility/free/block 없는 순간으로 보고 default·주간 프로파일을 끼워 넣는 레이스 방지)
   await assignProfileToGroup(group.id, targetProfileId);
   const removedProfileIds = await unassignCompetingAppAllowanceProfilesFromGroup(group.id, {
     targetProfileId,
-    managedNameKeys: managedProfileNameSet
+    managedNameKeys: managedProfileNameSet,
+    syncAfter: false
   });
+
+  await clearStudentMdmAppAllowanceOverride(userId).catch(() => {});
+  await removeStudentWeeklyAppAllowanceRestriction(userId, {
+    syncAfterUnassign: false
+  }).catch(() => {});
+
+  await syncProfiles(group.id).catch(() => {});
 
   const persistedName = String(targetProfile?.attributes?.name || profileName).trim();
   const persistedIdentifier =
@@ -8684,12 +8693,10 @@ async function connectDbWithRetry() {
     if (!cronStarted) {
       startDailyAiReportCron();
       startPlannerLockCron();
-      startWeeklyAppAllowanceCron({
-        afterWeeklyReconcile: () =>
-          runParentAppModeScheduleEnforcement({
-            applyNamedAppAllowanceProfileForStudent,
-            ensureBaselineAppAllowanceForStudent
-          })
+      startWeeklyAppAllowanceCron();
+      startParentAppModeScheduleTicker({
+        applyNamedAppAllowanceProfileForStudent,
+        ensureBaselineAppAllowanceForStudent
       });
       await reconcileAllPlannerLocks().catch(err => {
         console.error("planner lock reconciliation on startup failed:", err);
