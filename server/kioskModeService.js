@@ -22,6 +22,7 @@ const {
   assignProfileToGroup,
   unassignProfileFromGroup,
   syncProfiles,
+  listProfilesForAssignmentGroup,
   refreshDevice
 } = require("./simpleMdmClient");
 
@@ -188,6 +189,27 @@ async function upsertKioskProfile(userId, kioskState, mobileconfig) {
   };
 }
 
+function resolvePreviousProfileForPlannerRelease(profiles, currentKioskProfileId) {
+  const currentId = Number(currentKioskProfileId || 0);
+  for (const profile of Array.isArray(profiles) ? profiles : []) {
+    const profileId = Number(profile?.id || 0);
+    if (!Number.isFinite(profileId) || profileId <= 0) continue;
+    if (currentId > 0 && profileId === currentId) continue;
+    const profileName = String(profile?.attributes?.name || "").trim();
+    if (/^daechiroot kiosk mode/i.test(profileName)) continue;
+    const profileIdentifier =
+      profile?.attributes?.profile_identifier != null
+        ? String(profile.attributes.profile_identifier).trim()
+        : "";
+    return {
+      profileId,
+      profileName: profileName || null,
+      profileIdentifier: profileIdentifier || null
+    };
+  }
+  return null;
+}
+
 async function enableStudentKioskMode(userId, options = {}) {
   if (!isSimpleMdmConfigured()) {
     return { ok: false, skipped: true, reason: "simplemdm_not_configured" };
@@ -229,6 +251,9 @@ async function enableStudentKioskMode(userId, options = {}) {
           profileId: Number(kioskState.profile_id),
           profileName: kioskState.profile_name || null,
           profileIdentifier: kioskState.profile_identifier || null,
+          previousProfileId: kioskState.previous_profile_id || null,
+          previousProfileName: kioskState.previous_profile_name || null,
+          previousProfileIdentifier: kioskState.previous_profile_identifier || null,
           lockedBundleId: targetBundleId,
           activationSource,
           autoReleaseExempt,
@@ -248,6 +273,13 @@ async function enableStudentKioskMode(userId, options = {}) {
       };
     }
     const assignmentGroup = await ensureStudentAssignmentGroup(userId, Number(device.id));
+    const assignedProfiles = await listProfilesForAssignmentGroup(assignmentGroup.id).catch(
+      () => []
+    );
+    const previousProfile = resolvePreviousProfileForPlannerRelease(
+      assignedProfiles,
+      kioskState?.profile_id
+    );
     const mobileconfig = buildKioskMobileconfig({
       userId,
       bundleId: targetBundleId
@@ -281,6 +313,14 @@ async function enableStudentKioskMode(userId, options = {}) {
       profileId: profile.profileId,
       profileName: profile.profileName,
       profileIdentifier: profile.profileIdentifier,
+      previousProfileId:
+        activationSource === "planner_time" ? previousProfile?.profileId ?? null : null,
+      previousProfileName:
+        activationSource === "planner_time" ? previousProfile?.profileName ?? null : null,
+      previousProfileIdentifier:
+        activationSource === "planner_time"
+          ? previousProfile?.profileIdentifier ?? null
+          : null,
       lockedBundleId: targetBundleId,
       activationSource,
       autoReleaseExempt,
@@ -334,8 +374,16 @@ async function disableStudentKioskMode(userId) {
     const assignmentGroup = await getStudentMdmGroup(userId).catch(() => null);
     const profileId = Number(kioskState.profile_id || 0);
     const assignmentGroupId = Number(assignmentGroup?.assignment_group_id || 0);
+    const previousProfileId = Number(kioskState.previous_profile_id || 0);
+    const shouldRestorePreviousProfile =
+      normalizeActivationSource(kioskState.activation_source) === "planner_time" &&
+      previousProfileId > 0 &&
+      previousProfileId !== profileId;
     if (assignmentGroupId > 0 && profileId > 0) {
       await unassignProfileFromGroup(assignmentGroupId, profileId).catch(() => {});
+      if (shouldRestorePreviousProfile) {
+        await assignProfileToGroup(assignmentGroupId, previousProfileId).catch(() => {});
+      }
       await syncProfiles(assignmentGroupId).catch(() => {});
     }
     try {
@@ -354,6 +402,9 @@ async function disableStudentKioskMode(userId) {
       profileName: kioskState.profile_name != null ? String(kioskState.profile_name) : null,
       profileIdentifier:
         kioskState.profile_identifier != null ? String(kioskState.profile_identifier) : null,
+      previousProfileId: null,
+      previousProfileName: null,
+      previousProfileIdentifier: null,
       lockedBundleId: null,
       activationSource: null,
       autoReleaseExempt: false,
@@ -364,6 +415,7 @@ async function disableStudentKioskMode(userId) {
       ok: true,
       removed: true,
       profileId: profileId > 0 ? profileId : null,
+      restoredProfileId: shouldRestorePreviousProfile ? previousProfileId : null,
       assignmentGroupId: assignmentGroupId > 0 ? assignmentGroupId : null,
       reason: "unassigned_profile_retained"
     };

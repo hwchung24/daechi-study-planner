@@ -374,6 +374,15 @@ ALTER TABLE student_mdm_kiosk_profiles
 ALTER TABLE student_mdm_kiosk_profiles
   ADD COLUMN IF NOT EXISTS auto_release_exempt BOOLEAN NOT NULL DEFAULT false;
 
+ALTER TABLE student_mdm_kiosk_profiles
+  ADD COLUMN IF NOT EXISTS previous_profile_id BIGINT;
+
+ALTER TABLE student_mdm_kiosk_profiles
+  ADD COLUMN IF NOT EXISTS previous_profile_name TEXT;
+
+ALTER TABLE student_mdm_kiosk_profiles
+  ADD COLUMN IF NOT EXISTS previous_profile_identifier TEXT;
+
 CREATE INDEX IF NOT EXISTS idx_student_mdm_kiosk_profiles_updated
   ON student_mdm_kiosk_profiles (updated_at DESC);
 

@@ -96,6 +96,8 @@ import {
   scheduleBackgroundUiUpdate,
   stableStringify
 } from "./lib/stableUiUpdate";
+import { storeIconAssetList } from "./lib/storeIconAssets";
+import { preloadImageAssets } from "./lib/preloadAssets";
 import type { ParentLockStatus, StudentLockStatus } from "./types/lockStatus";
 import type { ProgressBook, ProgressPlan, StudyBlock } from "./types/planner";
 
@@ -1010,6 +1012,10 @@ const App: React.FC = () => {
   useEffect(() => {
     const serial = resolvePreferredSerial();
     if (serial) persistSerial(serial);
+  }, []);
+
+  useEffect(() => {
+    preloadImageAssets(["/coach-ai-avatar.png", ...storeIconAssetList]);
   }, []);
 
   useEffect(() => {
@@ -3148,6 +3154,9 @@ const App: React.FC = () => {
       const delta = direction === "left" ? 1 : -1;
 
       if (s.showStudentShell && !s.parentView) {
+        if (!s.coachStudentMode && s.tab === "store") {
+          return;
+        }
         const lock =
           s.meRole === "student" && s.studentLockStatus?.forceRecordsPage;
         const idx = s.coachStudentMode
@@ -3257,12 +3266,7 @@ const App: React.FC = () => {
     ]
   );
 
-  const tabSwipeEnabled =
-    !isStandaloneAnalysisPage &&
-    !roleLoading &&
-    !profileLoadFailed &&
-    ((showStudentShell && !parentView) ||
-      (parentView && meRole === "parent"));
+  const tabSwipeEnabled = false;
 
   const { onTouchStart: mainTabSwipeTouchStart, onTouchEnd: mainTabSwipeTouchEnd } =
     useHorizontalTabSwipe({

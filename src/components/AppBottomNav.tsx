@@ -1,9 +1,9 @@
 import React, { useCallback, useLayoutEffect, useRef, useState } from "react";
 import { motion, useReducedMotion } from "framer-motion";
 import {
-  Bot,
   Calendar,
   ClipboardList,
+  GraduationCap,
   LayoutGrid,
   Settings,
   User
@@ -197,7 +197,7 @@ export function AppBottomNav(props: {
             onClick={() => onCoachStudentNavClick("coach")}
           >
             <NavIcon>
-              <Bot size={20} strokeWidth={2} />
+              <GraduationCap size={20} strokeWidth={2} />
             </NavIcon>
             <span className="nav-label">코치</span>
           </button>

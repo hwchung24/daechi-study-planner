@@ -8274,6 +8274,10 @@ button:active:not(:disabled),
   justify-content: center;
 }
 
+.coach-chat-send-btn {
+  border-radius: 999px;
+}
+
 .coach-row {
   display: flex;
   align-items: center;

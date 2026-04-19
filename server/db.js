@@ -2771,6 +2771,9 @@ async function getStudentMdmKioskProfileState(userId) {
     `SELECT profile_id,
             profile_name,
             profile_identifier,
+            previous_profile_id,
+            previous_profile_name,
+            previous_profile_identifier,
             locked_bundle_id,
             activation_source,
             auto_release_exempt,
@@ -2795,6 +2798,9 @@ async function upsertStudentMdmKioskProfileState(userId, input = {}) {
         profile_id,
         profile_name,
         profile_identifier,
+        previous_profile_id,
+        previous_profile_name,
+        previous_profile_identifier,
         locked_bundle_id,
         activation_source,
         auto_release_exempt,
@@ -2802,13 +2808,16 @@ async function upsertStudentMdmKioskProfileState(userId, input = {}) {
         last_error,
         updated_at
       )
-     VALUES ($1, 'simplemdm', $2, $3, $4, $5, $6, $7, $8, $9, now())
+     VALUES ($1, 'simplemdm', $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, now())
      ON CONFLICT (user_id)
      DO UPDATE SET
        provider = 'simplemdm',
        profile_id = EXCLUDED.profile_id,
        profile_name = EXCLUDED.profile_name,
        profile_identifier = EXCLUDED.profile_identifier,
+       previous_profile_id = EXCLUDED.previous_profile_id,
+       previous_profile_name = EXCLUDED.previous_profile_name,
+       previous_profile_identifier = EXCLUDED.previous_profile_identifier,
        locked_bundle_id = EXCLUDED.locked_bundle_id,
        activation_source = EXCLUDED.activation_source,
        auto_release_exempt = EXCLUDED.auto_release_exempt,
@@ -2818,6 +2827,9 @@ async function upsertStudentMdmKioskProfileState(userId, input = {}) {
      RETURNING profile_id,
                profile_name,
                profile_identifier,
+               previous_profile_id,
+               previous_profile_name,
+               previous_profile_identifier,
                locked_bundle_id,
                activation_source,
                auto_release_exempt,
@@ -2829,6 +2841,11 @@ async function upsertStudentMdmKioskProfileState(userId, input = {}) {
       input.profileId != null ? Number(input.profileId) : null,
       input.profileName != null ? String(input.profileName) : null,
       input.profileIdentifier != null ? String(input.profileIdentifier) : null,
+      input.previousProfileId != null ? Number(input.previousProfileId) : null,
+      input.previousProfileName != null ? String(input.previousProfileName) : null,
+      input.previousProfileIdentifier != null
+        ? String(input.previousProfileIdentifier)
+        : null,
       input.lockedBundleId != null ? String(input.lockedBundleId) : null,
       input.activationSource != null ? String(input.activationSource) : null,
       Object.prototype.hasOwnProperty.call(input, "autoReleaseExempt")
@@ -2864,6 +2881,9 @@ async function setStudentMdmKioskProfileSyncError(userId, errorMessage) {
      RETURNING profile_id,
                profile_name,
                profile_identifier,
+               previous_profile_id,
+               previous_profile_name,
+               previous_profile_identifier,
                locked_bundle_id,
                last_synced_at,
                last_error,

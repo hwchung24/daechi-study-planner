@@ -18,6 +18,7 @@ import {
   seoulDateKeyFromApiValue
 } from "../../lib/weekDates";
 import { TAB_TRANSITION_SETTLE_MS } from "../../lib/uiTiming";
+import { storeAppIcons } from "../../lib/storeIconAssets";
 
 /** 탭 전환이 거의 마무리될 시점에 기록 스크롤을 다시 정렬 */
 const RECORDS_TAB_ENTER_MS = TAB_TRANSITION_SETTLE_MS + 40;
@@ -162,28 +163,6 @@ function centerRecordsStripOnDateKey(
     behavior: "auto"
   });
 }
-
-/** 스토어 앱별 아이콘(없으면 공통 플레이스홀더) */
-const storeAppIcons: Record<string, string> = {
-  "naver-map": "/icons/store/naver-map.png",
-  "pass-skt": "/icons/store/pass-skt.png",
-  "pass-uplus": "/icons/store/pass-uplus.png",
-  "pass-kt": "/icons/store/pass-kt.png",
-  "mma-narasarang": "/icons/store/mma-narasarang.png",
-  "kakao-t": "/icons/store/kakao-t.png",
-  toss: "/icons/store/toss.png",
-  kakaotalk: "/icons/store/kakaotalk.png",
-  "megastudy-smartplayer": "/icons/store/megastudy-smartplayer.png",
-  "vflat-scan": "/icons/store/vflat-scan.png",
-  "etoos-smart-study": "/icons/store/etoos-smart-study.png",
-  "orbi-class": "/icons/store/orbi-class.png",
-  "megastudy-qube": "/icons/store/megastudy-qube.png",
-  qanda: "/icons/store/qanda.png",
-  "naver-dictionary": "/icons/store/naver-dictionary.png",
-  hiclass: "/icons/store/hiclass.png",
-  "athenaslab-todayschool": "/icons/store/athenaslab-todayschool.png",
-  goodnotes: "/icons/store/goodnotes.png"
-};
 
 export type StudentLinkRow = {
   id: number;
@@ -1606,6 +1585,8 @@ export function StudentLegacyView(props: {
                           storeAppIcons[app.id] || "/icons/google-drive.svg"
                         }
                         alt=""
+                        decoding="async"
+                        loading="eager"
                         className="store-icon"
                         aria-hidden
                       />

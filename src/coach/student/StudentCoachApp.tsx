@@ -1708,7 +1708,7 @@ function CoachChatTabConnected(props: { apiToken: string }) {
             />
             <button
               type="button"
-              className="coach-primary-btn coach-primary-btn--sm"
+              className="coach-primary-btn coach-primary-btn--sm coach-chat-send-btn"
               onMouseDown={e => e.preventDefault()}
               onClick={() => {
                 send(draft);

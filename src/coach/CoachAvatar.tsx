@@ -4,7 +4,14 @@ import React from "react";
 export function CoachAvatar() {
   return (
     <span className="coach-avatar coach-avatar--logo" role="img" aria-label="AI 코치">
-      <img src="/coach-ai-avatar.png" alt="" width={30} height={30} decoding="async" />
+      <img
+        src="/coach-ai-avatar.png"
+        alt=""
+        width={30}
+        height={30}
+        decoding="async"
+        loading="eager"
+      />
     </span>
   );
 }
