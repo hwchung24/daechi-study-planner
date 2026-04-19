@@ -1222,6 +1222,12 @@ body.app-keyboard-open .app-main {
   min-height: 0;
 }
 
+.app-main.app-main--store-fixed {
+  overflow-x: hidden;
+  overscroll-behavior-x: none;
+  touch-action: pan-y;
+}
+
 .app-main__transition-root {
   width: 100%;
   min-height: 0;
@@ -3314,6 +3320,14 @@ body.app-keyboard-open .app-main {
   letter-spacing: -0.01em;
 }
 
+.record-day-text {
+  margin-top: 6px;
+  font-size: var(--font-size-medium);
+  color: var(--text-main);
+  line-height: 1.45;
+  white-space: pre-wrap;
+}
+
 .record-day-input,
 .progress-day-book--editable .books-plan-range.field-input {
   border-radius: var(--radius-md);
@@ -4292,12 +4306,11 @@ button.practice-commitment-card:not(:disabled):active {
 
 .store-filter-row {
   display: flex;
-  flex-wrap: nowrap;
+  flex-wrap: wrap;
   gap: 8px;
-  overflow-x: auto;
+  overflow-x: hidden;
   padding: 4px 2px 14px;
   margin: 0 -2px;
-  -webkit-overflow-scrolling: touch;
 }
 
 .store-filter-btn {

@@ -3524,6 +3524,11 @@ const App: React.FC = () => {
             tab === "today"
               ? " app-main--today-fixed"
               : "") +
+            (showStudentShell &&
+            !coachStudentMode &&
+            tab === "store"
+              ? " app-main--store-fixed"
+              : "") +
             ((showStudentShell &&
             coachStudentMode &&
             coachStudentTab !== "home" &&

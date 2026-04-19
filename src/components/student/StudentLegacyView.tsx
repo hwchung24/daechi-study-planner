@@ -145,6 +145,19 @@ type StudyStoreApp = {
   removedAt?: string | null;
 };
 
+type CoachLogRow = {
+  date?: string;
+  sleepHours?: number | null;
+  stressScore?: number | null;
+  concentrationScore?: number | null;
+  studyMinutes?: number | null;
+  memo?: string | null;
+  tomorrowPractice?: string | null;
+  tomorrowPracticeDone?: boolean | null;
+  studyEvaluation?: string | null;
+  metacognitionReflection?: string | null;
+};
+
 /** scroll-snap + scrollIntoView 조합에서 월요일로 붙는 문제 방지 — 날짜 키로 카드 찾아 가로 중앙 정렬 */
 function centerRecordsStripOnDateKey(
   scrollEl: HTMLDivElement | null,
@@ -270,6 +283,9 @@ export function StudentLegacyView(props: {
   const [commitmentDoneSaving, setCommitmentDoneSaving] = useState(false);
   const [todayLogSaving, setTodayLogSaving] = useState(false);
   const [todayLogMessage, setTodayLogMessage] = useState("");
+  const [weeklyCoachLogsByDate, setWeeklyCoachLogsByDate] = useState<
+    Record<string, CoachLogRow>
+  >({});
   const coachLifeDayHydratedRef = useRef<string>("");
   /** coach/state 지연 응답이 토글 직후 상태를 덮어쓰지 않도록 중단 */
   const todayCoachFetchAbortRef = useRef<AbortController | null>(null);
@@ -331,7 +347,7 @@ export function StudentLegacyView(props: {
       } catch {
         // ignore
       }
-      setAppPath("#/student/home?panel=plan");
+      setAppPath("#/student/coach?panel=plan");
     },
     [
       hapticSelection,
@@ -509,6 +525,42 @@ export function StudentLegacyView(props: {
       cancelled = true;
     };
   }, [tab, authToken, apiBase]);
+
+  useEffect(() => {
+    if (!authToken || tab !== "records") {
+      setWeeklyCoachLogsByDate({});
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      try {
+        const mondayKey = getWeekDaysIncludingTomorrowSeoul(progressWeekOffset)[0]?.key;
+        if (!mondayKey) return;
+        const res = await fetch(
+          `${apiBase}/api/student/coach/state?weekStart=${encodeURIComponent(mondayKey)}&fields=logs`,
+          {
+            headers: { Authorization: `Bearer ${authToken}` },
+            cache: "no-store"
+          }
+        );
+        if (!res.ok || cancelled) return;
+        const data = (await res.json()) as { logs?: CoachLogRow[] };
+        const logs = Array.isArray(data.logs) ? data.logs : [];
+        const next: Record<string, CoachLogRow> = {};
+        for (const row of logs) {
+          const key = String(row?.date || "").trim();
+          if (!key) continue;
+          next[key] = row;
+        }
+        if (!cancelled) setWeeklyCoachLogsByDate(next);
+      } catch {
+        // ignore
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [tab, authToken, apiBase, progressWeekOffset]);
 
   useEffect(() => {
     if (!authToken || tab !== "today") {
@@ -1019,6 +1071,7 @@ export function StudentLegacyView(props: {
                     const tomorrowKey = getDateKeySeoul(1);
                     const isTodayCard = day.key === todayKey;
                     const isTomorrowCard = day.key === tomorrowKey;
+                    const dayLog = weeklyCoachLogsByDate[day.key];
                     const showStudyPlanEditor =
                       progressWeekOffset === 0 && isTodayCard;
                     const showTomorrowPlanReadonly =
@@ -1253,17 +1306,37 @@ export function StudentLegacyView(props: {
                               ) : null}
                             </div>
                           ) : (
-                            progressBooks.map(book => (
-                              <div key={book.id} className="progress-day-book">
-                                <div className="progress-day-book-name">{book.name}</div>
-                                <div className="progress-day-book-plan">
-                                  {isTodayCard ? "오늘 계획: " : "계획: "}
-                                  {isTodayCard
-                                    ? (todayBlockRangesBySubject.get(book.name) || []).join(", ") || "미설정"
-                                    : "미설정"}
+                            <>
+                              <div className="record-day-block">
+                                <div className="field record-day-field record-day-memo">
+                                  <label className="field-label">학습 시간</label>
+                                  <div className="record-day-text">
+                                    {dayLog?.studyMinutes != null
+                                      ? formatStudyHoursLabel(String(dayLog.studyMinutes))
+                                      : "저장된 기록 없음"}
+                                  </div>
+                                </div>
+                                <div className="field record-day-field record-day-memo">
+                                  <label className="field-label">오늘 공부 회고</label>
+                                  <div className="record-day-text">
+                                    {String(dayLog?.studyEvaluation ?? "").trim() || "저장된 기록 없음"}
+                                  </div>
+                                </div>
+                                <div className="field record-day-field record-day-memo">
+                                  <label className="field-label">공부 메모</label>
+                                  <div className="record-day-text">
+                                    {String(dayLog?.metacognitionReflection ?? "").trim() ||
+                                      "저장된 기록 없음"}
+                                  </div>
                                 </div>
                               </div>
-                            ))
+                              {progressBooks.map(book => (
+                                <div key={book.id} className="progress-day-book">
+                                  <div className="progress-day-book-name">{book.name}</div>
+                                  <div className="progress-day-book-plan">계획: 미설정</div>
+                                </div>
+                              ))}
+                            </>
                           )}
                         </div>
                       </div>
@@ -1319,6 +1392,7 @@ export function StudentLegacyView(props: {
                   {getWeekDaysIncludingTomorrowSeoul(progressWeekOffset).map(day => {
                     const todayKey = getDateKeySeoul(0);
                     const isTodayCard = day.key === todayKey;
+                    const dayLog = weeklyCoachLogsByDate[day.key];
                     return (
                       <div
                         key={`life-${day.key}`}
@@ -1507,7 +1581,32 @@ export function StudentLegacyView(props: {
                                 ) : null}
                               </div>
                             </>
-                          ) : null}
+                          ) : (
+                            <div className="record-day-block">
+                              <div className="field record-day-field record-day-memo">
+                                <label className="field-label">수면시간</label>
+                                <div className="record-day-text">
+                                  {dayLog?.sleepHours != null
+                                    ? `${Number(dayLog.sleepHours).toFixed(1).replace(/\.0$/, "")}시간`
+                                    : "저장된 기록 없음"}
+                                </div>
+                              </div>
+                              <div className="field record-day-field record-day-memo">
+                                <label className="field-label">스트레스 / 집중도</label>
+                                <div className="record-day-text">
+                                  {dayLog?.stressScore != null || dayLog?.concentrationScore != null
+                                    ? `${dayLog?.stressScore ?? "-"} / ${dayLog?.concentrationScore ?? "-"}`
+                                    : "저장된 기록 없음"}
+                                </div>
+                              </div>
+                              <div className="field record-day-field record-day-memo">
+                                <label className="field-label">생활 회고</label>
+                                <div className="record-day-text">
+                                  {String(dayLog?.memo ?? "").trim() || "저장된 기록 없음"}
+                                </div>
+                              </div>
+                            </div>
+                          )}
                         </div>
                       </div>
                     );
