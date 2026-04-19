@@ -1057,7 +1057,7 @@ export function StudentProfilePage(props: {
   }, [refreshStudyRoomTracking]);
 
   useEffect(() => {
-    if (!token || meRole !== "student" || !Capacitor.isNativePlatform()) {
+    if (!token || meRole !== "student") {
       return;
     }
     if (trackingBootstrapStartedRef.current) {

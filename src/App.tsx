@@ -1396,30 +1396,6 @@ const App: React.FC = () => {
   }, [authToken, meRoleResolved, route, userEmail]);
 
   useEffect(() => {
-    if (!Capacitor.isNativePlatform()) return;
-
-    let cancelled = false;
-    const requestInitialLocationPermission = async () => {
-      try {
-        const status = await getNativeStudyRoomTrackingStatus();
-        if (cancelled || hasAuthorizedStudyRoomTrackingPermission(status.authorizationStatus)) {
-          return;
-        }
-        await requestNativeStudyRoomTrackingPermissions();
-      } catch {
-        // ignore initial native permission prompt failures
-      }
-    };
-
-    void requestInitialLocationPermission();
-
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
-  useEffect(() => {
-    if (!Capacitor.isNativePlatform()) return;
     if (!authToken || route === "auth" || !meRoleResolved || meRole !== "student") {
       autoLocationPermissionScopeRef.current = null;
       autoTrackingBootstrapScopeRef.current = null;
@@ -1460,20 +1436,7 @@ const App: React.FC = () => {
           return;
         }
 
-        const res = await fetch(`${API_BASE}/api/student/study-room-tracking`, {
-          cache: "no-store",
-          headers: { Authorization: `Bearer ${authToken}` }
-        });
-        if (cancelled || !res.ok) {
-          return;
-        }
-        const data = (await res.json().catch(() => ({}))) as {
-          rooms?: Array<unknown>;
-        };
-        if (cancelled || !Array.isArray(data.rooms) || data.rooms.length === 0) {
-          return;
-        }
-
+        // 독서실이 없어도 heartbeat으로 최근 위치는 쌓이므로, 학생 로그인 시 기본으로 추적을 켭니다.
         await startNativeStudyRoomTracking({
           apiBase: API_BASE,
           authToken
