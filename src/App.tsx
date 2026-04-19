@@ -20,6 +20,7 @@ import type { ParentNotificationAction } from "./components/student/Notification
 import { TimePickerInline } from "./components/TimePickerSheet";
 import { NativeKeyboardInputManager } from "./components/NativeKeyboardInputManager";
 import { useOnlineStatus } from "./hooks/useOnlineStatus";
+import { useHorizontalTabSwipe } from "./hooks/useHorizontalTabSwipe";
 import { canUseNativeAppShell, AppShell, type PendingNetworkBanner } from "./lib/nativeAppShell";
 import { DAECHI_LINKS_UPDATED_EVENT } from "./lib/linkEvents";
 import type { StudentTabKey as CoachStudentTabKey } from "./coach/student/StudentCoachApp";
@@ -3116,6 +3117,159 @@ const App: React.FC = () => {
     []
   );
 
+  const swipeNavRef = useRef({
+    tab: "today" as TabKey,
+    coachStudentTab: null as CoachStudentTabKey | null,
+    coachStudentMode: false,
+    parentView: false,
+    meRole: null as string | null,
+    parentTab: "report" as ParentTabKey,
+    coachParentTab: null as CoachParentTabKey | null,
+    coachParentMode: false,
+    studentLockStatus: null as { forceRecordsPage?: boolean } | null,
+    parentStudentsLoaded: false,
+    parentStudentsLength: 0,
+    showStudentShell: false,
+    isStandaloneAnalysisPage: false,
+    roleLoading: true,
+    profileLoadFailed: false
+  });
+
+  const handleMainTabSwipe = useCallback(
+    (direction: "left" | "right") => {
+      const s = swipeNavRef.current;
+      if (
+        s.isStandaloneAnalysisPage ||
+        s.roleLoading ||
+        s.profileLoadFailed
+      ) {
+        return;
+      }
+      const delta = direction === "left" ? 1 : -1;
+
+      if (s.showStudentShell && !s.parentView) {
+        const lock =
+          s.meRole === "student" && s.studentLockStatus?.forceRecordsPage;
+        const idx = s.coachStudentMode
+          ? 2
+          : s.tab === "today"
+            ? 0
+            : s.tab === "records"
+              ? 1
+              : s.tab === "store"
+                ? 3
+                : 4;
+        const nextIdx = idx + delta;
+        if (nextIdx < 0 || nextIdx > 4 || nextIdx === idx) return;
+
+        if (lock) {
+          if (nextIdx !== 1) {
+            hapticWarning();
+            setCoachStudentTab(null);
+            setCoachStudentCoachLayout("scroll");
+            setTab("records");
+            setAppPath("#/records");
+            return;
+          }
+          if (idx === 1) return;
+        }
+
+        if (nextIdx === 0) {
+          hapticSelection();
+          setCoachStudentTab(null);
+          setCoachStudentCoachLayout("scroll");
+          setTab("today");
+          setAppPath("#/today");
+        } else if (nextIdx === 1) {
+          hapticSelection();
+          setCoachStudentTab(null);
+          setCoachStudentCoachLayout("scroll");
+          setTab("records");
+          setAppPath("#/records");
+        } else if (nextIdx === 2) {
+          hapticSelection();
+          setCoachStudentTab("coach");
+          setCoachStudentCoachLayout("chat");
+          setAppPath("#/student/coach");
+        } else if (nextIdx === 3) {
+          hapticSelection();
+          setCoachStudentTab(null);
+          setCoachStudentCoachLayout("scroll");
+          setTab("store");
+          setAppPath("#/store");
+        } else {
+          hapticSelection();
+          setCoachStudentTab(null);
+          setCoachStudentCoachLayout("scroll");
+          setTab("profile");
+          setAppPath("#/profile");
+        }
+        return;
+      }
+
+      if (s.parentView && s.meRole === "parent") {
+        let idx: number;
+        if (s.parentTab === "profile") idx = 3;
+        else if (s.coachParentMode && s.coachParentTab === "manage") idx = 0;
+        else if (s.coachParentMode && s.coachParentTab === "records") idx = 1;
+        else if (s.coachParentMode && s.coachParentTab === "studentSettings")
+          idx = 2;
+        else idx = 0;
+
+        const nextIdx = idx + delta;
+        if (nextIdx < 0 || nextIdx > 3 || nextIdx === idx) return;
+
+        if (nextIdx <= 2) {
+          if (s.parentStudentsLoaded && s.parentStudentsLength === 0) {
+            redirectParentToProfileForStudentLink();
+            return;
+          }
+        }
+        if (nextIdx === 0) {
+          hapticSelection();
+          setCoachParentTab("manage");
+          setAppPath("#/parent/manage");
+        } else if (nextIdx === 1) {
+          hapticSelection();
+          setCoachParentTab("records");
+          setAppPath("#/parent/records");
+        } else if (nextIdx === 2) {
+          hapticSelection();
+          setCoachParentTab("studentSettings");
+          setAppPath("#/parent/student-settings");
+        } else {
+          hapticSelection();
+          setParentTab("profile");
+          setAppPath("#/parent/profile");
+        }
+      }
+    },
+    [
+      hapticSelection,
+      hapticWarning,
+      redirectParentToProfileForStudentLink,
+      setAppPath,
+      setCoachParentTab,
+      setCoachStudentCoachLayout,
+      setCoachStudentTab,
+      setParentTab,
+      setTab
+    ]
+  );
+
+  const tabSwipeEnabled =
+    !isStandaloneAnalysisPage &&
+    !roleLoading &&
+    !profileLoadFailed &&
+    ((showStudentShell && !parentView) ||
+      (parentView && meRole === "parent"));
+
+  const { onTouchStart: mainTabSwipeTouchStart, onTouchEnd: mainTabSwipeTouchEnd } =
+    useHorizontalTabSwipe({
+      enabled: tabSwipeEnabled,
+      onSwipe: handleMainTabSwipe
+    });
+
   useEffect(() => {
     if (!mainEnter) return;
     const id = window.setTimeout(() => setMainEnter(false), 520);
@@ -3224,6 +3378,24 @@ const App: React.FC = () => {
                     `서버에 연결할 수 없어요. Wi‑Fi·데이터와 서버 실행 여부를 확인하세요. (${API_BASE})${detail}`
                   );
                 }
+  };
+
+  swipeNavRef.current = {
+    tab,
+    coachStudentTab,
+    coachStudentMode,
+    parentView,
+    meRole,
+    parentTab,
+    coachParentTab,
+    coachParentMode,
+    studentLockStatus,
+    parentStudentsLoaded,
+    parentStudentsLength: parentStudents.length,
+    showStudentShell,
+    isStandaloneAnalysisPage,
+    roleLoading,
+    profileLoadFailed
   };
 
   return (
@@ -3366,6 +3538,8 @@ const App: React.FC = () => {
               : "")
           }
           onScroll={handleAppMainScroll}
+          onTouchStart={mainTabSwipeTouchStart}
+          onTouchEnd={mainTabSwipeTouchEnd}
         >
           <PageTransition
             pageKey={appMainPageKey}
