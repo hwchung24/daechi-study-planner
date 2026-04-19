@@ -22,7 +22,6 @@ const {
   assignProfileToGroup,
   unassignProfileFromGroup,
   syncProfiles,
-  findDeviceBySerial,
   refreshDevice
 } = require("./simpleMdmClient");
 

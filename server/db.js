@@ -2194,66 +2194,227 @@ async function hasStudyPlanContentForDate(userId, date) {
   return Boolean(row.has_blocks || row.has_plans);
 }
 
+function storeAppListingUrl(appStoreId, searchName) {
+  const id = Number(appStoreId);
+  if (Number.isFinite(id) && id > 0) {
+    return `https://apps.apple.com/kr/app/id${Math.trunc(id)}`;
+  }
+  return `https://apps.apple.com/kr/search?term=${encodeURIComponent(
+    String(searchName || "").trim() || "app"
+  )}`;
+}
+
+/** 학습 스토어 기본 카탈로그(번들 ID 기준). 서버 기동 시 DB에 시드·동기화됩니다. */
 const defaultStoreApps = [
   {
-    appKey: "youtube-learning",
-    name: "YouTube",
-    category: "강의",
-    description: "개념 강의와 문제 풀이 영상을 빠르게 찾아볼 수 있어요.",
-    url: "https://www.youtube.com",
-    bundleId: "com.google.ios.youtube",
-    appStoreId: 544007664,
+    appKey: "naver-map",
+    name: "NAVER 지도",
+    category: "지도",
+    description: "내비게이션·길찾기·대중교통 정보를 제공하는 네이버 지도입니다.",
+    url: storeAppListingUrl(311867728, "NAVER 지도"),
+    bundleId: "com.nhncorp.NaverMap",
+    appStoreId: 311867728,
     simplemdmAppId: null,
     sortOrder: 1
   },
   {
-    appKey: "khan-academy",
-    name: "Khan Academy",
-    category: "수학/과학",
-    description: "기초부터 심화까지 단계별 학습이 가능한 무료 강의 플랫폼입니다.",
-    url: "https://www.khanacademy.org",
-    bundleId: "org.khanacademy.Khan-Academy",
-    appStoreId: 469863705,
+    appKey: "pass-skt",
+    name: "PASS by SKT",
+    category: "인증",
+    description: "SKT 고객용 본인·금융 인증 및 모바일 신분증 서비스입니다.",
+    url: storeAppListingUrl(1141258007, "PASS by SKT"),
+    bundleId: "com.sktelecom.tauth",
+    appStoreId: 1141258007,
     simplemdmAppId: null,
     sortOrder: 2
   },
   {
-    appKey: "quizlet",
-    name: "Quizlet",
-    category: "암기",
-    description: "단어장과 플래시카드로 반복 암기 루틴을 만들 수 있어요.",
-    url: "https://quizlet.com",
-    bundleId: "com.quizlet.quizletiphone",
-    appStoreId: 546473125,
+    appKey: "pass-uplus",
+    name: "PASS by U+",
+    category: "인증",
+    description: "LG U+ 고객용 본인·금융 인증 및 모바일 신분증 서비스입니다.",
+    url: storeAppListingUrl(1147394645, "PASS by U+"),
+    bundleId: "com.lguplus.auth.ios",
+    appStoreId: 1147394645,
     simplemdmAppId: null,
     sortOrder: 3
   },
   {
-    appKey: "notion",
-    name: "Notion",
-    category: "정리",
-    description: "과목별 개념 노트와 학습 체크리스트를 체계적으로 관리할 수 있어요.",
-    url: "https://www.notion.so",
-    bundleId: "notion.id",
-    appStoreId: 1232780281,
+    appKey: "pass-kt",
+    name: "PASS by KT",
+    category: "인증",
+    description: "KT 고객용 본인·금융 인증 및 모바일 신분증 서비스입니다.",
+    url: storeAppListingUrl(1134371550, "PASS by KT"),
+    bundleId: "com.kt.ktauth",
+    appStoreId: 1134371550,
     simplemdmAppId: null,
     sortOrder: 4
   },
   {
-    appKey: "google-drive",
-    name: "Google Drive",
-    category: "자료관리",
-    description: "학습 자료를 저장하고 기기 간 동기화할 수 있어요.",
-    url: "https://drive.google.com",
-    bundleId: "com.google.Drive",
-    appStoreId: 507874739,
+    appKey: "mma-narasarang",
+    name: "병무청",
+    category: "공공",
+    description: "병역·입영 등 병무 관련 정보와 모바일 증명 서비스를 제공합니다.",
+    url: storeAppListingUrl(496516776, "병무청"),
+    bundleId: "kr.go.mma.iphone.NarasarangApp",
+    appStoreId: 496516776,
     simplemdmAppId: null,
     sortOrder: 5
+  },
+  {
+    appKey: "kakao-t",
+    name: "카카오 T",
+    category: "모빌리티",
+    description: "택시·대리·주차·바이크 등 이동과 생활 서비스를 한곳에서 이용합니다.",
+    url: storeAppListingUrl(981110422, "카카오 T"),
+    bundleId: "com.kakao.taxi",
+    appStoreId: 981110422,
+    simplemdmAppId: null,
+    sortOrder: 6
+  },
+  {
+    appKey: "toss",
+    name: "토스",
+    category: "금융",
+    description: "송금·결제·자산 관리 등 금융 서비스를 제공합니다.",
+    url: storeAppListingUrl(839333328, "토스"),
+    bundleId: "com.vivarepublica.cash",
+    appStoreId: 839333328,
+    simplemdmAppId: null,
+    sortOrder: 7
+  },
+  {
+    appKey: "kakaotalk",
+    name: "카카오톡",
+    category: "소통",
+    description: "메시지·통화·일정 공유 등 메신저 서비스입니다.",
+    url: storeAppListingUrl(362057947, "카카오톡"),
+    bundleId: "com.iwilab.KakaoTalk",
+    appStoreId: 362057947,
+    simplemdmAppId: null,
+    sortOrder: 8
+  },
+  {
+    appKey: "megastudy-smartplayer",
+    name: "메가스터디 스마트러닝",
+    category: "학습",
+    description: "메가스터디 인강 수강·다운로드·배속 재생 등 학습 플레이어입니다.",
+    url: storeAppListingUrl(670116327, "메가스터디 스마트러닝"),
+    bundleId: "com.megastudy.SmartPlayer",
+    appStoreId: 670116327,
+    simplemdmAppId: null,
+    sortOrder: 9
+  },
+  {
+    appKey: "vflat-scan",
+    name: "vFlat Scan",
+    category: "도구",
+    description: "문서·책을 스캔해 PDF로 저장하는 스캐너 앱입니다.",
+    url: storeAppListingUrl(1540238220, "vFlat Scan"),
+    bundleId: "com.voyagerx.scanner",
+    appStoreId: 1540238220,
+    simplemdmAppId: null,
+    sortOrder: 10
+  },
+  {
+    appKey: "etoos-smart-study",
+    name: "이투스 스마트스터디",
+    category: "학습",
+    description: "이투스 인강 수강·다운로드·Q&A 등 수험 학습 앱입니다.",
+    url: storeAppListingUrl(1486564159, "이투스 스마트스터디"),
+    bundleId: "com.etoos.etoosstudyapp",
+    appStoreId: 1486564159,
+    simplemdmAppId: null,
+    sortOrder: 11
+  },
+  {
+    appKey: "orbi-class",
+    name: "오르비 클래스",
+    category: "학습",
+    description: "오르비 인강 수강·진도·다운로드 등 클래스 전용 앱입니다.",
+    url: storeAppListingUrl(null, "오르비 클래스"),
+    bundleId: "com.move.orbi.class",
+    appStoreId: null,
+    simplemdmAppId: null,
+    sortOrder: 12
+  },
+  {
+    appKey: "megastudy-qube",
+    name: "메가스터디 QUBE",
+    category: "학습",
+    description: "사진·텍스트로 질문하면 실시간 답변을 받는 문제 풀이 앱입니다.",
+    url: storeAppListingUrl(1377555791, "메가스터디 QUBE"),
+    bundleId: "net.megastudy.qube",
+    appStoreId: 1377555791,
+    simplemdmAppId: null,
+    sortOrder: 13
+  },
+  {
+    appKey: "qanda",
+    name: "콴다",
+    category: "학습",
+    description: "문제 사진 업로드·실시간 질답 등 학습 Q&A 서비스입니다.",
+    url: storeAppListingUrl(1270676408, "콴다"),
+    bundleId: "Mathpresso.QandaStudent",
+    appStoreId: 1270676408,
+    simplemdmAppId: null,
+    sortOrder: 14
+  },
+  {
+    appKey: "naver-dictionary",
+    name: "네이버 사전",
+    category: "학습",
+    description: "국어·영어 등 사전 검색과 발음·예문 학습을 제공합니다.",
+    url: storeAppListingUrl(673085116, "네이버 사전"),
+    bundleId: "com.nhncorp.naverdicapp",
+    appStoreId: 673085116,
+    simplemdmAppId: null,
+    sortOrder: 15
+  },
+  {
+    appKey: "hiclass",
+    name: "하이클래스",
+    category: "학교",
+    description: "학급 알림·소통·학사 정보를 다루는 학교 연동 앱입니다.",
+    url: storeAppListingUrl(1472488819, "하이클래스"),
+    bundleId: "com.iscreammedia.app.hiclass.ios",
+    appStoreId: 1472488819,
+    simplemdmAppId: null,
+    sortOrder: 16
+  },
+  {
+    appKey: "athenaslab-todayschool",
+    name: "오늘학교",
+    category: "학습",
+    description: "시간표·급식·학사 일정·학원 정보 등 학교 생활 도우미입니다.",
+    url: storeAppListingUrl(1529825567, "오늘학교"),
+    bundleId: "com.athenaslab.academy",
+    appStoreId: 1529825567,
+    simplemdmAppId: null,
+    sortOrder: 17
+  },
+  {
+    appKey: "goodnotes",
+    name: "Goodnotes",
+    category: "노트",
+    description: "필기·PDF·문서 편집과 동기화를 지원하는 노트 앱입니다.",
+    url: storeAppListingUrl(1444383602, "Goodnotes"),
+    bundleId: "com.goodnotesapp.x",
+    appStoreId: 1444383602,
+    simplemdmAppId: null,
+    sortOrder: 18
   }
 ];
 
 async function ensureDefaultStoreApps() {
   if (ensureDefaultStoreApps._seeded) return;
+  const catalogKeys = defaultStoreApps.map(a => a.appKey);
+  await query(
+    `UPDATE store_apps
+     SET is_active = false, updated_at = now()
+     WHERE NOT (app_key = ANY($1::text[]))`,
+    [catalogKeys]
+  );
   for (const app of defaultStoreApps) {
     await query(
       `INSERT INTO store_apps (app_key, name, category, description, url, bundle_id, app_store_id, simplemdm_app_id, sort_order, is_active, updated_at)
@@ -2264,10 +2425,11 @@ async function ensureDefaultStoreApps() {
          category = EXCLUDED.category,
          description = EXCLUDED.description,
          url = EXCLUDED.url,
-         bundle_id = COALESCE(store_apps.bundle_id, EXCLUDED.bundle_id),
-         app_store_id = COALESCE(store_apps.app_store_id, EXCLUDED.app_store_id),
+         bundle_id = EXCLUDED.bundle_id,
+         app_store_id = EXCLUDED.app_store_id,
          simplemdm_app_id = COALESCE(store_apps.simplemdm_app_id, EXCLUDED.simplemdm_app_id),
          sort_order = EXCLUDED.sort_order,
+         is_active = true,
          updated_at = now()`,
       [
         app.appKey,
