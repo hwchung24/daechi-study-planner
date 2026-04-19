@@ -20,7 +20,6 @@ import type { ParentNotificationAction } from "./components/student/Notification
 import { TimePickerInline } from "./components/TimePickerSheet";
 import { NativeKeyboardInputManager } from "./components/NativeKeyboardInputManager";
 import { useOnlineStatus } from "./hooks/useOnlineStatus";
-import { useHorizontalTabSwipe } from "./hooks/useHorizontalTabSwipe";
 import { canUseNativeAppShell, AppShell, type PendingNetworkBanner } from "./lib/nativeAppShell";
 import { DAECHI_LINKS_UPDATED_EVENT } from "./lib/linkEvents";
 import type { StudentTabKey as CoachStudentTabKey } from "./coach/student/StudentCoachApp";
@@ -3266,14 +3265,6 @@ const App: React.FC = () => {
     ]
   );
 
-  const tabSwipeEnabled = false;
-
-  const { onTouchStart: mainTabSwipeTouchStart, onTouchEnd: mainTabSwipeTouchEnd } =
-    useHorizontalTabSwipe({
-      enabled: tabSwipeEnabled,
-      onSwipe: handleMainTabSwipe
-    });
-
   useEffect(() => {
     if (!mainEnter) return;
     const id = window.setTimeout(() => setMainEnter(false), 520);
@@ -3542,8 +3533,6 @@ const App: React.FC = () => {
               : "")
           }
           onScroll={handleAppMainScroll}
-          onTouchStart={mainTabSwipeTouchStart}
-          onTouchEnd={mainTabSwipeTouchEnd}
         >
           <PageTransition
             pageKey={appMainPageKey}
