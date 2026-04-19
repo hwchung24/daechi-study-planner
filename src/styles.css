@@ -4306,11 +4306,12 @@ button.practice-commitment-card:not(:disabled):active {
 
 .store-filter-row {
   display: flex;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   gap: 8px;
-  overflow-x: hidden;
+  overflow-x: auto;
   padding: 4px 2px 14px;
   margin: 0 -2px;
+  -webkit-overflow-scrolling: touch;
 }
 
 .store-filter-btn {
