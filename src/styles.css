@@ -8289,7 +8289,11 @@ button:active:not(:disabled),
 }
 
 .coach-chat-send-btn {
-  border-radius: 999px;
+  width: 38px !important;
+  min-width: 38px !important;
+  height: 38px !important;
+  padding: 0 !important;
+  border-radius: 50% !important;
 }
 
 .coach-row {

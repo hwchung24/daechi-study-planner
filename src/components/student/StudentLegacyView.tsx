@@ -13,7 +13,7 @@ import { TimePickerSheet } from "../TimePickerSheet";
 import { TabTransitionPanel } from "../PageTransition";
 import {
   getDateKeySeoul,
-  getWeekDaysIncludingTomorrowSeoul,
+  getWeekDaysSeoul,
   getWeekTitleSeoul,
   seoulDateKeyFromApiValue
 } from "../../lib/weekDates";
@@ -419,7 +419,7 @@ export function StudentLegacyView(props: {
 
   useLayoutEffect(() => {
     if (tab !== "records") return;
-    const days = getWeekDaysIncludingTomorrowSeoul(progressWeekOffset);
+    const days = getWeekDaysSeoul(progressWeekOffset);
     const todayKey = getDateKeySeoul(0);
     const mondayKey = days[0]?.key ?? todayKey;
 
@@ -456,7 +456,7 @@ export function StudentLegacyView(props: {
     let cancelled = false;
     (async () => {
       try {
-        const mondayKey = getWeekDaysIncludingTomorrowSeoul(0)[0]?.key;
+        const mondayKey = getWeekDaysSeoul(0)[0]?.key;
         if (!mondayKey) return;
         const res = await fetch(
           `${apiBase}/api/student/coach/state?weekStart=${encodeURIComponent(mondayKey)}&fields=logs`,
@@ -534,7 +534,7 @@ export function StudentLegacyView(props: {
     let cancelled = false;
     (async () => {
       try {
-        const mondayKey = getWeekDaysIncludingTomorrowSeoul(progressWeekOffset)[0]?.key;
+        const mondayKey = getWeekDaysSeoul(progressWeekOffset)[0]?.key;
         if (!mondayKey) return;
         const res = await fetch(
           `${apiBase}/api/student/coach/state?weekStart=${encodeURIComponent(mondayKey)}&fields=logs`,
@@ -1066,7 +1066,7 @@ export function StudentLegacyView(props: {
             <div className="week-frame">
               <div className="progress-cards-scroll" ref={weekDayScrollRef}>
                 <div className="progress-cards-container">
-                  {getWeekDaysIncludingTomorrowSeoul(progressWeekOffset).map(day => {
+                  {getWeekDaysSeoul(progressWeekOffset).map(day => {
                     const todayKey = getDateKeySeoul(0);
                     const tomorrowKey = getDateKeySeoul(1);
                     const isTodayCard = day.key === todayKey;
@@ -1389,7 +1389,7 @@ export function StudentLegacyView(props: {
             <div className="week-frame">
               <div className="progress-cards-scroll" ref={lifeRecordScrollRef}>
                 <div className="progress-cards-container">
-                  {getWeekDaysIncludingTomorrowSeoul(progressWeekOffset).map(day => {
+                  {getWeekDaysSeoul(progressWeekOffset).map(day => {
                     const todayKey = getDateKeySeoul(0);
                     const isTodayCard = day.key === todayKey;
                     const dayLog = weeklyCoachLogsByDate[day.key];
