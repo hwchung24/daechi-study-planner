@@ -1,5 +1,6 @@
-import React, { useEffect, useState } from "react";
-import ModeScheduleGrid from "./ModeScheduleGrid";
+import React, { useCallback, useRef, useState } from "react";
+import { useModalReveal } from "../../lib/useModalReveal";
+import ModeScheduleGrid, { type ModeScheduleSlot } from "./ModeScheduleGrid";
 
 const MODES = [
   { key: "utility", label: "유틸리티 모드", color: "#ffcc00" },
@@ -8,7 +9,7 @@ const MODES = [
 
 const BLOCK_MODE = {
   key: "block" as const,
-  label: "일괄 잠금 모드",
+  label: "일괄 차단 모드",
   color: "#334155"
 };
 
@@ -24,38 +25,47 @@ export default function ModeScheduleSettings(props: {
   /** 부모 SectionHeader의 + 구간 추가와 연동 */
   scheduleModalOpen?: boolean;
   onScheduleModalClose?: () => void;
+  /** 모달을 열 때 복원할 구간(저장본 등) */
+  initialScheduleSlots?: ModeScheduleSlot[] | null;
+  /** 서버에서 불러온 뒤 그리드 재마운트용 */
+  scheduleGridRemountKey?: number;
+  /** 저장 — 성공 시 모달이 닫힙니다. 실패 시 `throw` 하면 모달은 유지됩니다. */
+  onScheduleSave?: (slots: ModeScheduleSlot[]) => void | Promise<void>;
 }) {
   const allModes = [...MODES, BLOCK_MODE];
 
   const anyActivating =
     Boolean(props.activatingMode) || Boolean(props.blockActivating);
 
-  const showScheduleModal = Boolean(props.scheduleModalOpen);
-  const [modalRendered, setModalRendered] = useState(showScheduleModal);
-  const [modalAnimOpen, setModalAnimOpen] = useState(false);
+  const scheduleModalReveal = useModalReveal(Boolean(props.scheduleModalOpen));
 
-  useEffect(() => {
-    if (showScheduleModal) {
-      setModalRendered(true);
+  const slotsRef = useRef<ModeScheduleSlot[]>([]);
+  const trackSlots = useCallback((next: ModeScheduleSlot[]) => {
+    slotsRef.current = next;
+  }, []);
+
+  const [saveBusy, setSaveBusy] = useState(false);
+
+  const closeScheduleModal = () => {
+    scheduleModalReveal.beginClose(() => props.onScheduleModalClose?.());
+  };
+
+  const saveSchedule = async () => {
+    if (saveBusy) return;
+    if (!props.onScheduleSave) {
+      closeScheduleModal();
+      return;
     }
-  }, [showScheduleModal]);
-
-  useEffect(() => {
-    if (!modalRendered) return;
-    if (showScheduleModal) {
-      const id = requestAnimationFrame(() => {
-        requestAnimationFrame(() => setModalAnimOpen(true));
-      });
-      return () => cancelAnimationFrame(id);
+    setSaveBusy(true);
+    try {
+      await props.onScheduleSave(slotsRef.current);
+      closeScheduleModal();
+    } catch {
+      /* 부모가 메시지를 띄움; 모달 유지 */
+    } finally {
+      setSaveBusy(false);
     }
-    setModalAnimOpen(false);
-  }, [showScheduleModal, modalRendered]);
-
-  useEffect(() => {
-    if (showScheduleModal || modalAnimOpen || !modalRendered) return;
-    const id = window.setTimeout(() => setModalRendered(false), 380);
-    return () => clearTimeout(id);
-  }, [showScheduleModal, modalAnimOpen, modalRendered]);
+  };
 
   return (
     <div className="parent-mode-schedule-list">
@@ -110,33 +120,45 @@ export default function ModeScheduleSettings(props: {
           </div>
         );
       })}
-      {modalRendered ? (
+      {props.scheduleModalOpen ? (
         <div
           className={
-            "parent-mode-schedule-modal-backdrop" +
-            (modalAnimOpen ? " parent-mode-schedule-modal-backdrop--open" : "")
+            "dday-modal parent-mode-schedule-modal" +
+            (scheduleModalReveal.revealed ? " dday-modal--open" : "")
           }
-          onClick={() => props.onScheduleModalClose?.()}
+          onClick={closeScheduleModal}
         >
           <div
-            className="parent-mode-schedule-modal"
+            className="dday-modal-inner dday-modal-inner--parent-mode-schedule"
             onClick={e => e.stopPropagation()}
           >
-            <div className="parent-mode-schedule-modal__header">
-              <span className="parent-mode-schedule-modal__title">허용앱 시간표 설정</span>
+            <div className="dday-modal-header">
+              <span className="dday-modal-title">허용앱 시간표 설정</span>
+            </div>
+            <div className="dday-modal-body dday-modal-body--scroll-fill parent-mode-schedule-modal__body">
+              <ModeScheduleGrid
+                key={props.scheduleGridRemountKey ?? 0}
+                initialSlots={props.initialScheduleSlots ?? undefined}
+                onSlotsChange={trackSlots}
+              />
+            </div>
+            <div className="dday-modal-footer parent-mode-schedule-modal__footer">
               <button
                 type="button"
-                className="parent-mode-schedule-modal__close"
-                onClick={() => props.onScheduleModalClose?.()}
+                className="modal-secondary"
+                onClick={closeScheduleModal}
+                disabled={saveBusy}
               >
                 닫기
               </button>
-            </div>
-            <div className="parent-mode-schedule-modal__body">
-              <p className="parent-mode-schedule-modal__lead">
-                칠하기 모드를 고른 뒤, 표를 드래그해 구간을 채우거나 지웁니다.
-              </p>
-              <ModeScheduleGrid />
+              <button
+                type="button"
+                className="modal-primary"
+                onClick={() => void saveSchedule()}
+                disabled={saveBusy}
+              >
+                {saveBusy ? "저장 중…" : "저장"}
+              </button>
             </div>
           </div>
         </div>

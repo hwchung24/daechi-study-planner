@@ -112,6 +112,8 @@ const {
   deactivateUserPushToken,
   upsertParentStudentStudyRoom,
   deleteParentStudentStudyRoom,
+  getParentStudentAppModeSchedule,
+  upsertParentStudentAppModeSchedule,
   listStudyRoomConfigurationsForStudent,
   listCurrentStudyRoomDistancesForStudent,
   recordStudentStudyRoomHeartbeat,
@@ -128,6 +130,7 @@ const {
 const { startDailyAiReportCron } = require("./dailyReportCron");
 const { startPlannerLockCron } = require("./plannerLockCron");
 const { startWeeklyAppAllowanceCron } = require("./weeklyAppAllowanceCron");
+const { runParentAppModeScheduleEnforcement } = require("./parentAppModeScheduleCron");
 const { runOnePair } = require("./aiReportService");
 const { sendPushToUser, sendPushToUsers } = require("./pushService");
 const {
@@ -535,7 +538,7 @@ async function ensureBaselineAppAllowanceForStudent(userId, options = {}) {
   }
   const allowanceState = await getStudentMdmAppAllowanceProfileState(userId);
   const namedMode = resolveAppAllowanceModeFromProfileName(allowanceState?.profile_name);
-  if (namedMode === "block") {
+  if (namedMode === "block" && !options.afterParentAppModeScheduleSlot) {
     return { ok: true, skipped: true, reason: "block_named_profile" };
   }
   if (isDaechiRootBulkLockOverride(allowanceState?.override_bundle_ids)) {
@@ -4731,6 +4734,88 @@ app.get(
   }
 );
 
+function normalizeParentAppModeScheduleSlots(body) {
+  const raw = body && body.slots !== undefined ? body.slots : body;
+  if (!Array.isArray(raw)) return [];
+  const allowed = new Set(["utility", "free", "block"]);
+  const timeRe = /^([01]?\d|2[0-3]):([0-5]\d)$/;
+  const out = [];
+  for (const item of raw) {
+    if (!item || typeof item !== "object") continue;
+    const id = String(item.id ?? "").trim() || crypto.randomUUID();
+    const mode = String(item.mode ?? "").trim().toLowerCase();
+    if (!allowed.has(mode)) continue;
+    let days = item.days;
+    if (!Array.isArray(days) || days.length !== 7) {
+      days = [false, false, false, false, false, false, false];
+    } else {
+      days = days.map(d => Boolean(d));
+    }
+    const start = String(item.start ?? "09:00").trim();
+    const end = String(item.end ?? "18:00").trim();
+    if (!timeRe.test(start) || !timeRe.test(end)) continue;
+    out.push({ id, mode, days, start, end });
+  }
+  return out;
+}
+
+app.get("/api/parent/students/:studentId/app-mode-schedule", authMiddleware, async (req, res) => {
+  try {
+    const me = await getMe(req.userId);
+    if (!me || me.role !== "parent") {
+      return res.status(403).json({ error: "권한이 없습니다." });
+    }
+    const studentId = Number(req.params.studentId || 0);
+    if (!studentId) {
+      return res.status(400).json({ error: "studentId가 필요합니다." });
+    }
+    const has = await parentHasStudent(req.userId, studentId);
+    if (!has) {
+      return res.status(403).json({ error: "연결된 학생만 조회할 수 있습니다." });
+    }
+    const row = await getParentStudentAppModeSchedule(req.userId, studentId);
+    const slots = row && row.slots != null ? row.slots : [];
+    res.json({
+      slots: Array.isArray(slots) ? slots : [],
+      updatedAt: row && row.updated_at ? new Date(row.updated_at).toISOString() : null
+    });
+  } catch (e) {
+    console.error("/api/parent/students/:studentId/app-mode-schedule GET error", e);
+    res.status(500).json({ error: "허용앱 시간표를 불러오지 못했습니다." });
+  }
+});
+
+app.put("/api/parent/students/:studentId/app-mode-schedule", authMiddleware, async (req, res) => {
+  try {
+    const me = await getMe(req.userId);
+    if (!me || me.role !== "parent") {
+      return res.status(403).json({ error: "권한이 없습니다." });
+    }
+    const studentId = Number(req.params.studentId || 0);
+    if (!studentId) {
+      return res.status(400).json({ error: "studentId가 필요합니다." });
+    }
+    const has = await parentHasStudent(req.userId, studentId);
+    if (!has) {
+      return res.status(403).json({ error: "연결된 학생만 설정할 수 있습니다." });
+    }
+    const slots = normalizeParentAppModeScheduleSlots(req.body || {});
+    const row = await upsertParentStudentAppModeSchedule(
+      req.userId,
+      studentId,
+      JSON.stringify(slots)
+    );
+    res.json({
+      ok: true,
+      slots: row && row.slots != null ? row.slots : slots,
+      updatedAt: row && row.updated_at ? new Date(row.updated_at).toISOString() : null
+    });
+  } catch (e) {
+    console.error("/api/parent/students/:studentId/app-mode-schedule PUT error", e);
+    res.status(500).json({ error: "허용앱 시간표를 저장하지 못했습니다." });
+  }
+});
+
 app.put("/api/parent/students/:studentId/study-room", authMiddleware, async (req, res) => {
   try {
     const me = await getMe(req.userId);
@@ -8599,12 +8684,24 @@ async function connectDbWithRetry() {
     if (!cronStarted) {
       startDailyAiReportCron();
       startPlannerLockCron();
-      startWeeklyAppAllowanceCron();
+      startWeeklyAppAllowanceCron({
+        afterWeeklyReconcile: () =>
+          runParentAppModeScheduleEnforcement({
+            applyNamedAppAllowanceProfileForStudent,
+            ensureBaselineAppAllowanceForStudent
+          })
+      });
       await reconcileAllPlannerLocks().catch(err => {
         console.error("planner lock reconciliation on startup failed:", err);
       });
       await reconcileAllStudentWeeklyAppAllowances({ reason: "startup" }).catch(err => {
         console.error("weekly app allowance reconciliation on startup failed:", err);
+      });
+      await runParentAppModeScheduleEnforcement({
+        applyNamedAppAllowanceProfileForStudent,
+        ensureBaselineAppAllowanceForStudent
+      }).catch(err => {
+        console.error("parent app mode schedule enforcement on startup failed:", err);
       });
       cronStarted = true;
     }

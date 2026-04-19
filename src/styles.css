@@ -189,262 +189,364 @@
   border-radius: var(--radius-pill);
 }
 
-.parent-mode-schedule-modal-backdrop {
-  position: fixed;
-  inset: 0;
-  z-index: 100000;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: max(12px, env(safe-area-inset-top)) max(12px, env(safe-area-inset-right))
-    max(12px, env(safe-area-inset-bottom)) max(12px, env(safe-area-inset-left));
-  box-sizing: border-box;
-  width: 100vw;
-  min-height: 100vh;
-  background: rgba(var(--modal-overlay-rgb), 0);
-  opacity: 0;
-  pointer-events: none;
-  transition:
-    opacity var(--dur-modal) var(--ease-standard),
-    background var(--dur-modal) var(--ease-standard);
+/* 허용앱 시간표 설정 팝업 — dday-modal 스코프 (ParentCoachApp) */
+.parent-mode-schedule-modal .dday-modal-header {
+  flex-shrink: 0;
+  margin-bottom: 4px;
 }
 
-.parent-mode-schedule-modal-backdrop.parent-mode-schedule-modal-backdrop--open {
-  background: rgba(var(--modal-overlay-rgb), var(--modal-overlay-opacity));
-  opacity: 1;
-  pointer-events: auto;
+.parent-mode-schedule-modal .dday-modal-body.parent-mode-schedule-modal__body {
+  gap: 0;
 }
 
-.parent-mode-schedule-modal {
-  width: min(92vw, 560px);
-  max-height: min(82vh, 720px);
+.parent-mode-schedule-modal .dday-modal-footer.parent-mode-schedule-modal__footer {
+  flex-shrink: 0;
+  margin-top: 4px;
+}
+
+/* 허용앱 시간표 — 모달 본문 안 단일 레이어(중첩 카드 없음) */
+.parent-mode-schedule-alarm {
   display: flex;
   flex-direction: column;
-  overflow: hidden;
-  background: var(--modal-surface-bg);
-  border-radius: var(--modal-radius);
-  padding: 0;
-  border: var(--border-width) solid var(--border-neutral);
-  box-shadow: var(--modal-surface-shadow);
-  transform: var(--modal-inner-transform-from);
-  opacity: 0;
-  transition:
-    opacity var(--dur-modal) var(--ease-standard),
-    transform var(--dur-modal) var(--ease-standard);
-}
-
-.parent-mode-schedule-modal-backdrop--open .parent-mode-schedule-modal {
-  opacity: 1;
-  transform: scale(1) translateY(0);
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .parent-mode-schedule-modal-backdrop,
-  .parent-mode-schedule-modal {
-    transition-duration: 0.2s;
-  }
-
-  .parent-mode-schedule-modal {
-    transform: translateY(6px);
-  }
-
-  .parent-mode-schedule-modal-backdrop--open .parent-mode-schedule-modal {
-    transform: translateY(0);
-  }
-}
-
-.parent-mode-schedule-modal__header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
   gap: 12px;
-  flex-shrink: 0;
-  padding: 14px 16px;
-  margin-bottom: 0;
-  border-bottom: var(--border-width) solid var(--border-neutral);
 }
 
-.parent-mode-schedule-modal__title {
-  margin: 0;
-  min-width: 0;
-  font-weight: var(--font-weight-strong);
-  font-size: var(--font-size-medium);
-  letter-spacing: -0.02em;
-  color: var(--text-strong);
+.parent-mode-schedule-alarm__toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
 }
 
-.parent-mode-schedule-modal__close {
+.parent-mode-schedule-alarm__header-add {
   flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
   border: var(--border-width) solid var(--border-neutral);
   background: var(--surface-base);
-  color: var(--text-strong);
-  border-radius: var(--radius-pill);
-  padding: 7px 14px;
-  font-size: var(--font-size-small);
-  font-weight: var(--font-weight-semibold);
-  line-height: 1;
+  color: var(--accent);
   cursor: pointer;
-  -webkit-tap-highlight-color: transparent;
   transition:
     background var(--dur-fast) var(--ease-standard),
     border-color var(--dur-fast) var(--ease-standard),
+    transform var(--dur-fast) var(--ease-standard),
     color var(--dur-fast) var(--ease-standard);
+  -webkit-tap-highlight-color: transparent;
 }
 
-.parent-mode-schedule-modal__close:hover {
-  background: var(--accent-muted);
+.parent-mode-schedule-alarm__header-add:hover {
+  background: rgba(var(--accent-rgb), 0.08);
   border-color: var(--accent-border);
 }
 
-.parent-mode-schedule-modal__close:active {
-  background: var(--accent-soft);
+.parent-mode-schedule-alarm__header-add:active {
+  transform: scale(0.96);
 }
 
-.parent-mode-schedule-modal__body {
-  flex: 1 1 auto;
-  min-height: 0;
-  overflow-x: hidden;
-  overflow-y: auto;
-  -webkit-overflow-scrolling: touch;
-  padding: 14px 16px 16px;
+.parent-mode-schedule-alarm__header-add--active {
+  background: rgba(var(--accent-rgb), 0.12);
+  border-color: var(--accent-border);
+  color: var(--text-accent);
 }
 
-.parent-mode-schedule-modal__lead {
-  margin: 0 0 12px;
-  font-size: var(--font-size-small);
-  line-height: 1.45;
-  color: var(--text-sub);
-}
-
-/* 허용앱 시간표 그리드 — 코치 카드 토큰과 정렬 */
-.parent-mode-schedule-grid {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-}
-
-.parent-mode-schedule-grid__chips {
+.parent-mode-schedule-alarm__mode-picker {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
-  align-items: center;
 }
 
-.parent-mode-schedule-grid__chip {
+.parent-mode-schedule-alarm__mode-choice {
+  flex: 1 1 100px;
+  min-width: min(100px, 100%);
+  padding: 10px 12px;
+  border-radius: var(--radius-button);
+  border: var(--border-width) solid var(--border-neutral);
+  background: transparent;
+  font-size: var(--font-size-medium);
+  font-weight: var(--font-weight-bold);
+  color: var(--text-strong);
+  cursor: pointer;
+  text-align: center;
+  transition:
+    border-color var(--dur-fast) var(--ease-standard),
+    background var(--dur-fast) var(--ease-standard);
+  -webkit-tap-highlight-color: transparent;
+}
+
+.parent-mode-schedule-alarm__mode-choice:hover {
+  border-color: var(--choice-accent, var(--accent));
+  background: rgba(var(--neutral-rgb), 0.04);
+}
+
+.parent-mode-schedule-alarm__empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 12px 0 4px;
+}
+
+.parent-mode-schedule-alarm__empty-add {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 14px;
+  border-radius: var(--radius-pill);
   border: var(--border-width) solid var(--border-neutral);
   background: var(--surface-base);
-  border-radius: var(--radius-pill);
-  padding: 8px 14px;
   font-size: var(--font-size-small);
   font-weight: var(--font-weight-semibold);
-  line-height: 1.2;
   color: var(--text-main);
   cursor: pointer;
-  -webkit-tap-highlight-color: transparent;
   transition:
     background var(--dur-fast) var(--ease-standard),
-    border-color var(--dur-fast) var(--ease-standard),
-    color var(--dur-fast) var(--ease-standard),
-    box-shadow var(--dur-fast) var(--ease-standard);
+    border-color var(--dur-fast) var(--ease-standard);
+  -webkit-tap-highlight-color: transparent;
 }
 
-.parent-mode-schedule-grid__chip--selected.parent-mode-schedule-grid__chip--utility,
-.parent-mode-schedule-grid__chip--selected.parent-mode-schedule-grid__chip--free {
-  border-color: transparent;
-  color: #ffffff;
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08);
-  background: var(--chip-fill, var(--accent));
+.parent-mode-schedule-alarm__empty-add:hover {
+  background: rgba(var(--accent-rgb), 0.06);
+  border-color: var(--accent-border);
 }
 
-.parent-mode-schedule-grid__chip--selected.parent-mode-schedule-grid__chip--delete {
-  border-color: var(--text-strong);
-  color: var(--text-strong);
-  background: rgba(var(--neutral-rgb), 0.08);
+.parent-mode-schedule-alarm__list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  border: none;
+  border-radius: 0;
+  background: transparent;
+  border-top: var(--border-width) solid var(--separator-row);
+  padding-top: 4px;
 }
 
-.parent-mode-schedule-grid__night-wrap {
+.parent-mode-schedule-alarm__list-item {
+  border-left: 3px solid var(--mode-accent, var(--accent));
+}
+
+.parent-mode-schedule-alarm__list-item + .parent-mode-schedule-alarm__list-item {
+  border-top: var(--border-width) solid var(--separator-row);
+}
+
+.parent-mode-schedule-alarm__row-line1 {
   display: flex;
-  justify-content: flex-start;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 10px;
 }
 
-.parent-mode-schedule-grid__night {
-  border: var(--border-width) solid var(--border-neutral);
-  background: var(--surface-base);
-  border-radius: var(--radius-pill);
-  padding: 8px 14px;
+.parent-mode-schedule-alarm__mode-pill {
+  flex-shrink: 0;
   font-size: var(--font-size-small);
   font-weight: var(--font-weight-semibold);
-  line-height: 1.2;
-  color: var(--text-main);
+  color: var(--mode-accent, var(--accent));
+}
+
+.parent-mode-schedule-alarm__row {
+  display: flex;
+  align-items: stretch;
+  gap: 0;
+  background: transparent;
+}
+
+.parent-mode-schedule-alarm__row--open {
+  background: rgba(var(--neutral-rgb), 0.04);
+}
+
+.parent-mode-schedule-alarm__row-tap {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 12px 10px 12px 14px;
+  border: none;
+  background: transparent;
+  text-align: left;
   cursor: pointer;
   -webkit-tap-highlight-color: transparent;
+}
+
+.parent-mode-schedule-alarm__row-tap:hover {
+  background: rgba(var(--neutral-rgb), 0.04);
+}
+
+.parent-mode-schedule-alarm__row-text {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  min-width: 0;
+}
+
+.parent-mode-schedule-alarm__row-time {
+  font-size: var(--font-size-large);
+  font-weight: var(--font-weight-bold);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.02em;
+  color: var(--text-strong);
+}
+
+.parent-mode-schedule-alarm__row-days {
+  font-size: var(--font-size-small);
+  color: var(--text-sub);
+  line-height: 1.3;
+}
+
+.parent-mode-schedule-alarm__row-chevron {
+  flex-shrink: 0;
+  color: var(--text-sub);
+  transition: transform var(--dur-fast) var(--ease-standard);
+}
+
+.parent-mode-schedule-alarm__row-chevron--up {
+  transform: rotate(180deg);
+}
+
+.parent-mode-schedule-alarm__row-delete {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 48px;
+  border: none;
+  border-left: var(--border-width) solid var(--separator-row);
+  background: transparent;
+  color: var(--text-sub);
+  cursor: pointer;
+  transition:
+    background var(--dur-fast) var(--ease-standard),
+    color var(--dur-fast) var(--ease-standard);
+  -webkit-tap-highlight-color: transparent;
+}
+
+.parent-mode-schedule-alarm__row-delete:hover {
+  background: rgba(220, 53, 69, 0.08);
+  color: var(--text-strong);
+}
+
+.parent-mode-schedule-alarm__editor {
+  padding: 10px 0 12px 12px;
+  border-top: var(--border-width) solid var(--separator-row);
+  background: transparent;
+}
+
+.parent-mode-schedule-alarm__editor-modes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 12px;
+}
+
+.parent-mode-schedule-alarm__editor-mode-chip {
+  padding: 6px 12px;
+  border-radius: var(--radius-pill);
+  border: var(--border-width) solid var(--border-neutral);
+  background: transparent;
+  font-size: var(--font-size-small);
+  font-weight: var(--font-weight-semibold);
+  color: var(--text-sub);
+  cursor: pointer;
+  transition:
+    border-color var(--dur-fast) var(--ease-standard),
+    background var(--dur-fast) var(--ease-standard),
+    color var(--dur-fast) var(--ease-standard);
+  -webkit-tap-highlight-color: transparent;
+}
+
+.parent-mode-schedule-alarm__editor-mode-chip--selected {
+  border-width: 2px;
+  border-color: var(--mode-accent, var(--accent));
+  color: var(--text-strong);
+  background: rgba(var(--neutral-rgb), 0.05);
+}
+
+.parent-mode-schedule-alarm__days {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 10px;
+}
+
+.parent-mode-schedule-alarm__day-chip {
+  min-width: 36px;
+  padding: 6px 8px;
+  border-radius: var(--radius-pill);
+  border: var(--border-width) solid var(--border-neutral);
+  background: transparent;
+  font-size: var(--font-size-small);
+  font-weight: var(--font-weight-semibold);
+  color: var(--text-sub);
+  cursor: pointer;
+  line-height: 1;
   transition:
     background var(--dur-fast) var(--ease-standard),
     border-color var(--dur-fast) var(--ease-standard),
     color var(--dur-fast) var(--ease-standard);
+  -webkit-tap-highlight-color: transparent;
 }
 
-.parent-mode-schedule-grid__night--active {
-  background: var(--accent);
-  border-color: var(--accent);
-  color: #ffffff;
-}
-
-.parent-mode-schedule-grid__table-wrap {
-  overflow-x: auto;
-  border-radius: var(--radius-xl);
-  border: var(--border-width) solid var(--border-neutral);
-  background: var(--surface-base);
-}
-
-.parent-mode-schedule-grid__table {
-  width: 100%;
-  min-width: 700px;
-  border-collapse: collapse;
-  font-family: var(--font-family-base);
-}
-
-.parent-mode-schedule-grid__th {
-  padding: 8px 6px;
-  font-size: var(--font-size-small);
-  font-weight: var(--font-weight-semibold);
+.parent-mode-schedule-alarm__day-chip--on {
+  border-width: 2px;
+  border-color: var(--mode-accent, var(--accent));
   color: var(--text-strong);
-  text-align: center;
-  background: rgba(var(--accent-rgb), 0.06);
-  border-bottom: var(--border-width) solid var(--border-neutral);
+  background: rgba(var(--neutral-rgb), 0.05);
 }
 
-.parent-mode-schedule-grid__th--corner {
-  width: 40px;
-  background: rgba(var(--accent-rgb), 0.04);
+.parent-mode-schedule-alarm__times {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
 }
 
-.parent-mode-schedule-grid__time {
-  text-align: right;
-  padding: 2px 6px 2px 4px;
-  font-size: var(--font-size-small);
-  font-variant-numeric: tabular-nums;
+.parent-mode-schedule-alarm__time-col {
+  flex: 1 1 140px;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.parent-mode-schedule-alarm__time-label {
+  font-size: 11px;
+  font-weight: var(--font-weight-semibold);
   color: var(--text-sub);
-  white-space: nowrap;
-  vertical-align: middle;
-  background: rgba(var(--neutral-rgb), 0.03);
-  border-right: var(--border-width) solid var(--border-neutral);
+  letter-spacing: 0.02em;
 }
 
-.parent-mode-schedule-grid__cell {
-  width: 32px;
-  height: 20px;
-  padding: 0;
-  border: var(--border-width) solid rgba(var(--neutral-rgb), 0.12);
-  background: rgba(var(--neutral-rgb), 0.04);
-  cursor: pointer;
-  transition: background var(--dur-fast) var(--ease-standard);
-  vertical-align: middle;
+.parent-mode-schedule-alarm__time-connector {
+  flex: 0 0 auto;
+  font-size: var(--font-size-large);
+  font-weight: var(--font-weight-bold);
+  color: var(--text-sub);
+  line-height: 1;
 }
 
-.parent-mode-schedule-grid__cell[data-filled="true"] {
-  background: var(--cell-fill, var(--accent));
-  border-color: rgba(0, 0, 0, 0.06);
+@media (max-width: 480px) {
+  .parent-mode-schedule-alarm__time-connector {
+    display: none;
+  }
+}
+
+/* 모달 안 이중 시간 휠: 미리보기 숨기고 높이만 유지 */
+.parent-mode-schedule-alarm .time-picker-preview {
+  display: none;
+}
+
+.parent-mode-schedule-alarm .time-picker-scroll {
+  gap: 4px;
+}
+
+.parent-mode-schedule-alarm .time-picker-inline .time-picker-col-scroll {
+  max-height: 118px;
+  padding-top: 48px;
+  padding-bottom: 48px;
 }
 :root {
   color-scheme: light;
@@ -3783,6 +3885,18 @@ button.practice-commitment-card:not(:disabled):active {
 
 .dday-modal-inner.dday-modal-inner--fixed-72.parent-app-request-modal {
   width: min(94vw, 440px);
+}
+
+/* 코치 학부모 — 허용앱 시간표: 넓은 폭, 본문만 스크롤 */
+.dday-modal-inner.dday-modal-inner--parent-mode-schedule {
+  width: min(92vw, 560px);
+  max-height: min(82vh, 720px);
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  padding: 16px 16px 14px;
+  box-sizing: border-box;
 }
 
 .dday-modal-body.dday-modal-body--scroll-fill {

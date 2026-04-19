@@ -334,6 +334,37 @@ async function deleteParentStudentStudyRoom(parentUserId, studentUserId) {
   return res.rowCount > 0;
 }
 
+async function getParentStudentAppModeSchedule(parentUserId, studentUserId) {
+  const res = await query(
+    `SELECT slots, updated_at
+     FROM parent_student_app_mode_schedules
+     WHERE parent_user_id = $1 AND student_user_id = $2`,
+    [parentUserId, studentUserId]
+  );
+  return res.rows[0] || null;
+}
+
+async function upsertParentStudentAppModeSchedule(parentUserId, studentUserId, slotsJson) {
+  const res = await query(
+    `INSERT INTO parent_student_app_mode_schedules (parent_user_id, student_user_id, slots, updated_at)
+     VALUES ($1, $2, $3::jsonb, now())
+     ON CONFLICT (parent_user_id, student_user_id)
+     DO UPDATE SET slots = EXCLUDED.slots, updated_at = now()
+     RETURNING slots, updated_at`,
+    [parentUserId, studentUserId, slotsJson]
+  );
+  return res.rows[0] || null;
+}
+
+/** 크론: 학부모가 저장한 모드 시간표가 있는 학생(빈 배열 포함, 행이 있는 경우만) */
+async function listAllParentStudentAppModeScheduleRows() {
+  const res = await query(
+    `SELECT student_user_id, COALESCE(slots, '[]'::jsonb) AS slots
+     FROM parent_student_app_mode_schedules`
+  );
+  return res.rows;
+}
+
 function haversineMeters(lat1, lng1, lat2, lng2) {
   const toRad = value => (Number(value) * Math.PI) / 180;
   const earthRadiusMeters = 6371000;
@@ -3782,6 +3813,9 @@ module.exports = {
   markUserPushTokenError,
   upsertParentStudentStudyRoom,
   deleteParentStudentStudyRoom,
+  getParentStudentAppModeSchedule,
+  upsertParentStudentAppModeSchedule,
+  listAllParentStudentAppModeScheduleRows,
   listStudyRoomConfigurationsForStudent,
   listCurrentStudyRoomDistancesForStudent,
   recordStudentStudyRoomHeartbeat,

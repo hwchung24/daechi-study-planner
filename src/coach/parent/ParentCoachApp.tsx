@@ -1,4 +1,5 @@
 import ModeScheduleSettings from "./ModeScheduleSettings";
+import type { ModeScheduleSlot } from "./ModeScheduleGrid";
 import React, {
   startTransition,
   useCallback,
@@ -2086,6 +2087,62 @@ function StudentSettingsTab(props: {
 
   const allowanceScheduleBusy = bulkDaechiRootLockSaving || activatingAppMode != null;
 
+  const [modeScheduleInitialSlots, setModeScheduleInitialSlots] = useState<ModeScheduleSlot[]>([]);
+  const [modeScheduleGridKey, setModeScheduleGridKey] = useState(0);
+
+  useEffect(() => {
+    if (!allowanceScheduleModalOpen || !props.selectedStudent?.id || !props.authToken) {
+      return;
+    }
+    let cancelled = false;
+    void (async () => {
+      try {
+        const res = await fetch(
+          `${props.apiBase}/api/parent/students/${encodeURIComponent(String(props.selectedStudent!.id))}/app-mode-schedule`,
+          { headers: { Authorization: `Bearer ${props.authToken}` } }
+        );
+        const data = (await res.json().catch(() => ({}))) as { slots?: unknown };
+        if (cancelled) return;
+        const slots = Array.isArray(data.slots) ? (data.slots as ModeScheduleSlot[]) : [];
+        setModeScheduleInitialSlots(slots);
+        setModeScheduleGridKey(k => k + 1);
+      } catch {
+        if (!cancelled) {
+          setModeScheduleInitialSlots([]);
+          setModeScheduleGridKey(k => k + 1);
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [allowanceScheduleModalOpen, props.apiBase, props.authToken, props.selectedStudent?.id]);
+
+  const persistModeSchedule = useCallback(
+    async (slots: ModeScheduleSlot[]) => {
+      if (!props.selectedStudent?.id || !props.authToken) return;
+      const res = await fetch(
+        `${props.apiBase}/api/parent/students/${encodeURIComponent(String(props.selectedStudent.id))}/app-mode-schedule`,
+        {
+          method: "PUT",
+          headers: {
+            Authorization: `Bearer ${props.authToken}`,
+            "Content-Type": "application/json"
+          },
+          body: JSON.stringify({ slots })
+        }
+      );
+      const data = (await res.json().catch(() => ({}))) as { error?: string };
+      if (!res.ok) {
+        props.setParentPlannerMessage(data.error || "허용앱 시간표를 저장하지 못했습니다.");
+        throw new Error("save failed");
+      }
+      props.setParentPlannerMessage("허용앱 시간표를 저장했습니다.");
+      props.hapticSuccess();
+    },
+    [props.apiBase, props.authToken, props.hapticSuccess, props.selectedStudent?.id, props.setParentPlannerMessage]
+  );
+
   useEffect(() => {
     setStudyRoomMessage("");
   }, [props.selectedStudent?.id]);
@@ -2693,6 +2750,9 @@ function StudentSettingsTab(props: {
               blockActivating={bulkDaechiRootLockSaving}
               scheduleModalOpen={allowanceScheduleModalOpen}
               onScheduleModalClose={() => setAllowanceScheduleModalOpen(false)}
+              initialScheduleSlots={modeScheduleInitialSlots}
+              scheduleGridRemountKey={modeScheduleGridKey}
+              onScheduleSave={persistModeSchedule}
               onToggleBlockNow={nextLocked => {
                 void toggleBulkDaechiRootLock(nextLocked);
               }}

@@ -637,6 +637,20 @@ CREATE TABLE IF NOT EXISTS parent_student_study_rooms (
 CREATE INDEX IF NOT EXISTS idx_pssr_parent_student
   ON parent_student_study_rooms (parent_user_id, student_user_id);
 
+/** 코치 학부모 — 허용앱 모드별 시간 구간(유틸·자유·일괄 차단) JSON */
+CREATE TABLE IF NOT EXISTS parent_student_app_mode_schedules (
+  id BIGSERIAL PRIMARY KEY,
+  parent_user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  student_user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  slots JSONB NOT NULL DEFAULT '[]'::jsonb,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  UNIQUE (parent_user_id, student_user_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_psams_parent_student
+  ON parent_student_app_mode_schedules (parent_user_id, student_user_id);
+
 CREATE TABLE IF NOT EXISTS parent_student_study_room_visit_sessions (
   id BIGSERIAL PRIMARY KEY,
   parent_user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,

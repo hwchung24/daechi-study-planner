@@ -533,6 +533,29 @@ async function main() {
   } catch {
     // ignore
   }
+  try {
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS parent_student_app_mode_schedules (
+        id BIGSERIAL PRIMARY KEY,
+        parent_user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        student_user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        slots JSONB NOT NULL DEFAULT '[]'::jsonb,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        UNIQUE (parent_user_id, student_user_id)
+      );
+    `);
+  } catch {
+    // ignore
+  }
+  try {
+    await pool.query(`
+      CREATE INDEX IF NOT EXISTS idx_psams_parent_student
+        ON parent_student_app_mode_schedules (parent_user_id, student_user_id);
+    `);
+  } catch {
+    // ignore
+  }
 }
 
 main()
