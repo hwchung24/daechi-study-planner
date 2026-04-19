@@ -106,15 +106,3 @@ final class OfflineScreenTimeCoordinator {
 }
 
 #endif
-
-enum OfflineScreenTimeBootstrap {
-    static func start() {
-        #if canImport(FamilyControls) && canImport(ManagedSettings)
-        if #available(iOS 16.0, *) {
-            Task { @MainActor in
-                OfflineScreenTimeCoordinator.shared.start()
-            }
-        }
-        #endif
-    }
-}

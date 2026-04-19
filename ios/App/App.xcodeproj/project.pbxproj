@@ -20,6 +20,7 @@
 		50B271D11FEDC1A000F3C39B /* public in Resources */ = {isa = PBXBuildFile; fileRef = 50B271D01FEDC1A000F3C39B /* public */; };
 		5A4CFD802C1136C60011AA10 /* NativeKeyboardInputPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5A4CFD7F2C1136C60011AA10 /* NativeKeyboardInputPlugin.swift */; };
 		A1B2C3D12BC8D200BCA7D802 /* OfflineScreenTimeCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D02BC8D200BCA7D802 /* OfflineScreenTimeCoordinator.swift */; };
+		B2C3D4E62BC8D300BCA7D902 /* OfflineScreenTimeBootstrap.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2C3D4E52BC8D300BCA7D901 /* OfflineScreenTimeBootstrap.swift */; };
 		A1B2C3D32BC8D200BCA7D804 /* NativeOfflineScreenTimePlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D22BC8D200BCA7D803 /* NativeOfflineScreenTimePlugin.swift */; };
 		A084ECDBA7D38E1E42DFC39D /* Pods_App.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = AF277DCFFFF123FFC6DF26C7 /* Pods_App.framework */; };
 /* End PBXBuildFile section */
@@ -40,6 +41,7 @@
 		50B271D01FEDC1A000F3C39B /* public */ = {isa = PBXFileReference; lastKnownFileType = folder; path = public; sourceTree = "<group>"; };
 		5A4CFD7F2C1136C60011AA10 /* NativeKeyboardInputPlugin.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeKeyboardInputPlugin.swift; sourceTree = "<group>"; };
 		A1B2C3D02BC8D200BCA7D802 /* OfflineScreenTimeCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OfflineScreenTimeCoordinator.swift; sourceTree = "<group>"; };
+		B2C3D4E52BC8D300BCA7D901 /* OfflineScreenTimeBootstrap.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OfflineScreenTimeBootstrap.swift; sourceTree = "<group>"; };
 		A1B2C3D22BC8D200BCA7D803 /* NativeOfflineScreenTimePlugin.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeOfflineScreenTimePlugin.swift; sourceTree = "<group>"; };
 		638D12F42F8A8FFE0083DB64 /* App.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = App.entitlements; sourceTree = "<group>"; };
 		AF277DCFFFF123FFC6DF26C7 /* Pods_App.framework */ = {isa = PBXFileReference; explicitFileType = wrapper.framework; includeInIndex = 0; path = Pods_App.framework; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -96,6 +98,7 @@
 				503F22642BC8D103BCA7D801 /* NativePushNotificationsPlugin.swift */,
 				5A4CFD7F2C1136C60011AA10 /* NativeKeyboardInputPlugin.swift */,
 				A1B2C3D02BC8D200BCA7D802 /* OfflineScreenTimeCoordinator.swift */,
+				B2C3D4E52BC8D300BCA7D901 /* OfflineScreenTimeBootstrap.swift */,
 				A1B2C3D22BC8D200BCA7D803 /* NativeOfflineScreenTimePlugin.swift */,
 				504EC3071FED79650016851F /* AppDelegate.swift */,
 				504EC30B1FED79650016851F /* Main.storyboard */,
@@ -247,6 +250,7 @@
 				503F225F2BC8D100BCA7D801 /* AppBridgeViewController.swift in Sources */,
 				504EC3081FED79650016851F /* AppDelegate.swift in Sources */,
 				A1B2C3D12BC8D200BCA7D802 /* OfflineScreenTimeCoordinator.swift in Sources */,
+				B2C3D4E62BC8D300BCA7D902 /* OfflineScreenTimeBootstrap.swift in Sources */,
 				A1B2C3D32BC8D200BCA7D804 /* NativeOfflineScreenTimePlugin.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
