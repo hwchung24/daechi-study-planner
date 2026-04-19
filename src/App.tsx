@@ -1569,13 +1569,18 @@ const App: React.FC = () => {
     if (!authToken || meRole !== "student") return;
     let cancelled = false;
     let inFlight = false;
+    let pendingImmediateLockRefetch = false;
     let timerId: number | null = null;
     const lockStatusPollIntervalMs =
       tab === "today" || tab === "records" ? 20000 : 60000;
-    const lockStatusFastPollIntervalMs = 7000;
+    const lockStatusFastPollIntervalMs = 2500;
     const lockStatusFastPollWindowMs = 120000;
     const run = async (fastSync = false) => {
-      if (!isDocumentVisible() || inFlight) return;
+      if (!isDocumentVisible()) return;
+      if (inFlight) {
+        if (fastSync) pendingImmediateLockRefetch = true;
+        return;
+      }
       if (fastSync) {
         studentLockStatusFastSyncUntilRef.current =
           Date.now() + lockStatusFastPollWindowMs;
@@ -1608,6 +1613,11 @@ const App: React.FC = () => {
       } finally {
         inFlight = false;
         if (cancelled) return;
+        if (pendingImmediateLockRefetch) {
+          pendingImmediateLockRefetch = false;
+          void run(false);
+          return;
+        }
         const inFastSyncWindow =
           Date.now() < studentLockStatusFastSyncUntilRef.current;
         const nextDelay = inFastSyncWindow

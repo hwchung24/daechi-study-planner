@@ -7899,10 +7899,11 @@ app.post("/api/student/coach/chat", authMiddleware, async (req, res) => {
       weekData: recentWeekData
     });
     const sanitizedCoachHistory = sanitizeCoachHistoryForPrompt(history, 12);
-    const coachDbContextJson = safeJsonForPrompt(coachDbContext, 12000);
+    const coachDbContextJson = safeJsonForPrompt(coachDbContext, 9000);
 
     if (chatMode === "schedule" || isScheduleManagementRequest(text)) {
       if (openai) {
+        try {
         const response = await openai.chat.completions.create({
           model: OPENAI_MODEL,
           temperature: 0.3,
@@ -7979,8 +7980,14 @@ app.post("/api/student/coach/chat", authMiddleware, async (req, res) => {
             : parsedReply?.message || "일정을 저장할게요."
         ).trim();
         if (!replyText) {
-          return res.status(502).json({
-            error: "GPT 응답이 비어 있습니다. 잠시 후 다시 시도해 주세요."
+          const emptyFallback = buildScheduleManagementReply();
+          await insertStudentCoachMessage(req.userId, "assistant", emptyFallback);
+          return res.json({
+            ok: true,
+            reply: emptyFallback,
+            responseType: "schedule_management_template",
+            usedOpenAi: false,
+            model: null
           });
         }
         let savedSchedule = null;
@@ -8125,6 +8132,21 @@ app.post("/api/student/coach/chat", authMiddleware, async (req, res) => {
           schedule: savedSchedule,
           scheduleChanged
         });
+        } catch (scheduleBranchError) {
+          console.warn(
+            "/api/student/coach/chat schedule branch error:",
+            scheduleBranchError?.message || scheduleBranchError
+          );
+          const fallbackReply = buildScheduleManagementReply();
+          await insertStudentCoachMessage(req.userId, "assistant", fallbackReply);
+          return res.json({
+            ok: true,
+            reply: fallbackReply,
+            responseType: "schedule_management_template",
+            usedOpenAi: false,
+            model: null
+          });
+        }
       }
 
       const replyText = buildScheduleManagementReply();

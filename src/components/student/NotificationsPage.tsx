@@ -278,9 +278,15 @@ export function NotificationsPage(props: {
   return (
     <div className="notifications-page__modal-content">
       {loading ? (
-        <p className="notifications-page__empty notifications-page__empty--modal">
-          알림을 불러오는 중…
-        </p>
+        <div
+          className="notifications-page__loading"
+          role="status"
+          aria-live="polite"
+          aria-label="알림을 불러오는 중"
+        >
+          <span className="parent-settings-inline-spinner" aria-hidden />
+          <span className="sr-only">알림을 불러오는 중</span>
+        </div>
       ) : error ? (
         <p className="notifications-page__empty notifications-page__empty--modal">
           {error}

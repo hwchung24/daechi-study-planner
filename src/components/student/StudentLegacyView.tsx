@@ -1202,13 +1202,28 @@ export function StudentLegacyView(props: {
                               <div className="record-primary-save-wrap">
                                 <button
                                   type="button"
-                                  className="timeline-save-button"
+                                  className={
+                                    "timeline-save-button" +
+                                    (todayLogSaving ? " timeline-save-button--busy" : "")
+                                  }
                                   disabled={todayLogSaving}
+                                  aria-busy={todayLogSaving}
+                                  aria-label={todayLogSaving ? "저장 중" : "저장"}
                                   onClick={() => {
                                     void handleSaveTodayLog("study");
                                   }}
                                 >
-                                  {todayLogSaving ? "저장 중…" : "저장"}
+                                  {todayLogSaving ? (
+                                    <>
+                                      <span
+                                        className="parent-settings-inline-spinner parent-settings-inline-spinner--inverse"
+                                        aria-hidden
+                                      />
+                                      <span className="sr-only">저장 중</span>
+                                    </>
+                                  ) : (
+                                    "저장"
+                                  )}
                                 </button>
                                 {todayLogMessage ? (
                                   <p className="settings-hint record-save-feedback">
@@ -1469,13 +1484,28 @@ export function StudentLegacyView(props: {
                               <div className="record-primary-save-wrap">
                                 <button
                                   type="button"
-                                  className="timeline-save-button"
+                                  className={
+                                    "timeline-save-button" +
+                                    (todayLogSaving ? " timeline-save-button--busy" : "")
+                                  }
                                   disabled={todayLogSaving}
+                                  aria-busy={todayLogSaving}
+                                  aria-label={todayLogSaving ? "저장 중" : "저장"}
                                   onClick={() => {
                                     void handleSaveTodayLog("life");
                                   }}
                                 >
-                                  {todayLogSaving ? "저장 중…" : "저장"}
+                                  {todayLogSaving ? (
+                                    <>
+                                      <span
+                                        className="parent-settings-inline-spinner parent-settings-inline-spinner--inverse"
+                                        aria-hidden
+                                      />
+                                      <span className="sr-only">저장 중</span>
+                                    </>
+                                  ) : (
+                                    "저장"
+                                  )}
                                 </button>
                                 {todayLogMessage ? (
                                   <p className="settings-hint record-save-feedback">

@@ -21,7 +21,9 @@ const {
   updateCustomConfigurationProfile,
   assignProfileToGroup,
   unassignProfileFromGroup,
-  syncProfiles
+  syncProfiles,
+  findDeviceBySerial,
+  refreshDevice
 } = require("./simpleMdmClient");
 
 const DAECHI_ROOT_BUNDLE_ID = "com.daechiroot.ios";
@@ -336,6 +338,17 @@ async function disableStudentKioskMode(userId) {
     if (assignmentGroupId > 0 && profileId > 0) {
       await unassignProfileFromGroup(assignmentGroupId, profileId).catch(() => {});
       await syncProfiles(assignmentGroupId).catch(() => {});
+    }
+    try {
+      const serial = await getActiveDeviceSerialForUser(userId);
+      if (serial) {
+        const device = await findDeviceBySerial(serial);
+        if (device?.id) {
+          await refreshDevice(Number(device.id)).catch(() => {});
+        }
+      }
+    } catch {
+      // ignore refresh failures
     }
     await upsertStudentMdmKioskProfileState(userId, {
       profileId: profileId > 0 ? profileId : null,
