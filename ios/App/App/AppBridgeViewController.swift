@@ -14,6 +14,7 @@ class AppBridgeViewController: CAPBridgeViewController {
         bridge?.registerPluginInstance(AppShellPlugin())
         bridge?.registerPluginInstance(NativeKeyboardInputPlugin())
         bridge?.registerPluginInstance(NativeStudyRoomTrackingPlugin())
+        bridge?.registerPluginInstance(NativeOfflineScreenTimePlugin())
     }
 
     override func instanceDescriptor() -> InstanceDescriptor {

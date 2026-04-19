@@ -30,6 +30,7 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
     func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?) -> Bool {
         applyAppChromeBackground()
         StudyRoomTrackingManager.shared.resumeIfNeeded()
+        OfflineScreenTimeBootstrap.start()
         return true
     }
 
@@ -49,6 +50,7 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
 
     func applicationDidBecomeActive(_ application: UIApplication) {
         applyAppChromeBackground()
+        OfflineScreenTimeBootstrap.start()
     }
 
     func application(_ application: UIApplication, didRegisterForRemoteNotificationsWithDeviceToken deviceToken: Data) {
