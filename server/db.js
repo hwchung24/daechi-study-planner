@@ -3499,6 +3499,15 @@ function blockTimeSortKeyMin(t) {
   return Number(m[1]) * 60 + Number(m[2]);
 }
 
+function studyBlockIntervalsOverlap(aStart, aEnd, bStart, bEnd) {
+  const as = blockTimeSortKeyMin(aStart);
+  const ae = blockTimeSortKeyMin(aEnd);
+  const bs = blockTimeSortKeyMin(bStart);
+  const be = blockTimeSortKeyMin(bEnd);
+  if (ae <= as || be <= bs) return false;
+  return as < be && bs < ae;
+}
+
 async function getStudyBlocksReplacePayloadForDate(userId, dateStr) {
   const d = String(dateStr || "")
     .trim()
@@ -3666,7 +3675,12 @@ async function approvePlanAddRequestByParent(requestId, parentUserId) {
         done: false,
         focusScore: null
       };
-  const merged = sortReplaceBlocks([...existing, newBlock]);
+  const reqStart = hhmmFromDb(row.start_time);
+  const reqEnd = hhmmFromDb(row.end_time);
+  const withoutOverlapping = existing.filter(
+    b => !studyBlockIntervalsOverlap(b.startTime, b.endTime, reqStart, reqEnd)
+  );
+  const merged = sortReplaceBlocks([...withoutOverlapping, newBlock]);
   await replaceStudyBlocks(studentId, row.target_date, merged);
   await query(
     `UPDATE parent_plan_add_requests
