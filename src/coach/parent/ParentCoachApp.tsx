@@ -1142,7 +1142,7 @@ function AiReportTab(props: {
   ];
 
   return (
-    <div className="coach-page coach-page--parent-chat">
+    <div className="coach-page">
       <ParentStudentSelector
         parentStudents={props.parentStudents}
         parentStudentId={props.parentStudentId}
@@ -1625,7 +1625,7 @@ function RecordsTab(props: {
   };
 
   return (
-    <div className="coach-page">
+    <div className="coach-page coach-page--parent-chat">
       {!props.selectedStudent ? (
         <EmptyState title="학생을 선택하세요" />
       ) : (

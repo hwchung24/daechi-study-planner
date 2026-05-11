@@ -1011,19 +1011,16 @@ html.parent-session .app-main {
 .parent-home__status-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 0;
+  gap: calc(10px * var(--parent-ui-scale));
   margin-top: 0;
-  border-top: 1px solid var(--border-neutral);
-  border-left: 1px solid var(--border-neutral);
+  border: 0;
 }
 
 .parent-home__status-card {
-  border-radius: 0;
-  background: transparent;
-  border: 0;
+  border-radius: var(--radius-lg);
+  background: #f8fafc;
+  border: 1px solid rgba(148, 163, 184, 0.24);
   box-shadow: none;
-  border-right: 1px solid var(--border-neutral);
-  border-bottom: 1px solid var(--border-neutral);
   padding: calc(14px * var(--parent-ui-scale)) calc(14px * var(--parent-ui-scale))
     calc(12px * var(--parent-ui-scale));
   height: calc(210px * var(--parent-ui-scale));
@@ -1086,7 +1083,7 @@ html.parent-session .app-main {
   align-items: center;
   gap: calc(8px * var(--parent-ui-scale));
   margin-bottom: calc(8px * var(--parent-ui-scale));
-  color: var(--text-strong);
+  color: #1f2f61;
 }
 
 .parent-home__net-badge {
@@ -1110,9 +1107,9 @@ html.parent-session .app-main {
 }
 
 .parent-home__net-badge--off {
-  background: rgba(239, 68, 68, 0.12);
-  border-color: rgba(239, 68, 68, 0.28);
-  color: #b91c1c;
+  background: rgba(26, 43, 94, 0.08);
+  border-color: rgba(26, 43, 94, 0.28);
+  color: #1a2b5e;
 }
 
 .parent-home__status-card-title {
@@ -1123,8 +1120,8 @@ html.parent-session .app-main {
 .parent-home__status-body {
   margin: 0;
   font-size: calc(18px * var(--parent-ui-scale));
-  font-weight: var(--font-weight-semibold);
-  color: var(--text-main);
+  font-weight: 700;
+  color: #1a2b5e;
   line-height: 1.45;
 }
 
@@ -1183,24 +1180,24 @@ html.parent-session .app-main {
   color: var(--text-sub);
 }
 
-/* 학부모 페이지 전반: 카드형 UI 제거, 구분선 기반 레이아웃 */
+/* 학부모 페이지 전반: 일관된 카드 톤과 간격 */
 .app-root--parent .coach-shell__tab-panel--parent .coach-card,
 .app-root--parent .student-profile-page.section .coach-card {
-  background: transparent;
-  border: 0;
-  border-radius: 0;
+  background: #ffffff;
+  border: 1px solid rgba(148, 163, 184, 0.22);
+  border-radius: var(--radius-lg);
   box-shadow: none;
 }
 
 .app-root--parent .coach-shell__tab-panel--parent .coach-card + .coach-card,
 .app-root--parent .student-profile-page.section .coach-card + .coach-card {
-  border-top: 1px solid var(--border-neutral);
+  margin-top: calc(10px * var(--parent-ui-scale));
 }
 
 .app-root--parent .coach-shell__tab-panel--parent .coach-card--padded,
 .app-root--parent .student-profile-page.section .coach-card--padded {
-  padding-left: 0;
-  padding-right: 0;
+  padding-left: calc(14px * var(--parent-ui-scale));
+  padding-right: calc(14px * var(--parent-ui-scale));
 }
 
 .app-root--parent .notifications-page__list {
@@ -1208,13 +1205,12 @@ html.parent-session .app-main {
 }
 
 .app-root--parent .notifications-page__item {
-  background: transparent;
+  background: #ffffff;
   border: 0;
   border-radius: 0;
   box-shadow: none;
-  border-bottom: 1px solid var(--border-neutral);
-  padding-left: 0;
-  padding-right: 0;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.28);
+  padding: 12px 2px;
 }
 
 .app-root--parent .coach-admin-chat-shell .coach-chat {
@@ -1227,7 +1223,7 @@ html.parent-session .app-main {
 }
 
 .app-root--parent .coach-admin-chat-shell__rail {
-  border-top: 1px solid var(--border-neutral);
+  border-top: 1px solid rgba(148, 163, 184, 0.28);
 }
 
 .app-root--parent .coach-admin-chat-shell .coach-chat-input {
@@ -1273,6 +1269,105 @@ html.parent-session .app-main {
 
 .app-root--parent .coach-card--padded {
   padding: calc(16px * var(--parent-ui-scale));
+}
+
+/* 학부모 전용 타이포/회색 계층 통일 */
+.app-root--parent {
+  --parent-gray-1: #111827;
+  --parent-gray-2: #374151;
+  --parent-gray-3: #6b7280;
+  --parent-line: rgba(148, 163, 184, 0.28);
+}
+
+.app-root--parent .coach-admin-chat__hint,
+.app-root--parent .notifications-page__item-body,
+.app-root--parent .settings-value {
+  color: var(--parent-gray-2);
+}
+
+.app-root--parent .notifications-page__item-title,
+.app-root--parent .settings-label,
+.app-root--parent .parent-home__status-card-title {
+  color: var(--parent-gray-1);
+}
+
+.app-root--parent .notifications-page__item-time,
+.app-root--parent .parent-home__status-hint,
+.app-root--parent .settings-hint {
+  color: var(--parent-gray-3);
+}
+
+/* 채팅 탭 미세 조정 */
+.app-root--parent .coach-admin-chat__messages .coach-bubble--coach {
+  border: 1px solid rgba(148, 163, 184, 0.32);
+  border-radius: 14px;
+  padding: 9px 12px;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.06);
+}
+
+.app-root--parent .coach-admin-chat__messages .coach-bubble--user {
+  border-radius: 14px;
+  padding: 9px 12px;
+}
+
+.app-root--parent .coach-admin-chat-shell__rail .coach-chat-starters {
+  margin-bottom: 2px;
+  padding: 4px 2px 2px;
+}
+
+.app-root--parent .coach-admin-chat-shell .coach-chat-input {
+  margin-top: 6px;
+}
+
+/* 알림 탭 미세 조정 */
+.app-root--parent .notifications-page__item-title {
+  margin-bottom: 3px;
+  font-size: 14px;
+  font-weight: 700;
+  line-height: 1.35;
+}
+
+.app-root--parent .notifications-page__item-body {
+  margin-top: 4px;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.app-root--parent .notifications-page__item-time {
+  margin-top: 7px;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+/* 관리 탭: 카드 내부 정렬/상태 강조 통일 */
+.app-root--parent .parent-home__status-card-head svg {
+  flex: 0 0 auto;
+  color: #1f2f61;
+}
+
+.app-root--parent .parent-home__status-em {
+  color: #1a2b5e;
+  font-weight: 700;
+}
+
+/* 설정 탭: 리스트 패딩/구분선/값 텍스트 통일 */
+.app-root--parent .student-profile-settings-list {
+  margin-top: 12px;
+  border-top: 1px solid var(--parent-line);
+}
+
+.app-root--parent .student-profile-settings-list .settings-item {
+  padding: 12px 0;
+  border-bottom: 1px solid var(--parent-line);
+}
+
+.app-root--parent .student-profile-settings-list .settings-item:last-child {
+  border-bottom: 0;
+}
+
+.app-root--parent .student-profile-settings-list .settings-value {
+  color: #475569;
+  font-weight: 600;
 }
 
 .parent-home__status-kicker {
@@ -8473,12 +8568,12 @@ button:active:not(:disabled),
   color: #ffffff;
 }
 
-/* 학부모 채팅: 학생(좌측) 말풍선 회색 */
-.coach-admin-chat__messages .coach-bubble--coach {
-  background: #f3f4f6;
-  border-color: #e5e7eb;
+/* 학부모 채팅: 학생(좌측) 말풍선 구분감 강화 */
+.app-root--parent .coach-admin-chat__messages .coach-bubble--coach {
+  background: #f8fafc;
+  border-color: rgba(148, 163, 184, 0.32);
   color: var(--text-main);
-  box-shadow: none;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.06);
 }
 
 .coach-admin-chat__empty,
