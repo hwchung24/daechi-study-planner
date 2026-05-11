@@ -55,6 +55,21 @@ function formatSimpleMdmAgePhraseKo(ageMinutes: number) {
   return `약 ${Math.floor(ageMinutes / 1440)}일 전`;
 }
 
+/** MDM last_seen 기준 경과(문장에 그대로 넣기 좋은 짧은 구) */
+function formatSimpleMdmLastContactDetail(net: ParentSimpleMdmNetworkStatus) {
+  const sec = net.lastSeenAgeSeconds;
+  if (sec != null && Number.isFinite(sec) && sec >= 0) {
+    if (sec < 20) return "20초 이내";
+    if (sec < 60) return `약 ${sec}초 전`;
+    if (sec < 120) return "약 1분 전";
+  }
+  const m = net.ageMinutes;
+  if (m != null && Number.isFinite(m)) {
+    return formatSimpleMdmAgePhraseKo(m);
+  }
+  return "";
+}
+
 function simpleMdmNetworkDescription(opts: {
   net: ParentSimpleMdmNetworkStatus;
 }): string | null {
@@ -80,23 +95,18 @@ function simpleMdmNetworkDescription(opts: {
     return null;
   }
   if (net.status === "recent") {
-    const age =
-      net.ageMinutes != null && Number.isFinite(net.ageMinutes)
-        ? formatSimpleMdmAgePhraseKo(net.ageMinutes)
-        : "";
-    const carrier = net.carrierNetwork ? ` · 통신 ${net.carrierNetwork}` : "";
-    return age
-      ? `Simple MDM 기준으로 네트워크에 연결된 것으로 보입니다(서버·기기 통신 ${age}${carrier}).`
-      : `Simple MDM 기준으로 네트워크에 연결된 것으로 보입니다.${carrier}`;
+    const detail = formatSimpleMdmLastContactDetail(net);
+    const carrier = net.carrierNetwork ? ` (통신사: ${net.carrierNetwork})` : "";
+    const head = detail
+      ? `MDM 서버와 마지막으로 통신한 시점은 ${detail}입니다.${carrier}`
+      : `MDM 서버와의 통신 시각이 아주 최근입니다.${carrier}`;
+    return `${head} Wi-Fi·데이터를 끈 뒤에도 이 시각은 잠시 멈춰 있을 수 있어, 지금 이 순간 온라인인지는 여기서 확정할 수 없습니다.`;
   }
   if (net.status === "stale") {
-    const age =
-      net.ageMinutes != null && Number.isFinite(net.ageMinutes)
-        ? formatSimpleMdmAgePhraseKo(net.ageMinutes)
-        : "";
-    return age
-      ? `마지막 MDM·기기 통신이 ${age}입니다. 전원·데이터·Wi-Fi를 확인해 보세요.`
-      : "마지막 MDM 통신 시각이 오래되었습니다. 기기가 꺼져 있거나 네트워크가 없을 수 있어요.";
+    const detail = formatSimpleMdmLastContactDetail(net);
+    return detail
+      ? `마지막 MDM 통신은 ${detail}입니다. 네트워크를 끈 뒤라면 더 이상 갱신되지 않을 수 있어요.`
+      : "마지막 MDM 통신 시각이 오래되었습니다. 기기 전원·네트워크를 확인해 보세요.";
   }
   if (net.status === "unknown") {
     return "Simple MDM에 기기는 있으나 마지막 통신 시각을 확인하지 못했습니다.";

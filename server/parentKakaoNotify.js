@@ -1,6 +1,6 @@
 const { getParentPhoneByUserId } = require("./db");
 const {
-  isSolapiConfigured,
+  isSolapiKakaoSendConfigured,
   normalizeKoreanPhone,
   sendKakaoAlimtalk
 } = require("./solapiService");
@@ -38,7 +38,7 @@ async function sendParentKakaoIfEnabled(parentUserId, title, body) {
   if (!isParentKakaoOutboundEnabled()) {
     return { sent: false, reason: "disabled" };
   }
-  if (!isSolapiConfigured()) {
+  if (!isSolapiKakaoSendConfigured()) {
     return { sent: false, reason: "not_configured" };
   }
   const uid = Number(parentUserId);

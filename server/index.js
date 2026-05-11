@@ -1700,8 +1700,10 @@ async function createParentNotificationForLinkedParentsAlarmWithPush(
   alarmKey,
   title,
   body,
-  data = undefined
+  data = undefined,
+  options = undefined
 ) {
+  const forceKakaoPush = Boolean(options && options.forceKakaoPush);
   const parentUserIds = await listLinkedParentUserIdsForStudent(studentUserId);
   if (!parentUserIds.length) return 0;
 
@@ -1715,16 +1717,33 @@ async function createParentNotificationForLinkedParentsAlarmWithPush(
       title,
       body
     ).catch(() => null);
-    if (!notification) continue;
-    createdCount += 1;
-    pushTargetUserIds.push(parentUserId);
-    await sendParentKakaoIfEnabled(parentUserId, title, body).catch(err => {
-      console.warn("parent kakao notify (linked alarm)", parentUserId, err?.message || err);
-    });
+    if (notification) {
+      createdCount += 1;
+      pushTargetUserIds.push(parentUserId);
+    } else if (forceKakaoPush) {
+      pushTargetUserIds.push(parentUserId);
+    }
+    if (notification || forceKakaoPush) {
+      const kakaoResult = await sendParentKakaoIfEnabled(parentUserId, title, body).catch(
+        err => ({ sent: false, reason: String(err?.message || err) })
+      );
+      if (
+        kakaoResult &&
+        kakaoResult.sent === false &&
+        kakaoResult.reason &&
+        kakaoResult.reason !== "disabled"
+      ) {
+        console.warn(
+          "parent kakao notify (linked alarm) skipped",
+          parentUserId,
+          kakaoResult.reason
+        );
+      }
+    }
   }
 
   if (pushTargetUserIds.length) {
-    await sendPushToUsers(pushTargetUserIds, {
+    await sendPushToUsers([...new Set(pushTargetUserIds)], {
       title,
       body: extractVisibleNotificationBody(body),
       data
@@ -4810,8 +4829,11 @@ app.get("/api/parent/students", authMiddleware, async (req, res) => {
   }
 });
 
-/** MDM 서버와의 최근 통신(기기 네트워크·전원 상태 추정) — Simple MDM device `last_seen_at` */
-const SIMPLE_MDM_RECENT_SEEN_MS = 25 * 60 * 1000;
+/**
+ * MDM `last_seen_at` 기준 “아주 최근에 한 번은 통신함” 판정(실시간 온라인 아님).
+ * 값이 크면 네트워크를 꺼도 오래 “연결된 것처럼” 보이므로 짧게 둔다.
+ */
+const SIMPLE_MDM_RECENT_SEEN_MS = 4 * 60 * 1000;
 
 function buildSimpleMdmParentNetworkStatusFromDevice(device) {
   const devAttrs = device?.attributes || {};
@@ -4853,6 +4875,7 @@ function buildSimpleMdmParentNetworkStatusFromDevice(device) {
     lastSeenAt: new Date(t).toISOString(),
     status,
     ageMinutes: Math.floor(ageMs / 60000),
+    lastSeenAgeSeconds: Math.floor(ageMs / 1000),
     carrierNetwork
   };
 }
@@ -6176,7 +6199,9 @@ app.post("/api/student/plan-add-request", authMiddleware, async (req, res) => {
       req.userId,
       "requestAlerts",
       "오늘 계획 수정 요청",
-      `${String(me.email || "학생")}(이)가 ${d} ${st}-${et} ${name}${plannedRange ? ` · ${String(plannedRange).trim()}` : ""} 계획 수정을 요청했어요.`
+      `${String(me.email || "학생")}(이)가 ${d} ${st}-${et} ${name}${plannedRange ? ` · ${String(plannedRange).trim()}` : ""} 계획 수정을 요청했어요.`,
+      undefined,
+      { forceKakaoPush: true }
     );
     const linkedParents = await listLinkedParentUserIdsForStudent(req.userId).catch(() => []);
     for (const parentUserId of linkedParents) {

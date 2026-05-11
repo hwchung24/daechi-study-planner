@@ -11,6 +11,17 @@ function isSolapiConfigured() {
   return Boolean(SOLAPI_API_KEY && SOLAPI_API_SECRET && SOLAPI_SENDER && SOLAPI_KAKAO_PFID);
 }
 
+/** 알림톡 발송에 필요한 값까지 포함(템플릿 ID 필수) */
+function isSolapiKakaoSendConfigured() {
+  return Boolean(
+    SOLAPI_API_KEY &&
+      SOLAPI_API_SECRET &&
+      SOLAPI_SENDER &&
+      SOLAPI_KAKAO_PFID &&
+      SOLAPI_KAKAO_TEMPLATE_ID
+  );
+}
+
 function isSolapiSmsConfigured() {
   return Boolean(SOLAPI_API_KEY && SOLAPI_API_SECRET && SOLAPI_SENDER);
 }
@@ -60,12 +71,18 @@ async function sendKakaoAlimtalk({
   pfId = SOLAPI_KAKAO_PFID,
   disableSms = true
 }) {
-  if (!isSolapiConfigured()) {
+  const effectiveTemplateId = String(templateId || SOLAPI_KAKAO_TEMPLATE_ID || "").trim();
+  if (
+    !SOLAPI_API_KEY ||
+    !SOLAPI_API_SECRET ||
+    !SOLAPI_SENDER ||
+    !SOLAPI_KAKAO_PFID ||
+    !effectiveTemplateId
+  ) {
     throw new Error("SOLAPI_NOT_CONFIGURED");
   }
   const toPhone = normalizeKoreanPhone(to);
   if (!toPhone) throw new Error("SOLAPI_INVALID_RECIPIENT");
-  if (!templateId) throw new Error("SOLAPI_TEMPLATE_ID_REQUIRED");
   const payload = {
     message: {
       to: toPhone,
@@ -74,7 +91,7 @@ async function sendKakaoAlimtalk({
       ...(subject ? { subject: String(subject).trim() } : {}),
       kakaoOptions: {
         pfId,
-        templateId,
+        templateId: effectiveTemplateId,
         disableSms: Boolean(disableSms)
       }
     }
@@ -101,6 +118,7 @@ async function sendSolapiSms({ to, text, subject = "" }) {
 
 module.exports = {
   isSolapiConfigured,
+  isSolapiKakaoSendConfigured,
   isSolapiSmsConfigured,
   normalizeKoreanPhone,
   sendKakaoAlimtalk,

@@ -17,6 +17,8 @@ export type ParentSimpleMdmNetworkStatus = {
   skippedReason?: string;
   lastSeenAt?: string | null;
   ageMinutes?: number | null;
+  /** 서버 기준 마지막 MDM 통신 이후 경과 초(표시·짧은 구간용) */
+  lastSeenAgeSeconds?: number | null;
   carrierNetwork?: string | null;
 };
 
@@ -53,6 +55,10 @@ function normalizeSimpleMdmNetwork(
     ageMinutes:
       o.ageMinutes != null && Number.isFinite(Number(o.ageMinutes))
         ? Number(o.ageMinutes)
+        : null,
+    lastSeenAgeSeconds:
+      o.lastSeenAgeSeconds != null && Number.isFinite(Number(o.lastSeenAgeSeconds))
+        ? Number(o.lastSeenAgeSeconds)
         : null,
     carrierNetwork:
       o.carrierNetwork != null && String(o.carrierNetwork).trim()
