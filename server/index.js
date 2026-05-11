@@ -5772,6 +5772,8 @@ app.get("/api/student/admin-channel", authMiddleware, async (req, res) => {
 
 app.post("/api/student/admin-channel/messages", authMiddleware, async (req, res) => {
   try {
+    const me = await getUserByIdForAuth(req.userId);
+    const studentEmail = String(me?.email || "학생").trim() || "학생";
     const parent = await resolvePrimaryParentForStudent(req.userId);
     if (!parent) {
       return res.status(400).json({ error: "연결된 학부모가 없습니다." });
@@ -5790,7 +5792,7 @@ app.post("/api/student/admin-channel/messages", authMiddleware, async (req, res)
       req.userId,
       "messageAlerts",
       "새 학생 메시지",
-      "학생이 학부모 1:1 채널에 새 메시지를 보냈습니다."
+      `${studentEmail} 학생이 학부모 1:1 채널에 새 메시지를 보냈습니다.`
     ).catch(() => {});
     res.json({ ok: true, message: saved });
   } catch (e) {
@@ -5805,6 +5807,8 @@ app.post(
   homeworkUpload.single("file"),
   async (req, res) => {
     try {
+      const me = await getUserByIdForAuth(req.userId);
+      const studentEmail = String(me?.email || "학생").trim() || "학생";
       const parent = await resolvePrimaryParentForStudent(req.userId);
       if (!parent) {
         return res.status(400).json({ error: "연결된 학부모가 없습니다." });
@@ -5835,7 +5839,7 @@ app.post(
         req.userId,
         "homeworkAlerts",
         "새 숙제 제출",
-        "학생이 새 숙제를 제출했습니다. 코치 탭에서 검토할 수 있어요."
+        `${studentEmail} 학생이 새 숙제를 제출했습니다. 코치 탭에서 검토할 수 있어요.`
       ).catch(() => {});
       res.json({ ok: true, submission: created });
     } catch (e) {

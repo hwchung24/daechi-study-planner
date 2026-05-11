@@ -3644,9 +3644,18 @@ const App: React.FC = () => {
           {parentView ? (
             <div className="header-top header-top--parent-filled">
               <div className="parent-global-top-row parent-global-top-row--header">
-                <div className="parent-header-logo" aria-hidden>
+                <button
+                  type="button"
+                  className="parent-header-logo parent-header-logo--btn"
+                  aria-label="관리 홈으로 이동"
+                  onClick={() => {
+                    hapticSelection();
+                    setCoachParentTab("home");
+                    setAppPath("#/parent/home");
+                  }}
+                >
                   <img src="/parent-header-logo.png" alt="" className="parent-header-logo__img" />
-                </div>
+                </button>
                 <div className="parent-global-top-row__student">
                   <ParentStudentSelector
                     parentStudents={parentStudents}
@@ -3676,17 +3685,6 @@ const App: React.FC = () => {
                     }}
                   >
                     알림
-                  </button>
-                  <button
-                    type="button"
-                    className={"parent-quick-nav__btn" + (isParentQuickActive("manage") ? " parent-quick-nav__btn--active" : "")}
-                    onClick={() => {
-                      hapticSelection();
-                      setCoachParentTab("home");
-                      setAppPath("#/parent/home");
-                    }}
-                  >
-                    관리
                   </button>
                   <button
                     type="button"

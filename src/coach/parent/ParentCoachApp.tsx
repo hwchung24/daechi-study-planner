@@ -2608,18 +2608,22 @@ function ParentAnalysisTab(props: {
 function ParentNotificationsTab(props: {
   apiBase: string;
   authToken: string | null;
+  selectedStudentEmail?: string | null;
   onReadAll?: () => void;
   onNotificationAction?: (action: ParentNotificationAction) => void;
 }) {
   return (
     <div className="coach-page">
-      <NotificationsPage
-        apiBase={props.apiBase}
-        authToken={props.authToken}
-        meRole="parent"
-        onReadAll={props.onReadAll}
-        onNotificationAction={props.onNotificationAction}
-      />
+      <Card className="coach-card coach-card--padded">
+        <NotificationsPage
+          apiBase={props.apiBase}
+          authToken={props.authToken}
+          meRole="parent"
+          parentStudentEmail={props.selectedStudentEmail}
+          onReadAll={props.onReadAll}
+          onNotificationAction={props.onNotificationAction}
+        />
+      </Card>
     </div>
   );
 }
@@ -2724,6 +2728,7 @@ export function ParentCoachApp(props: {
       <ParentNotificationsTab
         apiBase={props.apiBase}
         authToken={props.authToken}
+        selectedStudentEmail={selectedStudent?.email || null}
         onReadAll={props.onParentNotificationsReadAll}
         onNotificationAction={props.onParentNotificationAction}
       />

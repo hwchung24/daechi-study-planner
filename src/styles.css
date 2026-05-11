@@ -984,13 +984,14 @@ html.parent-session .app-main {
 }
 
 .parent-global-top-row--header {
-  width: max-content;
+  width: fit-content;
   max-width: 100%;
   margin: 0 auto;
   padding: 0 8px;
+  display: inline-flex;
+  align-items: center;
+  gap: calc(8px * var(--parent-ui-scale));
   justify-content: center;
-  position: relative;
-  overflow: visible;
 }
 
 .parent-global-top-row--header .parent-global-top-row__student,
@@ -1018,28 +1019,35 @@ html.parent-session .app-main {
 }
 
 .parent-header-logo {
-  position: absolute;
-  left: calc(-38px * var(--parent-ui-scale));
-  top: 50%;
-  transform: translate(0, -50%);
-  width: calc(34px * var(--parent-ui-scale));
-  height: calc(34px * var(--parent-ui-scale));
+  position: static;
+  width: calc(46px * var(--parent-ui-scale));
+  height: calc(46px * var(--parent-ui-scale));
+  flex: 0 0 auto;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   border-radius: 999px;
   background: #ffffff;
   border: 1px solid rgba(148, 163, 184, 0.28);
-  box-shadow: 0 6px 16px rgba(15, 23, 42, 0.12);
+  box-shadow: none;
   z-index: 2;
-  pointer-events: none;
 }
 
 .parent-header-logo__img {
-  width: 62%;
-  height: 62%;
+  width: 74%;
+  height: 74%;
   object-fit: contain;
   display: block;
+}
+
+.parent-header-logo--btn {
+  border: 0;
+  padding: 0;
+  cursor: pointer;
+}
+
+.parent-header-logo--btn:active {
+  transform: scale(0.97);
 }
 
 .parent-home__status-grid {
@@ -1785,20 +1793,32 @@ body.app-keyboard-open .app-main {
   border-radius: 999px;
   border: 1px solid rgba(148, 163, 184, 0.26);
   background: rgba(255, 255, 255, 0.5);
+  align-items: center;
 }
 
 .app-header--parent .parent-quick-nav__btn,
 .app-header--parent .parent-student-dropdown__trigger {
-  min-height: calc(32px * var(--parent-ui-scale));
+  height: calc(34px * var(--parent-ui-scale));
+  min-height: calc(34px * var(--parent-ui-scale));
   padding: 0 calc(11px * var(--parent-ui-scale));
   border-color: rgba(148, 163, 184, 0.32);
   background: rgba(255, 255, 255, 0.78);
+  box-sizing: border-box;
+  display: inline-flex;
+  align-items: center;
+  line-height: 1;
 }
 
 .app-header--parent .parent-quick-nav__btn--active {
   background: var(--accent-strong);
   border-color: var(--accent-strong);
   box-shadow: 0 0 0 1px rgba(36, 59, 107, 0.08) inset;
+}
+
+.app-header--parent .parent-quick-nav {
+  padding: 0;
+  align-items: center;
+  gap: 6px;
 }
 
 .header-title-group {

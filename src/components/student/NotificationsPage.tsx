@@ -180,6 +180,7 @@ export function NotificationsPage(props: {
   apiBase: string;
   authToken: string | null;
   meRole: string | null;
+  parentStudentEmail?: string | null;
   onReadAll?: () => void;
   onNotificationAction?: (action: ParentNotificationAction) => void;
 }) {
@@ -240,7 +241,26 @@ export function NotificationsPage(props: {
           throw new Error("알림을 불러오지 못했습니다.");
         }
         const data = await res.json();
-        const next = Array.isArray(data?.notifications) ? data.notifications : [];
+        const rawNext = Array.isArray(data?.notifications) ? data.notifications : [];
+        const targetEmail =
+          role === "parent" ? String(props.parentStudentEmail || "").trim().toLowerCase() : "";
+        const next = targetEmail
+          ? rawNext.filter((item: NotificationItem) => {
+              const parsed = parseNotificationAction(item.body);
+              const action = parsed.action;
+              if (action?.type === "parent_app_timetable_request") {
+                const email = String(action.studentEmail || "").trim().toLowerCase();
+                return email === targetEmail;
+              }
+              if (action?.type === "link_unlink_request") {
+                const email = String(action.counterpartEmail || "").trim().toLowerCase();
+                return email === targetEmail;
+              }
+              const title = String(item.title || "").toLowerCase();
+              const body = String(item.body || "").toLowerCase();
+              return title.includes(targetEmail) || body.includes(targetEmail);
+            })
+          : rawNext;
         const sig = stableStringify(next);
         if (!cancelled) {
           if (itemsSigRef.current !== sig) {
@@ -273,7 +293,7 @@ export function NotificationsPage(props: {
     return () => {
       cancelled = true;
     };
-  }, [props.apiBase, props.authToken, props.meRole, props.onReadAll, role, token]);
+  }, [props.apiBase, props.authToken, props.meRole, props.onReadAll, props.parentStudentEmail, role, token]);
 
   return (
     <div className="notifications-page__modal-content">
