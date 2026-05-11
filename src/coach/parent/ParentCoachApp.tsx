@@ -2574,11 +2574,13 @@ function ManageTab(props: {
           body="학생을 선택하면 관리 채널을 확인할 수 있습니다."
         />
       ) : (
-        <ParentAdminChannelPanel
-          authToken={props.authToken}
-          studentId={props.parentStudentId ?? props.selectedStudent.id}
-          studentLabel={props.selectedStudent.email || "학생"}
-        />
+        <Card className="coach-card coach-card--padded parent-manage-chat-card">
+          <ParentAdminChannelPanel
+            authToken={props.authToken}
+            studentId={props.parentStudentId ?? props.selectedStudent.id}
+            studentLabel={props.selectedStudent.email || "학생"}
+          />
+        </Card>
       )}
     </div>
   );
