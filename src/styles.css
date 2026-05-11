@@ -932,7 +932,7 @@ html.parent-session .app-main {
   }
 
   html.web-app.parent-session .app-root--parent {
-    --parent-ui-scale: clamp(0.66, calc(100vw / 540px), 0.86);
+    --parent-ui-scale: clamp(0.74, calc(100vw / 500px), 0.9);
   }
 }
 
@@ -1010,15 +1010,9 @@ html.parent-session .app-main {
 
 .parent-home__status-grid {
   display: grid;
-  grid-template-columns: 1fr;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: calc(10px * var(--parent-ui-scale));
   margin-top: 0;
-}
-
-@media (min-width: 420px) {
-  .parent-home__status-grid {
-    grid-template-columns: 1fr 1fr;
-  }
 }
 
 .parent-home__status-card {
