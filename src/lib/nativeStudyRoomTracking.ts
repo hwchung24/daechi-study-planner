@@ -45,8 +45,8 @@ let webWatchId: number | null = null;
 let webApiBase = "";
 let webAuthToken = "";
 let webLastSentAt = 0;
-const HEARTBEAT_INTERVAL_MS_VISIBLE = 30_000;
-const HEARTBEAT_INTERVAL_MS_HIDDEN = 120_000;
+const HEARTBEAT_INTERVAL_MS_VISIBLE = 15_000;
+const HEARTBEAT_INTERVAL_MS_HIDDEN = 90_000;
 
 function isNativeIos() {
   return Capacitor.getPlatform() === "ios";
@@ -76,7 +76,8 @@ async function sendWebHeartbeat(position: GeolocationPosition) {
         latitude: position.coords.latitude,
         longitude: position.coords.longitude,
         accuracy: position.coords.accuracy,
-        timestamp: new Date(position.timestamp).toISOString()
+        /** GPS `position.timestamp`은 캐시·기기 시계 때문에 과거로 밀릴 수 있어 전송 시각을 쓴다. */
+        timestamp: new Date().toISOString()
       })
     });
     if (!res.ok) {
@@ -190,7 +191,7 @@ async function startWebTracking(options: StartTrackingOptions): Promise<NativeTr
     },
     {
       enableHighAccuracy: false,
-      maximumAge: 60_000,
+      maximumAge: 30_000,
       timeout: 30_000
     }
   );

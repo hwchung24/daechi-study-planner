@@ -9,7 +9,7 @@ private struct StudyRoomTrackingConfig: Codable {
 
 @objc final class StudyRoomTrackingManager: NSObject, CLLocationManagerDelegate {
     static let shared = StudyRoomTrackingManager()
-    private let heartbeatIntervalSeconds: TimeInterval = 60
+    private let heartbeatIntervalSeconds: TimeInterval = 45
     private let minimumDistanceDeltaMeters: CLLocationDistance = 25
 
     private let locationManager = CLLocationManager()
@@ -131,15 +131,16 @@ private struct StudyRoomTrackingConfig: Codable {
         guard let config = loadConfig(), let location = locations.last else {
             return
         }
-        if let lastSentAt = lastSentAt,
-           Date().timeIntervalSince(lastSentAt) < heartbeatIntervalSeconds {
+        let now = Date()
+        let intervalOk =
+            lastSentAt == nil || now.timeIntervalSince(lastSentAt!) >= heartbeatIntervalSeconds
+        let movedOk =
+            lastSentLocation == nil
+            || location.distance(from: lastSentLocation!) >= minimumDistanceDeltaMeters
+        if !intervalOk && !movedOk {
             return
         }
-        if let previous = lastSentLocation,
-           location.distance(from: previous) < minimumDistanceDeltaMeters {
-            return
-        }
-        lastSentAt = Date()
+        lastSentAt = now
         lastSentLocation = location
         sendHeartbeat(location: location, config: config)
     }
@@ -201,7 +202,7 @@ private struct StudyRoomTrackingConfig: Codable {
             "latitude": location.coordinate.latitude,
             "longitude": location.coordinate.longitude,
             "accuracy": location.horizontalAccuracy,
-            "timestamp": formatter.string(from: location.timestamp)
+            "timestamp": formatter.string(from: Date())
         ]
 
         guard let body = try? JSONSerialization.data(withJSONObject: payload) else {

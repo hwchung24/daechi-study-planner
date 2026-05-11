@@ -469,10 +469,23 @@ async function listCurrentStudyRoomDistancesForStudent(studentUserId) {
       ? Number(latestLocation.longitude)
       : null;
 
+  let currentHeartbeatAt = null;
+  if (latestLocation) {
+    const o = latestLocation.occurred_at
+      ? new Date(latestLocation.occurred_at).getTime()
+      : NaN;
+    const r = latestLocation.received_at
+      ? new Date(latestLocation.received_at).getTime()
+      : NaN;
+    const best = Math.max(
+      Number.isFinite(o) ? o : 0,
+      Number.isFinite(r) ? r : 0
+    );
+    currentHeartbeatAt = best > 0 ? new Date(best).toISOString() : null;
+  }
+
   return {
-    currentHeartbeatAt: latestLocation?.occurred_at
-      ? new Date(latestLocation.occurred_at).toISOString()
-      : null,
+    currentHeartbeatAt,
     currentAccuracyMeters:
       latestLocation?.accuracy != null && Number.isFinite(Number(latestLocation.accuracy))
         ? Number(latestLocation.accuracy)
@@ -539,9 +552,16 @@ async function recordStudentStudyRoomHeartbeat(studentUserId, input = {}) {
     throw new Error("invalid_location");
   }
   const occurredAtRaw = input.occurredAt || input.timestamp || null;
-  const occurredAt = occurredAtRaw ? new Date(String(occurredAtRaw)) : new Date();
+  let occurredAt = occurredAtRaw ? new Date(String(occurredAtRaw)) : new Date();
   if (Number.isNaN(occurredAt.getTime())) {
     throw new Error("invalid_timestamp");
+  }
+  const serverMs = Date.now();
+  const clientMs = occurredAt.getTime();
+  const driftMs = serverMs - clientMs;
+  /** GPS/브라우저 캐시로 시각이 크게 밀리면 학부모 화면 기준 시각이 멈춘 것처럼 보임 → 서버 시각으로 보정 */
+  if (driftMs > 3 * 60 * 1000 || driftMs < -120 * 1000) {
+    occurredAt = new Date(serverMs);
   }
   await upsertLatestStudentLocation(studentUserId, {
     latitude,

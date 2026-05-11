@@ -4,8 +4,8 @@ import { stableStringify } from "../../lib/stableUiUpdate";
 import { seoulDateKeyFromApiValue } from "../../lib/weekDates";
 import type { StudyRoomVisitSession } from "../../types/studyRoomTracking";
 
-const POLL_ACTIVE_MS = 30000;
-const POLL_IDLE_MS = 90000;
+const POLL_ACTIVE_MS = 15000;
+const POLL_IDLE_MS = 60000;
 
 export type ParentStudyRoomLiveStatus = {
   currentDistanceMeters: number | null;
