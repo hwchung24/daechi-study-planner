@@ -2361,7 +2361,7 @@ function StudentSettingsTab(props: {
   };
 
   return (
-    <div className="coach-page coach-page--parent-chat">
+    <div className="coach-page">
       {props.selectedStudent ? (
         <Card className="coach-card coach-card--padded coach-settings-status-card" style={{ marginTop: 12 }}>
           <div className="coach-settings-banner">
@@ -2567,7 +2567,7 @@ function ManageTab(props: {
   setParentStudentId: (id: number | null) => void;
 }) {
   return (
-    <div className="coach-page">
+    <div className="coach-page coach-page--parent-chat">
       {!props.selectedStudent ? (
         <EmptyState
           title="학생을 선택하세요"
