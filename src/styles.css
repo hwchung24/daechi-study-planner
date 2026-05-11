@@ -782,19 +782,6 @@ html.parent-session {
   overscroll-behavior-x: none;
 }
 
-/* 웹 학부모 화면은 한 단계 더 조밀하게 보여 "더 큰 화면"처럼 보이게 조정 */
-html.web-app.parent-session {
-  --font-size-xlarge: 20px;
-  --font-size-large: 15px;
-  --font-size-medium: 11px;
-  --font-size-small: 10px;
-  --app-shell-inline-padding: 10px;
-  --radius-md: 12px;
-  --radius-button: 14px;
-  --radius-lg: 16px;
-  --radius-xl: 20px;
-}
-
 html.parent-session .app-main {
   overflow-x: hidden;
   overscroll-behavior-x: none;
@@ -921,6 +908,17 @@ html.parent-session .app-main {
   padding-top: 0;
 }
 
+.app-root--parent {
+  --parent-ui-scale: 1;
+}
+
+/* 모바일에서 가로폭 기준으로 비율 유지 축소 */
+@supports (width: calc(100vw / 1px)) {
+  .app-root--parent {
+    --parent-ui-scale: clamp(0.82, calc(100vw / 430px), 1);
+  }
+}
+
 .parent-quick-nav {
   display: flex;
   align-items: center;
@@ -934,9 +932,9 @@ html.parent-session .app-main {
   background: #fff;
   color: var(--text-main);
   border-radius: var(--radius-pill);
-  min-height: 32px;
-  padding: 0 11px;
-  font-size: var(--font-size-small);
+  min-height: calc(34px * var(--parent-ui-scale));
+  padding: 0 calc(12px * var(--parent-ui-scale));
+  font-size: calc(13px * var(--parent-ui-scale));
   font-weight: var(--font-weight-semibold);
   line-height: 1;
   white-space: nowrap;
@@ -957,8 +955,8 @@ html.parent-session .app-main {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 10px;
-  padding: 0 10px;
+  gap: calc(10px * var(--parent-ui-scale));
+  padding: 0 calc(10px * var(--parent-ui-scale));
 }
 
 .parent-global-top-row--header {
@@ -996,7 +994,7 @@ html.parent-session .app-main {
 .parent-home__status-grid {
   display: grid;
   grid-template-columns: 1fr;
-  gap: 10px;
+  gap: calc(10px * var(--parent-ui-scale));
   margin-top: 0;
 }
 
@@ -1011,8 +1009,9 @@ html.parent-session .app-main {
   background: var(--surface-base);
   border: var(--border-width) solid var(--border-neutral);
   box-shadow: var(--shadow-soft);
-  padding: 12px 12px 10px;
-  height: 194px;
+  padding: calc(14px * var(--parent-ui-scale)) calc(14px * var(--parent-ui-scale))
+    calc(12px * var(--parent-ui-scale));
+  height: calc(210px * var(--parent-ui-scale));
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -1032,19 +1031,19 @@ html.parent-session .app-main {
 
 .parent-home__status-card-footer {
   margin-top: auto;
-  padding-top: 12px;
+  padding-top: calc(12px * var(--parent-ui-scale));
 }
 
 .parent-home__status-card-footer--stack {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: calc(8px * var(--parent-ui-scale));
 }
 
 .parent-home__status-action {
   width: 100%;
   border-radius: var(--radius-pill);
-  min-height: 40px;
+  min-height: calc(44px * var(--parent-ui-scale));
 }
 
 .parent-home__status-action--muted {
@@ -1070,8 +1069,8 @@ html.parent-session .app-main {
 .parent-home__status-card-head {
   display: flex;
   align-items: center;
-  gap: 8px;
-  margin-bottom: 8px;
+  gap: calc(8px * var(--parent-ui-scale));
+  margin-bottom: calc(8px * var(--parent-ui-scale));
   color: var(--text-strong);
 }
 
@@ -1102,13 +1101,13 @@ html.parent-session .app-main {
 }
 
 .parent-home__status-card-title {
-  font-size: var(--font-size-medium);
+  font-size: calc(16px * var(--parent-ui-scale));
   font-weight: var(--font-weight-semibold);
 }
 
 .parent-home__status-body {
   margin: 0;
-  font-size: 16px;
+  font-size: calc(18px * var(--parent-ui-scale));
   font-weight: var(--font-weight-semibold);
   color: var(--text-main);
   line-height: 1.45;
@@ -1118,9 +1117,9 @@ html.parent-session .app-main {
   border: 1px solid rgba(var(--neutral-rgb), 0.22);
   background: rgba(var(--neutral-rgb), 0.04);
   border-radius: var(--radius-pill);
-  padding: 6px 14px;
+  padding: calc(8px * var(--parent-ui-scale)) calc(16px * var(--parent-ui-scale));
   margin: 0;
-  font-size: 16px;
+  font-size: calc(18px * var(--parent-ui-scale));
   font-weight: var(--font-weight-semibold);
   color: var(--text-main);
   line-height: 1.45;
@@ -1148,8 +1147,8 @@ html.parent-session .app-main {
 }
 
 .parent-home__status-meta {
-  margin: 8px 0 0;
-  font-size: var(--font-size-small);
+  margin: calc(8px * var(--parent-ui-scale)) 0 0;
+  font-size: calc(13px * var(--parent-ui-scale));
   color: var(--text-sub);
   line-height: 1.4;
 }
@@ -1164,9 +1163,20 @@ html.parent-session .app-main {
 }
 
 .parent-home__status-hint {
-  margin: 10px 0 0;
-  font-size: var(--font-size-small);
+  margin: calc(10px * var(--parent-ui-scale)) 0 0;
+  font-size: calc(13px * var(--parent-ui-scale));
   color: var(--text-sub);
+}
+
+.app-root--parent .coach-shell__tab-panel--parent > .coach-page,
+.app-root--parent .student-profile-page.section {
+  padding-left: calc(10px * var(--parent-ui-scale));
+  padding-right: calc(10px * var(--parent-ui-scale));
+  padding-top: calc(10px * var(--parent-ui-scale));
+}
+
+.app-root--parent .coach-card--padded {
+  padding: calc(16px * var(--parent-ui-scale));
 }
 
 .parent-home__status-kicker {
@@ -6985,9 +6995,9 @@ button:active:not(:disabled),
 
 /* 학부모 코치 탭 공통 여백 통일 (채팅/알림/관리/설정/기록/홈) */
 .coach-shell__tab-panel--parent > .coach-page {
-  padding-left: 10px;
-  padding-right: 10px;
-  padding-top: 10px;
+  padding-left: calc(10px * var(--parent-ui-scale, 1));
+  padding-right: calc(10px * var(--parent-ui-scale, 1));
+  padding-top: calc(10px * var(--parent-ui-scale, 1));
 }
 
 .parent-manage-chat-card {
@@ -6998,9 +7008,9 @@ button:active:not(:disabled),
 
 /* 내정보 페이지도 동일 좌우 여백 */
 .app-root--parent .student-profile-page.section {
-  padding-left: 10px;
-  padding-right: 10px;
-  padding-top: 10px;
+  padding-left: calc(10px * var(--parent-ui-scale, 1));
+  padding-right: calc(10px * var(--parent-ui-scale, 1));
+  padding-top: calc(10px * var(--parent-ui-scale, 1));
 }
 
 /* 학부모 각 페이지의 첫 카드 시작선 통일 */
