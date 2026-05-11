@@ -1391,10 +1391,12 @@ html.parent-session .app-main {
 
 .parent-home__coach-phrase-card--sub {
   margin-top: calc(-2px * var(--parent-ui-scale));
+  justify-content: center;
 }
 
 .parent-home__coach-phrase--sub {
   margin: 0;
+  width: 100%;
   text-align: center;
   font-weight: 500;
   color: var(--parent-gray-2);
