@@ -1359,7 +1359,9 @@ const App: React.FC = () => {
   /** 학부모 세션: 큰 화면(웹) 전제로 토큰·패딩 조밀 — 포털 모달까지 html에서 상속 */
   useEffect(() => {
     const active =
-      splashDone && route !== "auth" && meRole === "parent";
+      (splashDone || route === "parent" || meRole === "parent") &&
+      route !== "auth" &&
+      meRole === "parent";
     document.documentElement.classList.toggle("parent-session", active);
     return () => {
       document.documentElement.classList.remove("parent-session");
@@ -3057,6 +3059,8 @@ const App: React.FC = () => {
   const roleLoading = Boolean(
     authToken && route !== "auth" && !meRoleResolved && !meRole
   );
+  const skipSplashForParent = route === "parent" || meRole === "parent";
+  const splashReady = splashDone || skipSplashForParent;
   const profileLoadFailed = Boolean(
     authToken && route !== "auth" && meRoleResolved && profileLoadError
   );
@@ -3562,7 +3566,7 @@ const App: React.FC = () => {
 
   return (
     <div className={"app-root" + (parentView ? " app-root--parent" : "")}>
-      {splashDone && networkBanner?.message && (
+      {splashReady && networkBanner?.message && (
         <div
           className={`network-transition-banner network-transition-banner--${networkBanner.kind || "info"}`}
           role="status"
@@ -3570,13 +3574,13 @@ const App: React.FC = () => {
           {networkBanner.message}
         </div>
       )}
-      {splashDone && !online && (
+      {splashReady && !online && (
         <div className="offline-banner" role="status">
           인터넷에 연결되어 있지 않아요. Wi‑Fi 또는 셀룰러에 연결한 뒤 다시 시도하세요. 로그인과 저장은
           온라인일 때만 할 수 있어요.
         </div>
       )}
-      {!splashDone && (
+      {!splashReady && (
         <>
           {/* fixed 스플래시는 flex 레이아웃 밖이라, 유동 높이 확보용 */}
           <div className="splash-spacer" aria-hidden />
@@ -3588,7 +3592,7 @@ const App: React.FC = () => {
           />
         </>
       )}
-      {splashDone && route === "auth" ? (
+      {splashReady && route === "auth" ? (
         <AuthScreen
           authChannel={Capacitor.isNativePlatform() ? "student" : "parent"}
           authLeaving={authLeaving}
@@ -3625,9 +3629,9 @@ const App: React.FC = () => {
           onPasswordChange={setAuthPassword}
           onSubmit={handleAuthSubmit}
         />
-      ) : splashDone && blockStudentWebSession ? (
+      ) : splashReady && blockStudentWebSession ? (
         <StudentNativeOnlyGate userEmail={userEmail} onLogout={handleLogout} />
-      ) : splashDone ? (
+      ) : splashReady ? (
       <div
         className={
           "app-shell" +

@@ -48,42 +48,55 @@ export function ParentStudentSelector(props: {
           onClick={() => setOpen(prev => !prev)}
         >
           <span>{formatStudentLabel(selectedStudent)}</span>
-          <span className="parent-student-dropdown__caret" aria-hidden>
+          <span
+            className={
+              "parent-student-dropdown__caret" +
+              (open ? " parent-student-dropdown__caret--open" : "")
+            }
+            aria-hidden
+          >
             {open ? "▲" : "▼"}
           </span>
         </button>
-        {open ? (
-          <div className="parent-student-dropdown__menu" role="listbox" aria-label="관리 학생 목록">
-            {props.parentStudents.map(student => {
-              const isSelected = student.id === selectedStudent?.id;
-              return (
-                <button
-                  key={student.id}
-                  type="button"
-                  className={
-                    "parent-student-dropdown__item" +
-                    (isSelected ? " parent-student-dropdown__item--active" : "")
-                  }
-                  role="option"
-                  aria-selected={isSelected}
-                  onClick={() => {
-                    props.setParentStudentId(student.id);
-                    setOpen(false);
-                  }}
-                >
-                  <span className="parent-student-dropdown__item-label">
-                    {formatStudentLabel(student)}
+        <div
+          className={
+            "parent-student-dropdown__menu" +
+            (open ? " parent-student-dropdown__menu--open" : "")
+          }
+          role="listbox"
+          aria-label="관리 학생 목록"
+          aria-hidden={!open}
+        >
+          {props.parentStudents.map(student => {
+            const isSelected = student.id === selectedStudent?.id;
+            return (
+              <button
+                key={student.id}
+                type="button"
+                className={
+                  "parent-student-dropdown__item" +
+                  (isSelected ? " parent-student-dropdown__item--active" : "")
+                }
+                role="option"
+                aria-selected={isSelected}
+                tabIndex={open ? 0 : -1}
+                onClick={() => {
+                  props.setParentStudentId(student.id);
+                  setOpen(false);
+                }}
+              >
+                <span className="parent-student-dropdown__item-label">
+                  {formatStudentLabel(student)}
+                </span>
+                {isSelected ? (
+                  <span className="parent-student-dropdown__item-check" aria-hidden>
+                    ✓
                   </span>
-                  {isSelected ? (
-                    <span className="parent-student-dropdown__item-check" aria-hidden>
-                      ✓
-                    </span>
-                  ) : null}
-                </button>
-              );
-            })}
-          </div>
-        ) : null}
+                ) : null}
+              </button>
+            );
+          })}
+        </div>
       </div>
     </div>
   );

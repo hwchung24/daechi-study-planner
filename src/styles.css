@@ -913,6 +913,102 @@ html.parent-session .app-main {
   background: #ffffff;
 }
 
+/* 학부모 페이지: 절제된 마이크로 인터랙션 */
+.app-root--parent .parent-quick-nav__btn,
+.app-root--parent .parent-student-dropdown__trigger,
+.app-root--parent .parent-home__status-card,
+.app-root--parent .parent-home__coach-phrase-card,
+.app-root--parent .coach-shell__tab-panel--parent .coach-card,
+.app-root--parent .student-profile-page.section .coach-card,
+.app-root--parent .notifications-page__item,
+.app-root--parent .student-profile-settings-list .settings-item,
+.app-root--parent .timeline-save-button.study-room-editor__save-button {
+  transition:
+    transform 180ms var(--ease-standard),
+    box-shadow 220ms var(--ease-standard),
+    border-color 180ms var(--ease-standard),
+    background-color 180ms var(--ease-standard),
+    opacity 180ms var(--ease-standard);
+}
+
+.app-root--parent .parent-home__status-card,
+.app-root--parent .parent-home__coach-phrase-card,
+.app-root--parent .coach-shell__tab-panel--parent .coach-card,
+.app-root--parent .student-profile-page.section .coach-card,
+.app-root--parent .notifications-page__item {
+  animation: parent-soft-rise 240ms var(--ease-standard);
+}
+
+@keyframes parent-soft-rise {
+  from {
+    opacity: 0.75;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .app-root--parent .parent-home__status-card:hover,
+  .app-root--parent .parent-home__coach-phrase-card:hover,
+  .app-root--parent .coach-shell__tab-panel--parent .coach-card:hover,
+  .app-root--parent .student-profile-page.section .coach-card:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 10px 20px rgba(15, 23, 42, 0.06);
+  }
+
+  .app-root--parent .notifications-page__item:hover,
+  .app-root--parent .student-profile-settings-list .settings-item:hover {
+    background-color: rgba(var(--neutral-rgb), 0.035);
+  }
+}
+
+.app-root--parent .parent-quick-nav__btn:active,
+.app-root--parent .parent-student-dropdown__trigger:active,
+.app-root--parent .timeline-save-button.study-room-editor__save-button:active {
+  transform: scale(0.98);
+}
+
+.app-root--parent .parent-home__net-badge {
+  transition: background-color 180ms var(--ease-standard), border-color 180ms var(--ease-standard),
+    color 180ms var(--ease-standard);
+}
+
+.app-root--parent .coach-admin-chat__messages .coach-bubble {
+  animation: parent-chat-bubble-in 170ms var(--ease-standard);
+}
+
+@keyframes parent-chat-bubble-in {
+  from {
+    opacity: 0.7;
+    transform: translateY(3px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .app-root--parent .parent-quick-nav__btn,
+  .app-root--parent .parent-student-dropdown__trigger,
+  .app-root--parent .parent-home__status-card,
+  .app-root--parent .parent-home__coach-phrase-card,
+  .app-root--parent .coach-shell__tab-panel--parent .coach-card,
+  .app-root--parent .student-profile-page.section .coach-card,
+  .app-root--parent .notifications-page__item,
+  .app-root--parent .student-profile-settings-list .settings-item,
+  .app-root--parent .timeline-save-button.study-room-editor__save-button,
+  .app-root--parent .parent-home__net-badge,
+  .app-root--parent .coach-admin-chat__messages .coach-bubble {
+    animation: none !important;
+    transition: none !important;
+    transform: none !important;
+  }
+}
+
 /* 학부모 페이지 한정: 한국어 줄바꿈 안정화 */
 .app-root--parent .coach-page,
 .app-root--parent .student-profile-page.section {
@@ -7920,6 +8016,12 @@ button:active:not(:disabled),
   line-height: 1;
   opacity: 0.72;
   margin-left: 2px;
+  transition: transform var(--dur-fast) var(--ease-standard), opacity var(--dur-fast) var(--ease-standard);
+}
+
+.parent-student-dropdown__caret--open {
+  transform: rotate(180deg);
+  opacity: 0.9;
 }
 
 .parent-student-dropdown__menu {
@@ -7939,6 +8041,26 @@ button:active:not(:disabled),
   -webkit-backdrop-filter: blur(10px);
   box-shadow: 0 12px 28px rgba(15, 23, 42, 0.14);
   z-index: 25;
+  opacity: 0;
+  transform: translateY(-6px) scale(0.98);
+  transform-origin: top left;
+  pointer-events: none;
+  visibility: hidden;
+  transition:
+    opacity 170ms var(--ease-standard),
+    transform 170ms var(--ease-standard),
+    visibility 0ms linear 170ms;
+}
+
+.parent-student-dropdown__menu--open {
+  opacity: 1;
+  transform: translateY(0) scale(1);
+  pointer-events: auto;
+  visibility: visible;
+  transition:
+    opacity 170ms var(--ease-standard),
+    transform 170ms var(--ease-standard),
+    visibility 0ms linear 0ms;
 }
 
 .parent-student-dropdown__item {
@@ -9650,6 +9772,17 @@ button:active:not(:disabled),
 
 .app-main.app-main--coach-chat .coach-avatar.coach-admin-chat__avatar svg {
   color: #ffffff;
+}
+
+/* 학부모 채팅: 학생 프로필 아이콘 색 반전(남색 <-> 흰색) */
+.app-root--parent .app-main.app-main--coach-chat .coach-avatar.coach-admin-chat__avatar {
+  background: #ffffff;
+  border: 1px solid rgba(24, 58, 114, 0.26);
+  box-shadow: none;
+}
+
+.app-root--parent .app-main.app-main--coach-chat .coach-avatar.coach-admin-chat__avatar svg {
+  color: #183a72;
 }
 
 .app-main.app-main--coach-chat .coach-avatar--logo {
