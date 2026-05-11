@@ -919,6 +919,23 @@ html.parent-session .app-main {
   }
 }
 
+/* 모바일 웹 학부모 화면은 더 조밀하게: 가로폭 기준 축소 강도 강화 */
+@media (max-width: 767px) {
+  html.web-app.parent-session {
+    --font-size-xlarge: 18px;
+    --font-size-large: 14px;
+    --font-size-medium: 11px;
+    --font-size-small: 10px;
+    --app-shell-inline-padding: 10px;
+    -webkit-text-size-adjust: 100%;
+    text-size-adjust: 100%;
+  }
+
+  html.web-app.parent-session .app-root--parent {
+    --parent-ui-scale: clamp(0.66, calc(100vw / 540px), 0.86);
+  }
+}
+
 .parent-quick-nav {
   display: flex;
   align-items: center;
