@@ -1373,6 +1373,17 @@ html.parent-session .app-main {
   border-radius: var(--radius-lg);
 }
 
+.parent-home__coach-phrase-card--sub {
+  margin-top: calc(-2px * var(--parent-ui-scale));
+}
+
+.parent-home__coach-phrase--sub {
+  margin: 0;
+  text-align: center;
+  font-weight: 500;
+  color: var(--parent-gray-2);
+}
+
 /* 학부모 페이지 전반: 일관된 카드 톤과 간격 */
 .app-root--parent .coach-shell__tab-panel--parent .coach-card,
 .app-root--parent .student-profile-page.section .coach-card {

@@ -389,6 +389,11 @@ export function ParentHomeTab(props: ParentHomeTabProps) {
                   <p className="parent-home__coach-phrase">{String(suggestedPhrase || "").trim()}</p>
                 </div>
               ) : null}
+              <div className="parent-home__coach-phrase-card parent-home__coach-phrase-card--sub">
+                <p className="parent-home__coach-phrase parent-home__coach-phrase--sub">
+                  {netConnected ? "연결됨" : "연결 끊김"}
+                </p>
+              </div>
               <div className="parent-home__status-grid">
                 <div className="parent-home__status-card">
                 <div className="parent-home__status-card-head">
@@ -426,14 +431,6 @@ export function ParentHomeTab(props: ParentHomeTabProps) {
                 <div className="parent-home__status-card-head">
                   <Smartphone size={18} strokeWidth={2} aria-hidden />
                   <span className="parent-home__status-card-title">휴대폰 모드</span>
-                  <span
-                    className={
-                      "parent-home__net-badge " +
-                      (netConnected ? "parent-home__net-badge--on" : "parent-home__net-badge--off")
-                    }
-                  >
-                    {netConnected ? "연결됨" : "연결 끊김"}
-                  </span>
                 </div>
                 {deviceLoading && !deviceSnapshot ? (
                   <div className="parent-home__status-center">
@@ -467,7 +464,7 @@ export function ParentHomeTab(props: ParentHomeTabProps) {
                     disabled={!selectedStudent?.id || !authToken || freeModeToggling}
                     aria-busy={freeModeToggling}
                   >
-                    {deviceSnapshot?.activeAppAllowanceMode === "free" ? "자유 끄기" : "자유 주기"}
+                    {deviceSnapshot?.activeAppAllowanceMode === "free" ? "자유 끄기" : "자유시간 주기"}
                   </button>
                 </div>
               </div>
