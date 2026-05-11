@@ -3130,6 +3130,27 @@ const App: React.FC = () => {
           : parentReportLoaded && parentAiDailyLoaded && parentPlannerLoaded;
   const parentHydrationReady =
     !parentNeedsHydration || (parentStudentsLoaded && parentInitialDataReady);
+  const showParentConnectingOverlay = splashReady && parentNeedsHydration && !parentHydrationReady;
+  const [parentOverlayMounted, setParentOverlayMounted] = useState(showParentConnectingOverlay);
+  const [parentOverlayVisible, setParentOverlayVisible] = useState(showParentConnectingOverlay);
+
+  useEffect(() => {
+    if (showParentConnectingOverlay) {
+      setParentOverlayMounted(true);
+      setParentOverlayVisible(true);
+      return;
+    }
+    const holdTimer = window.setTimeout(() => {
+      setParentOverlayVisible(false);
+    }, 1000);
+    const unmountTimer = window.setTimeout(() => {
+      setParentOverlayMounted(false);
+    }, 1220);
+    return () => {
+      window.clearTimeout(holdTimer);
+      window.clearTimeout(unmountTimer);
+    };
+  }, [showParentConnectingOverlay]);
 
   /** 운영 웹: 학생 계정으로 로그인된 경우 앱 전용 안내(네이티브·로컬 dev는 제외) */
   const blockStudentWebSession =
@@ -3681,23 +3702,34 @@ const App: React.FC = () => {
         />
       ) : splashReady && blockStudentWebSession ? (
         <StudentNativeOnlyGate userEmail={userEmail} onLogout={handleLogout} />
-      ) : splashReady && parentNeedsHydration && !parentHydrationReady ? (
-      <div className="app-shell app-shell--parent-hydrating" aria-hidden>
-        <div className="parent-header-loading parent-header-loading--shell">
-          <div className="parent-header-loading__logo" />
-          <div className="parent-header-loading__pill" />
-          <div className="parent-header-loading__pill parent-header-loading__pill--short" />
-        </div>
-        <AppRouteSuspenseFallback />
-      </div>
       ) : splashReady ? (
       <div
         className={
           "app-shell" +
           (mainEnter && !parentView ? " app-shell--enter" : "") +
+          (showParentConnectingOverlay ? " app-shell--parent-preparing" : "") +
           (isStandaloneAnalysisPage ? " app-shell--analysis-focus" : "")
         }
       >
+        {parentOverlayMounted ? (
+          <div
+            className={
+              "parent-linking-overlay" +
+              (parentOverlayVisible ? " parent-linking-overlay--visible" : "")
+            }
+            role="status"
+            aria-live="polite"
+          >
+            <div className="parent-linking-loader">
+              <span className="parent-linking-loader__orbit" aria-hidden>
+                <span className="parent-linking-loader__phone-icon">📱</span>
+              </span>
+              <p className="parent-linking-loader__text">
+                학생 휴대폰과 연결 중<span className="parent-linking-loader__dots" aria-hidden>...</span>
+              </p>
+            </div>
+          </div>
+        ) : null}
         <header
           className={
             `app-header${headerScrolled ? " app-header--scrolled" : ""}` +
@@ -3893,10 +3925,7 @@ const App: React.FC = () => {
                 />
               </React.Suspense>
             )}
-            {!roleLoading && parentView && !parentHydrationReady && (
-              <AppRouteSuspenseFallback />
-            )}
-            {!roleLoading && coachParentMode && coachParentTab && parentHydrationReady && (
+            {!roleLoading && coachParentMode && coachParentTab && (
               <React.Suspense fallback={<AppRouteSuspenseFallback />}>
                 <ParentCoachApp
                   tab={coachParentTab}
@@ -3930,7 +3959,7 @@ const App: React.FC = () => {
                 />
               </React.Suspense>
             )}
-            {!roleLoading && parentView && !coachParentMode && parentHydrationReady && (
+            {!roleLoading && parentView && !coachParentMode && (
               <React.Suspense fallback={<AppRouteSuspenseFallback />}>
                 <ParentLegacyView
                   apiBase={API_BASE}

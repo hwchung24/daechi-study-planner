@@ -417,7 +417,7 @@ export function ParentHomeTab(props: ParentHomeTabProps) {
               연결된 자녀가 없습니다. 상단 메뉴에서 학생을 연결해 주세요.
             </p>
           ) : (
-            <div className="parent-skeleton parent-skeleton--status-wide" aria-label="로딩 중" />
+            null
           )}
         </section>
       ) : (
@@ -454,7 +454,7 @@ export function ParentHomeTab(props: ParentHomeTabProps) {
                       {studyRoomLiveStatus.currentWithinRadius ? "체크인" : "체크아웃"}
                     </p>
                   ) : studyRoomVisitsLoading ? (
-                    <div className="parent-skeleton parent-skeleton--status" aria-label="로딩 중" />
+                    null
                   ) : (
                     <p className="parent-home__status-body parent-home__status-body--fade">상태 없음</p>
                   )}
@@ -480,7 +480,7 @@ export function ParentHomeTab(props: ParentHomeTabProps) {
                 </div>
                 {deviceLoading && !deviceSnapshot ? (
                   <div className="parent-home__status-center">
-                    <div className="parent-skeleton parent-skeleton--status-wide" aria-label="로딩 중" />
+                    null
                   </div>
                 ) : deviceSnapshot ? (
                   <div className="parent-home__status-center">
@@ -521,7 +521,7 @@ export function ParentHomeTab(props: ParentHomeTabProps) {
                 </div>
                 {plannerLoading ? (
                   <div className="parent-home__status-center">
-                    <div className="parent-skeleton parent-skeleton--status" aria-label="로딩 중" />
+                    null
                   </div>
                 ) : (
                   <>
@@ -581,7 +581,7 @@ export function ParentHomeTab(props: ParentHomeTabProps) {
                       {currentTimelineStudy || "설정 안됨"}
                     </p>
                   ) : (
-                    <div className="parent-skeleton parent-skeleton--status" aria-label="로딩 중" />
+                    null
                   )}
                 </div>
                 <div className="parent-home__status-card-footer">

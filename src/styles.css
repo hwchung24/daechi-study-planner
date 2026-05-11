@@ -1897,8 +1897,35 @@ body.app-keyboard-open .app-main {
   background: #ffffff;
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
   padding-top: calc(env(safe-area-inset-top, 0px) + 12px);
+}
+
+.app-shell--parent-preparing .app-header,
+.app-shell--parent-preparing .app-main {
+  visibility: hidden;
+}
+
+.parent-linking-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 80;
+  background: rgba(255, 255, 255, 0.99);
+  backdrop-filter: blur(8px) saturate(1.03);
+  -webkit-backdrop-filter: blur(8px) saturate(1.03);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 220ms ease;
+}
+
+.parent-linking-overlay--visible {
+  opacity: 1;
+  pointer-events: auto;
 }
 
 .app-shell--enter {
@@ -2009,6 +2036,154 @@ body.app-keyboard-open .app-main {
 
 .parent-header-loading--shell {
   margin: 0 auto;
+}
+
+.parent-linking-loader {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+}
+
+.parent-linking-loader__orbit {
+  position: relative;
+  width: 56px;
+  height: 56px;
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.parent-linking-loader__orbit::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: 999px;
+  border: 2px solid rgba(148, 163, 184, 0.28);
+  border-top-color: rgba(55, 65, 81, 0.72);
+  animation: parent-linking-loader-spin 1.05s linear infinite;
+}
+
+.parent-linking-loader__orbit::after {
+  content: "";
+  position: absolute;
+  inset: 7px;
+  border-radius: 999px;
+  border: 2px solid rgba(148, 163, 184, 0.22);
+  border-right-color: rgba(71, 85, 105, 0.58);
+  animation: parent-linking-loader-spin-reverse 1.6s linear infinite;
+}
+
+.parent-linking-loader__phone-icon {
+  font-size: 20px;
+  line-height: 1;
+  animation: parent-linking-loader-float 1.6s ease-in-out infinite;
+}
+
+.parent-linking-loader__text {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+  color: #334155;
+  letter-spacing: 0.01em;
+  animation: parent-linking-loader-pulse 1.4s ease-in-out infinite;
+}
+
+.parent-linking-loader__dots {
+  display: inline-block;
+  width: 0;
+  overflow: hidden;
+  vertical-align: bottom;
+  animation: parent-linking-loader-dots 1.1s steps(4, end) infinite;
+}
+
+@keyframes parent-linking-loader-spin {
+  0%,
+  100% {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes parent-linking-loader-spin-reverse {
+  from {
+    transform: rotate(360deg);
+  }
+  to {
+    transform: rotate(0deg);
+  }
+}
+
+@keyframes parent-linking-loader-float {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-2px);
+  }
+}
+
+@keyframes parent-linking-loader-pulse {
+  0%,
+  100% {
+    opacity: 0.56;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+@keyframes parent-linking-loader-dots {
+  0% {
+    width: 0;
+  }
+  100% {
+    width: 1.25em;
+  }
+}
+
+/* 학부모 전역 모션 비활성화 예외: 초기 연결 오버레이는 애니메이션 유지 */
+.app-root--parent .parent-linking-overlay,
+.app-root--parent .parent-linking-loader,
+.app-root--parent .parent-linking-loader__orbit,
+.app-root--parent .parent-linking-loader__orbit::after,
+.app-root--parent .parent-linking-loader__phone-icon,
+.app-root--parent .parent-linking-loader__text,
+.app-root--parent .parent-linking-loader__dots {
+  animation-play-state: running !important;
+}
+
+.app-root--parent .parent-linking-overlay {
+  transition: opacity 220ms ease !important;
+}
+
+.app-root--parent .parent-linking-loader__orbit {
+  animation: none !important;
+}
+
+.app-root--parent .parent-linking-loader__orbit::before {
+  animation: parent-linking-loader-spin 1.05s linear infinite !important;
+}
+
+.app-root--parent .parent-linking-loader__orbit::after {
+  animation: parent-linking-loader-spin-reverse 1.6s linear infinite !important;
+}
+
+.app-root--parent .parent-linking-loader__phone-icon {
+  animation: parent-linking-loader-float 1.6s ease-in-out infinite !important;
+}
+
+.app-root--parent .parent-linking-loader__text {
+  animation: parent-linking-loader-pulse 1.4s ease-in-out infinite !important;
+}
+
+.app-root--parent .parent-linking-loader__dots {
+  animation: parent-linking-loader-dots 1.1s steps(4, end) infinite !important;
 }
 
 .parent-header-loading__logo,
