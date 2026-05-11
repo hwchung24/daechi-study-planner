@@ -1053,32 +1053,68 @@ export function ParentAdminChannelPanel(props: {
     );
   }
 
+  const showChatSkeleton = loading && channel == null;
+
   return (
     <div className="coach-admin-panel coach-admin-panel--student-chat">
       {error && <div className="coach-admin-error">{error}</div>}
 
       <div className="coach-admin-layout coach-admin-layout--single coach-admin-layout--student-chat">
-        <AdminChatShell
-          messages={channel?.messages || []}
-          currentUserRole="parent"
-          peerLabel={studentName}
-          draft={draft}
-          setDraft={setDraft}
-          sending={sending}
-          onSend={sendMessage}
-          triggerPlaceholder="학생에게 메시지를 입력해 보세요"
-          showFrame={false}
-          showHeader={false}
-          starterContent={
-            <button
-              type="button"
-              className="coach-starter coach-admin-chat__starter-button"
-              onClick={openReviewModal}
-            >
-              숙제 검수하기
-            </button>
-          }
-        />
+        {showChatSkeleton ? (
+          <div className="coach-admin-chat-shell coach-admin-chat-shell--plain">
+            <div className="coach-chat-embedded keyboard-dock-root coach-admin-chat-shell coach-admin-chat-shell--composer-disabled">
+              <div className="coach-admin-chat-scroll">
+                <div
+                  className="coach-admin-hydrate-shell coach-admin-panel--hydrating"
+                  role="status"
+                  aria-live="polite"
+                  aria-label="채팅 불러오는 중"
+                >
+                  <span className="sr-only">채팅 불러오는 중</span>
+                  <div className="coach-admin-hydrate-shell__messages" aria-hidden>
+                    <div className="coach-admin-hydrate-shell__shimmer" />
+                    <div className="coach-admin-hydrate-shell__shimmer coach-admin-hydrate-shell__shimmer--short" />
+                    <div className="coach-admin-hydrate-shell__shimmer coach-admin-hydrate-shell__shimmer--right coach-admin-hydrate-shell__shimmer--short" />
+                    <div className="coach-admin-hydrate-shell__shimmer" style={{ maxWidth: "68%" }} />
+                  </div>
+                </div>
+              </div>
+              <div className="coach-chat-bottom-rail keyboard-dock coach-admin-chat-shell__rail coach-admin-hydrate-shell__rail">
+                <div className="coach-chat-starters" aria-hidden>
+                  <div className="coach-admin-hydrate-shell__shimmer parent-admin-chat-skeleton__starter" />
+                </div>
+                <div className="coach-admin-hydrate-shell__composer-fake" aria-hidden>
+                  <div
+                    className="coach-admin-hydrate-shell__shimmer coach-admin-hydrate-shell__shimmer--short"
+                    style={{ height: 16, maxWidth: "48%" }}
+                  />
+                </div>
+              </div>
+            </div>
+          </div>
+        ) : (
+          <AdminChatShell
+            messages={channel?.messages || []}
+            currentUserRole="parent"
+            peerLabel={studentName}
+            draft={draft}
+            setDraft={setDraft}
+            sending={sending}
+            onSend={sendMessage}
+            triggerPlaceholder="학생에게 메시지를 입력해 보세요"
+            showFrame={false}
+            showHeader={false}
+            starterContent={
+              <button
+                type="button"
+                className="coach-starter coach-admin-chat__starter-button"
+                onClick={openReviewModal}
+              >
+                숙제 검수하기
+              </button>
+            }
+          />
+        )}
       </div>
 
       {reviewModalOpen && (

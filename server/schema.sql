@@ -721,3 +721,14 @@ CREATE INDEX IF NOT EXISTS idx_upt_user_active
   ON user_push_tokens (user_id, updated_at DESC)
   WHERE active = true;
 
+-- 학부모가 지정한 분 수만큼 자유시간을 준 뒤 자동으로 기본 프로파일로 되돌리기 위한 만료 시각
+CREATE TABLE IF NOT EXISTS student_parent_timed_free (
+  student_user_id BIGINT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+  expires_at TIMESTAMPTZ NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_student_parent_timed_free_expires
+  ON student_parent_timed_free (expires_at ASC);
+

@@ -13,6 +13,7 @@ import {
   useParentDeviceControlState
 } from "./useParentDeviceControlState";
 import { useParentStudyRoomLive } from "./useParentStudyRoomLive";
+import { useModalReveal } from "../../lib/useModalReveal";
 
 type ParentHomeTabProps = {
   apiBase: string;
@@ -57,6 +58,21 @@ function getSeoulMinutesNow() {
   const mm = Number(parts.find(part => part.type === "minute")?.value ?? NaN);
   if (!Number.isFinite(hh) || !Number.isFinite(mm)) return null;
   return hh * 60 + mm;
+}
+
+const PARENT_FREE_MINUTE_PRESETS = [5, 10, 15, 20, 30, 45, 60, 90, 120] as const;
+
+function formatSeoulTimeLabel(iso: string) {
+  const dt = new Date(iso);
+  if (Number.isNaN(dt.getTime())) return "";
+  return new Intl.DateTimeFormat("ko-KR", {
+    timeZone: "Asia/Seoul",
+    month: "numeric",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+    hour12: true
+  }).format(dt);
 }
 
 function formatSimpleMdmAgePhraseKo(ageMinutes: number) {
@@ -136,7 +152,7 @@ export function ParentHomeTab(props: ParentHomeTabProps) {
     selectedStudent,
     parentReport,
     suggestedPhrase,
-    suggestedPhraseLoading,
+    suggestedPhraseLoading = false,
     parentLockStatus,
     hapticSelection
   } = props;
@@ -148,6 +164,10 @@ export function ParentHomeTab(props: ParentHomeTabProps) {
   const [studyRoomModalOpen, setStudyRoomModalOpen] = useState(false);
   const [studyRoomSaving, setStudyRoomSaving] = useState(false);
   const [freeModeToggling, setFreeModeToggling] = useState(false);
+  const [freeMinutesModalOpen, setFreeMinutesModalOpen] = useState(false);
+  const [freeMinutesChoice, setFreeMinutesChoice] = useState(15);
+  const [freeMinutesCustom, setFreeMinutesCustom] = useState("");
+  const [freeMinutesUseCustom, setFreeMinutesUseCustom] = useState(false);
   const [plannerEnabled, setPlannerEnabled] = useState(false);
   const [plannerTime, setPlannerTime] = useState("21:00");
   const [plannerLoading, setPlannerLoading] = useState(false);
@@ -156,6 +176,8 @@ export function ParentHomeTab(props: ParentHomeTabProps) {
   const [bulkKioskSaving, setBulkKioskSaving] = useState(false);
   const [delayedNetConnected, setDelayedNetConnected] = useState<boolean | null>(null);
   const [showNoLinkedHint, setShowNoLinkedHint] = useState(false);
+
+  const freeMinutesModalReveal = useModalReveal(freeMinutesModalOpen);
 
   const { studyRoomVisitsLoading, studyRoomLiveStatus, hasStudyRoomConfig } =
     useParentStudyRoomLive({
@@ -352,9 +374,9 @@ export function ParentHomeTab(props: ParentHomeTabProps) {
     }
   };
 
-  const toggleFreeMode = () => {
+  const turnOffFreeMode = () => {
     if (!authToken || !selectedStudent?.id || freeModeToggling) return;
-    const isFree = deviceSnapshot?.activeAppAllowanceMode === "free";
+    if (deviceSnapshot?.activeAppAllowanceMode !== "free") return;
     setFreeModeToggling(true);
     void (async () => {
       try {
@@ -365,7 +387,7 @@ export function ParentHomeTab(props: ParentHomeTabProps) {
             Authorization: `Bearer ${authToken}`
           },
           body: JSON.stringify({
-            mode: isFree ? "default" : "free",
+            mode: "default",
             studentIds: [selectedStudent.id]
           })
         });
@@ -386,6 +408,65 @@ export function ParentHomeTab(props: ParentHomeTabProps) {
     })();
   };
 
+  const applyFreeModeWithMinutes = (minutes: number) => {
+    if (!authToken || !selectedStudent?.id || freeModeToggling) return;
+    const m = Math.floor(Number(minutes));
+    if (!Number.isFinite(m) || m < 1 || m > 180) {
+      alert("자유시간은 1분~180분 사이로 설정할 수 있습니다.");
+      return;
+    }
+    setFreeModeToggling(true);
+    void (async () => {
+      try {
+        const res = await fetch(`${apiBase}/api/parent/app-allowance/activate-mode`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${authToken}`
+          },
+          body: JSON.stringify({
+            mode: "free",
+            studentIds: [selectedStudent.id],
+            freeMinutes: m
+          })
+        });
+        const data = (await res.json().catch(() => ({}))) as { error?: string; message?: string; ok?: boolean };
+        if (!res.ok || data.ok === false) {
+          throw new Error(String(data.error || data.message || "자유시간 모드 변경에 실패했습니다."));
+        }
+        freeMinutesModalReveal.beginClose(() => setFreeMinutesModalOpen(false));
+        await refreshDeviceSnapshot();
+      } catch (error) {
+        alert(
+          error instanceof Error && error.message
+            ? error.message
+            : "자유시간 모드 변경 중 오류가 발생했습니다."
+        );
+      } finally {
+        setFreeModeToggling(false);
+      }
+    })();
+  };
+
+  const openFreeMinutesModal = () => {
+    if (!authToken || !selectedStudent?.id || freeModeToggling) return;
+    hapticSelection();
+    setFreeMinutesUseCustom(false);
+    setFreeMinutesCustom("");
+    setFreeMinutesChoice(15);
+    setFreeMinutesModalOpen(true);
+  };
+
+  const confirmFreeMinutesFromModal = () => {
+    hapticSelection();
+    if (freeMinutesUseCustom) {
+      const n = Math.floor(Number(String(freeMinutesCustom).trim()));
+      applyFreeModeWithMinutes(n);
+      return;
+    }
+    applyFreeModeWithMinutes(freeMinutesChoice);
+  };
+
   const phoneModeLabel = deviceSnapshot
     ? deviceSnapshot.displaySurfaceMode === "block"
       ? "차단"
@@ -395,6 +476,15 @@ export function ParentHomeTab(props: ParentHomeTabProps) {
           ? "유틸"
           : "기본"
     : null;
+
+  const freeTimedUntilLabel = useMemo(() => {
+    if (deviceSnapshot?.activeAppAllowanceMode !== "free") return null;
+    const iso = deviceSnapshot.parentTimedFreeExpiresAt;
+    if (!iso) return null;
+    const t = formatSeoulTimeLabel(iso);
+    return t ? `${t}까지 자유` : null;
+  }, [deviceSnapshot?.activeAppAllowanceMode, deviceSnapshot?.parentTimedFreeExpiresAt]);
+
   const plannerKioskModeActive = Boolean(deviceSnapshot?.kioskEnabled);
 
   const netConnected =
@@ -479,16 +569,24 @@ export function ParentHomeTab(props: ParentHomeTabProps) {
         <section className="section parent-home__live" aria-label="자녀 실시간 상태">
           {selectedStudent ? (
             <>
-              <div className="parent-home__coach-phrase-card">
-                {!suggestedPhraseLoading && String(suggestedPhrase || "").trim() ? (
+              <div className="parent-home__coach-phrase-card" aria-busy={suggestedPhraseLoading}>
+                {suggestedPhraseLoading ? (
+                  <div className="parent-home__skeleton-phrase-row" aria-label="코치 문구 불러오는 중">
+                    <div className="parent-skeleton parent-skeleton--phrase" />
+                    <div className="parent-skeleton parent-skeleton--phrase parent-skeleton--phrase-row-2" />
+                  </div>
+                ) : String(suggestedPhrase || "").trim() ? (
                   <p className="parent-home__coach-phrase parent-home__coach-phrase--fade">
                     {String(suggestedPhrase || "").trim()}
                   </p>
                 ) : null}
               </div>
-              <div className="parent-home__coach-phrase-card parent-home__coach-phrase-card--sub">
+              <div
+                className="parent-home__coach-phrase-card parent-home__coach-phrase-card--sub"
+                aria-busy={delayedNetConnected == null}
+              >
                 {delayedNetConnected == null ? (
-                  null
+                  <div className="parent-skeleton parent-skeleton--phrase-short" aria-label="연결 상태 불러오는 중" />
                 ) : (
                   <p className="parent-home__coach-phrase parent-home__coach-phrase--sub parent-home__coach-phrase--fade">
                     {delayedNetConnected ? "연결됨" : "연결 끊김"}
@@ -509,7 +607,7 @@ export function ParentHomeTab(props: ParentHomeTabProps) {
                       {studyRoomLiveStatus.currentWithinRadius ? "체크인" : "체크아웃"}
                     </p>
                   ) : studyRoomVisitsLoading ? (
-                    null
+                    <div className="parent-skeleton parent-skeleton--status-wide" aria-label="위치 상태 불러오는 중" />
                   ) : (
                     <p className="parent-home__status-body parent-home__status-body--fade">상태 없음</p>
                   )}
@@ -534,8 +632,8 @@ export function ParentHomeTab(props: ParentHomeTabProps) {
                   <span className="parent-home__status-card-title">휴대폰 모드</span>
                 </div>
                 {deviceLoading && !deviceSnapshot ? (
-                  <div className="parent-home__status-center">
-                    null
+                  <div className="parent-home__status-center" aria-busy="true" aria-label="휴대폰 모드 불러오는 중">
+                    <div className="parent-skeleton parent-skeleton--status-wide" />
                   </div>
                 ) : deviceSnapshot ? (
                   <div className="parent-home__status-center">
@@ -549,6 +647,9 @@ export function ParentHomeTab(props: ParentHomeTabProps) {
                         "모드 정보를 불러오지 못했습니다."
                       )}
                     </p>
+                    {freeTimedUntilLabel ? (
+                      <p className="parent-home__free-until-hint">{freeTimedUntilLabel}</p>
+                    ) : null}
                   </div>
                 ) : (
                   <div className="parent-home__status-center">
@@ -560,8 +661,12 @@ export function ParentHomeTab(props: ParentHomeTabProps) {
                     type="button"
                     className="timeline-save-button study-room-editor__save-button parent-home__status-action"
                     onClick={() => {
-                      hapticSelection();
-                      toggleFreeMode();
+                      if (deviceSnapshot?.activeAppAllowanceMode === "free") {
+                        hapticSelection();
+                        turnOffFreeMode();
+                      } else {
+                        openFreeMinutesModal();
+                      }
                     }}
                     disabled={!selectedStudent?.id || !authToken || freeModeToggling}
                     aria-busy={freeModeToggling}
@@ -574,7 +679,12 @@ export function ParentHomeTab(props: ParentHomeTabProps) {
                 <div className="parent-home__status-card-head">
                   <CalendarDays size={18} strokeWidth={2} aria-hidden />
                   <span className="parent-home__status-card-title">계획표</span>
-                  {!plannerLoading ? (
+                  {plannerLoading ? (
+                    <div
+                      className="parent-home__skeleton-toggle-pill parent-home__skeleton-shimmer"
+                      aria-hidden
+                    />
+                  ) : (
                     <button
                       type="button"
                       className="parent-home__planner-now-toggle"
@@ -598,11 +708,16 @@ export function ParentHomeTab(props: ParentHomeTabProps) {
                         "지금 켜기"
                       )}
                     </button>
-                  ) : null}
+                  )}
                 </div>
                 {plannerLoading ? (
-                  <div className="parent-home__status-center">
-                    null
+                  <div
+                    className="parent-home__status-center parent-home__skeleton-planner-stack"
+                    aria-busy="true"
+                    aria-label="계획표 설정 불러오는 중"
+                  >
+                    <div className="parent-home__skeleton-planner-time parent-home__skeleton-shimmer" />
+                    <div className="parent-home__skeleton-planner-action parent-home__skeleton-shimmer" />
                   </div>
                 ) : (
                   <>
@@ -652,13 +767,13 @@ export function ParentHomeTab(props: ParentHomeTabProps) {
                   <BookOpen size={18} strokeWidth={2} aria-hidden />
                   <span className="parent-home__status-card-title">현재 공부</span>
                 </div>
-                <div className="parent-home__status-center">
+                <div className="parent-home__status-center" aria-busy={!reportReady}>
                   {reportReady ? (
                     <p className="parent-home__status-body parent-home__status-body--fade">
                       {currentTimelineStudy || "설정 안됨"}
                     </p>
                   ) : (
-                    null
+                    <div className="parent-skeleton parent-skeleton--status-wide" aria-label="학습 일정 불러오는 중" />
                   )}
                 </div>
                 <div className="parent-home__status-card-footer">
@@ -678,6 +793,102 @@ export function ParentHomeTab(props: ParentHomeTabProps) {
           )}
         </section>
       )}
+      {freeMinutesModalOpen ? (
+        <div
+          className={"dday-modal" + (freeMinutesModalReveal.revealed ? " dday-modal--open" : "")}
+          role="presentation"
+          onClick={() => {
+            if (freeModeToggling) return;
+            freeMinutesModalReveal.beginClose(() => setFreeMinutesModalOpen(false));
+          }}
+        >
+          <div
+            className="dday-modal-inner parent-home__free-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="parent-home-free-modal-title"
+            onClick={e => e.stopPropagation()}
+          >
+            <div className="dday-modal-header">
+              <span id="parent-home-free-modal-title" className="dday-modal-title">
+                자유시간
+              </span>
+            </div>
+            <div className="dday-modal-body parent-home__free-modal-body">
+              <p className="parent-home__free-modal-lead">
+                몇 분 동안 자유시간을 줄까요? 시간이 지나면 자동으로 기본 모드로 돌아갑니다.
+              </p>
+              <div className="parent-home__free-chip-grid" role="group" aria-label="분 선택">
+                {PARENT_FREE_MINUTE_PRESETS.map(min => (
+                  <button
+                    key={min}
+                    type="button"
+                    className={
+                      "parent-home__free-chip" +
+                      (!freeMinutesUseCustom && freeMinutesChoice === min
+                        ? " parent-home__free-chip--active"
+                        : "")
+                    }
+                    disabled={freeModeToggling}
+                    onClick={() => {
+                      hapticSelection();
+                      setFreeMinutesUseCustom(false);
+                      setFreeMinutesChoice(min);
+                    }}
+                  >
+                    {min}분
+                  </button>
+                ))}
+              </div>
+              <div className="parent-home__free-custom">
+                <label className="parent-home__free-custom-label">
+                  <input
+                    type="checkbox"
+                    checked={freeMinutesUseCustom}
+                    disabled={freeModeToggling}
+                    onChange={e => setFreeMinutesUseCustom(e.target.checked)}
+                  />{" "}
+                  직접 입력 (1~180분)
+                </label>
+                {freeMinutesUseCustom ? (
+                  <input
+                    type="number"
+                    inputMode="numeric"
+                    min={1}
+                    max={180}
+                    className="parent-home__free-custom-input"
+                    value={freeMinutesCustom}
+                    placeholder="예: 25"
+                    disabled={freeModeToggling}
+                    onChange={e => setFreeMinutesCustom(e.target.value)}
+                  />
+                ) : null}
+              </div>
+            </div>
+            <div className="dday-modal-footer parent-home__free-modal-footer">
+              <button
+                type="button"
+                className="modal-secondary"
+                disabled={freeModeToggling}
+                onClick={() => {
+                  hapticSelection();
+                  freeMinutesModalReveal.beginClose(() => setFreeMinutesModalOpen(false));
+                }}
+              >
+                취소
+              </button>
+              <button
+                type="button"
+                className="modal-primary"
+                disabled={freeModeToggling}
+                onClick={() => confirmFreeMinutesFromModal()}
+              >
+                적용
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
       <StudyRoomPickerModal
         open={studyRoomModalOpen}
         student={selectedStudent ? { id: selectedStudent.id, email: selectedStudent.email } : null}

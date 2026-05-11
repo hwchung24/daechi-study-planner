@@ -129,6 +129,9 @@ const {
   listRecentStudyRoomVisitSessionsForParent,
   listStudentWeeklyAppAllowanceSlots,
   replaceStudentWeeklyAppAllowanceSlots,
+  upsertStudentParentTimedFree,
+  deleteStudentParentTimedFree,
+  getStudentParentTimedFreeExpiresAt,
   deleteUser
 } = require("./db");
 const {
@@ -142,6 +145,7 @@ const {
   runParentAppModeScheduleEnforcement,
   startParentAppModeScheduleTicker
 } = require("./parentAppModeScheduleCron");
+const { expireParentTimedFreeGrants, startParentTimedFreeTicker } = require("./parentTimedFreeCron");
 const { runOnePair } = require("./aiReportService");
 const { sendPushToUser, sendPushToUsers } = require("./pushService");
 const {
@@ -4919,12 +4923,14 @@ app.get("/api/parent/students/:studentId/device-control-state", authMiddleware, 
     if (!has) {
       return res.status(403).json({ error: "연결된 학생만 조회할 수 있습니다." });
     }
-    const [appAllowanceState, kioskState, weeklySlots, serialRaw] = await Promise.all([
-      getStudentMdmAppAllowanceProfileState(studentId),
-      getStudentMdmKioskProfileState(studentId),
-      listStudentWeeklyAppAllowanceSlots(studentId),
-      getActiveDeviceSerialForUser(studentId)
-    ]);
+    const [appAllowanceState, kioskState, weeklySlots, serialRaw, parentTimedFreeExpiresAt] =
+      await Promise.all([
+        getStudentMdmAppAllowanceProfileState(studentId),
+        getStudentMdmKioskProfileState(studentId),
+        listStudentWeeklyAppAllowanceSlots(studentId),
+        getActiveDeviceSerialForUser(studentId),
+        getStudentParentTimedFreeExpiresAt(studentId)
+      ]);
     const appAllowanceMode = resolveAppAllowanceModeFromProfileName(appAllowanceState?.profile_name);
     const bulkLockOverride =
       isDaechiRootBulkLockOverride(appAllowanceState?.override_bundle_ids) ||
@@ -5027,6 +5033,7 @@ app.get("/api/parent/students/:studentId/device-control-state", authMiddleware, 
       kioskEnabled,
       bulkLockOverride,
       appAllowanceSurface: mdmSurfaceModeResolved,
+      parentTimedFreeExpiresAt: toIso(parentTimedFreeExpiresAt),
       profileSnapshot,
       simpleMdmNetwork
     });
@@ -7253,6 +7260,18 @@ app.post("/api/parent/app-allowance/activate-mode", authMiddleware, async (req, 
       });
     }
 
+    const freeMinutesRaw = req.body?.freeMinutes;
+    let freeMinutes = null;
+    if (mode === "free" && freeMinutesRaw != null && String(freeMinutesRaw).trim() !== "") {
+      const n = Math.floor(Number(freeMinutesRaw));
+      if (!Number.isFinite(n) || n < 1 || n > 180) {
+        return res.status(400).json({
+          error: "freeMinutes는 1~180 사이의 정수여야 합니다."
+        });
+      }
+      freeMinutes = n;
+    }
+
     let studentIds = Array.isArray(req.body?.studentIds)
       ? req.body.studentIds.map(Number).filter(Boolean)
       : [];
@@ -7272,6 +7291,16 @@ app.post("/api/parent/app-allowance/activate-mode", authMiddleware, async (req, 
       async student => {
         try {
           const applied = await applyNamedAppAllowanceProfileForStudent(student.id, mode);
+          if (mode === "free") {
+            if (freeMinutes != null) {
+              const until = new Date(Date.now() + freeMinutes * 60_000).toISOString();
+              await upsertStudentParentTimedFree(student.id, until);
+            } else {
+              await deleteStudentParentTimedFree(student.id).catch(() => {});
+            }
+          } else {
+            await deleteStudentParentTimedFree(student.id).catch(() => {});
+          }
           return {
             studentId: student.id,
             email: student.email,
@@ -9297,6 +9326,10 @@ async function connectDbWithRetry() {
         ensureBaselineAppAllowanceForStudent
       }).catch(err => {
         console.error("parent app mode schedule enforcement on startup failed:", err);
+      });
+      startParentTimedFreeTicker(ensureBaselineAppAllowanceForStudent);
+      await expireParentTimedFreeGrants(ensureBaselineAppAllowanceForStudent).catch(err => {
+        console.error("parent timed free expiry on startup failed:", err);
       });
       cronStarted = true;
     }

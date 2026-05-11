@@ -785,6 +785,7 @@ const App: React.FC = () => {
     showParentStudentRequiredModal
   );
   const kioskPopupReveal = useModalReveal(kioskPopupKind !== null);
+  const linkUnlinkModalReveal = useModalReveal(pendingLinkUnlinkAction != null);
   const kioskTransitionRef = useRef<{
     active: boolean;
     activationSource: "planner_time" | "admin_manual" | "manual" | null;
@@ -4575,11 +4576,13 @@ const App: React.FC = () => {
 
         {pendingLinkUnlinkAction ? (
           <div
-            className="dday-modal dday-modal--open"
+            className={"dday-modal" + (linkUnlinkModalReveal.revealed ? " dday-modal--open" : "")}
             onClick={() => {
               if (pendingLinkUnlinkBusy) return;
-              setPendingLinkUnlinkAction(null);
-              setPendingLinkUnlinkError("");
+              linkUnlinkModalReveal.beginClose(() => {
+                setPendingLinkUnlinkAction(null);
+                setPendingLinkUnlinkError("");
+              });
             }}
           >
             <div
@@ -4635,7 +4638,10 @@ const App: React.FC = () => {
                         return;
                       }
                       window.dispatchEvent(new Event(DAECHI_LINKS_UPDATED_EVENT));
-                      setPendingLinkUnlinkAction(null);
+                      linkUnlinkModalReveal.beginClose(() => {
+                        setPendingLinkUnlinkAction(null);
+                        setPendingLinkUnlinkError("");
+                      });
                       hapticSelection();
                     } catch {
                       setPendingLinkUnlinkError("네트워크 오류로 요청을 거절하지 못했습니다.");
@@ -4676,7 +4682,10 @@ const App: React.FC = () => {
                         await refreshParentStudents();
                       }
                       window.dispatchEvent(new Event(DAECHI_LINKS_UPDATED_EVENT));
-                      setPendingLinkUnlinkAction(null);
+                      linkUnlinkModalReveal.beginClose(() => {
+                        setPendingLinkUnlinkAction(null);
+                        setPendingLinkUnlinkError("");
+                      });
                       hapticSuccess();
                     } catch {
                       setPendingLinkUnlinkError("네트워크 오류로 연결을 해제하지 못했습니다.");

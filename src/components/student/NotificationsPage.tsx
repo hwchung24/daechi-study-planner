@@ -299,13 +299,20 @@ export function NotificationsPage(props: {
     <div className="notifications-page__modal-content">
       {loading ? (
         <div
-          className="notifications-page__loading"
+          className="notifications-page__skeleton-list"
           role="status"
           aria-live="polite"
           aria-label="알림을 불러오는 중"
         >
-          <span className="parent-settings-inline-spinner" aria-hidden />
           <span className="sr-only">알림을 불러오는 중</span>
+          {[0, 1, 2, 3].map(key => (
+            <div key={key} className="notifications-page__skeleton-item" aria-hidden>
+              <div className="notifications-page__skeleton-title" />
+              <div className="notifications-page__skeleton-body" />
+              <div className="notifications-page__skeleton-body notifications-page__skeleton-body--narrow" />
+              <div className="notifications-page__skeleton-time" />
+            </div>
+          ))}
         </div>
       ) : error ? (
         <p className="notifications-page__empty notifications-page__empty--modal">

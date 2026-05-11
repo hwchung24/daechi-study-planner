@@ -922,6 +922,31 @@ html.parent-session .app-main {
   transition: none !important;
 }
 
+/*
+ * 오버레이 모달만 예외: 위 전역 규칙 때문에 .dday-modal 트랜지션이 전부 죽음.
+ * 학생 프로필은 createPortal(body)라 영향 없음 — 학부모 팝업은 셸 안에 있으므로 동일 UX로 복구.
+ */
+.app-root--parent .dday-modal {
+  transition:
+    opacity var(--dur-modal) var(--ease-standard),
+    background var(--dur-modal) var(--ease-standard),
+    backdrop-filter var(--dur-modal) var(--ease-standard),
+    -webkit-backdrop-filter var(--dur-modal) var(--ease-standard) !important;
+}
+
+.app-root--parent .dday-modal-inner {
+  transition:
+    opacity var(--dur-modal) var(--ease-standard),
+    transform var(--dur-modal) var(--ease-standard) !important;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .app-root--parent .dday-modal,
+  .app-root--parent .dday-modal-inner {
+    transition-duration: 0.2s !important;
+  }
+}
+
 /* 학부모 페이지: 절제된 마이크로 인터랙션 */
 .app-root--parent .parent-quick-nav__btn,
 .app-root--parent .parent-student-dropdown__trigger,
@@ -1239,6 +1264,56 @@ html.parent-session .app-main {
   margin-right: auto;
 }
 
+.parent-home__skeleton-shimmer {
+  background: linear-gradient(90deg, #e8e8e8 25%, #f5f5f5 50%, #e8e8e8 75%);
+  background-size: 400px 100%;
+  animation: shimmer 1.4s ease infinite;
+}
+
+.parent-home__skeleton-phrase-row {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  align-items: stretch;
+}
+
+.parent-home__skeleton-phrase-row .parent-skeleton--phrase-row-2 {
+  width: 68%;
+  align-self: flex-start;
+}
+
+.parent-home__skeleton-toggle-pill {
+  margin-left: auto;
+  flex-shrink: 0;
+  width: 72px;
+  height: 28px;
+  border-radius: var(--radius-pill);
+}
+
+.parent-home__skeleton-planner-stack {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  width: 100%;
+  flex: 1 1 auto;
+}
+
+.parent-home__skeleton-planner-time {
+  width: 64px;
+  height: 36px;
+  border-radius: var(--radius-2xs);
+}
+
+.parent-home__skeleton-planner-action {
+  width: 100%;
+  height: calc(44px * var(--parent-ui-scale));
+  border-radius: var(--radius-pill);
+  max-width: 100%;
+}
+
 .parent-home__status-card-footer {
   margin-top: auto;
   padding-top: 0;
@@ -1392,6 +1467,92 @@ html.parent-session .app-main {
 .parent-home__status-em {
   font-weight: var(--font-weight-semibold);
   color: var(--accent);
+}
+
+.parent-home__free-until-hint {
+  margin: 6px 0 0;
+  font-size: calc(12px * var(--parent-ui-scale));
+  font-weight: 500;
+  color: var(--text-sub);
+  line-height: 1.35;
+}
+
+.parent-home__free-modal {
+  max-width: min(400px, calc(100vw - 32px));
+  width: 100%;
+}
+
+.parent-home__free-modal-body {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.parent-home__free-modal-lead {
+  margin: 0;
+  font-size: calc(13px * var(--parent-ui-scale));
+  line-height: 1.45;
+  color: var(--text-sub);
+}
+
+.parent-home__free-chip-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.parent-home__free-chip {
+  border-radius: var(--radius-pill);
+  border: 1px solid rgba(148, 163, 184, 0.45);
+  background: #fff;
+  padding: 10px 8px;
+  font-size: calc(13px * var(--parent-ui-scale));
+  font-weight: 600;
+  color: #1f2f61;
+  cursor: pointer;
+}
+
+.parent-home__free-chip--active {
+  border-color: var(--accent);
+  background: rgba(30, 58, 95, 0.08);
+  color: var(--accent);
+}
+
+.parent-home__free-chip:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.parent-home__free-custom {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  font-size: calc(13px * var(--parent-ui-scale));
+  color: var(--text-main);
+}
+
+.parent-home__free-custom-label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  user-select: none;
+}
+
+.parent-home__free-custom-input {
+  width: 100%;
+  max-width: 160px;
+  padding: 10px 12px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-neutral);
+  font-size: calc(15px * var(--parent-ui-scale));
+}
+
+.parent-home__free-modal-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  flex-wrap: wrap;
 }
 
 .parent-home__status-hint {
@@ -2783,6 +2944,71 @@ body.app-keyboard-open .app-main {
 
 .notifications-page__modal-content > .notifications-page__loading {
   margin: auto 0;
+}
+
+.notifications-page__skeleton-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  flex: 1 1 auto;
+  min-height: 0;
+  padding: 4px 0 12px;
+}
+
+.notifications-page__skeleton-item {
+  border: var(--border-width) solid var(--border-neutral);
+  border-radius: var(--radius-lg);
+  padding: 14px 16px;
+  background: var(--surface-base);
+  box-shadow: var(--shadow-soft);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.notifications-page__skeleton-title,
+.notifications-page__skeleton-body,
+.notifications-page__skeleton-time {
+  border-radius: var(--radius-md);
+  background: linear-gradient(
+    90deg,
+    rgba(148, 163, 184, 0.22) 0%,
+    rgba(226, 232, 240, 0.55) 50%,
+    rgba(148, 163, 184, 0.22) 100%
+  );
+  background-size: 200% 100%;
+  animation: coach-admin-hydrate-shimmer 1.1s ease-in-out infinite;
+}
+
+.notifications-page__skeleton-title {
+  height: 17px;
+  width: 58%;
+  max-width: 220px;
+}
+
+.notifications-page__skeleton-body {
+  height: 14px;
+  width: 92%;
+}
+
+.notifications-page__skeleton-body--narrow {
+  width: 72%;
+}
+
+.notifications-page__skeleton-time {
+  height: 13px;
+  width: 36%;
+  max-width: 120px;
+  margin-top: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .notifications-page__skeleton-title,
+  .notifications-page__skeleton-body,
+  .notifications-page__skeleton-time {
+    animation: none;
+    background: rgba(148, 163, 184, 0.2);
+  }
 }
 
 .notifications-page__list {
@@ -9095,11 +9321,18 @@ button:active:not(:disabled),
 
 .coach-admin-hydrate-shell__composer-fake {
   min-height: 44px;
+  display: flex;
   align-items: center;
   padding: 10px 12px;
   border-radius: var(--radius-lg);
   background: rgba(248, 250, 252, 0.85);
   border: var(--border-width) solid var(--border-neutral);
+}
+
+.parent-admin-chat-skeleton__starter {
+  height: 40px;
+  max-width: 132px;
+  border-radius: var(--radius-pill);
 }
 
 .coach-admin-hydrate-shell__hint {

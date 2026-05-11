@@ -4085,6 +4085,38 @@ async function markUserPushTokenError(tokenId, errorText, deactivate = false) {
   );
 }
 
+async function upsertStudentParentTimedFree(studentUserId, expiresAtIso) {
+  await query(
+    `INSERT INTO student_parent_timed_free (student_user_id, expires_at, created_at, updated_at)
+     VALUES ($1, $2::timestamptz, now(), now())
+     ON CONFLICT (student_user_id) DO UPDATE
+     SET expires_at = EXCLUDED.expires_at, updated_at = now()`,
+    [studentUserId, expiresAtIso]
+  );
+}
+
+async function deleteStudentParentTimedFree(studentUserId) {
+  await query(`DELETE FROM student_parent_timed_free WHERE student_user_id = $1`, [studentUserId]);
+}
+
+async function getStudentParentTimedFreeExpiresAt(studentUserId) {
+  const res = await query(
+    `SELECT expires_at FROM student_parent_timed_free WHERE student_user_id = $1`,
+    [studentUserId]
+  );
+  return res.rows[0]?.expires_at || null;
+}
+
+async function listExpiredStudentParentTimedFree() {
+  const res = await query(
+    `SELECT student_user_id, expires_at
+     FROM student_parent_timed_free
+     WHERE expires_at <= now()
+     ORDER BY expires_at ASC`
+  );
+  return res.rows;
+}
+
 module.exports = {
   pool,
   query,
@@ -4197,6 +4229,10 @@ module.exports = {
   listActiveUserPushTokens,
   markUserPushTokenSent,
   markUserPushTokenError,
+  upsertStudentParentTimedFree,
+  deleteStudentParentTimedFree,
+  getStudentParentTimedFreeExpiresAt,
+  listExpiredStudentParentTimedFree,
   upsertParentStudentStudyRoom,
   deleteParentStudentStudyRoom,
   getParentStudentAppModeSchedule,

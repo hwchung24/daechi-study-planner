@@ -569,6 +569,26 @@ async function main() {
   } catch {
     // ignore
   }
+  try {
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS student_parent_timed_free (
+        student_user_id BIGINT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+        expires_at TIMESTAMPTZ NOT NULL,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+      );
+    `);
+  } catch {
+    // ignore
+  }
+  try {
+    await pool.query(`
+      CREATE INDEX IF NOT EXISTS idx_student_parent_timed_free_expires
+        ON student_parent_timed_free (expires_at ASC);
+    `);
+  } catch {
+    // ignore
+  }
 }
 
 main()

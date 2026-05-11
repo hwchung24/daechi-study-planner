@@ -26,6 +26,8 @@ export type ParentDeviceControlSnapshot = {
   displaySurfaceMode: ParentMdmSurfaceMode;
   kioskEnabled: boolean;
   activeAppAllowanceMode: AppAllowanceModeKey | null;
+  /** 서버에 저장된 분 단위 자유시간 만료(ISO 문자열). 없으면 수동 종료 전까지·또는 미설정 */
+  parentTimedFreeExpiresAt: string | null;
   simpleMdmNetwork: ParentSimpleMdmNetworkStatus | null;
 };
 
@@ -72,6 +74,7 @@ function computeSnapshot(data: {
   kioskEnabled?: boolean;
   bulkLockOverride?: boolean;
   appAllowanceMode?: "default" | AppAllowanceModeKey;
+  parentTimedFreeExpiresAt?: string | null;
   simpleMdmNetwork?: unknown;
 }): ParentDeviceControlSnapshot {
   const parsedSurface = parseParentMdmSurfaceMode(data.mdmSurfaceMode);
@@ -83,10 +86,14 @@ function computeSnapshot(data: {
     data.appAllowanceMode === "utility" || data.appAllowanceMode === "free"
       ? data.appAllowanceMode
       : null;
+  const rawUntil = data.parentTimedFreeExpiresAt;
+  const parentTimedFreeExpiresAt =
+    rawUntil != null && String(rawUntil).trim() ? String(rawUntil).trim() : null;
   return {
     displaySurfaceMode,
     kioskEnabled: Boolean(data.kioskEnabled),
     activeAppAllowanceMode,
+    parentTimedFreeExpiresAt,
     simpleMdmNetwork: normalizeSimpleMdmNetwork(data.simpleMdmNetwork)
   };
 }
@@ -127,6 +134,7 @@ export function useParentDeviceControlState(args: UseArgs) {
           mdmSurfaceMode?: string;
           kioskEnabled?: boolean;
           bulkLockOverride?: boolean;
+          parentTimedFreeExpiresAt?: string | null;
           simpleMdmNetwork?: unknown;
         };
         if (!res.ok) {

@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
+import { MODAL_TRANSITION_MS } from "../../lib/uiTiming";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 import { API_BASE } from "../../lib/apiBase";
@@ -419,7 +420,7 @@ export function StudyRoomPickerModal(props: {
 
   useEffect(() => {
     if (show || isAnimOpen || !isRendered) return;
-    const id = window.setTimeout(() => setIsRendered(false), 380);
+    const id = window.setTimeout(() => setIsRendered(false), MODAL_TRANSITION_MS + 24);
     return () => clearTimeout(id);
   }, [show, isAnimOpen, isRendered]);
 
