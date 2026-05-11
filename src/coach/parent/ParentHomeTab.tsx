@@ -12,7 +12,10 @@ import type { ParentLockStatus } from "../../types/lockStatus";
 import type { ParentStudentRow } from "../../types/parent";
 import { PARENT_MDM_SURFACE_LABEL } from "./parentDeviceModeDisplay";
 import { ParentStudentSelector } from "./ParentStudentSelector";
-import { useParentDeviceControlState } from "./useParentDeviceControlState";
+import {
+  type ParentSimpleMdmNetworkStatus,
+  useParentDeviceControlState
+} from "./useParentDeviceControlState";
 import { useParentStudyRoomLive } from "./useParentStudyRoomLive";
 
 type ParentHomeTabProps = {
@@ -42,6 +45,63 @@ function formatHeartbeatKo(value: string | null) {
 
 function mapsUrlForLatLng(lat: number, lng: number) {
   return `https://www.google.com/maps?q=${encodeURIComponent(`${lat},${lng}`)}`;
+}
+
+function formatSimpleMdmAgePhraseKo(ageMinutes: number) {
+  if (!Number.isFinite(ageMinutes) || ageMinutes < 0) return "";
+  if (ageMinutes <= 1) return "1분 이내";
+  if (ageMinutes < 60) return `약 ${ageMinutes}분 전`;
+  if (ageMinutes < 1440) return `약 ${Math.floor(ageMinutes / 60)}시간 전`;
+  return `약 ${Math.floor(ageMinutes / 1440)}일 전`;
+}
+
+function simpleMdmNetworkDescription(opts: {
+  net: ParentSimpleMdmNetworkStatus;
+}): string | null {
+  const { net } = opts;
+  if (!net.available) {
+    if (net.status !== "skipped") return null;
+    const r = net.skippedReason || "";
+    if (r === "simplemdm_not_configured") {
+      return "Simple MDM(API)가 서버에 연결되어 있지 않아, 기기 네트워크(통신) 상태는 여기서 확인할 수 없어요.";
+    }
+    if (r === "no_active_device_serial") {
+      return "학생 계정에 등록된 활성 기기 시리얼이 없어 Simple MDM으로 네트워크 여부를 확인할 수 없어요.";
+    }
+    if (r === "device_not_in_simplemdm") {
+      return "Simple MDM에 해당 기기가 보이지 않습니다. 기기 등록·동기화를 확인해 주세요.";
+    }
+    if (r === "simplemdm_rate_limited") {
+      return "Simple MDM 요청이 잠시 제한되어 연결 상태를 가져오지 못했습니다. 잠시 후 다시 열어 주세요.";
+    }
+    if (r === "simplemdm_error") {
+      return "Simple MDM 조회에 실패했습니다. 잠시 후 다시 시도해 주세요.";
+    }
+    return null;
+  }
+  if (net.status === "recent") {
+    const age =
+      net.ageMinutes != null && Number.isFinite(net.ageMinutes)
+        ? formatSimpleMdmAgePhraseKo(net.ageMinutes)
+        : "";
+    const carrier = net.carrierNetwork ? ` · 통신 ${net.carrierNetwork}` : "";
+    return age
+      ? `Simple MDM 기준으로 네트워크에 연결된 것으로 보입니다(서버·기기 통신 ${age}${carrier}).`
+      : `Simple MDM 기준으로 네트워크에 연결된 것으로 보입니다.${carrier}`;
+  }
+  if (net.status === "stale") {
+    const age =
+      net.ageMinutes != null && Number.isFinite(net.ageMinutes)
+        ? formatSimpleMdmAgePhraseKo(net.ageMinutes)
+        : "";
+    return age
+      ? `마지막 MDM·기기 통신이 ${age}입니다. 전원·데이터·Wi-Fi를 확인해 보세요.`
+      : "마지막 MDM 통신 시각이 오래되었습니다. 기기가 꺼져 있거나 네트워크가 없을 수 있어요.";
+  }
+  if (net.status === "unknown") {
+    return "Simple MDM에 기기는 있으나 마지막 통신 시각을 확인하지 못했습니다.";
+  }
+  return null;
 }
 
 export function ParentHomeTab(props: ParentHomeTabProps) {
@@ -84,6 +144,16 @@ export function ParentHomeTab(props: ParentHomeTabProps) {
     ? PARENT_MDM_SURFACE_LABEL[deviceSnapshot.displaySurfaceMode] ??
       PARENT_MDM_SURFACE_LABEL.default
     : null;
+
+  const simpleMdmNet = deviceSnapshot?.simpleMdmNetwork ?? null;
+  const simpleMdmNetMessage = simpleMdmNet
+    ? simpleMdmNetworkDescription({ net: simpleMdmNet })
+    : null;
+  const simpleMdmNetWarn =
+    simpleMdmNet?.status === "stale" ||
+    (simpleMdmNet?.status === "skipped" &&
+      Boolean(simpleMdmNet.skippedReason) &&
+      simpleMdmNet.skippedReason !== "simplemdm_not_configured");
 
   const go = (path: string) => {
     hapticSelection();
@@ -249,18 +319,36 @@ export function ParentHomeTab(props: ParentHomeTabProps) {
                 </div>
                 {deviceLoading && !deviceSnapshot ? (
                   <p className="parent-home__status-body">기기 상태를 불러오는 중입니다.</p>
-                ) : deviceSnapshot && surfaceLabel != null ? (
+                ) : deviceSnapshot ? (
                   <>
-                    <p className="parent-home__status-body">
-                      현재 <span className="parent-home__status-em">{surfaceLabel}</span> 모드입니다.
-                    </p>
-                    {deviceSnapshot.kioskEnabled ? (
-                      <p className="parent-home__status-meta">
-                        <span className="parent-home__status-em">계획표</span> 작성(키오스크) 시간대일 수
-                        있어요.
+                    {surfaceLabel != null ? (
+                      <>
+                        <p className="parent-home__status-body">
+                          현재 <span className="parent-home__status-em">{surfaceLabel}</span> 모드입니다.
+                        </p>
+                        {deviceSnapshot.kioskEnabled ? (
+                          <p className="parent-home__status-meta">
+                            <span className="parent-home__status-em">계획표</span> 작성(키오스크) 시간대일 수
+                            있어요.
+                          </p>
+                        ) : null}
+                        {allowanceExtra ? (
+                          <p className="parent-home__status-meta">{allowanceExtra}</p>
+                        ) : null}
+                      </>
+                    ) : (
+                      <p className="parent-home__status-body">모드 정보를 불러오지 못했습니다.</p>
+                    )}
+                    {simpleMdmNetMessage ? (
+                      <p
+                        className={
+                          "parent-home__status-meta" +
+                          (simpleMdmNetWarn ? " parent-home__status-meta--warn" : "")
+                        }
+                      >
+                        {simpleMdmNetMessage}
                       </p>
                     ) : null}
-                    {allowanceExtra ? <p className="parent-home__status-meta">{allowanceExtra}</p> : null}
                     {parentLockStatus?.locked ? (
                       <p className="parent-home__status-meta parent-home__status-meta--warn">
                         계획표·시간 잠금이 적용된 상태입니다.

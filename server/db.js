@@ -82,9 +82,11 @@ async function getMe(userId) {
                  COALESCE(scp.alarm_homework_alerts, true) AS "homeworkAlerts",
                  COALESCE(scp.wake_alarm_enabled, false) AS "wakeAlarmEnabled",
                  COALESCE(scp.wake_alarm_time, '06:30') AS "wakeAlarmTime",
-            COALESCE(scp.initial_profile_completed, false) AS initial_profile_completed
+            COALESCE(scp.initial_profile_completed, false) AS initial_profile_completed,
+            par.phone AS "parentPhone"
      FROM users u
      LEFT JOIN student_coach_profiles scp ON scp.user_id = u.id
+     LEFT JOIN parents par ON par.user_id = u.id
      WHERE u.id = $1`,
     [userId]
   );
@@ -774,6 +776,22 @@ async function parentPhoneNormalizedExists(phoneNormalized) {
   return res.rows.length > 0;
 }
 
+/** 동일 번호를 다른 학부모 계정이 쓰는지 (본인 user_id 제외) */
+async function parentPhoneNormalizedTakenByOtherParent(
+  phoneNormalized,
+  excludeUserId
+) {
+  const res = await query(
+    `SELECT 1 FROM parents p
+     WHERE p.user_id <> $2
+       AND p.phone IS NOT NULL
+       AND regexp_replace(p.phone, '[^0-9]', '', 'g') = $1
+     LIMIT 1`,
+    [phoneNormalized, excludeUserId]
+  );
+  return res.rows.length > 0;
+}
+
 async function verifyParentSignupPhoneOtp(phoneNormalized, codePlain) {
   const row = await getParentSignupPhoneOtpRow(phoneNormalized);
   if (!row) {
@@ -813,10 +831,13 @@ async function assertParentSignupPhoneResendCooldown(phoneNormalized, minInterva
 }
 
 async function setParentPhoneForUser(userId, phoneNormalized) {
-  await query(`UPDATE parents SET phone = $2 WHERE user_id = $1`, [
-    userId,
-    phoneNormalized
-  ]);
+  await query(
+    `INSERT INTO parents (user_id, phone)
+     VALUES ($1, $2)
+     ON CONFLICT (user_id)
+     DO UPDATE SET phone = EXCLUDED.phone`,
+    [userId, phoneNormalized]
+  );
 }
 
 async function getParentPhoneByUserId(userId) {
@@ -4062,6 +4083,7 @@ module.exports = {
   upsertParentSignupPhoneOtp,
   deleteParentSignupPhoneOtp,
   parentPhoneNormalizedExists,
+  parentPhoneNormalizedTakenByOtherParent,
   verifyParentSignupPhoneOtp,
   assertParentSignupPhoneResendCooldown,
   setParentPhoneForUser,

@@ -4,6 +4,7 @@ import { Capacitor } from "@capacitor/core";
 import { Keyboard } from "@capacitor/keyboard";
 import { AppConfig } from "@capacitor-community/mdm-appconfig";
 import { persistApiBaseOverride } from "./lib/apiBase";
+import { installNativeClientFetchHeader } from "./lib/installNativeClientFetchHeader";
 import { AppShell } from "./lib/nativeAppShell";
 import "./styles.css";
 
@@ -618,7 +619,8 @@ async function primeManagedApiBase() {
 }
 
 async function bootstrap() {
-  void primeManagedApiBase();
+  await primeManagedApiBase();
+  installNativeClientFetchHeader();
   const { default: App } = await import("./App");
   ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
     <React.StrictMode>

@@ -33,6 +33,8 @@ const {
   upsertParentSignupPhoneOtp,
   deleteParentSignupPhoneOtp,
   parentPhoneNormalizedExists,
+  parentPhoneNormalizedTakenByOtherParent,
+  getParentPhoneByUserId,
   verifyParentSignupPhoneOtp,
   assertParentSignupPhoneResendCooldown,
   setParentPhoneForUser,
@@ -3384,7 +3386,15 @@ app.use(
       if (isAllowedCorsOrigin(origin)) return cb(null, true);
       return cb(new Error("CORS origin not allowed"));
     },
-    credentials: true
+    credentials: true,
+    allowedHeaders: [
+      "Authorization",
+      "Content-Type",
+      "Accept",
+      "Origin",
+      "X-Requested-With",
+      "X-Daechi-Client"
+    ]
   })
 );
 app.use(
@@ -3532,6 +3542,23 @@ function getWebclipCookieOptions(req) {
   };
 }
 
+function isStudentWebApiEnforcementEnabled() {
+  return (
+    process.env.NODE_ENV === "production" &&
+    String(process.env.STUDENT_WEB_API_OK || "").toLowerCase() !== "true"
+  );
+}
+
+function assertStudentNativeClientHeader(req, res) {
+  const client = String(req.headers["x-daechi-client"] || "").trim().toLowerCase();
+  if (client === "native") return true;
+  res.status(403).json({
+    error: "학생 계정은 공식 앱에서만 이용할 수 있습니다.",
+    code: "STUDENT_WEB_FORBIDDEN"
+  });
+  return false;
+}
+
 function authMiddleware(req, res, next) {
   const auth = req.headers.authorization;
   if (!auth || !auth.startsWith("Bearer ")) {
@@ -3546,12 +3573,34 @@ function authMiddleware(req, res, next) {
       return res.status(401).json({ error: "로그인 정보가 올바르지 않습니다." });
     }
     req.userId = uid;
-    next();
   } catch (e) {
     return res
       .status(401)
       .json({ error: "로그인이 만료되었습니다. 다시 로그인해 주세요." });
   }
+
+  if (!isStudentWebApiEnforcementEnabled()) {
+    return next();
+  }
+
+  const pathOnly = String(req.path || "").replace(/\/+$/, "") || "/";
+  if (pathOnly === "/api/me") {
+    return next();
+  }
+
+  void (async () => {
+    try {
+      const me = await getMe(req.userId);
+      if (me && String(me.role || "").toLowerCase() === "student") {
+        if (!assertStudentNativeClientHeader(req, res)) {
+          return;
+        }
+      }
+      next();
+    } catch (e) {
+      next(e);
+    }
+  })();
 }
 
 async function resolvePrimaryParentForStudent(studentUserId) {
@@ -3585,6 +3634,7 @@ function stripHtmlTags(value) {
 }
 
 const PARENT_SIGNUP_PHONE_JWT_PURPOSE = "parent_signup_phone";
+const PARENT_ACCOUNT_PHONE_JWT_PURPOSE = "parent_account_phone";
 
 function isValidKoreanMobilePhone(normalizedDigits) {
   const d = String(normalizedDigits || "").replace(/[^\d]/g, "");
@@ -3598,6 +3648,20 @@ function verifyParentSignupPhoneJwt(tokenRaw, expectedPhoneNormalized) {
       algorithms: ["HS256"]
     });
     if (decoded.purpose !== PARENT_SIGNUP_PHONE_JWT_PURPOSE) return false;
+    return String(decoded.phone || "") === expectedPhoneNormalized;
+  } catch {
+    return false;
+  }
+}
+
+function verifyParentAccountPhoneJwt(tokenRaw, userId, expectedPhoneNormalized) {
+  if (!JWT_SECRET) return false;
+  try {
+    const decoded = jwt.verify(String(tokenRaw || "").trim(), JWT_SECRET, {
+      algorithms: ["HS256"]
+    });
+    if (decoded.purpose !== PARENT_ACCOUNT_PHONE_JWT_PURPOSE) return false;
+    if (Number(decoded.userId) !== Number(userId)) return false;
     return String(decoded.phone || "") === expectedPhoneNormalized;
   } catch {
     return false;
@@ -3722,6 +3786,11 @@ app.post("/auth/register", authLimiter, async (req, res) => {
         return res.status(409).json({ error: "이미 가입에 사용된 번호입니다." });
       }
     }
+    if (safeRole === "student" && isStudentWebApiEnforcementEnabled()) {
+      if (!assertStudentNativeClientHeader(req, res)) {
+        return;
+      }
+    }
     const userId = await createUser(trimmedEmail, hash, safeRole);
     if (safeRole === "parent" && parentPhoneNormalized) {
       await setParentPhoneForUser(userId, parentPhoneNormalized);
@@ -3770,6 +3839,11 @@ app.post("/auth/login", authLimiter, async (req, res) => {
       return res
         .status(401)
         .json({ error: "이메일 또는 비밀번호가 올바르지 않습니다." });
+    }
+    if (String(user.role || "").toLowerCase() === "student" && isStudentWebApiEnforcementEnabled()) {
+      if (!assertStudentNativeClientHeader(req, res)) {
+        return;
+      }
     }
     const token = jwt.sign({ userId: user.id }, JWT_SECRET, {
       expiresIn: "30d",
@@ -4205,6 +4279,122 @@ app.post("/api/parent/alarm-settings", authMiddleware, async (req, res) => {
   }
 });
 
+app.post(
+  "/api/parent/account/send-phone-code",
+  authLimiter,
+  authMiddleware,
+  async (req, res) => {
+    try {
+      const me = await getMe(req.userId);
+      if (!me || me.role !== "parent") {
+        return res.status(403).json({ error: "권한이 없습니다." });
+      }
+      const phoneNormalized = normalizeKoreanPhone((req.body || {}).phone);
+      if (!isValidKoreanMobilePhone(phoneNormalized)) {
+        return res.status(400).json({ error: "휴대폰 번호를 올바르게 입력해 주세요." });
+      }
+      const currentRaw = await getParentPhoneByUserId(req.userId);
+      const currentNorm = currentRaw ? normalizeKoreanPhone(currentRaw) : "";
+      if (phoneNormalized === currentNorm) {
+        return res.status(400).json({ error: "현재 계정과 동일한 번호입니다." });
+      }
+      if (
+        await parentPhoneNormalizedTakenByOtherParent(phoneNormalized, req.userId)
+      ) {
+        return res.status(400).json({ error: "이미 다른 계정에 등록된 번호입니다." });
+      }
+      const cooldown = await assertParentSignupPhoneResendCooldown(
+        phoneNormalized,
+        45 * 1000
+      );
+      if (!cooldown.ok) {
+        return res.status(429).json({ error: cooldown.error });
+      }
+      const code = String(crypto.randomInt(100000, 1000000));
+      const devNoSms =
+        process.env.NODE_ENV !== "production" &&
+        String(process.env.PARENT_SIGNUP_DEV_NO_SMS || "").toLowerCase() === "true";
+      if (!devNoSms && !isSolapiSmsConfigured()) {
+        return res.status(503).json({
+          error: "문자 인증이 설정되지 않았습니다. 관리자에게 문의해 주세요."
+        });
+      }
+      await upsertParentSignupPhoneOtp(phoneNormalized, code);
+      try {
+        if (devNoSms) {
+          if (String(process.env.PARENT_SIGNUP_DEV_PRINT_OTP || "").toLowerCase() === "true") {
+            console.info("[dev] parent account phone OTP", phoneNormalized, code);
+          }
+        } else {
+          await sendSolapiSms({
+            to: phoneNormalized,
+            text: `[대치루트] 인증번호는 ${code} 입니다. 5분 이내에 입력해 주세요.`
+          });
+        }
+      } catch (sendErr) {
+        await deleteParentSignupPhoneOtp(phoneNormalized);
+        console.error("parent account phone SMS error", sendErr);
+        return res.status(502).json({
+          error: "인증 문자를 보내지 못했습니다. 잠시 후 다시 시도해 주세요."
+        });
+      }
+      res.json({ ok: true });
+    } catch (e) {
+      console.error("/api/parent/account/send-phone-code error", e);
+      res.status(500).json({ error: "요청을 처리하지 못했습니다." });
+    }
+  }
+);
+
+app.post(
+  "/api/parent/account/verify-phone-code",
+  authLimiter,
+  authMiddleware,
+  async (req, res) => {
+    try {
+      const me = await getMe(req.userId);
+      if (!me || me.role !== "parent") {
+        return res.status(403).json({ error: "권한이 없습니다." });
+      }
+      const phoneNormalized = normalizeKoreanPhone((req.body || {}).phone);
+      const code = String((req.body || {}).code || "").trim();
+      if (!isValidKoreanMobilePhone(phoneNormalized) || !/^\d{6}$/.test(code)) {
+        return res.status(400).json({ error: "번호와 인증번호를 확인해 주세요." });
+      }
+      const currentRaw = await getParentPhoneByUserId(req.userId);
+      const currentNorm = currentRaw ? normalizeKoreanPhone(currentRaw) : "";
+      if (phoneNormalized === currentNorm) {
+        return res.status(400).json({ error: "현재 계정과 동일한 번호입니다." });
+      }
+      if (
+        await parentPhoneNormalizedTakenByOtherParent(phoneNormalized, req.userId)
+      ) {
+        return res.status(400).json({ error: "이미 다른 계정에 등록된 번호입니다." });
+      }
+      const v = await verifyParentSignupPhoneOtp(phoneNormalized, code);
+      if (!v.ok) {
+        return res.status(400).json({ error: v.error });
+      }
+      if (!JWT_SECRET) {
+        return res.status(500).json({ error: "서버 설정 오류입니다." });
+      }
+      const phoneVerifyToken = jwt.sign(
+        {
+          purpose: PARENT_ACCOUNT_PHONE_JWT_PURPOSE,
+          userId: Number(req.userId),
+          phone: phoneNormalized
+        },
+        JWT_SECRET,
+        { expiresIn: "15m", algorithm: "HS256" }
+      );
+      res.json({ ok: true, phoneVerifyToken });
+    } catch (e) {
+      console.error("/api/parent/account/verify-phone-code error", e);
+      res.status(500).json({ error: "요청을 처리하지 못했습니다." });
+    }
+  }
+);
+
 app.post("/api/push/register-token", authMiddleware, async (req, res) => {
   try {
     const me = await getMe(req.userId);
@@ -4265,6 +4455,7 @@ async function handleAccountUpdate(req, res) {
       body.email != null ? String(body.email).trim().toLowerCase() : "";
     const newPasswordIn =
       body.newPassword != null ? String(body.newPassword) : "";
+    const hasPhoneKey = Object.prototype.hasOwnProperty.call(body, "phone");
     const hasNameKey = Object.prototype.hasOwnProperty.call(body, "name");
     const hasGradeKey = Object.prototype.hasOwnProperty.call(body, "grade");
     const hasGoalKey = Object.prototype.hasOwnProperty.call(body, "goal");
@@ -4287,11 +4478,59 @@ async function handleAccountUpdate(req, res) {
       return res.status(404).json({ error: "사용자를 찾을 수 없습니다." });
     }
 
+    let phoneChangePlanned = false;
+    let nextParentPhoneNormalized = null;
+    if (user.role === "parent" && hasPhoneKey) {
+      const raw = body.phone != null ? String(body.phone) : "";
+      const trimmed = raw.trim();
+      if (!trimmed) {
+        nextParentPhoneNormalized = null;
+      } else {
+        nextParentPhoneNormalized = normalizeKoreanPhone(trimmed);
+        if (!isValidKoreanMobilePhone(nextParentPhoneNormalized)) {
+          return res
+            .status(400)
+            .json({ error: "휴대폰 번호를 올바르게 입력해 주세요." });
+        }
+      }
+      const currentRaw = await getParentPhoneByUserId(req.userId);
+      const currentNorm = currentRaw
+        ? normalizeKoreanPhone(currentRaw)
+        : "";
+      const newNorm = nextParentPhoneNormalized || "";
+      phoneChangePlanned = newNorm !== currentNorm;
+      if (
+        phoneChangePlanned &&
+        nextParentPhoneNormalized &&
+        (await parentPhoneNormalizedTakenByOtherParent(
+          nextParentPhoneNormalized,
+          req.userId
+        ))
+      ) {
+        return res
+          .status(400)
+          .json({ error: "이미 다른 계정에 등록된 번호입니다." });
+      }
+      if (
+        phoneChangePlanned &&
+        nextParentPhoneNormalized &&
+        !verifyParentAccountPhoneJwt(
+          String(body.phoneVerifyToken || "").trim(),
+          req.userId,
+          nextParentPhoneNormalized
+        )
+      ) {
+        return res
+          .status(400)
+          .json({ error: "휴대폰 인증을 완료해 주세요." });
+      }
+    }
+
     const emailChanged =
       emailIn.length > 0 && emailIn !== user.email;
     const passwordChange = newPasswordIn.length > 0;
 
-    if (emailChanged || passwordChange) {
+    if (emailChanged || passwordChange || phoneChangePlanned) {
       if (!currentPassword) {
         return res
           .status(400)
@@ -4340,6 +4579,10 @@ async function handleAccountUpdate(req, res) {
       }
       const hash = await bcrypt.hash(newPasswordIn, 10);
       await updateUserPasswordHash(req.userId, hash);
+    }
+
+    if (user.role === "parent" && hasPhoneKey && phoneChangePlanned) {
+      await setParentPhoneForUser(req.userId, nextParentPhoneNormalized);
     }
 
     if (
@@ -4567,6 +4810,78 @@ app.get("/api/parent/students", authMiddleware, async (req, res) => {
   }
 });
 
+/** MDM 서버와의 최근 통신(기기 네트워크·전원 상태 추정) — Simple MDM device `last_seen_at` */
+const SIMPLE_MDM_RECENT_SEEN_MS = 25 * 60 * 1000;
+
+function buildSimpleMdmParentNetworkStatusFromDevice(device) {
+  const devAttrs = device?.attributes || {};
+  const raw =
+    devAttrs.last_seen_at != null && String(devAttrs.last_seen_at).trim()
+      ? devAttrs.last_seen_at
+      : devAttrs.lastSeenAt != null && String(devAttrs.lastSeenAt).trim()
+        ? devAttrs.lastSeenAt
+        : null;
+  const carrierNetwork =
+    String(
+      devAttrs.current_carrier_network ||
+        devAttrs.currentCarrierNetwork ||
+        ""
+    ).trim() || null;
+  if (raw == null || !String(raw).trim()) {
+    return {
+      available: true,
+      lastSeenAt: null,
+      status: "unknown",
+      ageMinutes: null,
+      carrierNetwork
+    };
+  }
+  const t = new Date(String(raw).trim()).getTime();
+  if (!Number.isFinite(t)) {
+    return {
+      available: true,
+      lastSeenAt: null,
+      status: "unknown",
+      ageMinutes: null,
+      carrierNetwork
+    };
+  }
+  const ageMs = Math.max(0, Date.now() - t);
+  const status = ageMs <= SIMPLE_MDM_RECENT_SEEN_MS ? "recent" : "stale";
+  return {
+    available: true,
+    lastSeenAt: new Date(t).toISOString(),
+    status,
+    ageMinutes: Math.floor(ageMs / 60000),
+    carrierNetwork
+  };
+}
+
+/** 검색 응답에 last_seen이 없을 때 GET /devices/:id 로 보강 */
+async function resolveSimpleMdmDeviceRowForParentNetwork(serial) {
+  const trimmed = String(serial || "").trim();
+  if (!trimmed) return null;
+  const device = await findDeviceBySerial(trimmed);
+  if (!device?.id) return device;
+  const attrs = device.attributes || {};
+  const hasSeen =
+    (attrs.last_seen_at != null && String(attrs.last_seen_at).trim()) ||
+    (attrs.lastSeenAt != null && String(attrs.lastSeenAt).trim());
+  if (hasSeen) return device;
+  try {
+    const payload = await getDeviceById(Number(device.id));
+    const d = payload?.data;
+    if (d && typeof d === "object") return d;
+  } catch (e) {
+    console.warn(
+      "resolveSimpleMdmDeviceRowForParentNetwork getDeviceById",
+      device.id,
+      e?.message || e
+    );
+  }
+  return device;
+}
+
 app.get("/api/parent/students/:studentId/device-control-state", authMiddleware, async (req, res) => {
   try {
     const me = await getMe(req.userId);
@@ -4581,10 +4896,11 @@ app.get("/api/parent/students/:studentId/device-control-state", authMiddleware, 
     if (!has) {
       return res.status(403).json({ error: "연결된 학생만 조회할 수 있습니다." });
     }
-    const [appAllowanceState, kioskState, weeklySlots] = await Promise.all([
+    const [appAllowanceState, kioskState, weeklySlots, serialRaw] = await Promise.all([
       getStudentMdmAppAllowanceProfileState(studentId),
       getStudentMdmKioskProfileState(studentId),
-      listStudentWeeklyAppAllowanceSlots(studentId)
+      listStudentWeeklyAppAllowanceSlots(studentId),
+      getActiveDeviceSerialForUser(studentId)
     ]);
     const appAllowanceMode = resolveAppAllowanceModeFromProfileName(appAllowanceState?.profile_name);
     const bulkLockOverride =
@@ -4644,13 +4960,52 @@ app.get("/api/parent/students/:studentId/device-control-state", authMiddleware, 
       }
     };
 
+    let simpleMdmNetwork = {
+      available: false,
+      status: "skipped",
+      skippedReason: "simplemdm_not_configured"
+    };
+    if (isSimpleMdmConfigured()) {
+      const serial = serialRaw != null ? String(serialRaw).trim() : "";
+      if (!serial) {
+        simpleMdmNetwork = {
+          available: false,
+          status: "skipped",
+          skippedReason: "no_active_device_serial"
+        };
+      } else {
+        try {
+          const device = await resolveSimpleMdmDeviceRowForParentNetwork(serial);
+          if (!device) {
+            simpleMdmNetwork = {
+              available: false,
+              status: "skipped",
+              skippedReason: "device_not_in_simplemdm"
+            };
+          } else {
+            simpleMdmNetwork = buildSimpleMdmParentNetworkStatusFromDevice(device);
+          }
+        } catch (mdmErr) {
+          const up = Number(mdmErr?.status);
+          console.error("device-control-state simplemdm network", studentId, mdmErr);
+          simpleMdmNetwork = {
+            available: false,
+            status: "skipped",
+            skippedReason:
+              up === 429 ? "simplemdm_rate_limited" : "simplemdm_error"
+          };
+        }
+      }
+    }
+
     return res.json({
       appAllowanceMode,
       mdmSurfaceMode: mdmSurfaceModeResolved,
       kioskEnabled,
       bulkLockOverride,
       appAllowanceSurface: mdmSurfaceModeResolved,
-      profileSnapshot
+      profileSnapshot,
+      simpleMdmNetwork
     });
   } catch (e) {
     console.error("/api/parent/students/:studentId/device-control-state GET error", e);

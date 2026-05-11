@@ -11,6 +11,7 @@ import { LocalNotifications } from "@capacitor/local-notifications";
 import { Bell, BellDot, ChevronLeft } from "lucide-react";
 import SplashScreen from "./SplashScreen";
 import { AuthScreen } from "./components/AuthScreen";
+import { StudentNativeOnlyGate } from "./components/student/StudentNativeOnlyGate";
 import { AppBottomNav } from "./components/AppBottomNav";
 import { PageTransition } from "./components/PageTransition";
 import type { ParentTabKey } from "./components/parent/ParentLegacyView";
@@ -91,6 +92,7 @@ import {
   requestNativePushPermissions
 } from "./lib/nativePushNotifications";
 import { isDocumentVisible, trackAsync } from "./lib/perfMetrics";
+import { isStudentWebShellBlocked } from "./lib/studentWebAccess";
 import {
   scheduleBackgroundUiUpdate,
   stableStringify
@@ -595,7 +597,9 @@ const App: React.FC = () => {
     }
   });
   const [authMode, setAuthMode] = useState<"login" | "signup">("login");
-  const [authRole, setAuthRole] = useState<"student" | "parent">("student");
+  const [authRole, setAuthRole] = useState<"student" | "parent">(() =>
+    Capacitor.isNativePlatform() ? "student" : "parent"
+  );
   const [authStudentName, setAuthStudentName] = useState("");
   const [authParentPhone, setAuthParentPhone] = useState("");
   const [authParentPhoneCode, setAuthParentPhoneCode] = useState("");
@@ -2717,6 +2721,12 @@ const App: React.FC = () => {
   };
 
   useEffect(() => {
+    if (route !== "auth") return;
+    const want: "student" | "parent" = Capacitor.isNativePlatform() ? "student" : "parent";
+    setAuthRole(prev => (prev === want ? prev : want));
+  }, [route]);
+
+  useEffect(() => {
     setStudentAlarmSettings(readStudentAlarmSettings(studentAlarmSettingsKey));
   }, [studentAlarmSettingsKey]);
 
@@ -3028,6 +3038,14 @@ const App: React.FC = () => {
     coachParentTab !== null;
   const isParentAnalysisPage = coachParentMode && coachParentTab === "analysis";
   const isStandaloneAnalysisPage = isStudentAnalysisPage || isParentAnalysisPage;
+
+  /** 운영 웹: 학생 계정으로 로그인된 경우 앱 전용 안내(네이티브·로컬 dev는 제외) */
+  const blockStudentWebSession =
+    isStudentWebShellBlocked() &&
+    meRole === "student" &&
+    meRoleResolved &&
+    Boolean(authToken) &&
+    !profileLoadFailed;
 
   const redirectParentToProfileForStudentLink = useCallback(() => {
     hapticWarning();
@@ -3424,6 +3442,16 @@ const App: React.FC = () => {
                       : authMode === "signup"
                         ? authRole
                         : null;
+                  if (Capacitor.isNativePlatform() && nextRole === "parent") {
+                    hapticWarning();
+                    setAuthError("학부모 계정은 웹 브라우저에서 로그인·가입해 주세요.");
+                    return;
+                  }
+                  if (!Capacitor.isNativePlatform() && nextRole === "student") {
+                    hapticWarning();
+                    setAuthError("학생 계정은 모바일 앱에서 로그인·가입해 주세요.");
+                    return;
+                  }
                   hapticSuccess();
                   setAuthLeaving(true);
                   window.setTimeout(() => {
@@ -3512,6 +3540,7 @@ const App: React.FC = () => {
       )}
       {splashDone && route === "auth" ? (
         <AuthScreen
+          authChannel={Capacitor.isNativePlatform() ? "student" : "parent"}
           authLeaving={authLeaving}
           authMode={authMode}
           authRole={authRole}
@@ -3531,10 +3560,6 @@ const App: React.FC = () => {
             setAuthMode(mode);
             setAuthError("");
           }}
-          onRoleChange={role => {
-            hapticSelection();
-            setAuthRole(role);
-          }}
           onStudentNameChange={setAuthStudentName}
           onParentPhoneChange={value => {
             setAuthParentPhone(value);
@@ -3550,6 +3575,8 @@ const App: React.FC = () => {
           onPasswordChange={setAuthPassword}
           onSubmit={handleAuthSubmit}
         />
+      ) : splashDone && blockStudentWebSession ? (
+        <StudentNativeOnlyGate userEmail={userEmail} onLogout={handleLogout} />
       ) : splashDone ? (
       <div
         className={

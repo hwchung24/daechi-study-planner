@@ -3,7 +3,11 @@ import React from "react";
 type AuthMode = "login" | "signup";
 type AuthRole = "student" | "parent";
 
+/** 웹: 학부모만 / 네이티브 앱: 학생만 */
+export type AuthChannel = "parent" | "student";
+
 export function AuthScreen(props: {
+  authChannel: AuthChannel;
   authLeaving: boolean;
   authMode: AuthMode;
   authRole: AuthRole;
@@ -19,7 +23,6 @@ export function AuthScreen(props: {
   authPassword: string;
   authError: string;
   onModeChange: (mode: AuthMode) => void;
-  onRoleChange: (role: AuthRole) => void;
   onStudentNameChange: (value: string) => void;
   onParentPhoneChange: (value: string) => void;
   onParentPhoneCodeChange: (value: string) => void;
@@ -30,6 +33,7 @@ export function AuthScreen(props: {
   onSubmit: (e: React.FormEvent<HTMLFormElement>) => void;
 }) {
   const {
+    authChannel,
     authLeaving,
     authMode,
     authRole,
@@ -45,7 +49,6 @@ export function AuthScreen(props: {
     authPassword,
     authError,
     onModeChange,
-    onRoleChange,
     onStudentNameChange,
     onParentPhoneChange,
     onParentPhoneCodeChange,
@@ -56,6 +59,8 @@ export function AuthScreen(props: {
     onSubmit
   } = props;
 
+  const isParentSurface = authChannel === "parent";
+
   return (
     <div className={"auth-page" + (authLeaving ? " auth-page--leaving" : "")}>
       <div className="auth-page-inner">
@@ -64,9 +69,13 @@ export function AuthScreen(props: {
             {authMode === "login" ? "로그인" : "회원가입"}
           </h2>
           <p className="auth-desc">
-            {authMode === "login"
-              ? "계정으로 로그인해 이어서 공부할 수 있어요."
-              : "필요한 정보만 입력하면 바로 시작할 수 있어요."}
+            {isParentSurface
+              ? authMode === "login"
+                ? "학부모 계정으로 로그인해 자녀 일정·기록·알림을 관리하세요."
+                : "학부모 계정을 만들면 자녀 연결 후 앱과 함께 이용할 수 있어요."
+              : authMode === "login"
+                ? "학생 계정으로 로그인해 오늘 계획과 기록을 이어가세요."
+                : "학생 계정을 만들면 바로 공부 기록을 시작할 수 있어요."}
           </p>
           <div
             className={
@@ -96,43 +105,6 @@ export function AuthScreen(props: {
             >
               회원가입
             </button>
-          </div>
-          <div
-            className={
-              "auth-role-wrap" + (authMode === "signup" ? " auth-role-wrap--open" : "")
-            }
-          >
-            <div className="auth-role-inner">
-              <div
-                className={
-                  "auth-tabs auth-tabs--segmented auth-tabs--role" +
-                  (authRole === "student"
-                    ? " auth-tabs--active-0"
-                    : " auth-tabs--active-1")
-                }
-                role="tablist"
-              >
-                <span className="auth-tabs__indicator" aria-hidden />
-                <button
-                  type="button"
-                  role="tab"
-                  aria-selected={authRole === "student"}
-                  className={"auth-tab" + (authRole === "student" ? " active" : "")}
-                  onClick={() => onRoleChange("student")}
-                >
-                  학생
-                </button>
-                <button
-                  type="button"
-                  role="tab"
-                  aria-selected={authRole === "parent"}
-                  className={"auth-tab" + (authRole === "parent" ? " active" : "")}
-                  onClick={() => onRoleChange("parent")}
-                >
-                  학부모
-                </button>
-              </div>
-            </div>
           </div>
           <form className="auth-form" onSubmit={onSubmit}>
             {authMode === "signup" && authRole === "student" && (

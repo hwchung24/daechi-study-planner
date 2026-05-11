@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useEffectiveBearer } from "../../lib/useEffectiveBearer";
 import { scheduleBackgroundUiUpdate } from "../../lib/stableUiUpdate";
 import { stableStringify } from "../../lib/stableUiUpdate";
 import {
@@ -10,17 +11,62 @@ const POLL_MS = 30000;
 
 type AppAllowanceModeKey = "utility" | "free";
 
+export type ParentSimpleMdmNetworkStatus = {
+  available: boolean;
+  status: "recent" | "stale" | "unknown" | "skipped";
+  skippedReason?: string;
+  lastSeenAt?: string | null;
+  ageMinutes?: number | null;
+  carrierNetwork?: string | null;
+};
+
 export type ParentDeviceControlSnapshot = {
   displaySurfaceMode: ParentMdmSurfaceMode;
   kioskEnabled: boolean;
   activeAppAllowanceMode: AppAllowanceModeKey | null;
+  simpleMdmNetwork: ParentSimpleMdmNetworkStatus | null;
 };
+
+function normalizeSimpleMdmNetwork(
+  raw: unknown
+): ParentSimpleMdmNetworkStatus | null {
+  if (!raw || typeof raw !== "object") return null;
+  const o = raw as Record<string, unknown>;
+  const status = String(o.status || "").trim();
+  if (
+    status !== "recent" &&
+    status !== "stale" &&
+    status !== "unknown" &&
+    status !== "skipped"
+  ) {
+    return null;
+  }
+  return {
+    available: Boolean(o.available),
+    status: status as ParentSimpleMdmNetworkStatus["status"],
+    skippedReason:
+      o.skippedReason != null ? String(o.skippedReason).trim() || undefined : undefined,
+    lastSeenAt:
+      o.lastSeenAt != null && String(o.lastSeenAt).trim()
+        ? String(o.lastSeenAt).trim()
+        : null,
+    ageMinutes:
+      o.ageMinutes != null && Number.isFinite(Number(o.ageMinutes))
+        ? Number(o.ageMinutes)
+        : null,
+    carrierNetwork:
+      o.carrierNetwork != null && String(o.carrierNetwork).trim()
+        ? String(o.carrierNetwork).trim()
+        : null
+  };
+}
 
 function computeSnapshot(data: {
   mdmSurfaceMode?: string;
   kioskEnabled?: boolean;
   bulkLockOverride?: boolean;
   appAllowanceMode?: "default" | AppAllowanceModeKey;
+  simpleMdmNetwork?: unknown;
 }): ParentDeviceControlSnapshot {
   const parsedSurface = parseParentMdmSurfaceMode(data.mdmSurfaceMode);
   const effectiveSurface: ParentMdmSurfaceMode = parsedSurface ?? "default";
@@ -34,7 +80,8 @@ function computeSnapshot(data: {
   return {
     displaySurfaceMode,
     kioskEnabled: Boolean(data.kioskEnabled),
-    activeAppAllowanceMode
+    activeAppAllowanceMode,
+    simpleMdmNetwork: normalizeSimpleMdmNetwork(data.simpleMdmNetwork)
   };
 }
 
@@ -46,13 +93,14 @@ type UseArgs = {
 
 export function useParentDeviceControlState(args: UseArgs) {
   const { apiBase, authToken, studentId } = args;
+  const bearer = useEffectiveBearer(authToken);
   const [loading, setLoading] = useState(false);
   const [snapshot, setSnapshot] = useState<ParentDeviceControlSnapshot | null>(null);
   const lastSigRef = useRef<string | null>(null);
 
   const refresh = useCallback(
     async (options?: { silent?: boolean }) => {
-      if (!authToken || !studentId) {
+      if (!bearer || !studentId) {
         lastSigRef.current = null;
         scheduleBackgroundUiUpdate(() => {
           setSnapshot(null);
@@ -66,13 +114,14 @@ export function useParentDeviceControlState(args: UseArgs) {
       try {
         const res = await fetch(
           `${apiBase}/api/parent/students/${encodeURIComponent(String(studentId))}/device-control-state`,
-          { headers: { Authorization: `Bearer ${authToken}` } }
+          { headers: { Authorization: `Bearer ${bearer}` } }
         );
         const data = (await res.json().catch(() => ({}))) as {
           appAllowanceMode?: "default" | AppAllowanceModeKey;
           mdmSurfaceMode?: string;
           kioskEnabled?: boolean;
           bulkLockOverride?: boolean;
+          simpleMdmNetwork?: unknown;
         };
         if (!res.ok) {
           const fallback = computeSnapshot({});
@@ -99,7 +148,7 @@ export function useParentDeviceControlState(args: UseArgs) {
         }
       }
     },
-    [apiBase, authToken, studentId]
+    [apiBase, bearer, studentId]
   );
 
   useEffect(() => {
@@ -107,7 +156,7 @@ export function useParentDeviceControlState(args: UseArgs) {
   }, [refresh]);
 
   useEffect(() => {
-    if (!authToken || !studentId) return;
+    if (!bearer || !studentId) return;
 
     const run = () => {
       if (typeof document !== "undefined" && document.visibilityState !== "visible") {
@@ -126,7 +175,7 @@ export function useParentDeviceControlState(args: UseArgs) {
       window.clearInterval(timerId);
       document.removeEventListener("visibilitychange", onVisibilityChange);
     };
-  }, [authToken, studentId, refresh]);
+  }, [bearer, studentId, refresh]);
 
   return { loading, snapshot, refresh };
 }

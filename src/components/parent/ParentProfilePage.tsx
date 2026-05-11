@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Card, SectionHeader } from "../../coach/ui/components";
 import { useEffectiveBearer } from "../../lib/useEffectiveBearer";
 import { useModalReveal } from "../../lib/useModalReveal";
@@ -71,6 +71,10 @@ function writeParentAlarmSettings(key: string, value: ParentAlarmSettings) {
   } catch {
     // ignore
   }
+}
+
+function accountPhoneDigitsComparable(value: string) {
+  return String(value || "").replace(/\D/g, "");
 }
 
 function clampControlIntensity(value: number) {
@@ -149,6 +153,14 @@ export function ParentProfilePage(props: {
   const [studentManagementModalOpen, setStudentManagementModalOpen] = useState(false);
   const [coachSettingsModalOpen, setCoachSettingsModalOpen] = useState(false);
   const [accountEmail, setAccountEmail] = useState("");
+  const [accountPhone, setAccountPhone] = useState("");
+  const [accountPhoneLoading, setAccountPhoneLoading] = useState(false);
+  const [accountPhoneOtpCode, setAccountPhoneOtpCode] = useState("");
+  const [accountPhoneVerifyToken, setAccountPhoneVerifyToken] = useState("");
+  const [accountPhoneCodeSending, setAccountPhoneCodeSending] = useState(false);
+  const [accountPhoneVerifySending, setAccountPhoneVerifySending] = useState(false);
+  const [accountPhoneOtpHint, setAccountPhoneOtpHint] = useState("");
+  const accountPhoneBaselineRef = useRef("");
   const [accountNewPw, setAccountNewPw] = useState("");
   const [accountNewPw2, setAccountNewPw2] = useState("");
   const [accountCurrentPw, setAccountCurrentPw] = useState("");
@@ -401,14 +413,37 @@ export function ParentProfilePage(props: {
     };
   }, [refreshLinkRequests, refreshStudents]);
 
-  const openAccountEdit = () => {
+  const openAccountEdit = useCallback(async () => {
     setAccountEmail((userEmail || "").trim());
     setAccountNewPw("");
     setAccountNewPw2("");
     setAccountCurrentPw("");
     setAccountError("");
+    setAccountPhoneOtpCode("");
+    setAccountPhoneVerifyToken("");
+    setAccountPhoneOtpHint("");
+    setAccountPhone("");
+    accountPhoneBaselineRef.current = "";
     setAccountEditOpen(true);
-  };
+    if (!token) return;
+    setAccountPhoneLoading(true);
+    try {
+      const res = await fetch(`${apiBase}/api/me`, {
+        headers: { Authorization: `Bearer ${token}` },
+        cache: "no-store"
+      });
+      const data = (await res.json().catch(() => ({}))) as {
+        parentPhone?: string | null;
+      };
+      if (res.ok) {
+        const p = data.parentPhone != null ? String(data.parentPhone) : "";
+        setAccountPhone(p);
+        accountPhoneBaselineRef.current = p;
+      }
+    } finally {
+      setAccountPhoneLoading(false);
+    }
+  }, [apiBase, token, userEmail]);
 
   const openAlarmSettingsModal = () => {
     setAlarmSettingsModalOpen(true);
@@ -434,6 +469,101 @@ export function ParentProfilePage(props: {
     coachSettingsModalReveal.beginClose(() => setCoachSettingsModalOpen(false));
   };
 
+  const showAccountPhoneOtpFlow = useMemo(() => {
+    if (accountPhoneLoading) return false;
+    const cur = accountPhoneDigitsComparable(accountPhone.trim());
+    const base = accountPhoneDigitsComparable(accountPhoneBaselineRef.current);
+    return cur.length > 0 && cur !== base;
+  }, [accountPhone, accountPhoneLoading]);
+
+  const sendAccountPhoneCode = async () => {
+    if (!token) return;
+    const phone = accountPhone.trim();
+    const d = accountPhoneDigitsComparable(phone);
+    if (d.length < 10 || d.length > 11) {
+      setAccountError("휴대폰 번호를 확인해 주세요.");
+      hapticWarning();
+      return;
+    }
+    setAccountError("");
+    setAccountPhoneOtpHint("");
+    setAccountPhoneCodeSending(true);
+    try {
+      const res = await fetch(`${apiBase}/api/parent/account/send-phone-code`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`
+        },
+        body: JSON.stringify({ phone })
+      });
+      const data = (await res.json().catch(() => ({}))) as { error?: string };
+      if (!res.ok) {
+        setAccountError(String(data.error || "인증번호를 보내지 못했습니다."));
+        hapticWarning();
+        return;
+      }
+      setAccountPhoneVerifyToken("");
+      setAccountPhoneOtpHint("인증번호를 문자로 보냈어요.");
+      hapticSuccess();
+    } catch (e: unknown) {
+      setAccountError(
+        e instanceof Error && e.message
+          ? e.message
+          : "네트워크 오류입니다. 인터넷 연결을 확인해 주세요."
+      );
+      hapticWarning();
+    } finally {
+      setAccountPhoneCodeSending(false);
+    }
+  };
+
+  const verifyAccountPhoneCode = async () => {
+    if (!token) return;
+    const phone = accountPhone.trim();
+    const code = accountPhoneOtpCode.trim();
+    if (!/^\d{6}$/.test(code)) {
+      setAccountError("인증번호 6자리를 입력해 주세요.");
+      hapticWarning();
+      return;
+    }
+    setAccountError("");
+    setAccountPhoneVerifySending(true);
+    try {
+      const res = await fetch(`${apiBase}/api/parent/account/verify-phone-code`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`
+        },
+        body: JSON.stringify({ phone, code })
+      });
+      const data = (await res.json().catch(() => ({}))) as {
+        error?: string;
+        phoneVerifyToken?: string;
+      };
+      if (!res.ok || !data.phoneVerifyToken) {
+        setAccountError(String(data.error || "인증에 실패했습니다."));
+        setAccountPhoneVerifyToken("");
+        hapticWarning();
+        return;
+      }
+      setAccountPhoneVerifyToken(String(data.phoneVerifyToken));
+      setAccountPhoneOtpHint("휴대폰 인증이 완료됐어요.");
+      hapticSuccess();
+    } catch (e: unknown) {
+      setAccountError(
+        e instanceof Error && e.message
+          ? e.message
+          : "네트워크 오류입니다. 인터넷 연결을 확인해 주세요."
+      );
+      setAccountPhoneVerifyToken("");
+      hapticWarning();
+    } finally {
+      setAccountPhoneVerifySending(false);
+    }
+  };
+
   const saveAccount = async () => {
     setAccountError("");
     const email = accountEmail.trim().toLowerCase();
@@ -441,14 +571,31 @@ export function ParentProfilePage(props: {
       setAccountError("이메일을 입력해 주세요.");
       return;
     }
+    const phoneTrim = accountPhone.trim();
+    if (phoneTrim.length > 0) {
+      const d = accountPhoneDigitsComparable(phoneTrim);
+      if (d.length < 10 || d.length > 11) {
+        setAccountError("휴대폰 번호를 확인해 주세요.");
+        return;
+      }
+    }
     if (accountNewPw !== accountNewPw2) {
       setAccountError("새 비밀번호가 일치하지 않습니다.");
       return;
     }
     const emailChanged = email !== String(userEmail || "").trim().toLowerCase();
     const passwordChanged = accountNewPw.length > 0;
-    if ((emailChanged || passwordChanged) && !accountCurrentPw) {
-      setAccountError("이메일 또는 비밀번호를 바꿀 때는 현재 비밀번호를 입력해 주세요.");
+    const phoneDigits = accountPhoneDigitsComparable(phoneTrim);
+    const baselineDigits = accountPhoneDigitsComparable(accountPhoneBaselineRef.current);
+    const phoneChanged = phoneDigits !== baselineDigits;
+    if (phoneTrim.length > 0 && phoneChanged && !accountPhoneVerifyToken) {
+      setAccountError("휴대폰 인증을 완료해 주세요.");
+      return;
+    }
+    if ((emailChanged || passwordChanged || phoneChanged) && !accountCurrentPw) {
+      setAccountError(
+        "이메일·휴대폰·비밀번호를 바꿀 때는 현재 비밀번호를 입력해 주세요."
+      );
       return;
     }
     if (passwordChanged && accountNewPw.length < 4) {
@@ -460,9 +607,13 @@ export function ParentProfilePage(props: {
     try {
       const body: Record<string, string> = {
         email,
+        phone: phoneTrim,
         currentPassword: accountCurrentPw
       };
       if (passwordChanged) body.newPassword = accountNewPw;
+      if (phoneTrim.length > 0 && phoneChanged && accountPhoneVerifyToken) {
+        body.phoneVerifyToken = accountPhoneVerifyToken;
+      }
       const res = await fetch(`${apiBase}/api/account`, {
         method: "POST",
         headers: {
@@ -472,7 +623,10 @@ export function ParentProfilePage(props: {
         body: JSON.stringify(body)
       });
       const raw = await res.text();
-      let data: { error?: string; user?: { email?: string } } = {};
+      let data: {
+        error?: string;
+        user?: { email?: string; parentPhone?: string | null };
+      } = {};
       try {
         if (raw) data = JSON.parse(raw) as typeof data;
       } catch {
@@ -491,12 +645,21 @@ export function ParentProfilePage(props: {
       if (data.user?.email) {
         onUserEmailUpdated(String(data.user.email));
       }
+      if (data.user && Object.prototype.hasOwnProperty.call(data.user, "parentPhone")) {
+        const next =
+          data.user.parentPhone != null ? String(data.user.parentPhone) : "";
+        setAccountPhone(next);
+        accountPhoneBaselineRef.current = next;
+      }
       hapticSuccess();
       accountModalReveal.beginClose(() => {
         setAccountEditOpen(false);
         setAccountNewPw("");
         setAccountNewPw2("");
         setAccountCurrentPw("");
+        setAccountPhoneOtpCode("");
+        setAccountPhoneVerifyToken("");
+        setAccountPhoneOtpHint("");
       });
     } catch (e: unknown) {
       setAccountError(
@@ -597,8 +760,8 @@ export function ParentProfilePage(props: {
         <Card className="coach-card coach-card--padded student-profile-settings-card">
           <SectionHeader title="설정" />
           <div className="student-profile-settings-list">
-            <button type="button" className="settings-item" onClick={openAccountEdit}>
-              <span className="settings-label">이메일 · 비밀번호</span>
+            <button type="button" className="settings-item" onClick={() => void openAccountEdit()}>
+              <span className="settings-label">이메일 · 비밀번호 · 휴대폰</span>
               <span className="settings-value">수정</span>
             </button>
             <button
@@ -676,6 +839,83 @@ export function ParentProfilePage(props: {
               />
             </div>
             <div className="field" style={{ marginTop: 10 }}>
+              <label className="field-label" htmlFor="parent-account-phone">
+                휴대폰 번호
+              </label>
+              <input
+                id="parent-account-phone"
+                className="field-input"
+                type="tel"
+                inputMode="tel"
+                autoCapitalize="none"
+                value={accountPhone}
+                onChange={e => {
+                  setAccountPhone(e.target.value);
+                  setAccountPhoneVerifyToken("");
+                  setAccountPhoneOtpCode("");
+                  setAccountPhoneOtpHint("");
+                }}
+                autoComplete="tel"
+                placeholder="01012345678"
+                disabled={accountPhoneLoading}
+              />
+              {accountPhoneLoading ? (
+                <p className="settings-hint" style={{ marginTop: 6, marginBottom: 0 }}>
+                  번호를 불러오는 중…
+                </p>
+              ) : null}
+              {showAccountPhoneOtpFlow ? (
+                <div style={{ marginTop: 10 }}>
+                  <button
+                    type="button"
+                    className="coach-primary-btn"
+                    style={{ width: "100%", marginBottom: 8 }}
+                    onClick={() => void sendAccountPhoneCode()}
+                    disabled={accountPhoneCodeSending || accountPhoneVerifySending}
+                  >
+                    {accountPhoneCodeSending ? "보내는 중…" : "인증번호 받기"}
+                  </button>
+                  <label className="field-label" htmlFor="parent-account-phone-otp">
+                    인증번호 (6자리)
+                  </label>
+                  <input
+                    id="parent-account-phone-otp"
+                    className="field-input"
+                    type="text"
+                    inputMode="numeric"
+                    autoComplete="one-time-code"
+                    maxLength={6}
+                    value={accountPhoneOtpCode}
+                    onChange={e => {
+                      const v = e.target.value.replace(/\D/g, "").slice(0, 6);
+                      setAccountPhoneOtpCode(v);
+                      if (accountPhoneVerifyToken) setAccountPhoneVerifyToken("");
+                      if (accountPhoneOtpHint.includes("완료")) setAccountPhoneOtpHint("");
+                    }}
+                    placeholder="123456"
+                    disabled={accountPhoneVerifySending}
+                  />
+                  <button
+                    type="button"
+                    className="modal-secondary"
+                    style={{ width: "100%", marginTop: 8 }}
+                    onClick={() => void verifyAccountPhoneCode()}
+                    disabled={
+                      accountPhoneVerifySending ||
+                      accountPhoneOtpCode.trim().length !== 6
+                    }
+                  >
+                    {accountPhoneVerifySending ? "확인 중…" : "인증 확인"}
+                  </button>
+                </div>
+              ) : null}
+              {accountPhoneOtpHint ? (
+                <p className="settings-hint" style={{ marginTop: 8, marginBottom: 0 }}>
+                  {accountPhoneOtpHint}
+                </p>
+              ) : null}
+            </div>
+            <div className="field" style={{ marginTop: 10 }}>
               <label className="field-label" htmlFor="parent-account-new-pw">
                 새 비밀번호
               </label>
@@ -713,7 +953,7 @@ export function ParentProfilePage(props: {
                 value={accountCurrentPw}
                 onChange={e => setAccountCurrentPw(e.target.value)}
                 autoComplete="current-password"
-                placeholder="이메일/비밀번호 변경 시 필요"
+                placeholder="이메일·휴대폰·비밀번호 변경 시 필요"
               />
             </div>
             {accountError ? (
@@ -727,7 +967,12 @@ export function ParentProfilePage(props: {
               type="button"
               className="modal-secondary"
               onClick={() => accountModalReveal.beginClose(() => setAccountEditOpen(false))}
-              disabled={accountSaving}
+              disabled={
+                accountSaving ||
+                accountPhoneLoading ||
+                accountPhoneCodeSending ||
+                accountPhoneVerifySending
+              }
             >
               취소
             </button>
@@ -735,7 +980,12 @@ export function ParentProfilePage(props: {
               type="button"
               className="modal-primary"
               onClick={() => void saveAccount()}
-              disabled={accountSaving}
+              disabled={
+                accountSaving ||
+                accountPhoneLoading ||
+                accountPhoneCodeSending ||
+                accountPhoneVerifySending
+              }
             >
               {accountSaving ? "저장 중…" : "저장"}
             </button>
