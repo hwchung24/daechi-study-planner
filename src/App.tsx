@@ -3834,6 +3834,7 @@ const App: React.FC = () => {
                   parentNotificationUnreadCount={parentNotificationUnreadCount}
                   hapticSelection={hapticSelection}
                   parentStudents={parentStudents}
+                  parentStudentsLoaded={parentStudentsLoaded}
                   setParentStudents={setParentStudents}
                   parentStudentId={parentStudentId}
                   setParentStudentId={setParentStudentId}
