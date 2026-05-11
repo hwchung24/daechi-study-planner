@@ -912,6 +912,13 @@ html.parent-session .app-main {
   --parent-ui-scale: 1;
 }
 
+/* 학부모 페이지 한정: 한국어 줄바꿈 안정화 */
+.app-root--parent .coach-page,
+.app-root--parent .student-profile-page.section {
+  word-break: keep-all;
+  overflow-wrap: break-word;
+}
+
 /* 모바일에서 가로폭 기준으로 비율 유지 축소 */
 @supports (width: calc(100vw / 1px)) {
   .app-root--parent {
@@ -1014,6 +1021,7 @@ html.parent-session .app-main {
   gap: calc(10px * var(--parent-ui-scale));
   margin-top: 0;
   border: 0;
+  align-items: stretch;
 }
 
 .parent-home__status-card {
@@ -1021,11 +1029,11 @@ html.parent-session .app-main {
   background: #f8fafc;
   border: 1px solid rgba(148, 163, 184, 0.24);
   box-shadow: none;
-  padding: calc(14px * var(--parent-ui-scale)) calc(14px * var(--parent-ui-scale))
-    calc(12px * var(--parent-ui-scale));
+  padding: calc(20px * var(--parent-ui-scale));
   height: calc(210px * var(--parent-ui-scale));
   display: flex;
   flex-direction: column;
+  gap: calc(12px * var(--parent-ui-scale));
   overflow: hidden;
 }
 
@@ -1039,11 +1047,13 @@ html.parent-session .app-main {
 
 .parent-home__status-center .parent-home__status-body {
   margin: 0;
+  word-break: keep-all;
+  line-break: strict;
 }
 
 .parent-home__status-card-footer {
   margin-top: auto;
-  padding-top: calc(12px * var(--parent-ui-scale));
+  padding-top: 0;
 }
 
 .parent-home__status-card-footer--stack {
@@ -1264,7 +1274,7 @@ html.parent-session .app-main {
 .app-root--parent .student-profile-page.section {
   padding-left: calc(10px * var(--parent-ui-scale));
   padding-right: calc(10px * var(--parent-ui-scale));
-  padding-top: calc(10px * var(--parent-ui-scale));
+  padding-top: calc(12px * var(--parent-ui-scale));
 }
 
 .app-root--parent .coach-card--padded {
@@ -1311,17 +1321,17 @@ html.parent-session .app-main {
 }
 
 .app-root--parent .coach-admin-chat-shell__rail .coach-chat-starters {
-  margin-bottom: 2px;
-  padding: 4px 2px 2px;
+  margin-bottom: 0;
+  padding: 4px 0 2px;
 }
 
 .app-root--parent .coach-admin-chat-shell .coach-chat-input {
-  margin-top: 6px;
+  margin-top: 8px;
 }
 
 /* 알림 탭 미세 조정 */
 .app-root--parent .notifications-page__item-title {
-  margin-bottom: 3px;
+  margin-bottom: 4px;
   font-size: 14px;
   font-weight: 700;
   line-height: 1.35;
@@ -1334,7 +1344,7 @@ html.parent-session .app-main {
 }
 
 .app-root--parent .notifications-page__item-time {
-  margin-top: 7px;
+  margin-top: 8px;
   font-size: 11px;
   font-weight: 600;
 }
@@ -1357,6 +1367,7 @@ html.parent-session .app-main {
 }
 
 .app-root--parent .student-profile-settings-list .settings-item {
+  min-height: 46px;
   padding: 12px 0;
   border-bottom: 1px solid var(--parent-line);
 }
@@ -1368,6 +1379,40 @@ html.parent-session .app-main {
 .app-root--parent .student-profile-settings-list .settings-value {
   color: #475569;
   font-weight: 600;
+}
+
+/* 채팅: 메시지 세로 간격 및 하단 safe-area 통일 */
+.app-root--parent .coach-admin-chat__messages {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.app-root--parent .coach-admin-chat__messages .coach-bubble-row {
+  margin: 0;
+}
+
+.coach-page--parent-chat .coach-admin-chat-shell__rail {
+  gap: 8px;
+  padding-bottom: max(10px, env(safe-area-inset-bottom));
+}
+
+/* 알림: 구분선 full-width, 내부 텍스트 간격 통일 */
+.app-root--parent .notifications-page__item {
+  padding: 12px 0;
+  border-bottom: 1px solid var(--parent-line);
+}
+
+/* 설정: 리스트 구분선 및 row rhythm 통일 */
+.app-root--parent .student-profile-settings-list {
+  border-top: 1px solid var(--parent-line);
+}
+
+/* 학부모 버튼 높이/라운드 미세 통일 */
+.app-root--parent .parent-home__status-action,
+.app-root--parent .parent-home__status-time-btn {
+  min-height: calc(42px * var(--parent-ui-scale));
+  border-radius: var(--radius-pill);
 }
 
 .parent-home__status-kicker {
