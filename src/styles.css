@@ -1031,6 +1031,7 @@ html.parent-session .app-main {
   box-shadow: none;
   padding: calc(20px * var(--parent-ui-scale));
   height: calc(210px * var(--parent-ui-scale));
+  min-height: calc(210px * var(--parent-ui-scale));
   display: flex;
   flex-direction: column;
   gap: calc(12px * var(--parent-ui-scale));
@@ -1049,6 +1050,39 @@ html.parent-session .app-main {
   margin: 0;
   word-break: keep-all;
   line-break: strict;
+}
+
+.parent-home__status-body--fade {
+  animation: parent-status-fade-in 150ms ease;
+}
+
+@keyframes parent-status-fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes shimmer {
+  0% { background-position: -200px 0; }
+  100% { background-position: calc(200px + 100%) 0; }
+}
+
+.parent-skeleton {
+  background: linear-gradient(90deg, #e8e8e8 25%, #f5f5f5 50%, #e8e8e8 75%);
+  background-size: 400px 100%;
+  animation: shimmer 1.4s ease infinite;
+  border-radius: 6px;
+  width: 54%;
+  height: 22px;
+}
+
+.parent-skeleton--status {
+  width: 52%;
+  height: 22px;
+}
+
+.parent-skeleton--status-wide {
+  width: 72%;
+  height: 22px;
 }
 
 .parent-home__status-card-footer {

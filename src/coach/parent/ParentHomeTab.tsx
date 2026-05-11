@@ -339,6 +339,8 @@ export function ParentHomeTab(props: ParentHomeTabProps) {
   const netConnected =
     deviceSnapshot?.simpleMdmNetwork?.status === "recent";
 
+  const reportReady = parentReport !== null;
+
   const currentTimelineStudy = useMemo(() => {
     const days = Array.isArray(parentReport?.days) ? parentReport.days : [];
     const blocks = Array.isArray(parentReport?.blocks) ? parentReport.blocks : [];
@@ -387,15 +389,15 @@ export function ParentHomeTab(props: ParentHomeTabProps) {
                 </div>
                 <div className="parent-home__status-center">
                   {!hasStudyRoomConfig ? (
-                    <p className="parent-home__status-body">독서실 미등록</p>
+                    <p className="parent-home__status-body parent-home__status-body--fade">독서실 미등록</p>
                   ) : typeof studyRoomLiveStatus.currentWithinRadius === "boolean" ? (
-                    <p className="parent-home__status-body">
+                    <p className="parent-home__status-body parent-home__status-body--fade">
                       {studyRoomLiveStatus.currentWithinRadius ? "체크인" : "체크아웃"}
                     </p>
                   ) : studyRoomVisitsLoading ? (
-                    <p className="parent-home__status-body">상태 확인 중...</p>
+                    <div className="parent-skeleton parent-skeleton--status" aria-label="로딩 중" />
                   ) : (
-                    <p className="parent-home__status-body">상태 없음</p>
+                    <p className="parent-home__status-body parent-home__status-body--fade">상태 없음</p>
                   )}
                 </div>
                 <div className="parent-home__status-card-footer">
@@ -427,11 +429,11 @@ export function ParentHomeTab(props: ParentHomeTabProps) {
                 </div>
                 {deviceLoading && !deviceSnapshot ? (
                   <div className="parent-home__status-center">
-                    <p className="parent-home__status-body">기기 상태를 불러오는 중입니다.</p>
+                    <div className="parent-skeleton parent-skeleton--status-wide" aria-label="로딩 중" />
                   </div>
                 ) : deviceSnapshot ? (
                   <div className="parent-home__status-center">
-                    <p className="parent-home__status-body">
+                    <p className="parent-home__status-body parent-home__status-body--fade">
                       {phoneModeLabel ? (
                         <>
                           <span className="parent-home__status-em">{phoneModeLabel}</span>
@@ -443,7 +445,7 @@ export function ParentHomeTab(props: ParentHomeTabProps) {
                   </div>
                 ) : (
                   <div className="parent-home__status-center">
-                    <p className="parent-home__status-body">기기 상태를 가져오지 못했습니다.</p>
+                    <p className="parent-home__status-body parent-home__status-body--fade">기기 상태를 가져오지 못했습니다.</p>
                   </div>
                 )}
                 <div className="parent-home__status-card-footer">
@@ -468,7 +470,7 @@ export function ParentHomeTab(props: ParentHomeTabProps) {
                 </div>
                 {plannerLoading ? (
                   <div className="parent-home__status-center">
-                    <p className="parent-home__status-body">불러오는 중...</p>
+                    <div className="parent-skeleton parent-skeleton--status" aria-label="로딩 중" />
                   </div>
                 ) : (
                   <>
@@ -523,9 +525,13 @@ export function ParentHomeTab(props: ParentHomeTabProps) {
                   <span className="parent-home__status-card-title">현재 공부</span>
                 </div>
                 <div className="parent-home__status-center">
-                  <p className="parent-home__status-body">
-                    {currentTimelineStudy || "설정 안됨"}
-                  </p>
+                  {reportReady ? (
+                    <p className="parent-home__status-body parent-home__status-body--fade">
+                      {currentTimelineStudy || "설정 안됨"}
+                    </p>
+                  ) : (
+                    <div className="parent-skeleton parent-skeleton--status" aria-label="로딩 중" />
+                  )}
                 </div>
                 <div className="parent-home__status-card-footer">
                   <button
