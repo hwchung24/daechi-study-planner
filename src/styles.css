@@ -9980,3 +9980,327 @@ button:active:not(:disabled),
   font-size: 12px;
 }
 
+/* =====================================================================
+   Parent session redesign prompt (parent pages only)
+   Scope: html.parent-session + .app-root--parent
+   ===================================================================== */
+html.parent-session {
+  --bg-primary: #0f1117;
+  --bg-surface: #1a1d27;
+  --bg-surface-hover: #21253a;
+  --accent-blue: #4f7eff;
+  --accent-blue-soft: rgba(79, 126, 255, 0.12);
+  --accent-green: #34d399;
+  --accent-red: #f87171;
+  --accent-amber: #fbbf24;
+  --text-primary: #f1f5f9;
+  --text-secondary: #94a3b8;
+  --text-muted: #475569;
+  --border: rgba(255, 255, 255, 0.06);
+  --border-active: rgba(79, 126, 255, 0.4);
+}
+
+html.parent-session body,
+html.parent-session .app-shell,
+html.parent-session .app-main {
+  background: var(--bg-primary);
+  color: var(--text-primary);
+}
+
+/* Header / tabs */
+html.parent-session .app-header.app-header--parent,
+html.parent-session .app-header.app-header--parent.app-header--scrolled {
+  background: rgba(15, 17, 23, 0.82);
+  border-bottom: 1px solid var(--border);
+  box-shadow: none;
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+}
+
+html.parent-session .app-header--parent .parent-global-top-row--header {
+  background: transparent;
+  border: 0;
+  box-shadow: none;
+  padding: 2px 0;
+}
+
+html.parent-session .app-header--parent .parent-quick-nav__btn,
+html.parent-session .app-header--parent .parent-student-dropdown__trigger {
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--text-secondary);
+  font-size: 14px;
+  font-weight: var(--font-weight-semibold);
+  min-height: 34px;
+  padding: 0 12px;
+  transition:
+    background-color 0.2s ease,
+    border-color 0.2s ease,
+    color 0.2s ease;
+}
+
+html.parent-session .app-header--parent .parent-quick-nav__btn:hover,
+html.parent-session .app-header--parent .parent-student-dropdown__trigger:hover {
+  background: rgba(255, 255, 255, 0.04);
+  border-color: var(--border-active);
+  color: var(--text-primary);
+}
+
+html.parent-session .app-header--parent .parent-quick-nav__btn--active {
+  background: var(--accent-blue);
+  border-color: var(--accent-blue);
+  color: #ffffff;
+}
+
+/* Management cards: asymmetric hierarchy */
+html.parent-session .app-root--parent .parent-home__status-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-areas:
+    "location location"
+    "phone study"
+    "planner planner";
+  gap: 12px;
+  background: transparent;
+}
+
+html.parent-session .app-root--parent .parent-home__status-grid > .parent-home__status-card:nth-child(1) {
+  grid-area: location;
+}
+html.parent-session .app-root--parent .parent-home__status-grid > .parent-home__status-card:nth-child(2) {
+  grid-area: phone;
+}
+html.parent-session .app-root--parent .parent-home__status-grid > .parent-home__status-card:nth-child(3) {
+  grid-area: planner;
+  height: auto;
+  min-height: 140px;
+}
+html.parent-session .app-root--parent .parent-home__status-grid > .parent-home__status-card:nth-child(4) {
+  grid-area: study;
+}
+
+html.parent-session .app-root--parent .parent-home__status-card {
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  box-shadow: none;
+  color: var(--text-primary);
+  transition: border-color 0.2s ease, transform 0.2s ease, background-color 0.2s ease;
+}
+
+html.parent-session .app-root--parent .parent-home__status-card:hover {
+  border-color: var(--border-active);
+  background: var(--bg-surface-hover);
+  transform: scale(1.01);
+}
+
+html.parent-session .app-root--parent .parent-home__status-card-title {
+  color: var(--text-secondary);
+  font-size: 11px;
+  font-weight: var(--font-weight-semibold);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+html.parent-session .app-root--parent .parent-home__status-body {
+  color: var(--text-primary);
+  font-size: 24px;
+  font-weight: var(--font-weight-bold);
+}
+
+html.parent-session .app-root--parent .parent-home__status-em {
+  color: var(--text-primary);
+}
+
+html.parent-session .app-root--parent .parent-home__net-badge {
+  border: 1px solid var(--border);
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--text-secondary);
+}
+
+html.parent-session .app-root--parent .parent-home__net-badge--off {
+  background: rgba(248, 113, 113, 0.15);
+  border: 1px solid #f87171;
+  color: #f87171;
+}
+
+html.parent-session .app-root--parent .parent-home__net-badge--off::before {
+  content: "●";
+  margin-right: 4px;
+  animation: parent-net-blink 1.2s ease-in-out infinite;
+}
+
+@keyframes parent-net-blink {
+  0%,
+  100% {
+    opacity: 0.35;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+html.parent-session .app-root--parent .parent-home__status-action {
+  min-height: 44px;
+  border-radius: 10px;
+  font-size: 14px;
+  font-weight: var(--font-weight-semibold);
+  background: var(--accent-blue);
+  border: 1px solid var(--accent-blue);
+  color: #fff;
+}
+
+html.parent-session .app-root--parent .parent-home__status-time-btn {
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--text-primary);
+  border-radius: 10px;
+}
+
+/* Chat tab */
+html.parent-session .app-root--parent .coach-admin-chat-shell .coach-chat {
+  background: transparent;
+  border: 0;
+}
+
+html.parent-session .app-root--parent .coach-bubble {
+  max-width: 78%;
+  border-radius: 16px;
+  padding: 8px 12px;
+}
+
+html.parent-session .app-root--parent .coach-admin-chat__messages .coach-bubble--coach {
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  color: var(--text-primary);
+}
+
+html.parent-session .app-root--parent .coach-admin-chat__messages .coach-bubble--user {
+  background: var(--accent-blue);
+  border-color: var(--accent-blue);
+  color: #ffffff;
+}
+
+html.parent-session .app-root--parent .coach-bubble__line {
+  font-size: 15px;
+  line-height: 1.6;
+}
+
+html.parent-session .app-root--parent .coach-avatar {
+  width: 28px;
+  height: 28px;
+  background: var(--accent-blue-soft);
+  border: 1px solid var(--border-active);
+}
+
+html.parent-session .app-root--parent .coach-avatar svg {
+  color: var(--accent-blue);
+}
+
+html.parent-session .app-root--parent .coach-admin-chat-shell .coach-chat-bottom-rail {
+  background: var(--bg-surface);
+  border-top: 1px solid var(--border);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+}
+
+html.parent-session .app-root--parent .coach-admin-chat-shell .coach-chat-text {
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  color: var(--text-primary);
+}
+
+html.parent-session .app-root--parent .coach-admin-chat-shell .coach-chat-text:focus {
+  border-color: var(--accent-blue);
+  box-shadow: 0 0 0 3px rgba(79, 126, 255, 0.16);
+}
+
+html.parent-session .app-root--parent .coach-starter,
+html.parent-session .app-root--parent .coach-admin-chat__starter-button {
+  border: 1px solid var(--accent-amber);
+  background: rgba(251, 191, 36, 0.08);
+  color: #fcd34d;
+}
+
+html.parent-session .app-root--parent .coach-chat-input .coach-primary-btn--sm {
+  width: 36px;
+  min-width: 36px;
+  height: 36px;
+}
+
+/* Notifications */
+html.parent-session .app-root--parent .notifications-page__list {
+  gap: 8px;
+}
+
+html.parent-session .app-root--parent .notifications-page__item {
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 12px 16px 12px 36px;
+  position: relative;
+}
+
+html.parent-session .app-root--parent .notifications-page__item::before {
+  content: "🤖";
+  position: absolute;
+  left: 12px;
+  top: 10px;
+  font-size: 14px;
+  line-height: 1;
+}
+
+html.parent-session .app-root--parent .notifications-page__item.notifications-page__item--actionable::before {
+  content: "📅";
+}
+
+html.parent-session .app-root--parent .notifications-page__item-title {
+  color: var(--text-primary);
+  font-size: 14px;
+  font-weight: var(--font-weight-bold);
+}
+
+html.parent-session .app-root--parent .notifications-page__item-body {
+  color: var(--text-secondary);
+}
+
+html.parent-session .app-root--parent .notifications-page__item-time {
+  color: var(--text-muted);
+}
+
+/* Settings tab */
+html.parent-session .app-root--parent .student-profile-page .coach-card {
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+}
+
+html.parent-session .app-root--parent .student-profile-page .coach-profile-card__name {
+  color: var(--text-primary);
+}
+
+html.parent-session .app-root--parent .student-profile-page .coach-profile-card__goal {
+  color: var(--text-secondary);
+}
+
+html.parent-session .app-root--parent .coach-primary-btn.coach-profile-card__action {
+  border-radius: 14px;
+}
+
+html.parent-session .app-root--parent .student-profile-settings-list {
+  margin-top: 16px;
+  border-top-color: var(--border);
+}
+
+html.parent-session .app-root--parent .student-profile-settings-list .settings-item {
+  border-bottom-color: var(--border);
+}
+
+html.parent-session .app-root--parent .student-profile-settings-list .settings-label {
+  color: var(--text-primary);
+}
+
+html.parent-session .app-root--parent .student-profile-settings-list .settings-value {
+  color: var(--text-secondary);
+}
+
