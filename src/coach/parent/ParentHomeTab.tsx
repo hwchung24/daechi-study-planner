@@ -23,6 +23,7 @@ type ParentHomeTabProps = {
   setParentStudentId: (id: number | null) => void;
   selectedStudent: ParentStudentRow | null;
   parentReport: ParentHomeReport | null;
+  suggestedPhrase?: string | null;
   parentLockStatus: ParentLockStatus | null;
   notificationUnreadCount: number;
   hapticSelection: () => void;
@@ -133,6 +134,7 @@ export function ParentHomeTab(props: ParentHomeTabProps) {
     setParentStudentId,
     selectedStudent,
     parentReport,
+    suggestedPhrase,
     parentLockStatus,
     hapticSelection
   } = props;
@@ -381,8 +383,14 @@ export function ParentHomeTab(props: ParentHomeTabProps) {
       ) : (
         <section className="section parent-home__live" aria-label="자녀 실시간 상태">
           {selectedStudent ? (
-            <div className="parent-home__status-grid">
-              <div className="parent-home__status-card">
+            <>
+              {String(suggestedPhrase || "").trim() ? (
+                <div className="parent-home__coach-phrase-card">
+                  <p className="parent-home__coach-phrase">{String(suggestedPhrase || "").trim()}</p>
+                </div>
+              ) : null}
+              <div className="parent-home__status-grid">
+                <div className="parent-home__status-card">
                 <div className="parent-home__status-card-head">
                   <MapPin size={18} strokeWidth={2} aria-hidden />
                   <span className="parent-home__status-card-title">실시간 위치</span>
@@ -542,8 +550,9 @@ export function ParentHomeTab(props: ParentHomeTabProps) {
                     학습 보기
                   </button>
                 </div>
+                </div>
               </div>
-            </div>
+            </>
           ) : (
             <p className="parent-home__status-hint">표시할 학생을 선택해 주세요.</p>
           )}

@@ -863,6 +863,14 @@ function deriveGuide(report: ParentWeeklyReport | null, aiDaily: ParentAiDaily |
   };
 }
 
+function pickParentSuggestedPhrase(aiDaily: ParentAiDaily | null, fallback: string) {
+  const aiPhrase = String(aiDaily?.summary_text || "")
+    .split(/\n+/)
+    .map(line => line.trim())
+    .find(Boolean);
+  return aiPhrase || fallback;
+}
+
 function AiReportTab(props: {
   apiBase: string;
   authToken: string | null;
@@ -876,6 +884,10 @@ function AiReportTab(props: {
     props.parentStudents.find(student => student.id === props.parentStudentId) ||
     props.parentStudents[0] ||
     null;
+  const parentSuggestedPhrase = pickParentSuggestedPhrase(
+    props.parentAiDaily,
+    deriveGuide(props.parentReport, props.parentAiDaily).suggestedPhrases[0] || ""
+  );
   const chartData = useMemo(() => buildDailyChart(props.parentReport), [props.parentReport]);
   const guide = useMemo(
     () => deriveGuide(props.parentReport, props.parentAiDaily),
@@ -2595,7 +2607,10 @@ function ParentAnalysisTab(props: {
   if (!props.selectedStudent) {
     return <EmptyState title="학생을 선택하세요" />;
   }
-  const parentSuggestedPhrase = deriveGuide(props.parentReport, props.parentAiDaily).suggestedPhrases[0];
+  const parentSuggestedPhrase = pickParentSuggestedPhrase(
+    props.parentAiDaily,
+    deriveGuide(props.parentReport, props.parentAiDaily).suggestedPhrases[0] || ""
+  );
   return (
     <StudentCoachApp
       tab="analysis"
@@ -2662,6 +2677,10 @@ export function ParentCoachApp(props: {
     props.parentStudents.find(student => student.id === props.parentStudentId) ||
     props.parentStudents[0] ||
     null;
+  const parentSuggestedPhrase = pickParentSuggestedPhrase(
+    props.parentAiDaily,
+    deriveGuide(props.parentReport, props.parentAiDaily).suggestedPhrases[0] || ""
+  );
 
   let view: React.ReactNode;
   if (props.tab === "home") {
@@ -2675,6 +2694,7 @@ export function ParentCoachApp(props: {
         setParentStudentId={props.setParentStudentId}
         selectedStudent={selectedStudent}
         parentReport={props.parentReport}
+        suggestedPhrase={parentSuggestedPhrase}
         parentLockStatus={props.parentLockStatus}
         notificationUnreadCount={props.parentNotificationUnreadCount}
         hapticSelection={props.hapticSelection}

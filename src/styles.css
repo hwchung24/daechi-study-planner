@@ -1260,6 +1260,23 @@ html.parent-session .app-main {
   color: var(--text-sub);
 }
 
+.parent-home__coach-phrase {
+  margin: 0;
+  font-size: calc(13px * var(--parent-ui-scale));
+  font-weight: 600;
+  color: #1e3a5f;
+  line-height: 1.45;
+  word-break: keep-all;
+}
+
+.parent-home__coach-phrase-card {
+  margin: 0 0 calc(10px * var(--parent-ui-scale));
+  padding: calc(10px * var(--parent-ui-scale)) calc(12px * var(--parent-ui-scale));
+  background: #ffffff;
+  border: 1px solid rgba(148, 163, 184, 0.22);
+  border-radius: var(--radius-lg);
+}
+
 /* 학부모 페이지 전반: 일관된 카드 톤과 간격 */
 .app-root--parent .coach-shell__tab-panel--parent .coach-card,
 .app-root--parent .student-profile-page.section .coach-card {
@@ -1379,6 +1396,38 @@ html.parent-session .app-main {
 .app-root--parent .parent-home__status-hint,
 .app-root--parent .settings-hint {
   color: var(--parent-gray-3);
+}
+
+/* 학부모 전용: 텍스트 포인트 컬러를 무채색으로 통일 */
+.app-root--parent .parent-home__coach-phrase,
+.app-root--parent .parent-home__status-body,
+.app-root--parent .parent-home__status-em,
+.app-root--parent .parent-home__status-card-head,
+.app-root--parent .parent-home__status-card-head svg {
+  color: var(--parent-gray-1);
+}
+
+.app-root--parent .parent-home__net-badge--on,
+.app-root--parent .parent-home__net-badge--off {
+  color: var(--parent-gray-2);
+}
+
+.app-root--parent .parent-home__net-badge--on {
+  background: rgba(var(--neutral-rgb), 0.08);
+  border-color: rgba(var(--neutral-rgb), 0.24);
+}
+
+.app-root--parent .parent-home__net-badge--off {
+  background: rgba(var(--neutral-rgb), 0.06);
+  border-color: rgba(var(--neutral-rgb), 0.2);
+}
+
+.app-root--parent .parent-home__map-link {
+  color: var(--parent-gray-2);
+}
+
+.app-root--parent .parent-home__map-link:hover {
+  color: var(--parent-gray-1);
 }
 
 /* 채팅 탭 미세 조정 */
