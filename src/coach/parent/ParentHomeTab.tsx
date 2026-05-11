@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { LayoutGrid, MapPin, Smartphone } from "lucide-react";
+import { BookOpen, CalendarDays, MapPin, Smartphone } from "lucide-react";
 import { setAppPath } from "../../lib/appNavigation";
 import type { ParentLockStatus } from "../../types/lockStatus";
 import type { ParentStudentRow } from "../../types/parent";
@@ -298,6 +298,14 @@ export function ParentHomeTab(props: ParentHomeTabProps) {
     }
   };
 
+  const togglePlannerEnabled = async () => {
+    if (!authToken || !selectedStudent?.id || plannerSaving) return;
+    hapticSelection();
+    const nextEnabled = !plannerEnabled;
+    setPlannerEnabled(nextEnabled);
+    await savePlannerRule({ enabled: nextEnabled, lockTime: plannerTime });
+  };
+
   const toggleFreeMode = () => {
     if (!authToken || !selectedStudent?.id || freeModeToggling) return;
     const isFree = deviceSnapshot?.activeAppAllowanceMode === "free";
@@ -341,6 +349,7 @@ export function ParentHomeTab(props: ParentHomeTabProps) {
           ? "유틸"
           : "기본"
     : null;
+  const plannerKioskModeActive = Boolean(selectedStudent?.kioskActive);
 
   const netConnected =
     deviceSnapshot?.simpleMdmNetwork?.status === "recent";
@@ -486,9 +495,10 @@ export function ParentHomeTab(props: ParentHomeTabProps) {
                   <div className="parent-home__status-center">
                     <p className="parent-home__status-body parent-home__status-body--fade">
                       {phoneModeLabel ? (
-                        <>
-                          <span className="parent-home__status-em">{phoneModeLabel}</span>
-                        </>
+                        <span className="parent-home__status-em">
+                          {phoneModeLabel}
+                          {plannerKioskModeActive ? " · 계획표" : ""}
+                        </span>
                       ) : (
                         "모드 정보를 불러오지 못했습니다."
                       )}
@@ -516,8 +526,21 @@ export function ParentHomeTab(props: ParentHomeTabProps) {
               </div>
               <div className="parent-home__status-card" aria-label="계획표 카드">
                 <div className="parent-home__status-card-head">
-                  <LayoutGrid size={18} strokeWidth={2} aria-hidden />
+                  <CalendarDays size={18} strokeWidth={2} aria-hidden />
                   <span className="parent-home__status-card-title">계획표</span>
+                  {!plannerLoading ? (
+                    <button
+                      type="button"
+                      className="parent-home__planner-now-toggle"
+                      onClick={() => void togglePlannerEnabled()}
+                      disabled={plannerSaving || !selectedStudent?.id || !authToken}
+                      aria-pressed={plannerEnabled}
+                      aria-label={plannerEnabled ? "지금 끄기" : "지금 켜기"}
+                      aria-busy={plannerSaving}
+                    >
+                      {plannerEnabled ? "지금 끄기" : "지금 켜기"}
+                    </button>
+                  ) : null}
                 </div>
                 {plannerLoading ? (
                   <div className="parent-home__status-center">
@@ -554,17 +577,13 @@ export function ParentHomeTab(props: ParentHomeTabProps) {
                           "timeline-save-button study-room-editor__save-button parent-home__status-action" +
                           (!plannerEnabled ? " parent-home__status-action--muted" : "")
                         }
-                        onClick={async () => {
-                          const nextEnabled = !plannerEnabled;
-                          setPlannerEnabled(nextEnabled);
-                          await savePlannerRule({ enabled: nextEnabled, lockTime: plannerTime });
-                        }}
+                        onClick={() => void togglePlannerEnabled()}
                         aria-pressed={plannerEnabled}
-                        aria-label={plannerEnabled ? "계획표 끄기" : "계획표 켜기"}
+                        aria-label={plannerEnabled ? "시간 설정 해제" : "시간 설정"}
                         disabled={plannerSaving}
                         aria-busy={plannerSaving}
                       >
-                        {plannerEnabled ? "계획표 끄기" : "계획표 켜기"}
+                        {plannerEnabled ? "시간 설정 해제" : "시간 설정"}
                       </button>
                     </div>
                   </>
@@ -572,7 +591,7 @@ export function ParentHomeTab(props: ParentHomeTabProps) {
               </div>
               <div className="parent-home__status-card" aria-label="현재 공부 내용 카드">
                 <div className="parent-home__status-card-head">
-                  <LayoutGrid size={18} strokeWidth={2} aria-hidden />
+                  <BookOpen size={18} strokeWidth={2} aria-hidden />
                   <span className="parent-home__status-card-title">현재 공부</span>
                 </div>
                 <div className="parent-home__status-center">

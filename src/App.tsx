@@ -3721,9 +3721,6 @@ const App: React.FC = () => {
             aria-live="polite"
           >
             <div className="parent-linking-loader">
-              <span className="parent-linking-loader__orbit" aria-hidden>
-                <span className="parent-linking-loader__phone-icon">📱</span>
-              </span>
               <p className="parent-linking-loader__text">
                 학생 휴대폰과 연결 중<span className="parent-linking-loader__dots" aria-hidden>...</span>
               </p>
