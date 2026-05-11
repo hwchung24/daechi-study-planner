@@ -3644,6 +3644,9 @@ const App: React.FC = () => {
           {parentView ? (
             <div className="header-top header-top--parent-filled">
               <div className="parent-global-top-row parent-global-top-row--header">
+                <div className="parent-header-logo" aria-hidden>
+                  <img src="/parent-header-logo.png" alt="" className="parent-header-logo__img" />
+                </div>
                 <div className="parent-global-top-row__student">
                   <ParentStudentSelector
                     parentStudents={parentStudents}

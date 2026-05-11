@@ -987,8 +987,10 @@ html.parent-session .app-main {
   width: max-content;
   max-width: 100%;
   margin: 0 auto;
-  padding: 0;
+  padding: 0 8px;
   justify-content: center;
+  position: relative;
+  overflow: visible;
 }
 
 .parent-global-top-row--header .parent-global-top-row__student,
@@ -1013,6 +1015,31 @@ html.parent-session .app-main {
 
 .parent-global-top-row__student .store-filter-row {
   padding-bottom: 0;
+}
+
+.parent-header-logo {
+  position: absolute;
+  left: calc(-38px * var(--parent-ui-scale));
+  top: 50%;
+  transform: translate(0, -50%);
+  width: calc(34px * var(--parent-ui-scale));
+  height: calc(34px * var(--parent-ui-scale));
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  background: #ffffff;
+  border: 1px solid rgba(148, 163, 184, 0.28);
+  box-shadow: 0 6px 16px rgba(15, 23, 42, 0.12);
+  z-index: 2;
+  pointer-events: none;
+}
+
+.parent-header-logo__img {
+  width: 62%;
+  height: 62%;
+  object-fit: contain;
+  display: block;
 }
 
 .parent-home__status-grid {
