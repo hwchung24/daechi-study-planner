@@ -782,6 +782,19 @@ html.parent-session {
   overscroll-behavior-x: none;
 }
 
+/* 웹 학부모 화면은 한 단계 더 조밀하게 보여 "더 큰 화면"처럼 보이게 조정 */
+html.web-app.parent-session {
+  --font-size-xlarge: 20px;
+  --font-size-large: 15px;
+  --font-size-medium: 11px;
+  --font-size-small: 10px;
+  --app-shell-inline-padding: 10px;
+  --radius-md: 12px;
+  --radius-button: 14px;
+  --radius-lg: 16px;
+  --radius-xl: 20px;
+}
+
 html.parent-session .app-main {
   overflow-x: hidden;
   overscroll-behavior-x: none;
@@ -921,8 +934,8 @@ html.parent-session .app-main {
   background: #fff;
   color: var(--text-main);
   border-radius: var(--radius-pill);
-  min-height: 34px;
-  padding: 0 12px;
+  min-height: 32px;
+  padding: 0 11px;
   font-size: var(--font-size-small);
   font-weight: var(--font-weight-semibold);
   line-height: 1;
@@ -998,8 +1011,8 @@ html.parent-session .app-main {
   background: var(--surface-base);
   border: var(--border-width) solid var(--border-neutral);
   box-shadow: var(--shadow-soft);
-  padding: 14px 14px 12px;
-  height: 210px;
+  padding: 12px 12px 10px;
+  height: 194px;
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -1031,7 +1044,7 @@ html.parent-session .app-main {
 .parent-home__status-action {
   width: 100%;
   border-radius: var(--radius-pill);
-  min-height: 44px;
+  min-height: 40px;
 }
 
 .parent-home__status-action--muted {
@@ -1095,7 +1108,7 @@ html.parent-session .app-main {
 
 .parent-home__status-body {
   margin: 0;
-  font-size: 18px;
+  font-size: 16px;
   font-weight: var(--font-weight-semibold);
   color: var(--text-main);
   line-height: 1.45;
@@ -1105,9 +1118,9 @@ html.parent-session .app-main {
   border: 1px solid rgba(var(--neutral-rgb), 0.22);
   background: rgba(var(--neutral-rgb), 0.04);
   border-radius: var(--radius-pill);
-  padding: 8px 16px;
+  padding: 6px 14px;
   margin: 0;
-  font-size: 18px;
+  font-size: 16px;
   font-weight: var(--font-weight-semibold);
   color: var(--text-main);
   line-height: 1.45;
