@@ -153,6 +153,7 @@ export function ParentHomeTab(props: ParentHomeTabProps) {
   const [plannerLoading, setPlannerLoading] = useState(false);
   const [plannerSaving, setPlannerSaving] = useState(false);
   const [plannerTimeSheetOpen, setPlannerTimeSheetOpen] = useState(false);
+  const [bulkKioskSaving, setBulkKioskSaving] = useState(false);
   const [delayedNetConnected, setDelayedNetConnected] = useState<boolean | null>(null);
   const [showNoLinkedHint, setShowNoLinkedHint] = useState(false);
 
@@ -306,6 +307,51 @@ export function ParentHomeTab(props: ParentHomeTabProps) {
     await savePlannerRule({ enabled: nextEnabled, lockTime: plannerTime });
   };
 
+  /** 학생 설정 > 계획표 작성 시간 카드의 「지금 켜기/끄기」와 동일: 키오스크(계획표 작성) 모드 일괄 전환 */
+  const toggleBulkKioskMode = async (nextEnabled: boolean) => {
+    if (!authToken || !selectedStudent?.id) return;
+    setBulkKioskSaving(true);
+    try {
+      const res = await fetch(
+        `${apiBase}/api/parent/kiosk-mode/${nextEnabled ? "bulk-enable" : "bulk-disable"}`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${authToken}`
+          },
+          body: JSON.stringify({ studentIds: [selectedStudent.id] })
+        }
+      );
+      const data = (await res.json().catch(() => ({}))) as {
+        error?: string;
+        message?: string;
+        summary?: { total?: number; success?: number; failed?: number };
+      };
+      if (!res.ok) {
+        throw new Error(
+          String(
+            data.error ||
+              (nextEnabled ? "키오스크 모드 적용에 실패했습니다." : "키오스크 모드 해제에 실패했습니다.")
+          )
+        );
+      }
+      if ((data.summary?.failed || 0) > 0) {
+        alert(String(data.message || "일부 기기에 적용하지 못했습니다."));
+        return;
+      }
+      await refreshDeviceSnapshot();
+    } catch (error) {
+      alert(
+        error instanceof Error && error.message
+          ? error.message
+          : "키오스크 모드 제어 중 오류가 발생했습니다."
+      );
+    } finally {
+      setBulkKioskSaving(false);
+    }
+  };
+
   const toggleFreeMode = () => {
     if (!authToken || !selectedStudent?.id || freeModeToggling) return;
     const isFree = deviceSnapshot?.activeAppAllowanceMode === "free";
@@ -349,7 +395,7 @@ export function ParentHomeTab(props: ParentHomeTabProps) {
           ? "유틸"
           : "기본"
     : null;
-  const plannerKioskModeActive = Boolean(selectedStudent?.kioskActive);
+  const plannerKioskModeActive = Boolean(deviceSnapshot?.kioskEnabled);
 
   const netConnected =
     deviceSnapshot?.simpleMdmNetwork?.status === "recent";
@@ -532,13 +578,25 @@ export function ParentHomeTab(props: ParentHomeTabProps) {
                     <button
                       type="button"
                       className="parent-home__planner-now-toggle"
-                      onClick={() => void togglePlannerEnabled()}
-                      disabled={plannerSaving || !selectedStudent?.id || !authToken}
-                      aria-pressed={plannerEnabled}
-                      aria-label={plannerEnabled ? "지금 끄기" : "지금 켜기"}
-                      aria-busy={plannerSaving}
+                      onClick={() => {
+                        hapticSelection();
+                        void toggleBulkKioskMode(!Boolean(deviceSnapshot?.kioskEnabled));
+                      }}
+                      disabled={bulkKioskSaving || !selectedStudent?.id || !authToken}
+                      aria-pressed={Boolean(deviceSnapshot?.kioskEnabled)}
+                      aria-label={deviceSnapshot?.kioskEnabled ? "지금 끄기" : "지금 켜기"}
+                      aria-busy={bulkKioskSaving}
                     >
-                      {plannerEnabled ? "지금 끄기" : "지금 켜기"}
+                      {bulkKioskSaving ? (
+                        <span
+                          className="parent-settings-inline-spinner parent-settings-inline-spinner--inverse"
+                          aria-hidden
+                        />
+                      ) : deviceSnapshot?.kioskEnabled ? (
+                        "지금 끄기"
+                      ) : (
+                        "지금 켜기"
+                      )}
                     </button>
                   ) : null}
                 </div>
