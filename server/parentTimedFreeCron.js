@@ -4,19 +4,17 @@ let tickerStarted = false;
 let tickerRunning = false;
 
 /**
- * 학부모가 지정한 자유시간(분) 만료 시 기본 허용앱 프로파일로 복귀합니다.
+ * 학부모 자유시간(분) 만료 시 free 프로파일을 걷고 진입 직전 스냅샷으로 복구합니다.
  */
-async function expireParentTimedFreeGrants(ensureBaselineAppAllowanceForStudent) {
+async function expireParentTimedFreeGrants(restoreAfterParentTimedFree) {
   const rows = await db.listExpiredStudentParentTimedFree();
   for (const row of rows) {
     const sid = Number(row.student_user_id);
     if (!Number.isFinite(sid)) continue;
+    const snapshot = row.restore_snapshot;
     try {
       await db.deleteStudentParentTimedFree(sid);
-      await ensureBaselineAppAllowanceForStudent(sid, {
-        reason: "parent_timed_free_expired",
-        afterParentAppModeScheduleSlot: true
-      });
+      await restoreAfterParentTimedFree(sid, snapshot);
     } catch (err) {
       console.error(
         `[cron] parent timed free revert student=${sid}:`,
@@ -26,7 +24,7 @@ async function expireParentTimedFreeGrants(ensureBaselineAppAllowanceForStudent)
   }
 }
 
-function startParentTimedFreeTicker(ensureBaselineAppAllowanceForStudent) {
+function startParentTimedFreeTicker(restoreAfterParentTimedFree) {
   if (tickerStarted) return;
   tickerStarted = true;
   const intervalMs = 15_000;
@@ -35,7 +33,7 @@ function startParentTimedFreeTicker(ensureBaselineAppAllowanceForStudent) {
     if (tickerRunning) return;
     tickerRunning = true;
     try {
-      await expireParentTimedFreeGrants(ensureBaselineAppAllowanceForStudent);
+      await expireParentTimedFreeGrants(restoreAfterParentTimedFree);
     } catch (error) {
       console.error("[cron] parent timed free tick error", error);
     } finally {

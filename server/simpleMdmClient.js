@@ -567,7 +567,13 @@ function shouldUnassignProfileForAllowanceSlot(profileRow, targetProfileId, mana
   const nameKey = normalizeSimpleMdmName(profileRow?.attributes?.name);
   if (typeLc === "app_restrictions") return true;
   if (nameKey && keys.has(nameKey)) return true;
-  if (nameKey && nameKey.startsWith("dae chiroot weekly app allowance")) return true;
+  if (
+    nameKey &&
+    (nameKey.startsWith("daechiroot weekly app allowance") ||
+      nameKey.startsWith("dae chiroot weekly app allowance"))
+  ) {
+    return true;
+  }
   return false;
 }
 

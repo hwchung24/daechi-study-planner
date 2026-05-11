@@ -4085,14 +4085,31 @@ async function markUserPushTokenError(tokenId, errorText, deactivate = false) {
   );
 }
 
-async function upsertStudentParentTimedFree(studentUserId, expiresAtIso) {
+async function upsertStudentParentTimedFree(studentUserId, expiresAtIso, restoreSnapshot = null) {
+  const snap =
+    restoreSnapshot != null && typeof restoreSnapshot === "object" ? restoreSnapshot : {};
   await query(
-    `INSERT INTO student_parent_timed_free (student_user_id, expires_at, created_at, updated_at)
-     VALUES ($1, $2::timestamptz, now(), now())
+    `INSERT INTO student_parent_timed_free (student_user_id, expires_at, restore_snapshot, created_at, updated_at)
+     VALUES ($1, $2::timestamptz, $3::jsonb, now(), now())
      ON CONFLICT (student_user_id) DO UPDATE
-     SET expires_at = EXCLUDED.expires_at, updated_at = now()`,
+     SET expires_at = EXCLUDED.expires_at,
+         restore_snapshot = EXCLUDED.restore_snapshot,
+         updated_at = now()`,
+    [studentUserId, expiresAtIso, JSON.stringify(snap)]
+  );
+}
+
+/** 자유시간 연장 등: 만료만 바꾸고 스냅샷은 유지. 행이 없으면 빈 스냅샷으로 생성합니다. */
+async function touchStudentParentTimedFreeExpiresAt(studentUserId, expiresAtIso) {
+  const res = await query(
+    `UPDATE student_parent_timed_free
+     SET expires_at = $2::timestamptz, updated_at = now()
+     WHERE student_user_id = $1`,
     [studentUserId, expiresAtIso]
   );
+  if (!res.rowCount) {
+    await upsertStudentParentTimedFree(studentUserId, expiresAtIso, {});
+  }
 }
 
 async function deleteStudentParentTimedFree(studentUserId) {
@@ -4107,11 +4124,26 @@ async function getStudentParentTimedFreeExpiresAt(studentUserId) {
   return res.rows[0]?.expires_at || null;
 }
 
+async function getStudentParentFreeSession(studentUserId) {
+  const res = await query(
+    `SELECT expires_at, restore_snapshot
+     FROM student_parent_timed_free
+     WHERE student_user_id = $1`,
+    [studentUserId]
+  );
+  const row = res.rows[0];
+  if (!row) return null;
+  return {
+    expires_at: row.expires_at,
+    restore_snapshot: row.restore_snapshot
+  };
+}
+
 async function listExpiredStudentParentTimedFree() {
   const res = await query(
-    `SELECT student_user_id, expires_at
+    `SELECT student_user_id, expires_at, restore_snapshot
      FROM student_parent_timed_free
-     WHERE expires_at <= now()
+     WHERE expires_at IS NOT NULL AND expires_at <= now()
      ORDER BY expires_at ASC`
   );
   return res.rows;
@@ -4230,8 +4262,10 @@ module.exports = {
   markUserPushTokenSent,
   markUserPushTokenError,
   upsertStudentParentTimedFree,
+  touchStudentParentTimedFreeExpiresAt,
   deleteStudentParentTimedFree,
   getStudentParentTimedFreeExpiresAt,
+  getStudentParentFreeSession,
   listExpiredStudentParentTimedFree,
   upsertParentStudentStudyRoom,
   deleteParentStudentStudyRoom,

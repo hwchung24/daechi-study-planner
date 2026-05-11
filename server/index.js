@@ -130,8 +130,10 @@ const {
   listStudentWeeklyAppAllowanceSlots,
   replaceStudentWeeklyAppAllowanceSlots,
   upsertStudentParentTimedFree,
+  touchStudentParentTimedFreeExpiresAt,
   deleteStudentParentTimedFree,
   getStudentParentTimedFreeExpiresAt,
+  getStudentParentFreeSession,
   deleteUser
 } = require("./db");
 const {
@@ -584,6 +586,63 @@ async function ensureBaselineAppAllowanceForStudent(userId, options = {}) {
   }
   await applyNamedAppAllowanceProfileForStudent(userId, "default");
   return { ok: true, applied: "default_named" };
+}
+
+async function buildParentTimedFreeRestoreSnapshot(userId) {
+  const allowanceState = await getStudentMdmAppAllowanceProfileState(userId);
+  const namedMode = resolveAppAllowanceModeFromProfileName(allowanceState?.profile_name);
+  const bulkDaechiLock = isDaechiRootBulkLockOverride(allowanceState?.override_bundle_ids);
+  const slots = await listStudentWeeklyAppAllowanceSlots(userId);
+  return {
+    version: 1,
+    namedMode: namedMode === "free" ? "default" : namedMode,
+    weeklySlotCount: slots.length,
+    bulkDaechiLock
+  };
+}
+
+/** 자유시간 종료(수동 default 또는 만료) 시 MDM 허용앱 상태를 진입 직전으로 복구합니다. */
+async function restoreParentAppAllowanceAfterParentFree(userId, restoreSnapshot) {
+  if (!isSimpleMdmConfigured()) {
+    return { ok: false, skipped: true, reason: "simplemdm_not_configured" };
+  }
+  const snap =
+    restoreSnapshot && typeof restoreSnapshot === "object" && !Array.isArray(restoreSnapshot)
+      ? restoreSnapshot
+      : {};
+  if (!snap || Object.keys(snap).length === 0) {
+    return ensureBaselineAppAllowanceForStudent(userId, {
+      reason: "parent_free_restore_empty_snapshot",
+      afterParentAppModeScheduleSlot: true
+    });
+  }
+  const namedMode = normalizeModeKey(snap.namedMode || "default");
+  const weeklySlotCount = Math.max(0, Math.floor(Number(snap.weeklySlotCount) || 0));
+  const bulkDaechiLock = Boolean(snap.bulkDaechiLock);
+
+  if (bulkDaechiLock) {
+    await clearStudentMdmAppAllowanceOverride(userId).catch(() => {});
+    await applyNamedAppAllowanceProfileForStudent(userId, "block");
+    return { ok: true, applied: "bulk_block", reason: "parent_free_restore" };
+  }
+
+  await clearStudentMdmAppAllowanceOverride(userId).catch(() => {});
+
+  if (namedMode === "default" && weeklySlotCount > 0) {
+    const sync = await syncStudentWeeklyAppAllowance(userId, {
+      force: true,
+      reason: "parent_free_restore_weekly"
+    });
+    return { ok: Boolean(sync?.ok !== false), applied: "weekly", sync };
+  }
+
+  if (namedMode === "utility" || namedMode === "block") {
+    const applied = await applyNamedAppAllowanceProfileForStudent(userId, namedMode);
+    return { ok: true, applied: namedMode, profileApply: applied };
+  }
+
+  const applied = await applyNamedAppAllowanceProfileForStudent(userId, "default");
+  return { ok: true, applied: "default_named", profileApply: applied };
 }
 
 function resolveHomeworkUploadPath(fileUrl) {
@@ -7290,17 +7349,68 @@ app.post("/api/parent/app-allowance/activate-mode", authMiddleware, async (req, 
       students,
       async student => {
         try {
-          const applied = await applyNamedAppAllowanceProfileForStudent(student.id, mode);
           if (mode === "free") {
+            const allowanceState = await getStudentMdmAppAllowanceProfileState(student.id);
+            const currentMode = resolveAppAllowanceModeFromProfileName(allowanceState?.profile_name);
+            const enteringFromNonFree = currentMode !== "free";
+            const snapshot = enteringFromNonFree
+              ? await buildParentTimedFreeRestoreSnapshot(student.id)
+              : null;
+
+            const applied = await applyNamedAppAllowanceProfileForStudent(student.id, "free");
             if (freeMinutes != null) {
               const until = new Date(Date.now() + freeMinutes * 60_000).toISOString();
-              await upsertStudentParentTimedFree(student.id, until);
+              if (enteringFromNonFree) {
+                await upsertStudentParentTimedFree(student.id, until, snapshot);
+              } else {
+                await touchStudentParentTimedFreeExpiresAt(student.id, until);
+              }
+            } else if (enteringFromNonFree) {
+              await upsertStudentParentTimedFree(student.id, null, snapshot);
             } else {
-              await deleteStudentParentTimedFree(student.id).catch(() => {});
+              await touchStudentParentTimedFreeExpiresAt(student.id, null);
             }
-          } else {
-            await deleteStudentParentTimedFree(student.id).catch(() => {});
+            return {
+              studentId: student.id,
+              email: student.email,
+              ok: true,
+              mode: applied.mode,
+              profileId: applied.profileId,
+              profileName: applied.profileName,
+              groupId: applied.groupId,
+              removedProfileIds: applied.removedProfileIds
+            };
           }
+
+          const session = await getStudentParentFreeSession(student.id);
+          const hadParentFreeRow = Boolean(session);
+          const restoreSnapshot = session?.restore_snapshot;
+          await deleteStudentParentTimedFree(student.id).catch(() => {});
+
+          if (
+            mode === "default" &&
+            hadParentFreeRow &&
+            restoreSnapshot &&
+            typeof restoreSnapshot === "object" &&
+            !Array.isArray(restoreSnapshot) &&
+            Object.keys(restoreSnapshot).length > 0
+          ) {
+            await restoreParentAppAllowanceAfterParentFree(student.id, restoreSnapshot);
+            const state = await getStudentMdmAppAllowanceProfileState(student.id).catch(() => null);
+            return {
+              studentId: student.id,
+              email: student.email,
+              ok: true,
+              mode: resolveAppAllowanceModeFromProfileName(state?.profile_name),
+              profileId: state?.profile_id ?? null,
+              profileName: state?.profile_name ?? null,
+              groupId: null,
+              removedProfileIds: [],
+              restoredFromParentFree: true
+            };
+          }
+
+          const applied = await applyNamedAppAllowanceProfileForStudent(student.id, mode);
           return {
             studentId: student.id,
             email: student.email,
@@ -9327,8 +9437,8 @@ async function connectDbWithRetry() {
       }).catch(err => {
         console.error("parent app mode schedule enforcement on startup failed:", err);
       });
-      startParentTimedFreeTicker(ensureBaselineAppAllowanceForStudent);
-      await expireParentTimedFreeGrants(ensureBaselineAppAllowanceForStudent).catch(err => {
+      startParentTimedFreeTicker(restoreParentAppAllowanceAfterParentFree);
+      await expireParentTimedFreeGrants(restoreParentAppAllowanceAfterParentFree).catch(err => {
         console.error("parent timed free expiry on startup failed:", err);
       });
       cronStarted = true;

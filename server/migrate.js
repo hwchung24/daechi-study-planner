@@ -589,6 +589,38 @@ async function main() {
   } catch {
     // ignore
   }
+  try {
+    await pool.query(`
+      ALTER TABLE student_parent_timed_free
+        ADD COLUMN IF NOT EXISTS restore_snapshot JSONB NOT NULL DEFAULT '{}'::jsonb;
+    `);
+  } catch {
+    // ignore
+  }
+  try {
+    await pool.query(`
+      ALTER TABLE student_parent_timed_free
+        ALTER COLUMN expires_at DROP NOT NULL;
+    `);
+  } catch {
+    // ignore
+  }
+  try {
+    await pool.query(`
+      DROP INDEX IF EXISTS idx_student_parent_timed_free_expires;
+    `);
+  } catch {
+    // ignore
+  }
+  try {
+    await pool.query(`
+      CREATE INDEX IF NOT EXISTS idx_student_parent_timed_free_expires
+        ON student_parent_timed_free (expires_at ASC)
+        WHERE expires_at IS NOT NULL;
+    `);
+  } catch {
+    // ignore
+  }
 }
 
 main()
