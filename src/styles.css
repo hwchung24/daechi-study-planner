@@ -1895,6 +1895,10 @@ body.app-keyboard-open .app-main {
 
 .app-shell--parent-hydrating {
   background: #ffffff;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding-top: calc(env(safe-area-inset-top, 0px) + 12px);
 }
 
 .app-shell--enter {
@@ -2001,6 +2005,10 @@ body.app-keyboard-open .app-main {
   display: inline-flex;
   align-items: center;
   gap: 8px;
+}
+
+.parent-header-loading--shell {
+  margin: 0 auto;
 }
 
 .parent-header-loading__logo,

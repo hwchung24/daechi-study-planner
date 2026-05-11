@@ -3682,7 +3682,14 @@ const App: React.FC = () => {
       ) : splashReady && blockStudentWebSession ? (
         <StudentNativeOnlyGate userEmail={userEmail} onLogout={handleLogout} />
       ) : splashReady && parentNeedsHydration && !parentHydrationReady ? (
-      <div className="app-shell app-shell--parent-hydrating" aria-hidden />
+      <div className="app-shell app-shell--parent-hydrating" aria-hidden>
+        <div className="parent-header-loading parent-header-loading--shell">
+          <div className="parent-header-loading__logo" />
+          <div className="parent-header-loading__pill" />
+          <div className="parent-header-loading__pill parent-header-loading__pill--short" />
+        </div>
+        <AppRouteSuspenseFallback />
+      </div>
       ) : splashReady ? (
       <div
         className={
