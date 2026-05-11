@@ -556,6 +556,19 @@ async function main() {
   } catch {
     // ignore
   }
+  try {
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS parent_signup_phone_otps (
+        phone_normalized TEXT PRIMARY KEY,
+        code_hash        TEXT NOT NULL,
+        expires_at       TIMESTAMPTZ NOT NULL,
+        attempt_count    INT NOT NULL DEFAULT 0,
+        last_sent_at     TIMESTAMPTZ NOT NULL DEFAULT now()
+      );
+    `);
+  } catch {
+    // ignore
+  }
 }
 
 main()

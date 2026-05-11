@@ -1,4 +1,5 @@
 const path = require("path");
+const crypto = require("crypto");
 const { Pool } = require("pg");
 require("dotenv").config({ path: path.join(__dirname, ".env") });
 
@@ -457,6 +458,15 @@ async function listCurrentStudyRoomDistancesForStudent(studentUserId) {
     listStudyRoomConfigurationsForStudent(studentUserId)
   ]);
 
+  const lat =
+    latestLocation?.latitude != null && Number.isFinite(Number(latestLocation.latitude))
+      ? Number(latestLocation.latitude)
+      : null;
+  const lng =
+    latestLocation?.longitude != null && Number.isFinite(Number(latestLocation.longitude))
+      ? Number(latestLocation.longitude)
+      : null;
+
   return {
     currentHeartbeatAt: latestLocation?.occurred_at
       ? new Date(latestLocation.occurred_at).toISOString()
@@ -465,6 +475,8 @@ async function listCurrentStudyRoomDistancesForStudent(studentUserId) {
       latestLocation?.accuracy != null && Number.isFinite(Number(latestLocation.accuracy))
         ? Number(latestLocation.accuracy)
         : null,
+    currentLatitude: lat,
+    currentLongitude: lng,
     rooms: studyRooms.map(row => {
       const radiusMeters =
         row.radius_meters != null && Number.isFinite(Number(row.radius_meters))
@@ -690,6 +702,132 @@ async function listLinkedParentUserIdsForStudent(studentUserId) {
     [studentUserId]
   );
   return res.rows.map(row => Number(row.user_id)).filter(Number.isFinite);
+}
+
+async function listLinkedParentPhonesForStudent(studentUserId) {
+  const res = await query(
+    `SELECT DISTINCT p.phone
+     FROM parents_students ps
+     JOIN parents p ON p.id = ps.parent_id
+     WHERE ps.student_id = $1
+       AND p.phone IS NOT NULL
+       AND btrim(p.phone) <> ''`,
+    [studentUserId]
+  );
+  return res.rows
+    .map(row => String(row.phone || "").trim())
+    .filter(phone => phone.length > 0);
+}
+
+function getParentSignupOtpSecret() {
+  return String(
+    process.env.PARENT_SIGNUP_OTP_SECRET || process.env.JWT_SECRET || "dev-parent-signup-otp"
+  ).trim();
+}
+
+function hashParentSignupOtp(phoneNormalized, codePlain) {
+  return crypto
+    .createHmac("sha256", getParentSignupOtpSecret())
+    .update(`${phoneNormalized}|${String(codePlain).trim()}`)
+    .digest("hex");
+}
+
+async function getParentSignupPhoneOtpRow(phoneNormalized) {
+  const res = await query(
+    `SELECT code_hash, expires_at, attempt_count, last_sent_at
+     FROM parent_signup_phone_otps
+     WHERE phone_normalized = $1`,
+    [phoneNormalized]
+  );
+  return res.rows[0] || null;
+}
+
+async function upsertParentSignupPhoneOtp(phoneNormalized, codePlain) {
+  const codeHash = hashParentSignupOtp(phoneNormalized, codePlain);
+  const expiresAt = new Date(Date.now() + 5 * 60 * 1000);
+  await query(
+    `INSERT INTO parent_signup_phone_otps (phone_normalized, code_hash, expires_at, attempt_count, last_sent_at)
+     VALUES ($1, $2, $3, 0, now())
+     ON CONFLICT (phone_normalized) DO UPDATE SET
+       code_hash = EXCLUDED.code_hash,
+       expires_at = EXCLUDED.expires_at,
+       attempt_count = 0,
+       last_sent_at = now()`,
+    [phoneNormalized, codeHash, expiresAt]
+  );
+}
+
+async function deleteParentSignupPhoneOtp(phoneNormalized) {
+  await query(`DELETE FROM parent_signup_phone_otps WHERE phone_normalized = $1`, [
+    phoneNormalized
+  ]);
+}
+
+async function parentPhoneNormalizedExists(phoneNormalized) {
+  const res = await query(
+    `SELECT 1 FROM parents p
+     WHERE p.phone IS NOT NULL
+       AND regexp_replace(p.phone, '[^0-9]', '', 'g') = $1
+     LIMIT 1`,
+    [phoneNormalized]
+  );
+  return res.rows.length > 0;
+}
+
+async function verifyParentSignupPhoneOtp(phoneNormalized, codePlain) {
+  const row = await getParentSignupPhoneOtpRow(phoneNormalized);
+  if (!row) {
+    return { ok: false, error: "인증번호를 먼저 요청해 주세요." };
+  }
+  if (Number(row.attempt_count) >= 10) {
+    return { ok: false, error: "인증 시도 횟수를 초과했어요. 잠시 후 다시 요청해 주세요." };
+  }
+  if (new Date(row.expires_at) < new Date()) {
+    return { ok: false, error: "인증 시간이 지났어요. 인증번호를 다시 요청해 주세요." };
+  }
+  const actual = hashParentSignupOtp(phoneNormalized, codePlain);
+  const expectedBuf = Buffer.from(String(row.code_hash), "hex");
+  const actualBuf = Buffer.from(actual, "hex");
+  if (
+    expectedBuf.length !== actualBuf.length ||
+    !crypto.timingSafeEqual(expectedBuf, actualBuf)
+  ) {
+    await query(
+      `UPDATE parent_signup_phone_otps SET attempt_count = attempt_count + 1 WHERE phone_normalized = $1`,
+      [phoneNormalized]
+    );
+    return { ok: false, error: "인증번호가 올바르지 않아요." };
+  }
+  await deleteParentSignupPhoneOtp(phoneNormalized);
+  return { ok: true };
+}
+
+async function assertParentSignupPhoneResendCooldown(phoneNormalized, minIntervalMs) {
+  const row = await getParentSignupPhoneOtpRow(phoneNormalized);
+  if (!row) return { ok: true };
+  const last = new Date(row.last_sent_at).getTime();
+  if (Date.now() - last < minIntervalMs) {
+    return { ok: false, error: "잠시 후 다시 요청해 주세요." };
+  }
+  return { ok: true };
+}
+
+async function setParentPhoneForUser(userId, phoneNormalized) {
+  await query(`UPDATE parents SET phone = $2 WHERE user_id = $1`, [
+    userId,
+    phoneNormalized
+  ]);
+}
+
+async function getParentPhoneByUserId(userId) {
+  const res = await query(
+    `SELECT p.phone FROM parents p WHERE p.user_id = $1 LIMIT 1`,
+    [userId]
+  );
+  const raw = res.rows[0]?.phone;
+  if (raw == null) return null;
+  const s = String(raw).trim();
+  return s || null;
 }
 
 async function getParentCoachCustomization(parentUserId) {
@@ -3920,6 +4058,14 @@ module.exports = {
   deleteUser,
   listParentStudents,
   listLinkedParentUserIdsForStudent,
+  listLinkedParentPhonesForStudent,
+  upsertParentSignupPhoneOtp,
+  deleteParentSignupPhoneOtp,
+  parentPhoneNormalizedExists,
+  verifyParentSignupPhoneOtp,
+  assertParentSignupPhoneResendCooldown,
+  setParentPhoneForUser,
+  getParentPhoneByUserId,
   getParentCoachCustomization,
   upsertParentCoachCustomization,
   getEffectiveParentCoachCustomizationForStudent,

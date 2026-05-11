@@ -28,6 +28,15 @@ CREATE TABLE IF NOT EXISTS parents (
   FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 );
 
+-- 학부모 회원가입 휴대폰 인증(OTP)
+CREATE TABLE IF NOT EXISTS parent_signup_phone_otps (
+  phone_normalized TEXT PRIMARY KEY,
+  code_hash        TEXT NOT NULL,
+  expires_at       TIMESTAMPTZ NOT NULL,
+  attempt_count    INT NOT NULL DEFAULT 0,
+  last_sent_at     TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
 -- 3. Mapping: parent ↔ student (many students per parent, future-proof many:many)
 CREATE TABLE IF NOT EXISTS parents_students (
   parent_id  BIGINT NOT NULL,

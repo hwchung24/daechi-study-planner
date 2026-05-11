@@ -1,9 +1,11 @@
 import React, { useCallback, useLayoutEffect, useRef, useState } from "react";
+import type { ParentTabKey as ParentCoachShellTab } from "../coach/parent/ParentCoachApp";
 import { motion, useReducedMotion } from "framer-motion";
 import {
   Calendar,
   ClipboardList,
   GraduationCap,
+  House,
   LayoutGrid,
   Settings,
   User
@@ -20,8 +22,6 @@ function NavIcon({ children }: { children: React.ReactNode }) {
 type TabKey = "today" | "records" | "store" | "profile";
 type CoachStudentTabKey = "home" | "coach" | "analysis";
 type ParentTabKey = "report" | "profile";
-type CoachParentTabKey = "manage" | "records" | "studentSettings" | "analysis";
-
 type PillMetrics = {
   left: number;
   top: number;
@@ -93,11 +93,11 @@ export function AppBottomNav(props: {
   tab: TabKey;
   parentTab: ParentTabKey;
   coachStudentTab: CoachStudentTabKey | null;
-  coachParentTab: CoachParentTabKey | null;
+  coachParentTab: ParentCoachShellTab | null;
   onStudentNavClick: (tab: TabKey) => void;
   onCoachStudentNavClick: (tab: CoachStudentTabKey) => void;
   onParentNavClick: (tab: ParentTabKey) => void;
-  onCoachParentNavClick: (tab: CoachParentTabKey) => void;
+  onCoachParentNavClick: (tab: ParentCoachShellTab) => void;
 }) {
   const {
     showStudentShell,
@@ -248,6 +248,18 @@ export function AppBottomNav(props: {
             }}
             transition={pillTransition}
           />
+          <button
+            type="button"
+            className={
+              "nav-item" + (coachParentTab === "home" ? " nav-item-active" : "")
+            }
+            onClick={() => onCoachParentNavClick("home")}
+          >
+            <NavIcon>
+              <House size={20} strokeWidth={2} />
+            </NavIcon>
+            <span className="nav-label">홈</span>
+          </button>
           <button
             type="button"
             className={

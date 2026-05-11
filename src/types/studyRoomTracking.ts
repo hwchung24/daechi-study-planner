@@ -15,6 +15,9 @@ export type StudyRoomVisitSession = {
 export type StudentStudyRoomSummary = {
   currentHeartbeatAt: string | null;
   currentAccuracyMeters: number | null;
+  /** 학생 앱·MDM에서 마지막으로 보고된 좌표 (WGS84) */
+  currentLatitude?: number | null;
+  currentLongitude?: number | null;
   rooms: Array<{
     id: number;
     parentUserId: number;

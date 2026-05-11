@@ -23,7 +23,7 @@ import { useOnlineStatus } from "./hooks/useOnlineStatus";
 import { canUseNativeAppShell, AppShell, type PendingNetworkBanner } from "./lib/nativeAppShell";
 import { DAECHI_LINKS_UPDATED_EVENT } from "./lib/linkEvents";
 import type { StudentTabKey as CoachStudentTabKey } from "./coach/student/StudentCoachApp";
-import type { ParentTabKey as CoachParentTabKey } from "./coach/parent/ParentCoachApp";
+import type { ParentTabKey as ParentCoachShellTab } from "./coach/parent/ParentCoachApp";
 import {
   hapticImpactLight,
   hapticImpactMedium,
@@ -568,6 +568,11 @@ function buildTomorrowPlanFromPlanRows(
 /** 개발 모드 Strict Mode 재마운트 시 스플래시가 두 번 뜨는 것 방지 */
 let splashCompletedModule = false;
 
+function isLikelyKoreanMobileDigits(raw: string) {
+  const d = String(raw || "").replace(/\D/g, "");
+  return /^01[016789]\d{7,8}$/.test(d);
+}
+
 const App: React.FC = () => {
   const online = useOnlineStatus();
   const [networkBanner, setNetworkBanner] = useState<PendingNetworkBanner | null>(null);
@@ -592,6 +597,17 @@ const App: React.FC = () => {
   const [authMode, setAuthMode] = useState<"login" | "signup">("login");
   const [authRole, setAuthRole] = useState<"student" | "parent">("student");
   const [authStudentName, setAuthStudentName] = useState("");
+  const [authParentPhone, setAuthParentPhone] = useState("");
+  const [authParentPhoneCode, setAuthParentPhoneCode] = useState("");
+  const [authParentPhoneVerifyToken, setAuthParentPhoneVerifyToken] = useState<
+    string | null
+  >(null);
+  const [authParentPhoneSending, setAuthParentPhoneSending] = useState(false);
+  const [authParentPhoneVerifying, setAuthParentPhoneVerifying] = useState(false);
+  const [authParentPhoneNotice, setAuthParentPhoneNotice] = useState("");
+  const [authParentPhoneNoticeTone, setAuthParentPhoneNoticeTone] = useState<
+    "neutral" | "success" | "error"
+  >("neutral");
   const [authEmail, setAuthEmail] = useState("");
   const [authPassword, setAuthPassword] = useState("");
   const [authError, setAuthError] = useState("");
@@ -885,7 +901,7 @@ const App: React.FC = () => {
       ? "chat"
       : "scroll"
   );
-  const [coachParentTab, setCoachParentTab] = useState<CoachParentTabKey | null>(
+  const [coachParentTab, setCoachParentTab] = useState<ParentCoachShellTab | null>(
     () => parseCoachParentTabFromHash()
   );
 
@@ -1763,6 +1779,7 @@ const App: React.FC = () => {
     const h = getAppPath();
     if (
       h === "#/parent" ||
+      h === "#/parent/home" ||
       h === "#/parent/manage" ||
       h === "#/parent/analysis" ||
       h === "#/parent/student-settings" ||
@@ -1771,7 +1788,7 @@ const App: React.FC = () => {
       h === "#/parent/profile"
     )
       return;
-    setAppPath("#/parent");
+    setAppPath("#/parent/home");
   }, [meRole]);
 
   // 학생 계정은 학부모 URL에 있으면 학생 화면으로 복귀
@@ -1781,6 +1798,7 @@ const App: React.FC = () => {
     const h = getAppPath();
     if (
       h === "#/parent" ||
+      h === "#/parent/home" ||
       h === "#/parent/manage" ||
       h === "#/parent/analysis" ||
       h === "#/parent/student-settings" ||
@@ -3052,13 +3070,15 @@ const App: React.FC = () => {
     : parentView
       ? meRole === "parent"
         ? coachParentMode
-          ? coachParentTab === "manage"
-            ? "자녀"
-            : coachParentTab === "records"
-                ? "기록"
-                : coachParentTab === "analysis"
-                  ? "분석"
-                : "자녀 설정"
+          ? coachParentTab === "home"
+            ? "홈"
+            : coachParentTab === "manage"
+              ? "자녀"
+              : coachParentTab === "records"
+                  ? "기록"
+                  : coachParentTab === "analysis"
+                    ? "분석"
+                  : "자녀 설정"
           : parentTab === "profile"
             ? "내 정보"
             : "학부모"
@@ -3129,7 +3149,7 @@ const App: React.FC = () => {
     parentView: false,
     meRole: null as string | null,
     parentTab: "report" as ParentTabKey,
-    coachParentTab: null as CoachParentTabKey | null,
+    coachParentTab: null as ParentCoachShellTab | null,
     coachParentMode: false,
     studentLockStatus: null as { forceRecordsPage?: boolean } | null,
     parentStudentsLoaded: false,
@@ -3216,40 +3236,8 @@ const App: React.FC = () => {
       }
 
       if (s.parentView && s.meRole === "parent") {
-        let idx: number;
-        if (s.parentTab === "profile") idx = 3;
-        else if (s.coachParentMode && s.coachParentTab === "manage") idx = 0;
-        else if (s.coachParentMode && s.coachParentTab === "records") idx = 1;
-        else if (s.coachParentMode && s.coachParentTab === "studentSettings")
-          idx = 2;
-        else idx = 0;
-
-        const nextIdx = idx + delta;
-        if (nextIdx < 0 || nextIdx > 3 || nextIdx === idx) return;
-
-        if (nextIdx <= 2) {
-          if (s.parentStudentsLoaded && s.parentStudentsLength === 0) {
-            redirectParentToProfileForStudentLink();
-            return;
-          }
-        }
-        if (nextIdx === 0) {
-          hapticSelection();
-          setCoachParentTab("manage");
-          setAppPath("#/parent/manage");
-        } else if (nextIdx === 1) {
-          hapticSelection();
-          setCoachParentTab("records");
-          setAppPath("#/parent/records");
-        } else if (nextIdx === 2) {
-          hapticSelection();
-          setCoachParentTab("studentSettings");
-          setAppPath("#/parent/student-settings");
-        } else {
-          hapticSelection();
-          setParentTab("profile");
-          setAppPath("#/parent/profile");
-        }
+        /* 학부모: 하단 탭만 사용 (가로 스와이프로 화면 전환하지 않음) */
+        return;
       }
     },
     [
@@ -3271,6 +3259,92 @@ const App: React.FC = () => {
     return () => clearTimeout(id);
   }, [mainEnter]);
 
+  useEffect(() => {
+    if (authMode === "signup" && authRole === "parent") return;
+    setAuthParentPhone("");
+    setAuthParentPhoneCode("");
+    setAuthParentPhoneVerifyToken(null);
+    setAuthParentPhoneNotice("");
+    setAuthParentPhoneNoticeTone("neutral");
+    setAuthParentPhoneSending(false);
+    setAuthParentPhoneVerifying(false);
+  }, [authMode, authRole]);
+
+  const handleParentPhoneSendCode = useCallback(async () => {
+    if (!isLikelyKoreanMobileDigits(authParentPhone)) {
+      setAuthParentPhoneNotice("휴대폰 번호를 확인해 주세요.");
+      setAuthParentPhoneNoticeTone("error");
+      hapticWarning();
+      return;
+    }
+    setAuthParentPhoneSending(true);
+    setAuthParentPhoneNotice("");
+    setAuthParentPhoneNoticeTone("neutral");
+    try {
+      const res = await fetch(`${API_BASE}/auth/parent/signup/send-phone-code`, {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ phone: authParentPhone })
+      });
+      const data = (await res.json().catch(() => ({}))) as { error?: string };
+      if (!res.ok) {
+        setAuthParentPhoneNotice(
+          String(data.error || "").trim() || "인증 문자를 보내지 못했습니다."
+        );
+        setAuthParentPhoneNoticeTone("error");
+        hapticWarning();
+        return;
+      }
+      setAuthParentPhoneNotice("인증번호를 문자로 보냈어요.");
+      setAuthParentPhoneNoticeTone("success");
+      hapticSuccess();
+    } catch {
+      setAuthParentPhoneNotice("연결을 확인해 주세요.");
+      setAuthParentPhoneNoticeTone("error");
+      hapticWarning();
+    } finally {
+      setAuthParentPhoneSending(false);
+    }
+  }, [authParentPhone, hapticSuccess, hapticWarning]);
+
+  const handleParentPhoneVerifyCode = useCallback(async () => {
+    if (authParentPhoneCode.length !== 6) return;
+    setAuthParentPhoneVerifying(true);
+    setAuthParentPhoneNotice("");
+    setAuthParentPhoneNoticeTone("neutral");
+    try {
+      const res = await fetch(`${API_BASE}/auth/parent/signup/verify-phone-code`, {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ phone: authParentPhone, code: authParentPhoneCode })
+      });
+      const data = (await res.json().catch(() => ({}))) as {
+        error?: string;
+        phoneVerifyToken?: string;
+      };
+      if (!res.ok || !data.phoneVerifyToken) {
+        setAuthParentPhoneNotice(
+          String(data.error || "").trim() || "인증에 실패했습니다."
+        );
+        setAuthParentPhoneNoticeTone("error");
+        hapticWarning();
+        return;
+      }
+      setAuthParentPhoneVerifyToken(data.phoneVerifyToken);
+      setAuthParentPhoneNotice("");
+      setAuthParentPhoneNoticeTone("neutral");
+      hapticSuccess();
+    } catch {
+      setAuthParentPhoneNotice("연결을 확인해 주세요.");
+      setAuthParentPhoneNoticeTone("error");
+      hapticWarning();
+    } finally {
+      setAuthParentPhoneVerifying(false);
+    }
+  }, [authParentPhone, authParentPhoneCode, hapticSuccess, hapticWarning]);
+
   const handleAuthSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
                 e.preventDefault();
                 const email = authEmail.trim().toLowerCase();
@@ -3284,6 +3358,16 @@ const App: React.FC = () => {
       setAuthError("이름을 입력하세요.");
                   return;
                 }
+    if (authMode === "signup" && authRole === "parent") {
+      if (!isLikelyKoreanMobileDigits(authParentPhone)) {
+        setAuthError("휴대폰 번호를 확인해 주세요.");
+        return;
+      }
+      if (!authParentPhoneVerifyToken) {
+        setAuthError("휴대폰 인증을 완료해 주세요.");
+        return;
+      }
+    }
                 if (password.length < 4) {
                   setAuthError("비밀번호는 4자 이상이어야 합니다.");
                   return;
@@ -3292,6 +3376,7 @@ const App: React.FC = () => {
                   setAuthError("");
                   const isStudentSignup =
                     authMode === "signup" && authRole === "student";
+                  const isParentSignup = authMode === "signup" && authRole === "parent";
                   const res = await fetch(
         `${API_BASE}/auth/${authMode === "login" ? "login" : "register"}`,
                     {
@@ -3306,6 +3391,10 @@ const App: React.FC = () => {
               authMode === "signup" && authRole === "student"
                 ? studentName
                 : undefined,
+            phone: isParentSignup ? authParentPhone : undefined,
+            phoneVerifyToken: isParentSignup
+              ? authParentPhoneVerifyToken
+              : undefined,
                         serial: resolvePreferredSerial() || undefined
                       })
                     }
@@ -3427,6 +3516,13 @@ const App: React.FC = () => {
           authMode={authMode}
           authRole={authRole}
           authStudentName={authStudentName}
+          authParentPhone={authParentPhone}
+          authParentPhoneCode={authParentPhoneCode}
+          authParentPhoneVerified={Boolean(authParentPhoneVerifyToken)}
+          authParentPhoneSending={authParentPhoneSending}
+          authParentPhoneVerifying={authParentPhoneVerifying}
+          authParentPhoneNotice={authParentPhoneNotice}
+          authParentPhoneNoticeTone={authParentPhoneNoticeTone}
           authEmail={authEmail}
           authPassword={authPassword}
           authError={authError}
@@ -3440,6 +3536,16 @@ const App: React.FC = () => {
             setAuthRole(role);
           }}
           onStudentNameChange={setAuthStudentName}
+          onParentPhoneChange={value => {
+            setAuthParentPhone(value);
+            setAuthParentPhoneVerifyToken(null);
+            setAuthParentPhoneCode("");
+            setAuthParentPhoneNotice("");
+            setAuthParentPhoneNoticeTone("neutral");
+          }}
+          onParentPhoneCodeChange={setAuthParentPhoneCode}
+          onParentPhoneSendCode={() => void handleParentPhoneSendCode()}
+          onParentPhoneVerifyCode={() => void handleParentPhoneVerifyCode()}
           onEmailChange={setAuthEmail}
           onPasswordChange={setAuthPassword}
           onSubmit={handleAuthSubmit}
@@ -3587,6 +3693,9 @@ const App: React.FC = () => {
                   tab={coachParentTab}
                   apiBase={API_BASE}
                   authToken={authToken}
+                  userEmail={userEmail}
+                  parentNotificationUnreadCount={parentNotificationUnreadCount}
+                  hapticSelection={hapticSelection}
                   parentStudents={parentStudents}
                   setParentStudents={setParentStudents}
                   parentStudentId={parentStudentId}
@@ -3803,24 +3912,30 @@ const App: React.FC = () => {
               setAppPath(
                 nextTab === "profile"
                     ? "#/parent/profile"
-                    : "#/parent"
+                    : "#/parent/home"
               );
             }}
             onCoachParentNavClick={nextTab => {
-              if (parentStudentsLoaded && parentStudents.length === 0) {
+              if (
+                nextTab !== "home" &&
+                parentStudentsLoaded &&
+                parentStudents.length === 0
+              ) {
                 redirectParentToProfileForStudentLink();
                 return;
               }
               hapticSelection();
               setCoachParentTab(nextTab);
               setAppPath(
-                nextTab === "manage"
-                  ? "#/parent/manage"
-                  : nextTab === "analysis"
+                nextTab === "home"
+                  ? "#/parent/home"
+                  : nextTab === "manage"
+                    ? "#/parent/manage"
+                    : nextTab === "analysis"
                       ? "#/parent/analysis"
-                    : nextTab === "records"
-                      ? "#/parent/records"
-                      : "#/parent/student-settings"
+                      : nextTab === "records"
+                        ? "#/parent/records"
+                        : "#/parent/student-settings"
               );
             }}
           />

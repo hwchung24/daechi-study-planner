@@ -54,15 +54,22 @@ import {
   readStoredUserCacheScope,
   writeLocalCache
 } from "../../lib/viewCache";
+import { ParentHomeTab } from "./ParentHomeTab";
 import {
-  scheduleBackgroundUiUpdate,
-  stableStringify
-} from "../../lib/stableUiUpdate";
+  PARENT_MDM_SURFACE_LABEL,
+  parseParentMdmSurfaceMode,
+  type ParentMdmSurfaceMode
+} from "./parentDeviceModeDisplay";
+import { ParentStudentSelector, formatStudentLabel } from "./ParentStudentSelector";
+import { useParentStudyRoomLive } from "./useParentStudyRoomLive";
 
-export type ParentTabKey = "manage" | "records" | "studentSettings" | "analysis";
+export type ParentTabKey =
+  | "home"
+  | "manage"
+  | "records"
+  | "studentSettings"
+  | "analysis";
 
-const STUDY_ROOM_VISITS_POLL_INTERVAL_ACTIVE_MS = 30000;
-const STUDY_ROOM_VISITS_POLL_INTERVAL_IDLE_MS = 90000;
 const PARENT_COACH_CACHE_TTL_MS = 2 * 60 * 1000;
 
 type ParentAiDaily = {
@@ -192,15 +199,6 @@ type ParentRhythmChartRow = {
 
 type ParentRhythmMetricKey = Exclude<keyof ParentRhythmChartRow, "date">;
 
-type ParentStudyRoomLiveStatus = {
-  currentDistanceMeters: number | null;
-  currentWithinRadius: boolean | null;
-  currentHeartbeatAt: string | null;
-  currentAccuracyMeters: number | null;
-  currentRadiusMeters: number | null;
-  studyRoomName: string | null;
-};
-
 type ParentWeeklyReport = {
   days?: ParentWeekDay[];
   blocks?: ParentWeekBlock[];
@@ -235,13 +233,6 @@ function timeToMinutes(value: string) {
 
 function minutesBetween(start: string, end: string) {
   return Math.max(0, timeToMinutes(end) - timeToMinutes(start));
-}
-
-function formatStudentLabel(student: ParentStudentRow | null) {
-  if (!student) return "학생";
-  const email = String(student.email || "").trim();
-  const localPart = email.split("@")[0]?.trim();
-  return localPart || email || `학생 ${student.id}`;
 }
 
 function buildDailyChart(report: ParentWeeklyReport | null) {
@@ -869,47 +860,6 @@ function deriveGuide(report: ParentWeeklyReport | null, aiDaily: ParentAiDaily |
   };
 }
 
-function StudentSelectorCard(props: {
-  parentStudents: ParentStudentRow[];
-  parentStudentId: number | null;
-  setParentStudentId: (id: number | null) => void;
-}) {
-  const selectedStudent =
-    props.parentStudents.find(student => student.id === props.parentStudentId) ||
-    props.parentStudents[0] ||
-    null;
-
-  if (props.parentStudents.length === 0) {
-    return null;
-  }
-
-  return (
-    <div className="coach-student-switcher" role="region" aria-label="관리 학생 선택">
-      <div className="store-filter-row" role="tablist" aria-label="관리 학생 목록">
-        {props.parentStudents.map(student => {
-          const isSelected = student.id === selectedStudent?.id;
-          return (
-            <button
-              key={student.id}
-              type="button"
-              role="tab"
-              className={
-                "store-filter-btn" +
-                (isSelected ? " store-filter-btn--active" : "")
-              }
-              aria-selected={isSelected}
-              aria-label={`${formatStudentLabel(student)} 학생 선택`}
-              onClick={() => props.setParentStudentId(student.id)}
-            >
-              {formatStudentLabel(student)}
-            </button>
-          );
-        })}
-      </div>
-    </div>
-  );
-}
-
 function AiReportTab(props: {
   apiBase: string;
   authToken: string | null;
@@ -971,8 +921,6 @@ function AiReportTab(props: {
   const [patternsUsedOpenAi, setPatternsUsedOpenAi] = useState(false);
   const analysisHasDataRef = useRef(Boolean(analysisState));
   const patternsHasDataRef = useRef(aiPatterns.length > 0);
-  const studyRoomVisitsHasDataRef = useRef(studyRoomVisits.length > 0);
-  const studyRoomPollSigRef = useRef<string | null>(null);
   const totalStudyMinutes = props.parentReport?.stats?.totalStudyMinutes || 0;
   const focusDistribution = props.parentReport?.stats?.focusDistribution;
   const stableFocus = (focusDistribution?.best || 0) + (focusDistribution?.good || 0);
@@ -985,10 +933,6 @@ function AiReportTab(props: {
   useEffect(() => {
     patternsHasDataRef.current = aiPatterns.length > 0;
   }, [aiPatterns]);
-
-  useEffect(() => {
-    studyRoomVisitsHasDataRef.current = studyRoomVisits.length > 0;
-  }, [studyRoomVisits]);
 
   useEffect(() => {
     if (!props.authToken || !props.parentStudentId) return;
@@ -1196,7 +1140,7 @@ function AiReportTab(props: {
 
   return (
     <div className="coach-page coach-page--manage">
-      <StudentSelectorCard
+      <ParentStudentSelector
         parentStudents={props.parentStudents}
         parentStudentId={props.parentStudentId}
         setParentStudentId={props.setParentStudentId}
@@ -1387,166 +1331,25 @@ function RecordsTab(props: {
   const blocks = Array.isArray(props.parentReport?.blocks) ? props.parentReport.blocks : [];
   const plans = Array.isArray(props.parentReport?.plans) ? props.parentReport.plans : [];
   const logs = Array.isArray(props.parentReport?.logs) ? props.parentReport.logs : [];
-  const [studyRoomVisits, setStudyRoomVisits] = useState<StudyRoomVisitSession[]>([]);
-  const [studyRoomVisitsLoading, setStudyRoomVisitsLoading] = useState(false);
   const [aiReportRefreshing, setAiReportRefreshing] = useState(false);
   const [aiReportMessage, setAiReportMessage] = useState("");
-  const [studyRoomLiveStatus, setStudyRoomLiveStatus] = useState<ParentStudyRoomLiveStatus>({
-    currentDistanceMeters: null,
-    currentWithinRadius: null,
-    currentHeartbeatAt: null,
-    currentAccuracyMeters: null,
-    currentRadiusMeters: null,
-    studyRoomName: null
+  const {
+    studyRoomVisits,
+    studyRoomVisitsLoading,
+    studyRoomLiveStatus,
+    hasStudyRoomConfig,
+    displayDistanceMeters,
+    studyRoomVisitsByDate
+  } = useParentStudyRoomLive({
+    apiBase: props.apiBase,
+    authToken: props.authToken,
+    studentId: props.selectedStudent?.id ?? null,
+    hasStudyRoomSettingHint: Boolean(props.selectedStudent?.studyRoom)
   });
-  const hasStudyRoomConfig = Boolean(
-    (studyRoomLiveStatus.studyRoomName && String(studyRoomLiveStatus.studyRoomName).trim()) ||
-      props.selectedStudent?.studyRoom
-  );
-  const latestVisitDistance =
-    studyRoomVisits.find(visit => visit.lastDistanceMeters != null)?.lastDistanceMeters ?? null;
-  const displayDistanceMeters =
-    studyRoomLiveStatus.currentDistanceMeters != null
-      ? studyRoomLiveStatus.currentDistanceMeters
-      : latestVisitDistance;
-  const studyRoomVisitsByDate = useMemo(() => {
-    const grouped = new Map<string, StudyRoomVisitSession[]>();
-    for (const visit of studyRoomVisits) {
-      const keySource = visit.enteredAt || visit.lastSeenAt || visit.exitedAt || "";
-      const key = seoulDateKeyFromApiValue(keySource);
-      if (!key) continue;
-      const list = grouped.get(key) || [];
-      list.push(visit);
-      grouped.set(key, list);
-    }
-    return grouped;
-  }, [studyRoomVisits]);
-
-  const refreshStudyRoomVisits = useCallback(
-    async (options?: { silent?: boolean }) => {
-      if (!props.authToken || !props.selectedStudent?.id) {
-        studyRoomPollSigRef.current = null;
-        setStudyRoomVisits([]);
-        setStudyRoomVisitsLoading(false);
-        setStudyRoomLiveStatus({
-          currentDistanceMeters: null,
-          currentWithinRadius: null,
-          currentHeartbeatAt: null,
-          currentAccuracyMeters: null,
-          currentRadiusMeters: null,
-          studyRoomName: null
-        });
-        return;
-      }
-
-      if (!options?.silent && !studyRoomVisitsHasDataRef.current) {
-        setStudyRoomVisitsLoading(true);
-      }
-
-      try {
-        const res = await fetch(
-          `${props.apiBase}/api/parent/students/${encodeURIComponent(String(props.selectedStudent.id))}/study-room-visits?limit=6`,
-          {
-            cache: "no-store",
-            headers: {
-              Authorization: `Bearer ${props.authToken}`
-            }
-          }
-        );
-        const data = (await res.json().catch(() => ({}))) as {
-          visits?: StudyRoomVisitSession[];
-          currentDistanceMeters?: number | null;
-          currentWithinRadius?: boolean | null;
-          currentHeartbeatAt?: string | null;
-          currentAccuracyMeters?: number | null;
-          currentRadiusMeters?: number | null;
-          studyRoomName?: string | null;
-        };
-        const nextVisits = Array.isArray(data.visits) ? data.visits : [];
-        const nextLive = {
-          currentDistanceMeters:
-            data.currentDistanceMeters != null && Number.isFinite(Number(data.currentDistanceMeters))
-              ? Number(data.currentDistanceMeters)
-              : null,
-          currentWithinRadius:
-            typeof data.currentWithinRadius === "boolean" ? data.currentWithinRadius : null,
-          currentHeartbeatAt:
-            data.currentHeartbeatAt != null ? String(data.currentHeartbeatAt) : null,
-          currentAccuracyMeters:
-            data.currentAccuracyMeters != null && Number.isFinite(Number(data.currentAccuracyMeters))
-              ? Number(data.currentAccuracyMeters)
-              : null,
-          currentRadiusMeters:
-            data.currentRadiusMeters != null && Number.isFinite(Number(data.currentRadiusMeters))
-              ? Number(data.currentRadiusMeters)
-              : null,
-          studyRoomName: data.studyRoomName != null ? String(data.studyRoomName) : null
-        };
-        const bundleSig = stableStringify({ visits: nextVisits, live: nextLive });
-        if (studyRoomPollSigRef.current === bundleSig) {
-          return;
-        }
-        studyRoomPollSigRef.current = bundleSig;
-        scheduleBackgroundUiUpdate(() => {
-          setStudyRoomVisits(nextVisits);
-          setStudyRoomLiveStatus(nextLive);
-        });
-      } catch {
-        studyRoomPollSigRef.current = null;
-        setStudyRoomVisits([]);
-        setStudyRoomLiveStatus({
-          currentDistanceMeters: null,
-          currentWithinRadius: null,
-          currentHeartbeatAt: null,
-          currentAccuracyMeters: null,
-          currentRadiusMeters: null,
-          studyRoomName: null
-        });
-      } finally {
-        if (!options?.silent) {
-          setStudyRoomVisitsLoading(false);
-        }
-      }
-    },
-    [props.apiBase, props.authToken, props.selectedStudent?.id]
-  );
-
-  useEffect(() => {
-    void refreshStudyRoomVisits();
-  }, [refreshStudyRoomVisits]);
 
   useEffect(() => {
     setAiReportMessage("");
   }, [props.selectedStudent?.id]);
-
-  useEffect(() => {
-    if (!props.authToken || !props.selectedStudent?.id) {
-      return;
-    }
-    const pollIntervalMs = hasStudyRoomConfig
-      ? STUDY_ROOM_VISITS_POLL_INTERVAL_ACTIVE_MS
-      : STUDY_ROOM_VISITS_POLL_INTERVAL_IDLE_MS;
-
-    const run = () => {
-      if (typeof document !== "undefined" && document.visibilityState !== "visible") {
-        return;
-      }
-      void refreshStudyRoomVisits({ silent: true });
-    };
-
-    const timerId = window.setInterval(run, pollIntervalMs);
-    const onVisibilityChange = () => {
-      if (document.visibilityState !== "visible") return;
-      run();
-    };
-
-    document.addEventListener("visibilitychange", onVisibilityChange);
-
-    return () => {
-      window.clearInterval(timerId);
-      document.removeEventListener("visibilitychange", onVisibilityChange);
-    };
-  }, [hasStudyRoomConfig, props.authToken, props.selectedStudent?.id, refreshStudyRoomVisits]);
 
   const daysByDate = useMemo(
     () =>
@@ -1820,7 +1623,7 @@ function RecordsTab(props: {
 
   return (
     <div className="coach-page">
-      <StudentSelectorCard
+      <ParentStudentSelector
         parentStudents={props.parentStudents}
         parentStudentId={props.parentStudentId}
         setParentStudentId={props.setParentStudentId}
@@ -1928,6 +1731,25 @@ function RecordsTab(props: {
                     {studyRoomLiveStatus.currentHeartbeatAt
                       ? ` · 기준 ${formatStudyRoomVisitDateTime(studyRoomLiveStatus.currentHeartbeatAt)}`
                       : ""}
+                    {studyRoomLiveStatus.currentLatitude != null &&
+                    studyRoomLiveStatus.currentLongitude != null &&
+                    Number.isFinite(Number(studyRoomLiveStatus.currentLatitude)) &&
+                    Number.isFinite(Number(studyRoomLiveStatus.currentLongitude)) ? (
+                      <div style={{ marginTop: 10, lineHeight: 1.45 }}>
+                        마지막 보고 좌표(WGS84): 위도{" "}
+                        {Number(studyRoomLiveStatus.currentLatitude).toFixed(6)}°, 경도{" "}
+                        {Number(studyRoomLiveStatus.currentLongitude).toFixed(6)}° ·{" "}
+                        <a
+                          href={`https://www.google.com/maps?q=${encodeURIComponent(
+                            `${studyRoomLiveStatus.currentLatitude},${studyRoomLiveStatus.currentLongitude}`
+                          )}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                        >
+                          지도에서 보기
+                        </a>
+                      </div>
+                    ) : null}
                   </div>
                 ) : null}
                 <div className="week-frame coach-records-week-frame">
@@ -2004,32 +1826,6 @@ function RecordsTab(props: {
       )}
     </div>
   );
-}
-
-type ParentMdmSurfaceMode = "block" | "schedule" | "utility" | "free" | "default";
-
-const PARENT_MDM_SURFACE_LABEL: Record<ParentMdmSurfaceMode, string> = {
-  block: "일괄잠금",
-  schedule: "계획표",
-  utility: "유틸리티",
-  free: "자유시간",
-  default: "기본"
-};
-
-function parseParentMdmSurfaceMode(raw: unknown): ParentMdmSurfaceMode | null {
-  const s = String(raw || "")
-    .trim()
-    .toLowerCase();
-  if (s === "bulk_lock") return "block";
-  if (
-    s === "block" ||
-    s === "schedule" ||
-    s === "utility" ||
-    s === "free" ||
-    s === "default"
-  )
-    return s as ParentMdmSurfaceMode;
-  return null;
 }
 
 function StudentSettingsTab(props: {
@@ -2161,7 +1957,7 @@ function StudentSettingsTab(props: {
       });
       if (!res.ok) return;
       const data = await res.json().catch(() => ({}));
-      const next = Array.isArray(data.students) ? data.students : [];
+      const next = (Array.isArray(data.students) ? data.students : []) as ParentStudentRow[];
       props.setParentStudents(next);
       const want = preferStudentId ?? props.parentStudentId;
       const preserved =
@@ -2568,7 +2364,7 @@ function StudentSettingsTab(props: {
 
   return (
     <div className="coach-page">
-      <StudentSelectorCard
+      <ParentStudentSelector
         parentStudents={props.parentStudents}
         parentStudentId={props.parentStudentId}
         setParentStudentId={props.setParentStudentId}
@@ -2779,7 +2575,7 @@ function ManageTab(props: {
 }) {
   return (
     <div className="coach-page coach-page--chat coach-page--manage">
-      <StudentSelectorCard
+      <ParentStudentSelector
         parentStudents={props.parentStudents}
         parentStudentId={props.parentStudentId}
         setParentStudentId={props.setParentStudentId}
@@ -2826,6 +2622,9 @@ export function ParentCoachApp(props: {
   tab: ParentTabKey;
   apiBase: string;
   authToken: string | null;
+  userEmail: string | null;
+  parentNotificationUnreadCount: number;
+  hapticSelection: () => void;
   parentStudents: ParentStudentRow[];
   setParentStudents: React.Dispatch<React.SetStateAction<ParentStudentRow[]>>;
   parentStudentId: number | null;
@@ -2851,7 +2650,22 @@ export function ParentCoachApp(props: {
     null;
 
   let view: React.ReactNode;
-  if (props.tab === "records") {
+  if (props.tab === "home") {
+    view = (
+      <ParentHomeTab
+        apiBase={props.apiBase}
+        authToken={props.authToken}
+        userEmail={props.userEmail}
+        parentStudents={props.parentStudents}
+        parentStudentId={props.parentStudentId}
+        setParentStudentId={props.setParentStudentId}
+        selectedStudent={selectedStudent}
+        parentLockStatus={props.parentLockStatus}
+        notificationUnreadCount={props.parentNotificationUnreadCount}
+        hapticSelection={props.hapticSelection}
+      />
+    );
+  } else if (props.tab === "records") {
     view = (
       <RecordsTab
         apiBase={props.apiBase}
@@ -2913,7 +2727,7 @@ export function ParentCoachApp(props: {
       <TabTransitionPanel
         tabKey={props.tab}
         className={
-          props.tab === "manage"
+          props.tab === "manage" || props.tab === "home"
             ? "coach-shell__tab-panel coach-unified-tab-panel--fill"
             : "coach-shell__tab-panel"
         }

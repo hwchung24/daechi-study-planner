@@ -8,12 +8,23 @@ export function AuthScreen(props: {
   authMode: AuthMode;
   authRole: AuthRole;
   authStudentName: string;
+  authParentPhone: string;
+  authParentPhoneCode: string;
+  authParentPhoneVerified: boolean;
+  authParentPhoneSending: boolean;
+  authParentPhoneVerifying: boolean;
+  authParentPhoneNotice: string;
+  authParentPhoneNoticeTone: "neutral" | "success" | "error";
   authEmail: string;
   authPassword: string;
   authError: string;
   onModeChange: (mode: AuthMode) => void;
   onRoleChange: (role: AuthRole) => void;
   onStudentNameChange: (value: string) => void;
+  onParentPhoneChange: (value: string) => void;
+  onParentPhoneCodeChange: (value: string) => void;
+  onParentPhoneSendCode: () => void;
+  onParentPhoneVerifyCode: () => void;
   onEmailChange: (value: string) => void;
   onPasswordChange: (value: string) => void;
   onSubmit: (e: React.FormEvent<HTMLFormElement>) => void;
@@ -23,12 +34,23 @@ export function AuthScreen(props: {
     authMode,
     authRole,
     authStudentName,
+    authParentPhone,
+    authParentPhoneCode,
+    authParentPhoneVerified,
+    authParentPhoneSending,
+    authParentPhoneVerifying,
+    authParentPhoneNotice,
+    authParentPhoneNoticeTone,
     authEmail,
     authPassword,
     authError,
     onModeChange,
     onRoleChange,
     onStudentNameChange,
+    onParentPhoneChange,
+    onParentPhoneCodeChange,
+    onParentPhoneSendCode,
+    onParentPhoneVerifyCode,
     onEmailChange,
     onPasswordChange,
     onSubmit
@@ -125,6 +147,89 @@ export function AuthScreen(props: {
                   onChange={e => onStudentNameChange(e.target.value)}
                 />
               </div>
+            )}
+            {authMode === "signup" && authRole === "parent" && (
+              <>
+                <div className="auth-field">
+                  <label htmlFor="auth-parent-phone">휴대폰 번호</label>
+                  <div className="auth-phone-row">
+                    <input
+                      id="auth-parent-phone"
+                      type="tel"
+                      className="auth-input"
+                      inputMode="numeric"
+                      autoComplete="tel"
+                      placeholder="01012345678"
+                      value={authParentPhone}
+                      onChange={e => onParentPhoneChange(e.target.value)}
+                      disabled={authLeaving || authParentPhoneVerified}
+                      aria-invalid={authParentPhoneNoticeTone === "error"}
+                    />
+                    <button
+                      type="button"
+                      className="auth-inline-btn"
+                      onClick={() => onParentPhoneSendCode()}
+                      disabled={
+                        authLeaving ||
+                        authParentPhoneSending ||
+                        authParentPhoneVerified ||
+                        authParentPhone.trim().replace(/\D/g, "").length < 10
+                      }
+                    >
+                      {authParentPhoneSending ? "발송 중…" : "인증번호 받기"}
+                    </button>
+                  </div>
+                </div>
+                <div className="auth-field">
+                  <label htmlFor="auth-parent-phone-code">인증번호</label>
+                  <div className="auth-phone-row">
+                    <input
+                      id="auth-parent-phone-code"
+                      type="text"
+                      className="auth-input"
+                      inputMode="numeric"
+                      autoComplete="one-time-code"
+                      placeholder="6자리"
+                      maxLength={6}
+                      value={authParentPhoneCode}
+                      onChange={e =>
+                        onParentPhoneCodeChange(e.target.value.replace(/\D/g, "").slice(0, 6))
+                      }
+                      disabled={authLeaving || authParentPhoneVerified}
+                    />
+                    <button
+                      type="button"
+                      className="auth-inline-btn"
+                      onClick={() => onParentPhoneVerifyCode()}
+                      disabled={
+                        authLeaving ||
+                        authParentPhoneVerifying ||
+                        authParentPhoneVerified ||
+                        authParentPhoneCode.length !== 6
+                      }
+                    >
+                      {authParentPhoneVerifying ? "확인 중…" : "인증 확인"}
+                    </button>
+                  </div>
+                  {authParentPhoneVerified ? (
+                    <p className="auth-phone-status auth-phone-status--ok">휴대폰 인증이 완료되었어요.</p>
+                  ) : null}
+                  {authParentPhoneNotice ? (
+                    <p
+                      className={
+                        "auth-phone-status" +
+                        (authParentPhoneNoticeTone === "error"
+                          ? " auth-phone-status--err"
+                          : authParentPhoneNoticeTone === "success"
+                            ? " auth-phone-status--ok"
+                            : "")
+                      }
+                    >
+                      {authParentPhoneNotice}
+                    </p>
+                  ) : null}
+                </div>
+              </>
             )}
             <div className="auth-field">
               <label htmlFor="auth-email">이메일</label>

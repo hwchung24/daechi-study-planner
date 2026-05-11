@@ -51,17 +51,19 @@ export function stripCoachPanelParamFromHash(hash: string): string {
 
 export function parseCoachParentTabFromHash(path = getAppPath()) {
   const h = path;
-  if (h === "#/parent" || h === "#/parent/profile") return null;
+  if (h === "#/parent/profile") return null;
+  if (h === "#/parent") return "home" as const;
   if (h === "#/parent/report") return "analysis" as const;
   if (!h.startsWith("#/parent/")) return null;
   const subPath = h.slice("#/parent/".length).split("?")[0];
   const seg = (subPath || "home").replace(/^\/+/, "");
+  if (seg === "home") return "home" as const;
   if (seg === "manage") return "manage" as const;
   if (seg === "ai-report") return "analysis" as const;
   if (seg === "records") return "records" as const;
   if (seg === "student-settings") return "studentSettings" as const;
   if (seg === "analysis") return "analysis" as const;
-  return "manage" as const;
+  return "home" as const;
 }
 
 export function parseRouteFromHash(path = getAppPath()): AppRoute {

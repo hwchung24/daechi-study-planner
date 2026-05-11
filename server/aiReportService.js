@@ -6,6 +6,7 @@ const {
   createParentNotificationForAlarm
 } = require("./db");
 const { sendPushToUser } = require("./pushService");
+const { sendParentKakaoIfEnabled } = require("./parentKakaoNotify");
 const {
   computeWeeklyStats,
   buildWeeklySummaryLines,
@@ -122,10 +123,13 @@ async function runOnePair(parentUserId, studentUserId, options = {}) {
       `${reportDate} 기준 새로운 일일 AI 리포트가 도착했습니다.`
     ).catch(() => {});
     if (notification) {
+      const pushTitle = "일일 AI 리포트 도착";
+      const pushBody = `${reportDate} 기준 새로운 일일 AI 리포트가 도착했습니다.`;
       await sendPushToUser(parentUserId, {
-        title: "일일 AI 리포트 도착",
-        body: `${reportDate} 기준 새로운 일일 AI 리포트가 도착했습니다.`
+        title: pushTitle,
+        body: pushBody
       }).catch(() => {});
+      await sendParentKakaoIfEnabled(parentUserId, pushTitle, pushBody).catch(() => {});
     }
   }
   return { reportDate, weekStart, weekEnd };

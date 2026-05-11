@@ -202,7 +202,7 @@ export function ParentLegacyView(props: {
                 onClick={() => {
                   hapticSelection();
                   setParentTab("profile");
-                  setAppPath("#/parent");
+                  setAppPath("#/parent/home");
                 }}
               >
                 학생 연결

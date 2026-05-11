@@ -30,6 +30,12 @@ const {
   updateUserPasswordHash,
   listParentStudents,
   listLinkedParentUserIdsForStudent,
+  upsertParentSignupPhoneOtp,
+  deleteParentSignupPhoneOtp,
+  parentPhoneNormalizedExists,
+  verifyParentSignupPhoneOtp,
+  assertParentSignupPhoneResendCooldown,
+  setParentPhoneForUser,
   getParentCoachCustomization,
   upsertParentCoachCustomization,
   getEffectiveParentCoachCustomizationForStudent,
@@ -136,6 +142,14 @@ const {
 } = require("./parentAppModeScheduleCron");
 const { runOnePair } = require("./aiReportService");
 const { sendPushToUser, sendPushToUsers } = require("./pushService");
+const {
+  isSolapiConfigured,
+  isSolapiSmsConfigured,
+  normalizeKoreanPhone,
+  sendKakaoAlimtalk,
+  sendSolapiSms
+} = require("./solapiService");
+const { sendParentKakaoIfEnabled } = require("./parentKakaoNotify");
 const {
   syncStudentWeeklyAppAllowance,
   reconcileAllStudentWeeklyAppAllowances,
@@ -600,6 +614,14 @@ function coerceFiniteNumber(value) {
 function applyLocationToStudyRoomSummary(liveSummary, location) {
   return {
     ...liveSummary,
+    currentLatitude:
+      location.latitude != null && Number.isFinite(Number(location.latitude))
+        ? Number(location.latitude)
+        : liveSummary.currentLatitude ?? null,
+    currentLongitude:
+      location.longitude != null && Number.isFinite(Number(location.longitude))
+        ? Number(location.longitude)
+        : liveSummary.currentLongitude ?? null,
     currentHeartbeatAt: location.updatedAt,
     currentAccuracyMeters: location.accuracy,
     rooms: (Array.isArray(liveSummary.rooms) ? liveSummary.rooms : []).map(room => {
@@ -1694,6 +1716,9 @@ async function createParentNotificationForLinkedParentsAlarmWithPush(
     if (!notification) continue;
     createdCount += 1;
     pushTargetUserIds.push(parentUserId);
+    await sendParentKakaoIfEnabled(parentUserId, title, body).catch(err => {
+      console.warn("parent kakao notify (linked alarm)", parentUserId, err?.message || err);
+    });
   }
 
   if (pushTargetUserIds.length) {
@@ -1722,6 +1747,9 @@ async function createParentNotificationForAlarmWithPush(
   );
   if (notification) {
     await sendParentPushNotification(userId, title, body, data).catch(() => {});
+    await sendParentKakaoIfEnabled(userId, title, body).catch(err => {
+      console.warn("parent kakao notify (alarm+push)", userId, err?.message || err);
+    });
   }
   return notification;
 }
@@ -1744,6 +1772,14 @@ async function createParentNotificationForLinkedParentsWithPush(
       body,
       data
     ).catch(() => {});
+    const parentUserIds = await listLinkedParentUserIdsForStudent(studentUserId).catch(
+      () => []
+    );
+    for (const parentUserId of parentUserIds) {
+      await sendParentKakaoIfEnabled(parentUserId, title, body).catch(err => {
+        console.warn("parent kakao notify (linked all)", parentUserId, err?.message || err);
+      });
+    }
   }
   return created;
 }
@@ -3379,6 +3415,33 @@ app.get("/health", (_req, res) => {
   });
 });
 
+app.post("/api/dev/solapi/kakao-test", authMiddleware, async (req, res) => {
+  try {
+    if (process.env.NODE_ENV === "production" && process.env.SOLAPI_TEST_ENDPOINT_ENABLED !== "true") {
+      return res.status(404).json({ error: "Not found" });
+    }
+    if (!isSolapiConfigured()) {
+      return res.status(400).json({ error: "Solapi 환경변수가 설정되지 않았습니다." });
+    }
+    const to = normalizeKoreanPhone((req.body || {}).to);
+    const text = String((req.body || {}).text || "").trim();
+    if (!to || !text) {
+      return res.status(400).json({ error: "to, text가 필요합니다." });
+    }
+    const result = await sendKakaoAlimtalk({
+      to,
+      text,
+      templateId: String((req.body || {}).templateId || "").trim() || undefined
+    });
+    res.json({ ok: true, result });
+  } catch (e) {
+    console.error("/api/dev/solapi/kakao-test error", e);
+    res.status(500).json({
+      error: String(e?.message || "카카오 발송에 실패했습니다.")
+    });
+  }
+});
+
 function parseCookieHeader(cookieHeader = "") {
   const map = {};
   for (const piece of String(cookieHeader).split(";")) {
@@ -3521,9 +3584,106 @@ function stripHtmlTags(value) {
   return String(value || "").replace(/<[^>]+>/g, "").trim();
 }
 
+const PARENT_SIGNUP_PHONE_JWT_PURPOSE = "parent_signup_phone";
+
+function isValidKoreanMobilePhone(normalizedDigits) {
+  const d = String(normalizedDigits || "").replace(/[^\d]/g, "");
+  return /^01[016789]\d{7,8}$/.test(d);
+}
+
+function verifyParentSignupPhoneJwt(tokenRaw, expectedPhoneNormalized) {
+  if (!JWT_SECRET) return false;
+  try {
+    const decoded = jwt.verify(String(tokenRaw || "").trim(), JWT_SECRET, {
+      algorithms: ["HS256"]
+    });
+    if (decoded.purpose !== PARENT_SIGNUP_PHONE_JWT_PURPOSE) return false;
+    return String(decoded.phone || "") === expectedPhoneNormalized;
+  } catch {
+    return false;
+  }
+}
+
+app.post("/auth/parent/signup/send-phone-code", authLimiter, async (req, res) => {
+  try {
+    const phoneNormalized = normalizeKoreanPhone((req.body || {}).phone);
+    if (!isValidKoreanMobilePhone(phoneNormalized)) {
+      return res.status(400).json({ error: "휴대폰 번호를 올바르게 입력해 주세요." });
+    }
+    if (await parentPhoneNormalizedExists(phoneNormalized)) {
+      return res.status(400).json({ error: "이미 가입에 사용된 번호입니다." });
+    }
+    const cooldown = await assertParentSignupPhoneResendCooldown(phoneNormalized, 45 * 1000);
+    if (!cooldown.ok) {
+      return res.status(429).json({ error: cooldown.error });
+    }
+    const code = String(crypto.randomInt(100000, 1000000));
+    const devNoSms =
+      process.env.NODE_ENV !== "production" &&
+      String(process.env.PARENT_SIGNUP_DEV_NO_SMS || "").toLowerCase() === "true";
+    if (!devNoSms && !isSolapiSmsConfigured()) {
+      return res.status(503).json({
+        error: "문자 인증이 설정되지 않았습니다. 관리자에게 문의해 주세요."
+      });
+    }
+    await upsertParentSignupPhoneOtp(phoneNormalized, code);
+    try {
+      if (devNoSms) {
+        if (String(process.env.PARENT_SIGNUP_DEV_PRINT_OTP || "").toLowerCase() === "true") {
+          console.info("[dev] parent signup OTP", phoneNormalized, code);
+        }
+      } else {
+        await sendSolapiSms({
+          to: phoneNormalized,
+          text: `[대치루트] 인증번호는 ${code} 입니다. 5분 이내에 입력해 주세요.`
+        });
+      }
+    } catch (sendErr) {
+      await deleteParentSignupPhoneOtp(phoneNormalized);
+      console.error("parent signup SMS error", sendErr);
+      return res.status(502).json({
+        error: "인증 문자를 보내지 못했습니다. 잠시 후 다시 시도해 주세요."
+      });
+    }
+    res.json({ ok: true });
+  } catch (e) {
+    console.error("/auth/parent/signup/send-phone-code error", e);
+    res.status(500).json({ error: "요청을 처리하지 못했습니다." });
+  }
+});
+
+app.post("/auth/parent/signup/verify-phone-code", authLimiter, async (req, res) => {
+  try {
+    const phoneNormalized = normalizeKoreanPhone((req.body || {}).phone);
+    const code = String((req.body || {}).code || "").trim();
+    if (!isValidKoreanMobilePhone(phoneNormalized) || !/^\d{6}$/.test(code)) {
+      return res.status(400).json({ error: "번호와 인증번호를 확인해 주세요." });
+    }
+    if (await parentPhoneNormalizedExists(phoneNormalized)) {
+      return res.status(400).json({ error: "이미 가입에 사용된 번호입니다." });
+    }
+    const v = await verifyParentSignupPhoneOtp(phoneNormalized, code);
+    if (!v.ok) {
+      return res.status(400).json({ error: v.error });
+    }
+    if (!JWT_SECRET) {
+      return res.status(500).json({ error: "서버 설정 오류입니다." });
+    }
+    const phoneVerifyToken = jwt.sign(
+      { purpose: PARENT_SIGNUP_PHONE_JWT_PURPOSE, phone: phoneNormalized },
+      JWT_SECRET,
+      { expiresIn: "30m", algorithm: "HS256" }
+    );
+    res.json({ ok: true, phoneVerifyToken });
+  } catch (e) {
+    console.error("/auth/parent/signup/verify-phone-code error", e);
+    res.status(500).json({ error: "요청을 처리하지 못했습니다." });
+  }
+});
+
 app.post("/auth/register", authLimiter, async (req, res) => {
   try {
-    const { email, password, role, serial, name } = req.body || {};
+    const { email, password, role, serial, name, phone, phoneVerifyToken } = req.body || {};
     if (!email || !password) {
       return res
         .status(400)
@@ -3548,7 +3708,24 @@ app.post("/auth/register", authLimiter, async (req, res) => {
     const hash = await bcrypt.hash(String(password), 10);
     const safeRole =
       role === "parent" || role === "student" ? role : "student";
+    let parentPhoneNormalized = "";
+    if (safeRole === "parent") {
+      parentPhoneNormalized = normalizeKoreanPhone(phone);
+      if (!isValidKoreanMobilePhone(parentPhoneNormalized)) {
+        return res.status(400).json({ error: "휴대폰 번호를 올바르게 입력해 주세요." });
+      }
+      const tokenOk = verifyParentSignupPhoneJwt(phoneVerifyToken, parentPhoneNormalized);
+      if (!tokenOk) {
+        return res.status(400).json({ error: "휴대폰 인증을 완료해 주세요." });
+      }
+      if (await parentPhoneNormalizedExists(parentPhoneNormalized)) {
+        return res.status(409).json({ error: "이미 가입에 사용된 번호입니다." });
+      }
+    }
     const userId = await createUser(trimmedEmail, hash, safeRole);
+    if (safeRole === "parent" && parentPhoneNormalized) {
+      await setParentPhoneForUser(userId, parentPhoneNormalized);
+    }
     if (safeRole === "student") {
       const studentName = String(name || "").trim().slice(0, 40);
       if (studentName) {
@@ -4938,8 +5115,13 @@ app.get("/api/parent/students/:studentId/study-room-visits", authMiddleware, asy
       currentWithinRadius: currentRoom?.isWithinRadius ?? null,
       currentHeartbeatAt: liveSummary.currentHeartbeatAt,
       currentAccuracyMeters: liveSummary.currentAccuracyMeters,
+      currentLatitude: liveSummary.currentLatitude ?? null,
+      currentLongitude: liveSummary.currentLongitude ?? null,
       currentRadiusMeters: currentRoom?.radiusMeters ?? null,
-      studyRoomName: currentRoom?.name || null
+      studyRoomName: currentRoom?.name || null,
+      studyRoomAddress: currentRoom?.address ?? null,
+      studyRoomLatitude: currentRoom?.latitude ?? null,
+      studyRoomLongitude: currentRoom?.longitude ?? null
     };
     setResponseCache(cacheKey, response);
     res.json(response);
