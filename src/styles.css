@@ -1581,6 +1581,24 @@ html.parent-session .app-main {
   align-items: center;
 }
 
+.parent-home__coach-phrase-card--with-title {
+  flex-direction: column;
+  align-items: stretch;
+  gap: calc(8px * var(--parent-ui-scale));
+  min-height: calc(56px * var(--parent-ui-scale));
+}
+
+.parent-home__coach-phrase-card-title {
+  margin: 0;
+  width: 100%;
+  text-align: center;
+  font-size: calc(14px * var(--parent-ui-scale));
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: #1e3a5f;
+  line-height: 1.3;
+}
+
 .parent-home__coach-phrase-card--sub {
   margin-top: calc(-2px * var(--parent-ui-scale));
   justify-content: center;
@@ -3743,8 +3761,7 @@ body.app-keyboard-open .app-main {
 
 .study-room-modal .dday-modal-inner {
   width: min(94vw, 560px);
-  min-height: min(820px, calc(var(--app-viewport-height) - 24px));
-  max-height: min(820px, calc(var(--app-viewport-height) - 24px));
+  max-height: calc(var(--app-viewport-height) - 24px);
   padding: 16px;
   overflow: hidden;
   display: flex;
@@ -3755,7 +3772,7 @@ body.app-keyboard-open .app-main {
   display: flex;
   flex-direction: column;
   gap: 12px;
-  flex: 1 1 auto;
+  flex: 0 1 auto;
   min-height: 0;
   overflow-y: auto;
   -webkit-overflow-scrolling: touch;
@@ -4974,6 +4991,34 @@ body.app-keyboard-open .app-main {
   gap: 12px;
   margin-top: 12px;
   align-items: start;
+}
+
+.coach-records-page-grid--unified {
+  grid-template-columns: 1fr;
+}
+
+.coach-records-card-lead {
+  margin: 8px 2px 0;
+  font-size: 13px;
+  line-height: 1.45;
+  color: var(--text-muted);
+}
+
+.coach-records-unified-week .progress-day-card-body.coach-records-unified-day-body {
+  gap: 12px;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  max-height: min(70vh, 640px);
+}
+
+.coach-records-unified-block + .coach-records-unified-block {
+  padding-top: 12px;
+  border-top: var(--border-width) solid rgba(var(--neutral-rgb), 0.18);
+}
+
+.coach-records-unified-week .record-life-group + .record-life-group {
+  padding-top: 10px;
+  border-top: var(--border-width) solid rgba(var(--neutral-rgb), 0.12);
 }
 
 .coach-records-page-grid > * {

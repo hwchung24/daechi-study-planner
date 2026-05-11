@@ -569,7 +569,11 @@ export function ParentHomeTab(props: ParentHomeTabProps) {
         <section className="section parent-home__live" aria-label="자녀 실시간 상태">
           {selectedStudent ? (
             <>
-              <div className="parent-home__coach-phrase-card" aria-busy={suggestedPhraseLoading}>
+              <div
+                className="parent-home__coach-phrase-card parent-home__coach-phrase-card--with-title"
+                aria-busy={suggestedPhraseLoading}
+              >
+                <p className="parent-home__coach-phrase-card-title">SNU AI 학부모 가이드</p>
                 {suggestedPhraseLoading ? (
                   <div className="parent-home__skeleton-phrase-row" aria-label="코치 문구 불러오는 중">
                     <div className="parent-skeleton parent-skeleton--phrase" />

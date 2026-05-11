@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { MODAL_TRANSITION_MS } from "../../lib/uiTiming";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
@@ -31,11 +31,6 @@ const selectedMarkerIcon = L.divIcon({
   iconSize: [22, 22],
   iconAnchor: [11, 22]
 });
-
-function studentAlias(email: string) {
-  const localPart = String(email || "").split("@")[0]?.trim();
-  return localPart || email || "학생";
-}
 
 export function StudyRoomPickerEditor(props: {
   student: { id: number; email: string } | null;
@@ -424,11 +419,6 @@ export function StudyRoomPickerModal(props: {
     return () => clearTimeout(id);
   }, [show, isAnimOpen, isRendered]);
 
-  const activeStudentName = useMemo(() => {
-    if (!student) return "학생";
-    return studentAlias(student.email);
-  }, [student]);
-
   if (!isRendered || !student) return null;
 
   return (
@@ -438,7 +428,7 @@ export function StudyRoomPickerModal(props: {
     >
       <div className="dday-modal-inner" onClick={event => event.stopPropagation()}>
         <div className="dday-modal-header">
-          <span className="dday-modal-title">{activeStudentName} 학습 위치 설정</span>
+          <span className="dday-modal-title">독서실 위치 설정</span>
         </div>
         <div className="dday-modal-body">
           <StudyRoomPickerEditor

@@ -548,27 +548,6 @@ function CoachRhythmSparkline(props: {
   );
 }
 
-function deriveFocusSubject(blocks: ParentWeekBlock[]) {
-  const source = blocks.filter(block => block.done);
-  const candidates = source.length > 0 ? source : blocks;
-  if (!candidates.length) return null;
-
-  const bySubject = new Map<string, { subject: string; minutes: number; sessions: number }>();
-  for (const block of candidates) {
-    const subject = trimText(block.subject) || "과목 미기록";
-    const prev = bySubject.get(subject) || { subject, minutes: 0, sessions: 0 };
-    prev.minutes += minutesBetween(block.start_time, block.end_time);
-    prev.sessions += 1;
-    bySubject.set(subject, prev);
-  }
-
-  return [...bySubject.values()].sort((left, right) => {
-    if (right.minutes !== left.minutes) return right.minutes - left.minutes;
-    if (right.sessions !== left.sessions) return right.sessions - left.sessions;
-    return left.subject.localeCompare(right.subject, "ko");
-  })[0];
-}
-
 function hasStudyLogContent(log: ParentCoachLog | null | undefined) {
   if (!log) return false;
   return (
@@ -1406,30 +1385,7 @@ function RecordsTab(props: {
 
   const todayKey = getDateKeySeoul(0);
   const tomorrowKey = getDateKeySeoul(1);
-  const todayDay = daysByDate.get(todayKey) || null;
   const tomorrowDay = daysByDate.get(tomorrowKey) || null;
-  const todayDayId = todayDay != null ? Number(todayDay.id) : NaN;
-  const todayBlocks =
-    todayDay && Number.isFinite(todayDayId)
-      ? sortBlocks(blocksByDayId.get(todayDayId) || [])
-      : [];
-  const todayLog = logsByDate.get(todayKey) || null;
-  const yesterdayLog = logsByDate.get(shiftDateKey(todayKey, -1)) || null;
-  const todayCommitment = trimText(yesterdayLog?.tomorrowPractice);
-  const todayCommitmentDone = todayLog?.tomorrowPracticeDone ?? null;
-  const totalTargets = todayBlocks.length + (todayCommitment ? 1 : 0);
-  const achievedTargets =
-    todayBlocks.filter(block => block.done).length +
-    (todayCommitment && todayCommitmentDone === true ? 1 : 0);
-  const goalRate = totalTargets > 0 ? Math.round((achievedTargets / totalTargets) * 100) : null;
-  const focusSubject = deriveFocusSubject(todayBlocks);
-  const todayStudyMinutes =
-    todayLog?.studyMinutes != null
-      ? Number(todayLog.studyMinutes)
-      : todayBlocks.reduce(
-          (sum, block) => sum + minutesBetween(block.start_time, block.end_time),
-          0
-        );
 
   const renderStudyCard = (dayKey: string) => {
     const day = daysByDate.get(dayKey) || null;
@@ -1584,27 +1540,6 @@ function RecordsTab(props: {
     );
   };
 
-  const renderTimelineOverviewCard = (dayKey: string) => {
-    const day = daysByDate.get(dayKey) || null;
-    const dayIdNum = day != null ? Number(day.id) : NaN;
-    const dayBlocks =
-      day && Number.isFinite(dayIdNum)
-        ? sortBlocks(blocksByDayId.get(dayIdNum) || [])
-        : [];
-    const prevLog = logsByDate.get(shiftDateKey(dayKey, -1)) || null;
-    const commitmentText = trimText(prevLog?.tomorrowPractice);
-    const commitmentDone = logsByDate.get(dayKey)?.tomorrowPracticeDone ?? null;
-
-    return (
-      <TimelineListView
-        blocks={dayBlocks}
-        commitmentText={commitmentText}
-        commitmentDone={commitmentDone}
-        emptyText="등록된 계획이 없습니다."
-      />
-    );
-  };
-
   const renderStudyRoomVisitOverviewCard = (dayKey: string) => {
     const dayVisits = studyRoomVisitsByDate.get(dayKey) || [];
     if (!hasStudyRoomConfig) {
@@ -1642,11 +1577,11 @@ function RecordsTab(props: {
         <EmptyState title="학생을 선택하세요" />
       ) : (
         <>
-          <div className="coach-records-page-grid">
+          <div className="coach-records-page-grid coach-records-page-grid--unified">
             <Card className="coach-card coach-card--padded coach-records-overview-card">
               <SectionHeader
-                title="공부 계획"
-                icon={<ListChecks aria-hidden />}
+                title="날짜별 기록"
+                icon={<CalendarRange aria-hidden />}
                 right={(
                   <button
                     type="button"
@@ -1697,140 +1632,93 @@ function RecordsTab(props: {
                   </button>
                 )}
               />
+              <p className="coach-records-card-lead">
+                공부 계획·독서실 체크인·생활 기록을 요일별 카드에서 함께 확인할 수 있어요.
+              </p>
               {aiReportMessage ? (
                 <p className="settings-hint" style={{ margin: "8px 2px 0" }}>
                   {aiReportMessage}
                 </p>
               ) : null}
-              <div className="week-frame coach-records-week-frame">
-                <div className="progress-cards-scroll">
-                  <div className="progress-cards-container">
-                    {getWeekDaysIncludingTomorrowSeoul(0).map(day => (
-                      <div
-                        key={`parent-overview-timeline-${day.key}`}
-                        className={
-                          "progress-day-card" + (day.key === todayKey ? " progress-day-card--today" : "")
-                        }
+              {!hasStudyRoomConfig ? (
+                <p className="settings-hint" style={{ margin: "8px 2px 0" }}>
+                  독서실을 설정하면 각 날짜 카드에 체크인·체크아웃 기록이 표시됩니다.
+                </p>
+              ) : null}
+              {hasStudyRoomConfig ? (
+                <div className="parent-study-room-item__visit-empty" style={{ marginTop: 12, marginBottom: 4 }}>
+                  {displayDistanceMeters != null
+                    ? `${studyRoomLiveStatus.currentDistanceMeters != null ? "현재 거리" : "최근 거리"} ${Math.round(displayDistanceMeters)}m${
+                        typeof studyRoomLiveStatus.currentWithinRadius === "boolean"
+                          ? ` · ${studyRoomLiveStatus.currentWithinRadius ? "체크인됨" : "체크아웃됨"}`
+                          : ""
+                      }`
+                    : "아직 실시간 거리 정보가 없습니다."}
+                  {studyRoomLiveStatus.currentHeartbeatAt
+                    ? ` · 기준 ${formatStudyRoomVisitDateTime(studyRoomLiveStatus.currentHeartbeatAt)}`
+                    : ""}
+                  {studyRoomLiveStatus.currentLatitude != null &&
+                  studyRoomLiveStatus.currentLongitude != null &&
+                  Number.isFinite(Number(studyRoomLiveStatus.currentLatitude)) &&
+                  Number.isFinite(Number(studyRoomLiveStatus.currentLongitude)) ? (
+                    <div style={{ marginTop: 10, lineHeight: 1.45 }}>
+                      마지막 보고 좌표(WGS84): 위도{" "}
+                      {Number(studyRoomLiveStatus.currentLatitude).toFixed(6)}°, 경도{" "}
+                      {Number(studyRoomLiveStatus.currentLongitude).toFixed(6)}° ·{" "}
+                      <a
+                        href={`https://www.google.com/maps?q=${encodeURIComponent(
+                          `${studyRoomLiveStatus.currentLatitude},${studyRoomLiveStatus.currentLongitude}`
+                        )}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
                       >
-                        <div className="progress-day-card-header">{day.label}</div>
-                        <div className="progress-day-card-body">
-                          {renderTimelineOverviewCard(day.key)}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
+                        지도에서 보기
+                      </a>
+                    </div>
+                  ) : null}
                 </div>
-              </div>
-            </Card>
-
-            <Card className="coach-card coach-card--padded coach-records-overview-card">
-              <SectionHeader
-                title="독서실 체크인 기록"
-                icon={<Library aria-hidden />}
-              />
-              <div style={{ marginTop: 12 }}>
-                {hasStudyRoomConfig ? (
-                  <div className="parent-study-room-item__visit-empty" style={{ marginBottom: 10 }}>
-                    {displayDistanceMeters != null
-                      ? `${studyRoomLiveStatus.currentDistanceMeters != null ? "현재 거리" : "최근 거리"} ${Math.round(displayDistanceMeters)}m${
-                          typeof studyRoomLiveStatus.currentWithinRadius === "boolean"
-                            ? ` · ${studyRoomLiveStatus.currentWithinRadius ? "체크인됨" : "체크아웃됨"}`
-                            : ""
-                        }`
-                      : "아직 실시간 거리 정보가 없습니다."}
-                    {studyRoomLiveStatus.currentHeartbeatAt
-                      ? ` · 기준 ${formatStudyRoomVisitDateTime(studyRoomLiveStatus.currentHeartbeatAt)}`
-                      : ""}
-                    {studyRoomLiveStatus.currentLatitude != null &&
-                    studyRoomLiveStatus.currentLongitude != null &&
-                    Number.isFinite(Number(studyRoomLiveStatus.currentLatitude)) &&
-                    Number.isFinite(Number(studyRoomLiveStatus.currentLongitude)) ? (
-                      <div style={{ marginTop: 10, lineHeight: 1.45 }}>
-                        마지막 보고 좌표(WGS84): 위도{" "}
-                        {Number(studyRoomLiveStatus.currentLatitude).toFixed(6)}°, 경도{" "}
-                        {Number(studyRoomLiveStatus.currentLongitude).toFixed(6)}° ·{" "}
-                        <a
-                          href={`https://www.google.com/maps?q=${encodeURIComponent(
-                            `${studyRoomLiveStatus.currentLatitude},${studyRoomLiveStatus.currentLongitude}`
-                          )}`}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                        >
-                          지도에서 보기
-                        </a>
-                      </div>
-                    ) : null}
-                  </div>
-                ) : null}
+              ) : null}
+              <section className="coach-records-unified-week" aria-label="날짜별 공부·독서실·생활 기록">
                 <div className="week-frame coach-records-week-frame">
                   <div className="progress-cards-scroll">
                     <div className="progress-cards-container">
                       {getWeekDaysIncludingTomorrowSeoul(0).map(day => (
                         <div
-                          key={`parent-overview-checkin-${day.key}`}
+                          key={`parent-records-unified-${day.key}`}
                           className={
                             "progress-day-card" + (day.key === todayKey ? " progress-day-card--today" : "")
                           }
                         >
                           <div className="progress-day-card-header">{day.label}</div>
-                          <div className="progress-day-card-body">
-                            {renderStudyRoomVisitOverviewCard(day.key)}
+                          <div className="progress-day-card-body coach-records-unified-day-body">
+                            {hasStudyRoomConfig ? (
+                              <div className="coach-records-unified-block">
+                                <RecordSubgroupHeading icon={<Library aria-hidden />}>
+                                  독서실 체크인
+                                </RecordSubgroupHeading>
+                                {renderStudyRoomVisitOverviewCard(day.key)}
+                              </div>
+                            ) : null}
+                            <div className="coach-records-unified-block">
+                              <RecordSubgroupHeading icon={<ListChecks aria-hidden />}>
+                                공부·계획
+                              </RecordSubgroupHeading>
+                              {renderStudyCard(day.key)}
+                            </div>
+                            <div className="coach-records-unified-block">
+                              <RecordSubgroupHeading icon={<NotebookPen aria-hidden />}>
+                                생활 기록
+                              </RecordSubgroupHeading>
+                              {renderLifeCard(day.key)}
+                            </div>
                           </div>
                         </div>
                       ))}
                     </div>
                   </div>
                 </div>
-              </div>
+              </section>
             </Card>
-
-            <section className="records-study-section coach-records-week-outer" aria-label="학습 기록">
-              <Card className="coach-card coach-card--padded coach-records-overview-card">
-                <SectionHeader title="학습 기록" icon={<ClipboardList aria-hidden />} />
-                <div className="week-frame coach-records-week-frame">
-                  <div className="progress-cards-scroll">
-                    <div className="progress-cards-container">
-                      {getWeekDaysIncludingTomorrowSeoul(0).map(day => (
-                        <div
-                          key={`parent-study-${day.key}`}
-                          className={
-                            "progress-day-card" +
-                            (day.key === todayKey ? " progress-day-card--today" : "")
-                          }
-                        >
-                          <div className="progress-day-card-header">{day.label}</div>
-                          <div className="progress-day-card-body">{renderStudyCard(day.key)}</div>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                </div>
-              </Card>
-            </section>
-
-            <section className="records-life-section coach-records-week-outer" aria-label="생활 기록">
-              <Card className="coach-card coach-card--padded coach-records-overview-card">
-                <SectionHeader title="생활 기록" icon={<NotebookPen aria-hidden />} />
-                <div className="week-frame coach-records-week-frame">
-                  <div className="progress-cards-scroll">
-                    <div className="progress-cards-container">
-                      {getWeekDaysIncludingTomorrowSeoul(0).map(day => (
-                        <div
-                          key={`parent-life-${day.key}`}
-                          className={
-                            "progress-day-card" +
-                            (day.key === todayKey ? " progress-day-card--today" : "")
-                          }
-                        >
-                          <div className="progress-day-card-header">{day.label}</div>
-                          <div className="progress-day-card-body">{renderLifeCard(day.key)}</div>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                </div>
-              </Card>
-            </section>
           </div>
         </>
       )}
