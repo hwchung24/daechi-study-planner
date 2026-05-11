@@ -1011,15 +1011,19 @@ html.parent-session .app-main {
 .parent-home__status-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: calc(10px * var(--parent-ui-scale));
+  gap: 0;
   margin-top: 0;
+  border-top: 1px solid var(--border-neutral);
+  border-left: 1px solid var(--border-neutral);
 }
 
 .parent-home__status-card {
-  border-radius: var(--radius-lg);
-  background: var(--surface-base);
-  border: var(--border-width) solid var(--border-neutral);
-  box-shadow: var(--shadow-soft);
+  border-radius: 0;
+  background: transparent;
+  border: 0;
+  box-shadow: none;
+  border-right: 1px solid var(--border-neutral);
+  border-bottom: 1px solid var(--border-neutral);
   padding: calc(14px * var(--parent-ui-scale)) calc(14px * var(--parent-ui-scale))
     calc(12px * var(--parent-ui-scale));
   height: calc(210px * var(--parent-ui-scale));
@@ -1177,6 +1181,87 @@ html.parent-session .app-main {
   margin: calc(10px * var(--parent-ui-scale)) 0 0;
   font-size: calc(13px * var(--parent-ui-scale));
   color: var(--text-sub);
+}
+
+/* 학부모 페이지 전반: 카드형 UI 제거, 구분선 기반 레이아웃 */
+.app-root--parent .coach-shell__tab-panel--parent .coach-card,
+.app-root--parent .student-profile-page.section .coach-card {
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+}
+
+.app-root--parent .coach-shell__tab-panel--parent .coach-card + .coach-card,
+.app-root--parent .student-profile-page.section .coach-card + .coach-card {
+  border-top: 1px solid var(--border-neutral);
+}
+
+.app-root--parent .coach-shell__tab-panel--parent .coach-card--padded,
+.app-root--parent .student-profile-page.section .coach-card--padded {
+  padding-left: 0;
+  padding-right: 0;
+}
+
+.app-root--parent .notifications-page__list {
+  gap: 0;
+}
+
+.app-root--parent .notifications-page__item {
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+  border-bottom: 1px solid var(--border-neutral);
+  padding-left: 0;
+  padding-right: 0;
+}
+
+.app-root--parent .coach-admin-chat-shell .coach-chat {
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+  padding-left: 0;
+  padding-right: 0;
+}
+
+.app-root--parent .coach-admin-chat-shell__rail {
+  border-top: 1px solid var(--border-neutral);
+}
+
+.app-root--parent .coach-admin-chat-shell .coach-chat-input {
+  border-radius: var(--radius-pill);
+  box-shadow: none;
+}
+
+/* 학부모 채팅: 입력 영역이 화면 최하단에 붙도록 높이 체인 고정 */
+.coach-page--parent-chat {
+  display: flex;
+  flex-direction: column;
+  min-height: 100%;
+}
+
+.coach-page--parent-chat .coach-admin-panel--student-chat,
+.coach-page--parent-chat .coach-admin-layout--student-chat,
+.coach-page--parent-chat .coach-admin-chat-shell--plain,
+.coach-page--parent-chat .coach-admin-chat-shell,
+.coach-page--parent-chat .coach-chat-embedded {
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.coach-page--parent-chat .coach-admin-chat-shell__rail {
+  margin-top: auto;
+  padding-top: 8px;
+  padding-bottom: max(6px, env(safe-area-inset-bottom));
+  background: transparent;
+  position: sticky;
+  bottom: 0;
+}
+
+.coach-page--parent-chat .coach-chat {
+  min-height: 0;
 }
 
 .app-root--parent .coach-shell__tab-panel--parent > .coach-page,
@@ -8249,9 +8334,10 @@ button:active:not(:disabled),
   padding-top: 10px;
 }
 
-/* 학부모 채팅: 하단 레일 그라데이션 제거 */
+/* 학부모 채팅: 하단 레일 배경 제거 */
 .coach-admin-chat-shell .coach-chat-bottom-rail {
-  background: #ffffff;
+  background: transparent;
+  backdrop-filter: none;
 }
 
 .coach-admin-metrics {
@@ -8896,14 +8982,18 @@ button:active:not(:disabled),
   top: 50%;
   right: 8px;
   transform: translateY(-50%);
-  width: 34px;
-  min-width: 34px;
-  height: 34px;
+  width: 36px;
+  min-width: 36px;
+  height: 36px;
+  min-height: 36px;
   padding: 0;
-  border-radius: var(--radius-pill);
+  border-radius: 50%;
+  aspect-ratio: 1 / 1;
+  flex: 0 0 36px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  line-height: 0;
 }
 
 .coach-chat-send-btn {

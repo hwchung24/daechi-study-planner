@@ -278,16 +278,6 @@ function AdminChatShell(props: {
     await props.onSend(message);
   };
 
-  useEffect(() => {
-    if (props.composerDisabled) return;
-    const frame = window.requestAnimationFrame(() => {
-      composerInputRef.current?.focus();
-    });
-    return () => {
-      window.cancelAnimationFrame(frame);
-    };
-  }, [props.composerDisabled]);
-
   const content = (
     <>
       {props.showHeader === false ? null : (

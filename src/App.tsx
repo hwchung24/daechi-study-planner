@@ -3770,7 +3770,8 @@ const App: React.FC = () => {
             ((showStudentShell &&
             coachStudentMode &&
             coachStudentTab !== "home" &&
-            coachStudentCoachLayout === "chat")
+            coachStudentCoachLayout === "chat") ||
+            (parentView && coachParentMode && coachParentTab === "manage")
               ? " app-main--coach-chat"
               : "")
           }

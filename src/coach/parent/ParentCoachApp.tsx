@@ -1142,7 +1142,7 @@ function AiReportTab(props: {
   ];
 
   return (
-    <div className="coach-page">
+    <div className="coach-page coach-page--parent-chat">
       <ParentStudentSelector
         parentStudents={props.parentStudents}
         parentStudentId={props.parentStudentId}
@@ -2574,13 +2574,11 @@ function ManageTab(props: {
           body="학생을 선택하면 관리 채널을 확인할 수 있습니다."
         />
       ) : (
-        <Card className="coach-card coach-card--padded parent-manage-chat-card">
-          <ParentAdminChannelPanel
-            authToken={props.authToken}
-            studentId={props.parentStudentId ?? props.selectedStudent.id}
-            studentLabel={props.selectedStudent.email || "학생"}
-          />
-        </Card>
+        <ParentAdminChannelPanel
+          authToken={props.authToken}
+          studentId={props.parentStudentId ?? props.selectedStudent.id}
+          studentLabel={props.selectedStudent.email || "학생"}
+        />
       )}
     </div>
   );
@@ -2747,7 +2745,7 @@ export function ParentCoachApp(props: {
       <TabTransitionPanel
         tabKey={props.tab}
         className={
-          props.tab === "home"
+          props.tab === "home" || props.tab === "manage"
             ? "coach-shell__tab-panel coach-shell__tab-panel--parent coach-unified-tab-panel--fill"
             : "coach-shell__tab-panel coach-shell__tab-panel--parent"
         }
