@@ -2653,7 +2653,6 @@ export function ParentCoachApp(props: {
   parentNotificationUnreadCount: number;
   hapticSelection: () => void;
   parentStudents: ParentStudentRow[];
-  parentStudentsLoaded: boolean;
   setParentStudents: React.Dispatch<React.SetStateAction<ParentStudentRow[]>>;
   parentStudentId: number | null;
   setParentStudentId: (id: number | null) => void;
@@ -2683,7 +2682,7 @@ export function ParentCoachApp(props: {
     deriveGuide(props.parentReport, props.parentAiDaily).suggestedPhrases[0] || ""
   );
   const parentSuggestedPhraseLoading =
-    Boolean(selectedStudent) && !String(parentSuggestedPhrase || "").trim();
+    Boolean(selectedStudent) && !props.parentAiDaily && !props.parentReport;
 
   let view: React.ReactNode;
   if (props.tab === "home") {
@@ -2693,7 +2692,6 @@ export function ParentCoachApp(props: {
         authToken={props.authToken}
         userEmail={props.userEmail}
         parentStudents={props.parentStudents}
-        parentStudentsLoaded={props.parentStudentsLoaded}
         parentStudentId={props.parentStudentId}
         setParentStudentId={props.setParentStudentId}
         selectedStudent={selectedStudent}

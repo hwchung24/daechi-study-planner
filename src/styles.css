@@ -913,6 +913,15 @@ html.parent-session .app-main {
   background: #ffffff;
 }
 
+/* 학부모 화면: 깜빡임 방지를 위해 모든 모션 완전 비활성화 */
+.app-root--parent,
+.app-root--parent * ,
+.app-root--parent *::before,
+.app-root--parent *::after {
+  animation: none !important;
+  transition: none !important;
+}
+
 /* 학부모 페이지: 절제된 마이크로 인터랙션 */
 .app-root--parent .parent-quick-nav__btn,
 .app-root--parent .parent-student-dropdown__trigger,
@@ -1884,6 +1893,10 @@ body.app-keyboard-open .app-main {
   min-height: 0;
 }
 
+.app-shell--parent-hydrating {
+  background: #ffffff;
+}
+
 .app-shell--enter {
   animation: app-shell-enter 0.48s cubic-bezier(0.4, 0, 0.2, 1) both;
 }
@@ -1982,6 +1995,35 @@ body.app-keyboard-open .app-main {
   border: 1px solid rgba(148, 163, 184, 0.26);
   background: rgba(255, 255, 255, 0.5);
   align-items: center;
+}
+
+.parent-header-loading {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.parent-header-loading__logo,
+.parent-header-loading__pill {
+  background: linear-gradient(90deg, #e8e8e8 25%, #f5f5f5 50%, #e8e8e8 75%);
+  background-size: 400px 100%;
+  animation: shimmer 1.4s ease infinite;
+}
+
+.parent-header-loading__logo {
+  width: calc(34px * var(--parent-ui-scale));
+  height: calc(34px * var(--parent-ui-scale));
+  border-radius: 999px;
+}
+
+.parent-header-loading__pill {
+  width: calc(92px * var(--parent-ui-scale));
+  height: calc(34px * var(--parent-ui-scale));
+  border-radius: 999px;
+}
+
+.parent-header-loading__pill--short {
+  width: calc(74px * var(--parent-ui-scale));
 }
 
 .app-header--parent .parent-quick-nav__btn,

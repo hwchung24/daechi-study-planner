@@ -19,7 +19,6 @@ type ParentHomeTabProps = {
   authToken: string | null;
   userEmail: string | null;
   parentStudents: ParentStudentRow[];
-  parentStudentsLoaded: boolean;
   parentStudentId: number | null;
   setParentStudentId: (id: number | null) => void;
   selectedStudent: ParentStudentRow | null;
@@ -132,7 +131,6 @@ export function ParentHomeTab(props: ParentHomeTabProps) {
     apiBase,
     authToken,
     parentStudents,
-    parentStudentsLoaded,
     parentStudentId,
     setParentStudentId,
     selectedStudent,
@@ -156,6 +154,7 @@ export function ParentHomeTab(props: ParentHomeTabProps) {
   const [plannerSaving, setPlannerSaving] = useState(false);
   const [plannerTimeSheetOpen, setPlannerTimeSheetOpen] = useState(false);
   const [delayedNetConnected, setDelayedNetConnected] = useState<boolean | null>(null);
+  const [showNoLinkedHint, setShowNoLinkedHint] = useState(false);
 
   const { studyRoomVisitsLoading, studyRoomLiveStatus, hasStudyRoomConfig } =
     useParentStudyRoomLive({
@@ -347,6 +346,18 @@ export function ParentHomeTab(props: ParentHomeTabProps) {
     deviceSnapshot?.simpleMdmNetwork?.status === "recent";
 
   useEffect(() => {
+    if (linked) {
+      setShowNoLinkedHint(false);
+      return;
+    }
+    setShowNoLinkedHint(false);
+    const timer = window.setTimeout(() => {
+      setShowNoLinkedHint(true);
+    }, 10000);
+    return () => window.clearTimeout(timer);
+  }, [linked]);
+
+  useEffect(() => {
     if (!selectedStudent?.id) {
       setDelayedNetConnected(null);
       return;
@@ -356,17 +367,14 @@ export function ParentHomeTab(props: ParentHomeTabProps) {
       return;
     }
     if (!deviceSnapshot) {
-      setDelayedNetConnected(null);
+      setDelayedNetConnected(false);
       return;
     }
     if (netConnected) {
       setDelayedNetConnected(true);
       return;
     }
-    const timer = window.setTimeout(() => {
-      setDelayedNetConnected(false);
-    }, 1200);
-    return () => window.clearTimeout(timer);
+    setDelayedNetConnected(false);
   }, [deviceLoading, deviceSnapshot, netConnected, selectedStudent?.id]);
 
   const reportReady = parentReport !== null;
@@ -402,24 +410,22 @@ export function ParentHomeTab(props: ParentHomeTabProps) {
 
   return (
     <div className="coach-page parent-home">
-      {!parentStudentsLoaded ? (
+      {!linked ? (
         <section className="section parent-home__live" aria-label="자녀 실시간 상태">
-          <div className="parent-skeleton parent-skeleton--status-wide" aria-label="로딩 중" />
-        </section>
-      ) : !linked ? (
-        <section className="section parent-home__live" aria-label="자녀 실시간 상태">
-          <p className="parent-home__status-hint">
-            연결된 자녀가 없습니다. 상단 메뉴에서 학생을 연결해 주세요.
-          </p>
+          {showNoLinkedHint ? (
+            <p className="parent-home__status-hint">
+              연결된 자녀가 없습니다. 상단 메뉴에서 학생을 연결해 주세요.
+            </p>
+          ) : (
+            null
+          )}
         </section>
       ) : (
         <section className="section parent-home__live" aria-label="자녀 실시간 상태">
           {selectedStudent ? (
             <>
               <div className="parent-home__coach-phrase-card">
-                {suggestedPhraseLoading ? (
-                  <div className="parent-skeleton parent-skeleton--phrase" aria-label="로딩 중" />
-                ) : String(suggestedPhrase || "").trim() ? (
+                {!suggestedPhraseLoading && String(suggestedPhrase || "").trim() ? (
                   <p className="parent-home__coach-phrase parent-home__coach-phrase--fade">
                     {String(suggestedPhrase || "").trim()}
                   </p>
@@ -427,7 +433,7 @@ export function ParentHomeTab(props: ParentHomeTabProps) {
               </div>
               <div className="parent-home__coach-phrase-card parent-home__coach-phrase-card--sub">
                 {delayedNetConnected == null ? (
-                  <div className="parent-skeleton parent-skeleton--phrase-short" aria-label="로딩 중" />
+                  null
                 ) : (
                   <p className="parent-home__coach-phrase parent-home__coach-phrase--sub parent-home__coach-phrase--fade">
                     {delayedNetConnected ? "연결됨" : "연결 끊김"}
@@ -448,7 +454,7 @@ export function ParentHomeTab(props: ParentHomeTabProps) {
                       {studyRoomLiveStatus.currentWithinRadius ? "체크인" : "체크아웃"}
                     </p>
                   ) : studyRoomVisitsLoading ? (
-                    <div className="parent-skeleton parent-skeleton--status" aria-label="로딩 중" />
+                    null
                   ) : (
                     <p className="parent-home__status-body parent-home__status-body--fade">상태 없음</p>
                   )}
@@ -474,7 +480,7 @@ export function ParentHomeTab(props: ParentHomeTabProps) {
                 </div>
                 {deviceLoading && !deviceSnapshot ? (
                   <div className="parent-home__status-center">
-                    <div className="parent-skeleton parent-skeleton--status-wide" aria-label="로딩 중" />
+                    null
                   </div>
                 ) : deviceSnapshot ? (
                   <div className="parent-home__status-center">
@@ -515,7 +521,7 @@ export function ParentHomeTab(props: ParentHomeTabProps) {
                 </div>
                 {plannerLoading ? (
                   <div className="parent-home__status-center">
-                    <div className="parent-skeleton parent-skeleton--status" aria-label="로딩 중" />
+                    null
                   </div>
                 ) : (
                   <>
@@ -575,7 +581,7 @@ export function ParentHomeTab(props: ParentHomeTabProps) {
                       {currentTimelineStudy || "설정 안됨"}
                     </p>
                   ) : (
-                    <div className="parent-skeleton parent-skeleton--status" aria-label="로딩 중" />
+                    null
                   )}
                 </div>
                 <div className="parent-home__status-card-footer">

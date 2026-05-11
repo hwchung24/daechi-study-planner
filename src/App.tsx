@@ -831,6 +831,9 @@ const App: React.FC = () => {
   const [parentStudentId, setParentStudentId] = useState<number | null>(
     null
   );
+  const [parentReportLoaded, setParentReportLoaded] = useState(false);
+  const [parentAiDailyLoaded, setParentAiDailyLoaded] = useState(false);
+  const [parentPlannerLoaded, setParentPlannerLoaded] = useState(false);
   const [parentWeekOffset, setParentWeekOffset] = useState(0);
   /** 기록 탭·포그라운드 복귀 시 학부모 주간 데이터 재조회 */
   const [parentWeekRefreshNonce, setParentWeekRefreshNonce] = useState(0);
@@ -2333,6 +2336,7 @@ const App: React.FC = () => {
 
   // 학부모 페이지: 학생별 주간 리포트 로딩
   useEffect(() => {
+    let cancelled = false;
     const run = async () => {
       if (!authToken || meRole !== "parent") return;
       if (!parentStudentId) return;
@@ -2344,12 +2348,18 @@ const App: React.FC = () => {
         );
         if (!res.ok) return;
         const data = await res.json();
+        if (cancelled) return;
         setParentReport(data);
       } catch {
         // ignore
+      } finally {
+        if (!cancelled) setParentReportLoaded(true);
       }
     };
-    run();
+    void run();
+    return () => {
+      cancelled = true;
+    };
   }, [
     authToken,
     meRole,
@@ -2373,6 +2383,7 @@ const App: React.FC = () => {
 
   // 학부모: AI 일일 리포트 (자정 배치 생성본)
   useEffect(() => {
+    let cancelled = false;
     const run = async () => {
       if (!authToken || meRole !== "parent") {
         setParentAiDaily(null);
@@ -2392,16 +2403,23 @@ const App: React.FC = () => {
           return;
         }
         const data = await res.json();
+        if (cancelled) return;
         setParentAiDaily(data.report ?? null);
       } catch {
         // 네트워크 에러 시 이전 리포트를 유지해 화면 점멸을 줄인다.
+      } finally {
+        if (!cancelled) setParentAiDailyLoaded(true);
       }
     };
-    run();
+    void run();
+    return () => {
+      cancelled = true;
+    };
   }, [authToken, meRole, parentStudentId]);
 
   // 학부모: 학생별 계획표 시간 설정 조회
   useEffect(() => {
+    let cancelled = false;
     const run = async () => {
       if (!authToken || meRole !== "parent" || !parentStudentId) return;
       try {
@@ -2414,16 +2432,35 @@ const App: React.FC = () => {
         if (!res.ok) return;
         const data = await res.json();
         const rule = data?.rule;
-        if (!rule) return;
-        setParentPlannerEnabled(Boolean(rule.enabled));
-        setParentPlannerTime(String(rule.lockTime || "21:00").slice(0, 5));
-        setParentLockStatus(data.lockStatus || null);
-        setParentPlannerMessage("");
+        if (cancelled) return;
+        if (rule) {
+          setParentPlannerEnabled(Boolean(rule.enabled));
+          setParentPlannerTime(String(rule.lockTime || "21:00").slice(0, 5));
+          setParentLockStatus(data.lockStatus || null);
+          setParentPlannerMessage("");
+        }
       } catch {
         // ignore
+      } finally {
+        if (!cancelled) setParentPlannerLoaded(true);
       }
     };
-    run();
+    void run();
+    return () => {
+      cancelled = true;
+    };
+  }, [authToken, meRole, parentStudentId]);
+
+  useEffect(() => {
+    if (!authToken || meRole !== "parent" || !parentStudentId) {
+      setParentReportLoaded(false);
+      setParentAiDailyLoaded(false);
+      setParentPlannerLoaded(false);
+      return;
+    }
+    setParentReportLoaded(false);
+    setParentAiDailyLoaded(false);
+    setParentPlannerLoaded(false);
   }, [authToken, meRole, parentStudentId]);
 
   const toggleDone = (id: number) => {
@@ -3081,6 +3118,18 @@ const App: React.FC = () => {
     coachParentTab !== null;
   const isParentAnalysisPage = coachParentMode && coachParentTab === "analysis";
   const isStandaloneAnalysisPage = isStudentAnalysisPage || isParentAnalysisPage;
+  const parentNeedsHydration =
+    parentView && meRole === "parent" && route !== "auth";
+  const parentInitialDataReady =
+    !parentStudentsLoaded
+      ? false
+      : parentStudents.length === 0
+        ? true
+        : !parentStudentId
+          ? false
+          : parentReportLoaded && parentAiDailyLoaded && parentPlannerLoaded;
+  const parentHydrationReady =
+    !parentNeedsHydration || (parentStudentsLoaded && parentInitialDataReady);
 
   /** 운영 웹: 학생 계정으로 로그인된 경우 앱 전용 안내(네이티브·로컬 dev는 제외) */
   const blockStudentWebSession =
@@ -3192,10 +3241,11 @@ const App: React.FC = () => {
     parentView,
     showStudentShell
   ]);
+  const effectiveAppMainPageKey = parentView ? "parent-stable" : appMainPageKey;
 
   useEffect(() => {
     setHeaderScrolled(false);
-  }, [appMainPageKey]);
+  }, [effectiveAppMainPageKey]);
 
   const handleAppMainScroll = useCallback(
     (event: React.UIEvent<HTMLElement>) => {
@@ -3631,11 +3681,13 @@ const App: React.FC = () => {
         />
       ) : splashReady && blockStudentWebSession ? (
         <StudentNativeOnlyGate userEmail={userEmail} onLogout={handleLogout} />
+      ) : splashReady && parentNeedsHydration && !parentHydrationReady ? (
+      <div className="app-shell app-shell--parent-hydrating" aria-hidden />
       ) : splashReady ? (
       <div
         className={
           "app-shell" +
-          (mainEnter ? " app-shell--enter" : "") +
+          (mainEnter && !parentView ? " app-shell--enter" : "") +
           (isStandaloneAnalysisPage ? " app-shell--analysis-focus" : "")
         }
       >
@@ -3648,61 +3700,71 @@ const App: React.FC = () => {
           {parentView ? (
             <div className="header-top header-top--parent-filled">
               <div className="parent-global-top-row parent-global-top-row--header">
-                <button
-                  type="button"
-                  className="parent-header-logo parent-header-logo--btn"
-                  aria-label="관리 홈으로 이동"
-                  onClick={() => {
-                    hapticSelection();
-                    setCoachParentTab("home");
-                    setAppPath("#/parent/home");
-                  }}
-                >
-                  <img src="/parent-header-logo.png" alt="" className="parent-header-logo__img" />
-                </button>
-                <div className="parent-global-top-row__student">
-                  <ParentStudentSelector
-                    parentStudents={parentStudents}
-                    parentStudentId={parentStudentId}
-                    setParentStudentId={setParentStudentId}
-                  />
-                </div>
-                <div className="parent-quick-nav" aria-label="학부모 빠른 이동">
-                  <button
-                    type="button"
-                    className={"parent-quick-nav__btn" + (isParentQuickActive("chat") ? " parent-quick-nav__btn--active" : "")}
-                    onClick={() => {
-                      hapticSelection();
-                      setCoachParentTab("manage");
-                      setAppPath("#/parent/manage");
-                    }}
-                  >
-                    채팅
-                  </button>
-                  <button
-                    type="button"
-                    className={"parent-quick-nav__btn" + (isParentQuickActive("notify") ? " parent-quick-nav__btn--active" : "")}
-                    onClick={() => {
-                      hapticSelection();
-                      setCoachParentTab("notifications");
-                      setAppPath("#/parent/notifications");
-                    }}
-                  >
-                    알림
-                  </button>
-                  <button
-                    type="button"
-                    className={"parent-quick-nav__btn" + (isParentQuickActive("settings") ? " parent-quick-nav__btn--active" : "")}
-                    onClick={() => {
-                      hapticSelection();
-                      setCoachParentTab(null);
-                      setParentTab("profile");
-                      setAppPath("#/parent/profile");
-                    }}
-                  >
-                    설정
-                  </button>
-                </div>
+                {parentHydrationReady ? (
+                  <>
+                    <button
+                      type="button"
+                      className="parent-header-logo parent-header-logo--btn"
+                      aria-label="관리 홈으로 이동"
+                      onClick={() => {
+                        hapticSelection();
+                        setCoachParentTab("home");
+                        setAppPath("#/parent/home");
+                      }}
+                    >
+                      <img src="/parent-header-logo.png" alt="" className="parent-header-logo__img" />
+                    </button>
+                    <div className="parent-global-top-row__student">
+                      <ParentStudentSelector
+                        parentStudents={parentStudents}
+                        parentStudentId={parentStudentId}
+                        setParentStudentId={setParentStudentId}
+                      />
+                    </div>
+                    <div className="parent-quick-nav" aria-label="학부모 빠른 이동">
+                      <button
+                        type="button"
+                        className={"parent-quick-nav__btn" + (isParentQuickActive("chat") ? " parent-quick-nav__btn--active" : "")}
+                        onClick={() => {
+                          hapticSelection();
+                          setCoachParentTab("manage");
+                          setAppPath("#/parent/manage");
+                        }}
+                      >
+                        채팅
+                      </button>
+                      <button
+                        type="button"
+                        className={"parent-quick-nav__btn" + (isParentQuickActive("notify") ? " parent-quick-nav__btn--active" : "")}
+                        onClick={() => {
+                          hapticSelection();
+                          setCoachParentTab("notifications");
+                          setAppPath("#/parent/notifications");
+                        }}
+                      >
+                        알림
+                      </button>
+                      <button
+                        type="button"
+                        className={"parent-quick-nav__btn" + (isParentQuickActive("settings") ? " parent-quick-nav__btn--active" : "")}
+                        onClick={() => {
+                          hapticSelection();
+                          setCoachParentTab(null);
+                          setParentTab("profile");
+                          setAppPath("#/parent/profile");
+                        }}
+                      >
+                        설정
+                      </button>
+                    </div>
+                  </>
+                ) : (
+                  <div className="parent-header-loading" aria-hidden>
+                    <div className="parent-header-loading__logo" />
+                    <div className="parent-header-loading__pill" />
+                    <div className="parent-header-loading__pill parent-header-loading__pill--short" />
+                  </div>
+                )}
               </div>
             </div>
           ) : (
@@ -3783,7 +3845,7 @@ const App: React.FC = () => {
           onScroll={handleAppMainScroll}
         >
           <PageTransition
-            pageKey={appMainPageKey}
+            pageKey={effectiveAppMainPageKey}
             className="app-main__transition-root"
           >
             {profileLoadFailed && (
@@ -3824,7 +3886,10 @@ const App: React.FC = () => {
                 />
               </React.Suspense>
             )}
-            {!roleLoading && coachParentMode && coachParentTab && (
+            {!roleLoading && parentView && !parentHydrationReady && (
+              <AppRouteSuspenseFallback />
+            )}
+            {!roleLoading && coachParentMode && coachParentTab && parentHydrationReady && (
               <React.Suspense fallback={<AppRouteSuspenseFallback />}>
                 <ParentCoachApp
                   tab={coachParentTab}
@@ -3834,7 +3899,6 @@ const App: React.FC = () => {
                   parentNotificationUnreadCount={parentNotificationUnreadCount}
                   hapticSelection={hapticSelection}
                   parentStudents={parentStudents}
-                  parentStudentsLoaded={parentStudentsLoaded}
                   setParentStudents={setParentStudents}
                   parentStudentId={parentStudentId}
                   setParentStudentId={setParentStudentId}
@@ -3859,7 +3923,7 @@ const App: React.FC = () => {
                 />
               </React.Suspense>
             )}
-            {!roleLoading && parentView && !coachParentMode && (
+            {!roleLoading && parentView && !coachParentMode && parentHydrationReady && (
               <React.Suspense fallback={<AppRouteSuspenseFallback />}>
                 <ParentLegacyView
                   apiBase={API_BASE}
