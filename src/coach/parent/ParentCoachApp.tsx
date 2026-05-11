@@ -2681,6 +2681,8 @@ export function ParentCoachApp(props: {
     props.parentAiDaily,
     deriveGuide(props.parentReport, props.parentAiDaily).suggestedPhrases[0] || ""
   );
+  const parentSuggestedPhraseLoading =
+    Boolean(selectedStudent) && !props.parentAiDaily && !props.parentReport;
 
   let view: React.ReactNode;
   if (props.tab === "home") {
@@ -2695,6 +2697,7 @@ export function ParentCoachApp(props: {
         selectedStudent={selectedStudent}
         parentReport={props.parentReport}
         suggestedPhrase={parentSuggestedPhrase}
+        suggestedPhraseLoading={parentSuggestedPhraseLoading}
         parentLockStatus={props.parentLockStatus}
         notificationUnreadCount={props.parentNotificationUnreadCount}
         hapticSelection={props.hapticSelection}

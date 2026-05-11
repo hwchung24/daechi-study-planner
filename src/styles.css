@@ -1217,6 +1217,19 @@ html.parent-session .app-main {
   height: 22px;
 }
 
+.parent-skeleton--phrase {
+  width: 92%;
+  height: calc(14px * var(--parent-ui-scale));
+}
+
+.parent-skeleton--phrase-short {
+  width: 34%;
+  min-width: 90px;
+  height: calc(14px * var(--parent-ui-scale));
+  margin-left: auto;
+  margin-right: auto;
+}
+
 .parent-home__status-card-footer {
   margin-top: auto;
   padding-top: 0;
@@ -1371,6 +1384,9 @@ html.parent-session .app-main {
   background: #ffffff;
   border: 1px solid rgba(148, 163, 184, 0.22);
   border-radius: var(--radius-lg);
+  min-height: calc(42px * var(--parent-ui-scale));
+  display: flex;
+  align-items: center;
 }
 
 .parent-home__coach-phrase-card--sub {
@@ -1382,6 +1398,10 @@ html.parent-session .app-main {
   text-align: center;
   font-weight: 500;
   color: var(--parent-gray-2);
+}
+
+.parent-home__coach-phrase--fade {
+  animation: parent-status-fade-in 150ms ease;
 }
 
 /* 학부모 페이지 전반: 일관된 카드 톤과 간격 */
