@@ -238,6 +238,7 @@ async function listParentStudents(parentUserId) {
   const res = await query(
     `SELECT u.id,
             u.email,
+            scp.name AS student_name,
             COALESCE(scp.mdm_applied, false) AS "mdmApplied",
             mdm_app.ui_surface_mode AS app_allowance_surface,
             CASE
@@ -267,6 +268,7 @@ async function listParentStudents(parentUserId) {
   return res.rows.map(row => ({
     id: Number(row.id),
     email: String(row.email || ""),
+    name: row.student_name != null ? String(row.student_name) : null,
     mdmApplied: Boolean(row.mdmApplied),
     appAllowanceSurface:
       row.app_allowance_surface != null && String(row.app_allowance_surface).trim() !== ""

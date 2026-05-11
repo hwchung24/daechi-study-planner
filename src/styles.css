@@ -905,14 +905,86 @@ html.parent-session .app-main {
 }
 
 .parent-home__live {
-  padding-top: 4px;
+  padding-top: 0;
+}
+
+.parent-quick-nav {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: nowrap;
+  padding: 4px 0 8px;
+}
+
+.parent-quick-nav__btn {
+  border: 1px solid var(--border-neutral);
+  background: #fff;
+  color: var(--text-main);
+  border-radius: var(--radius-pill);
+  min-height: 34px;
+  padding: 0 12px;
+  font-size: var(--font-size-small);
+  font-weight: var(--font-weight-semibold);
+  line-height: 1;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.parent-quick-nav__btn--active {
+  background: var(--accent-strong);
+  border-color: var(--accent-strong);
+  color: #fff;
+}
+
+.parent-quick-nav__btn:active {
+  transform: scale(0.98);
+}
+
+.parent-global-top-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 0 10px;
+}
+
+.parent-global-top-row--header {
+  width: max-content;
+  max-width: 100%;
+  margin: 0 auto;
+  padding: 0;
+  justify-content: center;
+}
+
+.parent-global-top-row--header .parent-global-top-row__student,
+.parent-global-top-row--header .parent-quick-nav {
+  flex: 0 0 auto;
+}
+
+.parent-global-top-row--header .coach-student-switcher .store-filter-row {
+  overflow: visible;
+  margin: 0;
+  padding: 0;
+}
+
+.parent-global-top-row__student {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.parent-global-top-row__student .coach-student-switcher {
+  margin-bottom: 0;
+}
+
+.parent-global-top-row__student .store-filter-row {
+  padding-bottom: 0;
 }
 
 .parent-home__status-grid {
   display: grid;
   grid-template-columns: 1fr;
   gap: 10px;
-  margin-top: 12px;
+  margin-top: 0;
 }
 
 @media (min-width: 420px) {
@@ -927,8 +999,60 @@ html.parent-session .app-main {
   border: var(--border-width) solid var(--border-neutral);
   box-shadow: var(--shadow-soft);
   padding: 14px 14px 12px;
-  min-height: 108px;
+  height: 210px;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
 }
+
+.parent-home__status-center {
+  flex: 1 1 auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+}
+
+.parent-home__status-center .parent-home__status-body {
+  margin: 0;
+}
+
+.parent-home__status-card-footer {
+  margin-top: auto;
+  padding-top: 12px;
+}
+
+.parent-home__status-card-footer--stack {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.parent-home__status-action {
+  width: 100%;
+  border-radius: var(--radius-pill);
+  min-height: 44px;
+}
+
+.parent-home__status-action--muted {
+  background: rgba(var(--neutral-rgb), 0.08);
+  border-color: rgba(var(--neutral-rgb), 0.22);
+  color: rgba(var(--neutral-rgb), 0.92);
+}
+
+.parent-home .timeline-save-button.study-room-editor__save-button.parent-home__status-action--muted {
+  background: rgba(var(--neutral-rgb), 0.12);
+  border: 1px solid rgba(var(--neutral-rgb), 0.28);
+  color: rgba(var(--neutral-rgb), 0.92);
+}
+
+.parent-home__status-action--outline {
+  background: #fff;
+  color: var(--accent);
+  border-color: var(--accent);
+}
+
+/* 계획표 카드: 홈에서는 버튼 2개로 통일 */
 
 .parent-home__status-card-head {
   display: flex;
@@ -938,6 +1062,32 @@ html.parent-session .app-main {
   color: var(--text-strong);
 }
 
+.parent-home__net-badge {
+  margin-left: auto;
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 5px 9px;
+  border-radius: var(--radius-pill);
+  font-size: var(--font-size-small);
+  font-weight: var(--font-weight-semibold);
+  line-height: 1;
+  border: 1px solid var(--border-neutral);
+}
+
+.parent-home__net-badge--on {
+  background: rgba(16, 185, 129, 0.12);
+  border-color: rgba(16, 185, 129, 0.28);
+  color: #047857;
+}
+
+.parent-home__net-badge--off {
+  background: rgba(239, 68, 68, 0.12);
+  border-color: rgba(239, 68, 68, 0.28);
+  color: #b91c1c;
+}
+
 .parent-home__status-card-title {
   font-size: var(--font-size-medium);
   font-weight: var(--font-weight-semibold);
@@ -945,9 +1095,43 @@ html.parent-session .app-main {
 
 .parent-home__status-body {
   margin: 0;
-  font-size: var(--font-size-medium);
+  font-size: 18px;
+  font-weight: var(--font-weight-semibold);
   color: var(--text-main);
   line-height: 1.45;
+}
+
+.parent-home__status-time-btn {
+  border: 1px solid rgba(var(--neutral-rgb), 0.22);
+  background: rgba(var(--neutral-rgb), 0.04);
+  border-radius: var(--radius-pill);
+  padding: 8px 16px;
+  margin: 0;
+  font-size: 18px;
+  font-weight: var(--font-weight-semibold);
+  color: var(--text-main);
+  line-height: 1.45;
+  cursor: pointer;
+  transition:
+    transform var(--dur-fast) var(--ease-standard),
+    background var(--dur-fast) var(--ease-standard),
+    border-color var(--dur-fast) var(--ease-standard);
+}
+
+.parent-home__status-time-btn:hover:not(:disabled) {
+  background: rgba(var(--neutral-rgb), 0.08);
+  border-color: rgba(var(--neutral-rgb), 0.34);
+}
+
+.parent-home__status-time-btn:active:not(:disabled) {
+  transform: scale(0.98);
+}
+
+.parent-home__status-time-btn:disabled {
+  background: rgba(var(--neutral-rgb), 0.06);
+  border-color: rgba(var(--neutral-rgb), 0.18);
+  color: rgba(var(--neutral-rgb), 0.55);
+  cursor: not-allowed;
 }
 
 .parent-home__status-meta {
@@ -1248,6 +1432,15 @@ body.app-keyboard-open .app-main {
   box-shadow: 0 10px 26px rgba(var(--text-strong-rgb), 0.08);
 }
 
+.app-header.app-header--parent,
+.app-header.app-header--parent.app-header--scrolled {
+  background: var(--bg);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  border-bottom-color: transparent;
+  box-shadow: none;
+}
+
 .header-top {
   display: flex;
   align-items: center;
@@ -1259,6 +1452,11 @@ body.app-keyboard-open .app-main {
   border-radius: 0;
    background: transparent;
    box-shadow: none;
+}
+
+.header-top--parent-filled {
+  width: 100%;
+  padding: calc(env(safe-area-inset-top, 0px) + 6px) 0 6px;
 }
 
 .header-title-group {
@@ -1440,6 +1638,12 @@ body.app-keyboard-open .app-main {
   scroll-behavior: auto;
   min-width: 0;
   min-height: 0;
+}
+
+/* 학부모 화면 전환·모달 진입 애니메이션 제거 */
+.app-root--parent * {
+  animation: none !important;
+  transition: none !important;
 }
 
 .app-main.app-main--store-fixed {
@@ -6766,6 +6970,32 @@ button:active:not(:disabled),
   padding-bottom: 0;
 }
 
+/* 학부모 코치 탭 공통 여백 통일 (채팅/알림/관리/설정/기록/홈) */
+.coach-shell__tab-panel--parent > .coach-page {
+  padding-left: 10px;
+  padding-right: 10px;
+  padding-top: 10px;
+}
+
+.parent-manage-chat-card {
+  margin-top: 0;
+}
+
+/* 관리 탭은 내부 채팅 패널 구조가 달라 보일 수 있어 시작 여백을 강제로 통일 */
+
+/* 내정보 페이지도 동일 좌우 여백 */
+.app-root--parent .student-profile-page.section {
+  padding-left: 10px;
+  padding-right: 10px;
+  padding-top: 10px;
+}
+
+/* 학부모 각 페이지의 첫 카드 시작선 통일 */
+.coach-shell__tab-panel--parent > .coach-page > .coach-card:first-child,
+.app-root--parent .student-profile-page.section > .coach-card:first-child {
+  margin-top: 0;
+}
+
 .coach-page {
   /* app-main이 이미 스크롤/패딩을 담당하므로, 코치 화면은 ‘기본 앱 레이아웃’에 맞춰 최소화 */
   min-height: 100%;
@@ -7219,20 +7449,90 @@ button:active:not(:disabled),
   margin-bottom: 8px;
 }
 
-.coach-page--manage .coach-student-switcher {
-  margin-top: 0;
-  margin-bottom: 2px;
-  padding-top: 0;
-}
-
 .coach-student-switcher .store-filter-row {
   padding-top: 0;
   padding-bottom: 12px;
 }
 
-.coach-page--manage .coach-student-switcher .store-filter-row {
-  padding-top: 0;
-  padding-bottom: 8px;
+.parent-student-dropdown {
+  position: relative;
+}
+
+.parent-student-dropdown__trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.parent-student-dropdown__caret {
+  font-size: 11px;
+  line-height: 1;
+  opacity: 0.72;
+  margin-left: 2px;
+}
+
+.parent-student-dropdown__menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  min-width: 180px;
+  max-width: min(72vw, 260px);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 8px;
+  border: 1px solid rgba(var(--neutral-rgb), 0.2);
+  border-radius: var(--radius-lg);
+  background: rgba(255, 255, 255, 0.96);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  box-shadow: 0 12px 28px rgba(15, 23, 42, 0.14);
+  z-index: 25;
+}
+
+.parent-student-dropdown__item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border: 1px solid var(--border-neutral);
+  background: #fff;
+  color: var(--text-main);
+  border-radius: var(--radius-pill);
+  min-height: 36px;
+  padding: 0 12px;
+  font-size: var(--font-size-small);
+  font-weight: var(--font-weight-semibold);
+  line-height: 1;
+  text-align: left;
+  cursor: pointer;
+  transition:
+    background var(--dur-fast) var(--ease-standard),
+    border-color var(--dur-fast) var(--ease-standard),
+    transform var(--dur-fast) var(--ease-standard);
+}
+
+.parent-student-dropdown__item:hover {
+  background: rgba(var(--accent-rgb), 0.06);
+  border-color: rgba(var(--accent-rgb), 0.28);
+}
+
+.parent-student-dropdown__item--active {
+  background: var(--accent-strong);
+  border-color: var(--accent-strong);
+  color: #fff;
+}
+
+.parent-student-dropdown__item-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.parent-student-dropdown__item-check {
+  margin-left: 10px;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1;
 }
 
 .coach-horizontal-cards {
@@ -7915,6 +8215,11 @@ button:active:not(:disabled),
   padding-top: 10px;
 }
 
+/* 학부모 채팅: 하단 레일 그라데이션 제거 */
+.coach-admin-chat-shell .coach-chat-bottom-rail {
+  background: #ffffff;
+}
+
 .coach-admin-metrics {
   margin-bottom: 0;
 }
@@ -8024,6 +8329,14 @@ button:active:not(:disabled),
 
 .coach-admin-chat__avatar svg {
   color: #ffffff;
+}
+
+/* 학부모 채팅: 학생(좌측) 말풍선 회색 */
+.coach-admin-chat__messages .coach-bubble--coach {
+  background: #f3f4f6;
+  border-color: #e5e7eb;
+  color: var(--text-main);
+  box-shadow: none;
 }
 
 .coach-admin-chat__empty,

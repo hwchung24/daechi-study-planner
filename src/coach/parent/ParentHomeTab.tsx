@@ -1,16 +1,12 @@
-import React from "react";
-import {
-  ClipboardList,
-  MapPin,
-  Settings,
-  Smartphone,
-  User,
-  UserCircle
-} from "lucide-react";
+import React, { useEffect, useMemo, useState } from "react";
+import { LayoutGrid, MapPin, Smartphone } from "lucide-react";
 import { setAppPath } from "../../lib/appNavigation";
 import type { ParentLockStatus } from "../../types/lockStatus";
 import type { ParentStudentRow } from "../../types/parent";
-import { PARENT_MDM_SURFACE_LABEL } from "./parentDeviceModeDisplay";
+import { StudyRoomPickerModal, type StudyRoomSetting } from "../../components/parent/StudyRoomPickerModal";
+import { TimePickerSheet } from "../../components/TimePickerSheet";
+import { DAECHI_LINKS_UPDATED_EVENT } from "../../lib/linkEvents";
+import { getDateKeySeoul, seoulDateKeyFromApiValue } from "../../lib/weekDates";
 import { ParentStudentSelector } from "./ParentStudentSelector";
 import {
   type ParentSimpleMdmNetworkStatus,
@@ -26,26 +22,39 @@ type ParentHomeTabProps = {
   parentStudentId: number | null;
   setParentStudentId: (id: number | null) => void;
   selectedStudent: ParentStudentRow | null;
+  parentReport: ParentHomeReport | null;
   parentLockStatus: ParentLockStatus | null;
   notificationUnreadCount: number;
   hapticSelection: () => void;
 };
 
-function formatHeartbeatKo(value: string | null) {
-  if (!value) return "";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "";
-  return date.toLocaleString("ko-KR", {
-    timeZone: "Asia/Seoul",
-    month: "numeric",
-    day: "numeric",
-    hour: "2-digit",
-    minute: "2-digit"
-  });
+type ParentHomeReport = {
+  days?: Array<{ id: number | string; date: string }>;
+  blocks?: Array<{
+    study_day_id: number | string;
+    subject: string;
+    start_time: string;
+    end_time: string;
+  }>;
+};
+
+function timeToMinutes(value: string) {
+  const [hours, minutes] = String(value || "").split(":").map(Number);
+  if (!Number.isFinite(hours) || !Number.isFinite(minutes)) return null;
+  return hours * 60 + minutes;
 }
 
-function mapsUrlForLatLng(lat: number, lng: number) {
-  return `https://www.google.com/maps?q=${encodeURIComponent(`${lat},${lng}`)}`;
+function getSeoulMinutesNow() {
+  const parts = new Intl.DateTimeFormat("en-GB", {
+    timeZone: "Asia/Seoul",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false
+  }).formatToParts(new Date());
+  const hh = Number(parts.find(part => part.type === "hour")?.value ?? NaN);
+  const mm = Number(parts.find(part => part.type === "minute")?.value ?? NaN);
+  if (!Number.isFinite(hh) || !Number.isFinite(mm)) return null;
+  return hh * 60 + mm;
 }
 
 function formatSimpleMdmAgePhraseKo(ageMinutes: number) {
@@ -119,25 +128,29 @@ export function ParentHomeTab(props: ParentHomeTabProps) {
   const {
     apiBase,
     authToken,
-    userEmail,
     parentStudents,
     parentStudentId,
     setParentStudentId,
     selectedStudent,
+    parentReport,
     parentLockStatus,
-    notificationUnreadCount,
     hapticSelection
   } = props;
 
-  const displayName =
-    String(userEmail || "")
-      .trim()
-      .split("@")[0] || "학부모";
   const linked = parentStudents.length > 0;
 
   const studentId = selectedStudent?.id ?? null;
 
-  const { studyRoomVisitsLoading, studyRoomLiveStatus, hasStudyRoomConfig, displayDistanceMeters } =
+  const [studyRoomModalOpen, setStudyRoomModalOpen] = useState(false);
+  const [studyRoomSaving, setStudyRoomSaving] = useState(false);
+  const [freeModeToggling, setFreeModeToggling] = useState(false);
+  const [plannerEnabled, setPlannerEnabled] = useState(false);
+  const [plannerTime, setPlannerTime] = useState("21:00");
+  const [plannerLoading, setPlannerLoading] = useState(false);
+  const [plannerSaving, setPlannerSaving] = useState(false);
+  const [plannerTimeSheetOpen, setPlannerTimeSheetOpen] = useState(false);
+
+  const { studyRoomVisitsLoading, studyRoomLiveStatus, hasStudyRoomConfig } =
     useParentStudyRoomLive({
       apiBase,
       authToken,
@@ -145,114 +158,226 @@ export function ParentHomeTab(props: ParentHomeTabProps) {
       hasStudyRoomSettingHint: Boolean(selectedStudent?.studyRoom)
     });
 
-  const { loading: deviceLoading, snapshot: deviceSnapshot } = useParentDeviceControlState({
+  const {
+    loading: deviceLoading,
+    snapshot: deviceSnapshot,
+    refresh: refreshDeviceSnapshot
+  } = useParentDeviceControlState({
     apiBase,
     authToken,
     studentId
   });
 
-  const surfaceLabel = deviceSnapshot
-    ? PARENT_MDM_SURFACE_LABEL[deviceSnapshot.displaySurfaceMode] ??
-      PARENT_MDM_SURFACE_LABEL.default
-    : null;
-
   const simpleMdmNet = deviceSnapshot?.simpleMdmNetwork ?? null;
-  const simpleMdmNetMessage = simpleMdmNet
-    ? simpleMdmNetworkDescription({ net: simpleMdmNet })
-    : null;
-  const simpleMdmNetWarn =
-    simpleMdmNet?.status === "stale" ||
-    (simpleMdmNet?.status === "skipped" &&
-      Boolean(simpleMdmNet.skippedReason) &&
-      simpleMdmNet.skippedReason !== "simplemdm_not_configured");
-
-  const go = (path: string) => {
-    hapticSelection();
-    setAppPath(path);
-  };
 
   const pickStudent = (id: number | null) => {
     hapticSelection();
     setParentStudentId(id);
   };
 
-  const slat = studyRoomLiveStatus.currentLatitude;
-  const slng = studyRoomLiveStatus.currentLongitude;
-  const hasStudentCoords =
-    slat != null &&
-    slng != null &&
-    Number.isFinite(Number(slat)) &&
-    Number.isFinite(Number(slng));
-  const studentLat = hasStudentCoords ? Number(slat) : null;
-  const studentLng = hasStudentCoords ? Number(slng) : null;
+  const goParent = (path: string) => {
+    hapticSelection();
+    setAppPath(path);
+  };
 
-  const rlat = studyRoomLiveStatus.studyRoomLatitude;
-  const rlng = studyRoomLiveStatus.studyRoomLongitude;
-  const hasRoomCoords =
-    rlat != null &&
-    rlng != null &&
-    Number.isFinite(Number(rlat)) &&
-    Number.isFinite(Number(rlng));
+  const saveStudyRoomSetting = (value: StudyRoomSetting) => {
+    if (!authToken) return;
+    setStudyRoomSaving(true);
+    void (async () => {
+      try {
+        const res = await fetch(
+          `${apiBase}/api/parent/students/${encodeURIComponent(String(value.studentId))}/study-room`,
+          {
+            method: "PUT",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${authToken}`
+            },
+            body: JSON.stringify({
+              name: value.name,
+              address: value.address || null,
+              latitude: value.latitude,
+              longitude: value.longitude,
+              radiusMeters: value.radiusMeters
+            })
+          }
+        );
+        if (!res.ok) {
+          const data = (await res.json().catch(() => ({}))) as { error?: string };
+          throw new Error(String(data.error || "독서실 위치 저장에 실패했습니다."));
+        }
+        setStudyRoomModalOpen(false);
+        window.dispatchEvent(new Event(DAECHI_LINKS_UPDATED_EVENT));
+      } catch (error) {
+        alert(
+          error instanceof Error && error.message
+            ? error.message
+            : "독서실 위치 저장 중 오류가 발생했습니다."
+        );
+      } finally {
+        setStudyRoomSaving(false);
+      }
+    })();
+  };
 
-  const roomAddress =
-    (studyRoomLiveStatus.studyRoomAddress && studyRoomLiveStatus.studyRoomAddress.trim()) ||
-    (selectedStudent?.studyRoom?.address && String(selectedStudent.studyRoom.address).trim()) ||
-    "";
+  useEffect(() => {
+    if (!authToken || !selectedStudent?.id) {
+      setPlannerEnabled(false);
+      setPlannerTime("21:00");
+      setPlannerLoading(false);
+      setPlannerSaving(false);
+      return;
+    }
+    let cancelled = false;
+    const ac = new AbortController();
+    setPlannerLoading(true);
+    void (async () => {
+      try {
+        const res = await fetch(
+          `${apiBase}/api/parent/planner-rule?studentId=${encodeURIComponent(String(selectedStudent.id))}`,
+          { signal: ac.signal, headers: { Authorization: `Bearer ${authToken}` }, cache: "no-store" }
+        );
+        const data = (await res.json().catch(() => ({}))) as {
+          error?: string;
+          rule?: { enabled?: boolean; lockTime?: string };
+        };
+        if (!res.ok) throw new Error(String(data.error || "설정 정보를 불러오지 못했습니다."));
+        if (cancelled) return;
+        setPlannerEnabled(Boolean(data.rule?.enabled));
+        setPlannerTime(String(data.rule?.lockTime || "21:00").slice(0, 5));
+      } catch (error) {
+        if (cancelled || (error instanceof DOMException && error.name === "AbortError")) return;
+        // keep defaults on error
+      } finally {
+        if (!cancelled) setPlannerLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+      ac.abort();
+    };
+  }, [apiBase, authToken, selectedStudent?.id]);
 
-  const roomName =
-    (studyRoomLiveStatus.studyRoomName && String(studyRoomLiveStatus.studyRoomName).trim()) ||
-    (selectedStudent?.studyRoom?.name && String(selectedStudent.studyRoom.name).trim()) ||
-    "";
+  const savePlannerRule = async (next: { enabled: boolean; lockTime: string }) => {
+    if (!authToken || !selectedStudent?.id) return;
+    setPlannerSaving(true);
+    try {
+      const res = await fetch(`${apiBase}/api/parent/planner-rule`, {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${authToken}`
+        },
+        body: JSON.stringify({
+          studentId: selectedStudent.id,
+          enabled: next.enabled,
+          lockTime: next.lockTime
+        })
+      });
+      const data = (await res.json().catch(() => ({}))) as {
+        error?: string;
+        rule?: { enabled?: boolean; lockTime?: string };
+      };
+      if (!res.ok) throw new Error(String(data.error || "설정 저장에 실패했습니다."));
+      setPlannerEnabled(Boolean(data.rule?.enabled));
+      setPlannerTime(String(data.rule?.lockTime || next.lockTime).slice(0, 5));
+    } catch (error) {
+      alert(
+        error instanceof Error && error.message
+          ? error.message
+          : "설정 저장 중 오류가 발생했습니다."
+      );
+    } finally {
+      setPlannerSaving(false);
+    }
+  };
 
-  const distanceMeta =
-    hasStudyRoomConfig && displayDistanceMeters != null
-      ? `${studyRoomLiveStatus.currentDistanceMeters != null ? "독서실까지" : "독서실까지(최근)"} 약 ${Math.round(displayDistanceMeters)}m${
-          typeof studyRoomLiveStatus.currentWithinRadius === "boolean"
-            ? ` · ${studyRoomLiveStatus.currentWithinRadius ? "반경 안" : "반경 밖"}`
-            : ""
-        }`
-      : hasStudyRoomConfig && studyRoomVisitsLoading && displayDistanceMeters == null
-        ? "독서실까지 거리를 계산하는 중입니다."
-        : null;
+  const toggleFreeMode = () => {
+    if (!authToken || !selectedStudent?.id || freeModeToggling) return;
+    const isFree = deviceSnapshot?.activeAppAllowanceMode === "free";
+    setFreeModeToggling(true);
+    void (async () => {
+      try {
+        const res = await fetch(`${apiBase}/api/parent/app-allowance/activate-mode`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${authToken}`
+          },
+          body: JSON.stringify({
+            mode: isFree ? "default" : "free",
+            studentIds: [selectedStudent.id]
+          })
+        });
+        const data = (await res.json().catch(() => ({}))) as { error?: string; message?: string; ok?: boolean };
+        if (!res.ok || data.ok === false) {
+          throw new Error(String(data.error || data.message || "자유시간 모드 변경에 실패했습니다."));
+        }
+        await refreshDeviceSnapshot();
+      } catch (error) {
+        alert(
+          error instanceof Error && error.message
+            ? error.message
+            : "자유시간 모드 변경 중 오류가 발생했습니다."
+        );
+      } finally {
+        setFreeModeToggling(false);
+      }
+    })();
+  };
 
-  const allowanceExtra =
-    deviceSnapshot?.activeAppAllowanceMode === "utility"
-      ? "유틸리티 허용 구간이 켜져 있을 수 있어요."
-      : deviceSnapshot?.activeAppAllowanceMode === "free"
-        ? "자유시간 허용 구간이 켜져 있을 수 있어요."
-        : null;
+  const phoneModeLabel = deviceSnapshot
+    ? deviceSnapshot.displaySurfaceMode === "block"
+      ? "차단"
+      : deviceSnapshot.activeAppAllowanceMode === "free"
+        ? "자유"
+        : deviceSnapshot.activeAppAllowanceMode === "utility"
+          ? "유틸"
+          : "기본"
+    : null;
+
+  const netConnected =
+    deviceSnapshot?.simpleMdmNetwork?.status === "recent";
+
+  const currentTimelineStudy = useMemo(() => {
+    const days = Array.isArray(parentReport?.days) ? parentReport.days : [];
+    const blocks = Array.isArray(parentReport?.blocks) ? parentReport.blocks : [];
+    if (days.length === 0 || blocks.length === 0) return null;
+
+    const todayKey = getDateKeySeoul(0);
+    const todayDay = days.find(day => seoulDateKeyFromApiValue(day.date) === todayKey);
+    if (!todayDay) return null;
+
+    const nowMinutes = getSeoulMinutesNow();
+    if (nowMinutes == null) return null;
+
+    const todayBlocks = blocks.filter(
+      block => Number(block.study_day_id) === Number(todayDay.id)
+    );
+    if (todayBlocks.length === 0) return null;
+
+    const currentBlock =
+      todayBlocks.find(block => {
+        const start = timeToMinutes(block.start_time);
+        const end = timeToMinutes(block.end_time);
+        if (start == null || end == null) return false;
+        return nowMinutes >= start && nowMinutes < end;
+      }) || null;
+
+    if (!currentBlock) return null;
+    return String(currentBlock.subject || "").trim() || "과목 미설정";
+  }, [parentReport]);
 
   return (
-    <div className="coach-page coach-page--manage parent-home">
-      <section className="section parent-home__hero">
-        <p className="parent-home__eyebrow">대치루트 학부모</p>
-        <h2 className="parent-home__title">안녕하세요, {displayName}님</h2>
-        <p className="parent-home__lead">
-          {linked
-            ? "연결된 자녀의 위치·휴대폰 모드를 확인하고 아래 바로가기로 이동할 수 있어요."
-            : "자녀 계정과 연결하면 계획·기록·알림을 함께 볼 수 있어요."}
-        </p>
-        {!linked ? (
-          <button
-            type="button"
-            className="modal-primary parent-home__primary"
-            onClick={() => go("#/parent/profile")}
-          >
-            학생 연결하기
-          </button>
-        ) : null}
-      </section>
-
-      {linked ? (
+    <div className="coach-page parent-home">
+      {!linked ? (
         <section className="section parent-home__live" aria-label="자녀 실시간 상태">
-          <div className="section-header">
-            <h3 className="section-title">자녀 선택 · 실시간 상태</h3>
-          </div>
-          <ParentStudentSelector
-            parentStudents={parentStudents}
-            parentStudentId={parentStudentId}
-            setParentStudentId={pickStudent}
-          />
+          <p className="parent-home__status-hint">
+            연결된 자녀가 없습니다. 상단 메뉴에서 학생을 연결해 주세요.
+          </p>
+        </section>
+      ) : (
+        <section className="section parent-home__live" aria-label="자녀 실시간 상태">
           {selectedStudent ? (
             <div className="parent-home__status-grid">
               <div className="parent-home__status-card">
@@ -260,178 +385,173 @@ export function ParentHomeTab(props: ParentHomeTabProps) {
                   <MapPin size={18} strokeWidth={2} aria-hidden />
                   <span className="parent-home__status-card-title">실시간 위치</span>
                 </div>
-                {studyRoomVisitsLoading && !hasStudentCoords ? (
-                  <p className="parent-home__status-body">마지막 위치를 불러오는 중입니다.</p>
-                ) : hasStudentCoords && studentLat != null && studentLng != null ? (
-                  <>
-                    <p className="parent-home__status-kicker">학생 기기 마지막 보고 (WGS84)</p>
-                    <p className="parent-home__status-body parent-home__coords-line">
-                      위도 {studentLat.toFixed(6)}°, 경도 {studentLng.toFixed(6)}°
+                <div className="parent-home__status-center">
+                  {!hasStudyRoomConfig ? (
+                    <p className="parent-home__status-body">독서실 미등록</p>
+                  ) : typeof studyRoomLiveStatus.currentWithinRadius === "boolean" ? (
+                    <p className="parent-home__status-body">
+                      {studyRoomLiveStatus.currentWithinRadius ? "체크인" : "체크아웃"}
                     </p>
-                    <p className="parent-home__status-meta">
-                      <a
-                        href={mapsUrlForLatLng(studentLat, studentLng)}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="parent-home__map-link"
-                      >
-                        지도에서 보기
-                      </a>
-                      {studyRoomLiveStatus.currentAccuracyMeters != null &&
-                      Number.isFinite(Number(studyRoomLiveStatus.currentAccuracyMeters)) ? (
-                        <span>
-                          {" "}
-                          · 오차 약 {Math.round(Number(studyRoomLiveStatus.currentAccuracyMeters))}m
-                        </span>
-                      ) : null}
-                    </p>
-                  </>
-                ) : !hasStudyRoomConfig && !studyRoomLiveStatus.studyRoomName ? (
-                  <p className="parent-home__status-body">
-                    독서실 위치가 등록되지 않았습니다. 자녀 설정에서 등록하면 거리·좌표를 함께 볼 수
-                    있어요.
-                  </p>
-                ) : (
-                  <p className="parent-home__status-body">
-                    아직 좌표가 없습니다. 학생 앱을 켜 두고 위치 권한을 허용하면 마지막 보고 위치가
-                    표시됩니다.
-                  </p>
-                )}
-                {distanceMeta ? (
-                  <p className="parent-home__status-meta parent-home__status-meta--strong">{distanceMeta}</p>
-                ) : null}
-                {studyRoomLiveStatus.currentHeartbeatAt ? (
-                  <p className="parent-home__status-meta">
-                    위치 기준 시각 {formatHeartbeatKo(studyRoomLiveStatus.currentHeartbeatAt)}
-                  </p>
-                ) : null}
-                {roomAddress ? (
-                  <p className="parent-home__status-meta">등록 독서실 주소: {roomAddress}</p>
-                ) : roomName ? (
-                  <p className="parent-home__status-meta">등록 독서실: {roomName}</p>
-                ) : null}
-                {hasRoomCoords && rlat != null && rlng != null ? (
-                  <p className="parent-home__status-meta">
-                    <a
-                      href={mapsUrlForLatLng(Number(rlat), Number(rlng))}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="parent-home__map-link"
-                    >
-                      독서실 기준점 지도
-                    </a>
-                  </p>
-                ) : null}
+                  ) : studyRoomVisitsLoading ? (
+                    <p className="parent-home__status-body">상태 확인 중...</p>
+                  ) : (
+                    <p className="parent-home__status-body">상태 없음</p>
+                  )}
+                </div>
+                <div className="parent-home__status-card-footer">
+                  <button
+                    type="button"
+                    className="timeline-save-button study-room-editor__save-button parent-home__status-action"
+                    onClick={() => {
+                      hapticSelection();
+                      setStudyRoomModalOpen(true);
+                    }}
+                    disabled={!selectedStudent || studyRoomSaving}
+                  >
+                    독서실 설정
+                  </button>
+                </div>
               </div>
               <div className="parent-home__status-card">
                 <div className="parent-home__status-card-head">
                   <Smartphone size={18} strokeWidth={2} aria-hidden />
                   <span className="parent-home__status-card-title">휴대폰 모드</span>
+                  <span
+                    className={
+                      "parent-home__net-badge " +
+                      (netConnected ? "parent-home__net-badge--on" : "parent-home__net-badge--off")
+                    }
+                  >
+                    {netConnected ? "연결됨" : "연결 끊김"}
+                  </span>
                 </div>
                 {deviceLoading && !deviceSnapshot ? (
-                  <p className="parent-home__status-body">기기 상태를 불러오는 중입니다.</p>
+                  <div className="parent-home__status-center">
+                    <p className="parent-home__status-body">기기 상태를 불러오는 중입니다.</p>
+                  </div>
                 ) : deviceSnapshot ? (
-                  <>
-                    {surfaceLabel != null ? (
-                      <>
-                        <p className="parent-home__status-body">
-                          현재 <span className="parent-home__status-em">{surfaceLabel}</span> 모드입니다.
-                        </p>
-                        {deviceSnapshot.kioskEnabled ? (
-                          <p className="parent-home__status-meta">
-                            <span className="parent-home__status-em">계획표</span> 작성(키오스크) 시간대일 수
-                            있어요.
-                          </p>
-                        ) : null}
-                        {allowanceExtra ? (
-                          <p className="parent-home__status-meta">{allowanceExtra}</p>
-                        ) : null}
-                      </>
-                    ) : (
-                      <p className="parent-home__status-body">모드 정보를 불러오지 못했습니다.</p>
-                    )}
-                    {simpleMdmNetMessage ? (
-                      <p
-                        className={
-                          "parent-home__status-meta" +
-                          (simpleMdmNetWarn ? " parent-home__status-meta--warn" : "")
-                        }
-                      >
-                        {simpleMdmNetMessage}
-                      </p>
-                    ) : null}
-                    {parentLockStatus?.locked ? (
-                      <p className="parent-home__status-meta parent-home__status-meta--warn">
-                        계획표·시간 잠금이 적용된 상태입니다.
-                      </p>
-                    ) : null}
-                    {selectedStudent.mdmApplied === false ? (
-                      <p className="parent-home__status-meta">
-                        기기 MDM이 아직 연결되지 않았다면 표시가 지연되거나 비어 있을 수 있어요.
-                      </p>
-                    ) : null}
-                  </>
+                  <div className="parent-home__status-center">
+                    <p className="parent-home__status-body">
+                      {phoneModeLabel ? (
+                        <>
+                          <span className="parent-home__status-em">{phoneModeLabel}</span>
+                        </>
+                      ) : (
+                        "모드 정보를 불러오지 못했습니다."
+                      )}
+                    </p>
+                  </div>
                 ) : (
-                  <p className="parent-home__status-body">기기 상태를 가져오지 못했습니다.</p>
+                  <div className="parent-home__status-center">
+                    <p className="parent-home__status-body">기기 상태를 가져오지 못했습니다.</p>
+                  </div>
                 )}
+                <div className="parent-home__status-card-footer">
+                  <button
+                    type="button"
+                    className="timeline-save-button study-room-editor__save-button parent-home__status-action"
+                    onClick={() => {
+                      hapticSelection();
+                      toggleFreeMode();
+                    }}
+                    disabled={!selectedStudent?.id || !authToken || freeModeToggling}
+                    aria-busy={freeModeToggling}
+                  >
+                    {deviceSnapshot?.activeAppAllowanceMode === "free" ? "자유 끄기" : "자유 주기"}
+                  </button>
+                </div>
+              </div>
+              <div className="parent-home__status-card" aria-label="계획표 카드">
+                <div className="parent-home__status-card-head">
+                  <LayoutGrid size={18} strokeWidth={2} aria-hidden />
+                  <span className="parent-home__status-card-title">계획표</span>
+                </div>
+                {plannerLoading ? (
+                  <div className="parent-home__status-center">
+                    <p className="parent-home__status-body">불러오는 중...</p>
+                  </div>
+                ) : (
+                  <>
+                    <div className="parent-home__status-center">
+                      <button
+                        type="button"
+                        className="parent-home__status-time-btn"
+                        disabled={!plannerEnabled || plannerSaving}
+                        onClick={() => setPlannerTimeSheetOpen(true)}
+                        aria-label="계획표 시간 설정"
+                      >
+                        {plannerTime}
+                      </button>
+                    </div>
+                    <TimePickerSheet
+                      open={plannerTimeSheetOpen}
+                      value={plannerTime}
+                      onClose={() => setPlannerTimeSheetOpen(false)}
+                      onSave={async (newTime: string) => {
+                        setPlannerTimeSheetOpen(false);
+                        setPlannerTime(newTime);
+                        await savePlannerRule({ enabled: plannerEnabled, lockTime: newTime });
+                      }}
+                      disabled={!plannerEnabled || plannerSaving}
+                    />
+                    <div className="parent-home__status-card-footer parent-home__status-card-footer--stack">
+                      <button
+                        type="button"
+                        className={
+                          "timeline-save-button study-room-editor__save-button parent-home__status-action" +
+                          (!plannerEnabled ? " parent-home__status-action--muted" : "")
+                        }
+                        onClick={async () => {
+                          const nextEnabled = !plannerEnabled;
+                          setPlannerEnabled(nextEnabled);
+                          await savePlannerRule({ enabled: nextEnabled, lockTime: plannerTime });
+                        }}
+                        aria-pressed={plannerEnabled}
+                        aria-label={plannerEnabled ? "계획표 끄기" : "계획표 켜기"}
+                        disabled={plannerSaving}
+                        aria-busy={plannerSaving}
+                      >
+                        {plannerEnabled ? "계획표 끄기" : "계획표 켜기"}
+                      </button>
+                    </div>
+                  </>
+                )}
+              </div>
+              <div className="parent-home__status-card" aria-label="현재 공부 내용 카드">
+                <div className="parent-home__status-card-head">
+                  <LayoutGrid size={18} strokeWidth={2} aria-hidden />
+                  <span className="parent-home__status-card-title">현재 공부</span>
+                </div>
+                <div className="parent-home__status-center">
+                  <p className="parent-home__status-body">
+                    {currentTimelineStudy || "설정 안됨"}
+                  </p>
+                </div>
+                <div className="parent-home__status-card-footer">
+                  <button
+                    type="button"
+                    className="timeline-save-button study-room-editor__save-button parent-home__status-action"
+                    onClick={() => goParent("#/parent/records")}
+                  >
+                    학습 보기
+                  </button>
+                </div>
               </div>
             </div>
           ) : (
             <p className="parent-home__status-hint">표시할 학생을 선택해 주세요.</p>
           )}
         </section>
-      ) : null}
-
-      <section className="section parent-home__shortcuts">
-        <div className="section-header">
-          <h3 className="section-title">바로가기</h3>
-        </div>
-        <div className="parent-home__grid">
-          <button
-            type="button"
-            className="progress-card parent-home__tile"
-            onClick={() => go("#/parent/manage")}
-            disabled={!linked}
-          >
-            <User size={22} strokeWidth={2} aria-hidden />
-            <span className="parent-home__tile-label">자녀</span>
-            <span className="parent-home__tile-hint">관리·채널</span>
-          </button>
-          <button
-            type="button"
-            className="progress-card parent-home__tile"
-            onClick={() => go("#/parent/records")}
-            disabled={!linked}
-          >
-            <ClipboardList size={22} strokeWidth={2} aria-hidden />
-            <span className="parent-home__tile-label">기록</span>
-            <span className="parent-home__tile-hint">주간 학습</span>
-          </button>
-          <button
-            type="button"
-            className="progress-card parent-home__tile"
-            onClick={() => go("#/parent/student-settings")}
-            disabled={!linked}
-          >
-            <Settings size={22} strokeWidth={2} aria-hidden />
-            <span className="parent-home__tile-label">자녀 설정</span>
-            <span className="parent-home__tile-hint">플래너·앱</span>
-          </button>
-          <button
-            type="button"
-            className="progress-card parent-home__tile"
-            onClick={() => go("#/parent/profile")}
-          >
-            <UserCircle size={22} strokeWidth={2} aria-hidden />
-            <span className="parent-home__tile-label">내 정보</span>
-            <span className="parent-home__tile-hint">
-              {notificationUnreadCount > 0
-                ? `읽지 않은 알림 ${notificationUnreadCount}건`
-                : "계정·알림 설정"}
-            </span>
-          </button>
-        </div>
-      </section>
+      )}
+      <StudyRoomPickerModal
+        open={studyRoomModalOpen}
+        student={selectedStudent ? { id: selectedStudent.id, email: selectedStudent.email } : null}
+        initialValue={selectedStudent?.studyRoom || undefined}
+        authToken={authToken}
+        saving={studyRoomSaving}
+        onClose={() => setStudyRoomModalOpen(false)}
+        onSave={saveStudyRoomSetting}
+      />
     </div>
   );
 }

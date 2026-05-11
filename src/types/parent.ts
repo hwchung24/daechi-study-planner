@@ -20,6 +20,8 @@ export type ParentMdmSurfaceKey =
 export type ParentStudentRow = {
   id: number;
   email: string;
+  /** `student_coach_profiles.name` — 학생 이름(없을 수 있음) */
+  name?: string | null;
   /** 서버 `student_coach_profiles.mdm_applied` — 기기 연결·MDM 연동 여부 */
   mdmApplied?: boolean;
   /** `student_mdm_app_allowance_profiles.ui_surface_mode` — 허용앱 표면 모드 스냅샷 */

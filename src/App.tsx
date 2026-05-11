@@ -14,6 +14,7 @@ import { AuthScreen } from "./components/AuthScreen";
 import { StudentNativeOnlyGate } from "./components/student/StudentNativeOnlyGate";
 import { AppBottomNav } from "./components/AppBottomNav";
 import { PageTransition } from "./components/PageTransition";
+import { ParentStudentSelector } from "./coach/parent/ParentStudentSelector";
 import type { ParentTabKey } from "./components/parent/ParentLegacyView";
 import type { TabKey } from "./components/student/StudentLegacyView";
 import type { ParentStudentRow } from "./types/parent";
@@ -894,6 +895,41 @@ const App: React.FC = () => {
     },
     [notificationsModalReveal]
   );
+  const openParentNotificationFromPage = useCallback(
+    (action: ParentNotificationAction) => {
+      if (action.type === "link_unlink_request") {
+        setPendingLinkUnlinkError("");
+        setPendingLinkUnlinkAction(action);
+        return;
+      }
+      if (action.type === "parent_app_timetable_request") {
+        const studentEmail = String(action.studentEmail || "").trim().toLowerCase();
+        const targetDate = String(action.targetDate || "").trim();
+        const summary = String(action.summary || "").trim();
+        const slotSummary = String(action.slotSummary || "").trim();
+        const slots = Array.isArray(action.slots) ? action.slots : [];
+        if (studentEmail) {
+          const matchedStudent = parentStudents.find(
+            student => String(student.email || "").trim().toLowerCase() === studentEmail
+          );
+          if (matchedStudent) {
+            setParentStudentId(matchedStudent.id);
+          }
+        }
+        setParentAppTimetableRequestError("");
+        setParentAppTimetableRequestDetail({
+          studentEmail,
+          targetDate,
+          summary,
+          slotSummary,
+          slots
+        });
+        setCoachParentTab("analysis");
+        setAppPath("#/parent/analysis");
+      }
+    },
+    [parentStudents]
+  );
   const [coachStudentTab, setCoachStudentTab] = useState<CoachStudentTabKey | null>(
     () => parseCoachStudentTabFromHash()
   );
@@ -1079,16 +1115,17 @@ const App: React.FC = () => {
     return unsubscribe;
   }, []);
 
-  /** #/notifications 접근 시 알림 모달만 열고 해시는 오늘 탭으로 정리 */
+  /** 학생만 #/notifications 접근 시 알림 모달 열기 */
   useEffect(() => {
     const openModalFromNotificationsHash = () => {
+      if (meRole !== "student") return;
       if (getAppPath() !== "#/notifications") return;
       setShowNotificationsModal(true);
       replaceAppPath("#/today");
     };
     openModalFromNotificationsHash();
     return subscribeAppPathChange(openModalFromNotificationsHash);
-  }, []);
+  }, [meRole]);
 
   // 미로그인 시 로그인 페이지로 (첫 프레임에서 authToken이 아직 null일 수 있어 localStorage 기준)
   useEffect(() => {
@@ -1789,6 +1826,7 @@ const App: React.FC = () => {
       h === "#/parent/student-settings" ||
       h === "#/parent/records" ||
       h === "#/parent/report" ||
+      h === "#/parent/notifications" ||
       h === "#/parent/profile"
     )
       return;
@@ -1808,6 +1846,7 @@ const App: React.FC = () => {
       h === "#/parent/student-settings" ||
       h === "#/parent/records" ||
       h === "#/parent/report" ||
+      h === "#/parent/notifications" ||
       h === "#/parent/profile"
     ) {
       setAppPath("#/");
@@ -3096,7 +3135,9 @@ const App: React.FC = () => {
                   ? "기록"
                   : coachParentTab === "analysis"
                     ? "분석"
-                  : "자녀 설정"
+                    : coachParentTab === "notifications"
+                      ? "알림"
+                      : "자녀 설정"
           : parentTab === "profile"
             ? "내 정보"
             : "학부모"
@@ -3486,10 +3527,19 @@ const App: React.FC = () => {
                     error instanceof Error && error.message
                       ? ` ${error.message}`
                       : "";
+
                   setAuthError(
                     `서버에 연결할 수 없어요. Wi‑Fi·데이터와 서버 실행 여부를 확인하세요. (${API_BASE})${detail}`
                   );
                 }
+  };
+
+  const parentHeaderPath = getAppPath();
+  const isParentQuickActive = (key: "chat" | "notify" | "manage" | "settings") => {
+    if (key === "chat") return coachParentMode && coachParentTab === "manage";
+    if (key === "notify") return parentHeaderPath === "#/parent/notifications";
+    if (key === "manage") return coachParentMode && coachParentTab === "home";
+    return parentHeaderPath === "#/parent/profile";
   };
 
   swipeNavRef.current = {
@@ -3511,7 +3561,7 @@ const App: React.FC = () => {
   };
 
   return (
-    <div className="app-root">
+    <div className={"app-root" + (parentView ? " app-root--parent" : "")}>
       {splashDone && networkBanner?.message && (
         <div
           className={`network-transition-banner network-transition-banner--${networkBanner.kind || "info"}`}
@@ -3585,66 +3635,121 @@ const App: React.FC = () => {
           (isStandaloneAnalysisPage ? " app-shell--analysis-focus" : "")
         }
       >
-        <header className={`app-header${headerScrolled ? " app-header--scrolled" : ""}`}>
-          <div className="header-top">
-            {isStandaloneAnalysisPage ? (
-              <button
-                type="button"
-                className="header-icon-btn header-icon-btn--back"
-                aria-label="AI 코치로 돌아가기"
-                onClick={() => {
-                  hapticSelection();
-                  if (isParentAnalysisPage) {
-                    setCoachParentTab("records");
-                    setAppPath("#/parent/records");
-                    return;
-                  }
-                  setCoachStudentTab("coach");
-                  setCoachStudentCoachLayout("chat");
-                  setAppPath("#/student/coach");
-                }}
-              >
-                <ChevronLeft size={20} strokeWidth={2.4} aria-hidden />
-              </button>
-            ) : null}
-            <div className="header-title-group">
-              <div className="header-title-row">
-                <h1 className="header-title">{headerTitle}</h1>
+        <header
+          className={
+            `app-header${headerScrolled ? " app-header--scrolled" : ""}` +
+            (parentView ? " app-header--parent" : "")
+          }
+        >
+          {parentView ? (
+            <div className="header-top header-top--parent-filled">
+              <div className="parent-global-top-row parent-global-top-row--header">
+                <div className="parent-global-top-row__student">
+                  <ParentStudentSelector
+                    parentStudents={parentStudents}
+                    parentStudentId={parentStudentId}
+                    setParentStudentId={setParentStudentId}
+                  />
+                </div>
+                <div className="parent-quick-nav" aria-label="학부모 빠른 이동">
+                  <button
+                    type="button"
+                    className={"parent-quick-nav__btn" + (isParentQuickActive("chat") ? " parent-quick-nav__btn--active" : "")}
+                    onClick={() => {
+                      hapticSelection();
+                      setCoachParentTab("manage");
+                      setAppPath("#/parent/manage");
+                    }}
+                  >
+                    채팅
+                  </button>
+                  <button
+                    type="button"
+                    className={"parent-quick-nav__btn" + (isParentQuickActive("notify") ? " parent-quick-nav__btn--active" : "")}
+                    onClick={() => {
+                      hapticSelection();
+                      setCoachParentTab("notifications");
+                      setAppPath("#/parent/notifications");
+                    }}
+                  >
+                    알림
+                  </button>
+                  <button
+                    type="button"
+                    className={"parent-quick-nav__btn" + (isParentQuickActive("manage") ? " parent-quick-nav__btn--active" : "")}
+                    onClick={() => {
+                      hapticSelection();
+                      setCoachParentTab("home");
+                      setAppPath("#/parent/home");
+                    }}
+                  >
+                    관리
+                  </button>
+                  <button
+                    type="button"
+                    className={"parent-quick-nav__btn" + (isParentQuickActive("settings") ? " parent-quick-nav__btn--active" : "")}
+                    onClick={() => {
+                      hapticSelection();
+                      setCoachParentTab(null);
+                      setParentTab("profile");
+                      setAppPath("#/parent/profile");
+                    }}
+                  >
+                    설정
+                  </button>
+                </div>
               </div>
             </div>
-            {((showStudentShell && !parentView) || (parentView && meRole === "parent")) &&
-            !isStandaloneAnalysisPage ? (
-              <div className="header-actions">
+          ) : (
+            <div className="header-top">
+              {isStandaloneAnalysisPage ? (
                 <button
                   type="button"
-                  className="header-icon-btn"
-                  aria-label={
-                    (parentView && meRole === "parent"
-                      ? parentNotificationUnreadCount
-                      : studentNotificationUnreadCount) > 0
-                      ? "알림, 읽지 않은 알림 있음"
-                      : "알림"
-                  }
+                  className="header-icon-btn header-icon-btn--back"
+                  aria-label="AI 코치로 돌아가기"
                   onClick={() => {
                     hapticSelection();
-                    if (!parentView) {
-                      setCoachStudentTab(null);
-                      setCoachStudentCoachLayout("scroll");
+                    if (isParentAnalysisPage) {
+                      setCoachParentTab("records");
+                      setAppPath("#/parent/records");
+                      return;
                     }
-                    setShowNotificationsModal(true);
+                    setCoachStudentTab("coach");
+                    setCoachStudentCoachLayout("chat");
+                    setAppPath("#/student/coach");
                   }}
                 >
-                  {(parentView && meRole === "parent"
-                    ? parentNotificationUnreadCount
-                    : studentNotificationUnreadCount) > 0 ? (
-                    <BellDot size={22} strokeWidth={2} aria-hidden />
-                  ) : (
-                    <Bell size={22} strokeWidth={2} aria-hidden />
-                  )}
+                  <ChevronLeft size={20} strokeWidth={2.4} aria-hidden />
                 </button>
+              ) : null}
+              <div className="header-title-group">
+                <div className="header-title-row">
+                  <h1 className="header-title">{headerTitle}</h1>
+                </div>
               </div>
-            ) : null}
-          </div>
+              {showStudentShell && !isStandaloneAnalysisPage ? (
+                <div className="header-actions">
+                  <button
+                    type="button"
+                    className="header-icon-btn"
+                    aria-label={studentNotificationUnreadCount > 0 ? "알림, 읽지 않은 알림 있음" : "알림"}
+                    onClick={() => {
+                      hapticSelection();
+                      setCoachStudentTab(null);
+                      setCoachStudentCoachLayout("scroll");
+                      setShowNotificationsModal(true);
+                    }}
+                  >
+                    {studentNotificationUnreadCount > 0 ? (
+                      <BellDot size={22} strokeWidth={2} aria-hidden />
+                    ) : (
+                      <Bell size={22} strokeWidth={2} aria-hidden />
+                    )}
+                  </button>
+                </div>
+              ) : null}
+            </div>
+          )}
 
           {/* 오늘 공부의 진행률은 StudentLegacyView에서 3섹션 레이아웃으로 렌더링합니다. */}
         </header>
@@ -3665,8 +3770,7 @@ const App: React.FC = () => {
             ((showStudentShell &&
             coachStudentMode &&
             coachStudentTab !== "home" &&
-            coachStudentCoachLayout === "chat") ||
-            (parentView && coachParentMode && coachParentTab === "manage")
+            coachStudentCoachLayout === "chat")
               ? " app-main--coach-chat"
               : "")
           }
@@ -3741,6 +3845,10 @@ const App: React.FC = () => {
                   setParentLockStatus={setParentLockStatus}
                   hapticWarning={hapticWarning}
                   hapticSuccess={hapticSuccess}
+                  onParentNotificationsReadAll={() => {
+                    setParentNotificationUnreadCount(0);
+                  }}
+                  onParentNotificationAction={openParentNotificationFromPage}
                 />
               </React.Suspense>
             )}
@@ -3879,7 +3987,7 @@ const App: React.FC = () => {
           </PageTransition>
         </main>
 
-        {!isStandaloneAnalysisPage && (
+        {!isStandaloneAnalysisPage && !parentView && (
           <AppBottomNav
             showStudentShell={showStudentShell}
             roleLoading={roleLoading}
@@ -3962,7 +4070,9 @@ const App: React.FC = () => {
                       ? "#/parent/analysis"
                       : nextTab === "records"
                         ? "#/parent/records"
-                        : "#/parent/student-settings"
+                        : nextTab === "notifications"
+                          ? "#/parent/notifications"
+                          : "#/parent/student-settings"
               );
             }}
           />

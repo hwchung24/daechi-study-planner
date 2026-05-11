@@ -728,7 +728,6 @@ export function ParentProfilePage(props: {
     }
   };
 
-
   return (
     <>
       <div className="student-profile-page section">

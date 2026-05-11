@@ -44,6 +44,7 @@ import {
 import { ParentAdminChannelPanel } from "../admin/AdminChannelPanels";
 import { StudentCoachApp } from "../student/StudentCoachApp";
 import { Card, EmptyState, GradientHeroCard, MetricCard, RiskBadge, SectionHeader } from "../ui/components";
+import { NotificationsPage, type ParentNotificationAction } from "../../components/student/NotificationsPage";
 import { formatMinutes } from "../utils/format";
 import type { ParentStudentRow } from "../../types/parent";
 import type { StudyRoomVisitSession } from "../../types/studyRoomTracking";
@@ -68,7 +69,8 @@ export type ParentTabKey =
   | "manage"
   | "records"
   | "studentSettings"
-  | "analysis";
+  | "analysis"
+  | "notifications";
 
 const PARENT_COACH_CACHE_TTL_MS = 2 * 60 * 1000;
 
@@ -1140,7 +1142,7 @@ function AiReportTab(props: {
   ];
 
   return (
-    <div className="coach-page coach-page--manage">
+    <div className="coach-page">
       <ParentStudentSelector
         parentStudents={props.parentStudents}
         parentStudentId={props.parentStudentId}
@@ -1624,11 +1626,6 @@ function RecordsTab(props: {
 
   return (
     <div className="coach-page">
-      <ParentStudentSelector
-        parentStudents={props.parentStudents}
-        parentStudentId={props.parentStudentId}
-        setParentStudentId={props.setParentStudentId}
-      />
       {!props.selectedStudent ? (
         <EmptyState title="학생을 선택하세요" />
       ) : (
@@ -2365,11 +2362,6 @@ function StudentSettingsTab(props: {
 
   return (
     <div className="coach-page">
-      <ParentStudentSelector
-        parentStudents={props.parentStudents}
-        parentStudentId={props.parentStudentId}
-        setParentStudentId={props.setParentStudentId}
-      />
       {props.selectedStudent ? (
         <Card className="coach-card coach-card--padded coach-settings-status-card" style={{ marginTop: 12 }}>
           <div className="coach-settings-banner">
@@ -2575,24 +2567,20 @@ function ManageTab(props: {
   setParentStudentId: (id: number | null) => void;
 }) {
   return (
-    <div className="coach-page coach-page--chat coach-page--manage">
-      <ParentStudentSelector
-        parentStudents={props.parentStudents}
-        parentStudentId={props.parentStudentId}
-        setParentStudentId={props.setParentStudentId}
-      />
-
+    <div className="coach-page">
       {!props.selectedStudent ? (
         <EmptyState
           title="학생을 선택하세요"
           body="학생을 선택하면 관리 채널을 확인할 수 있습니다."
         />
       ) : (
-        <ParentAdminChannelPanel
-          authToken={props.authToken}
-          studentId={props.parentStudentId ?? props.selectedStudent.id}
-          studentLabel={props.selectedStudent.email || "학생"}
-        />
+        <Card className="coach-card coach-card--padded parent-manage-chat-card">
+          <ParentAdminChannelPanel
+            authToken={props.authToken}
+            studentId={props.parentStudentId ?? props.selectedStudent.id}
+            studentLabel={props.selectedStudent.email || "학생"}
+          />
+        </Card>
       )}
     </div>
   );
@@ -2616,6 +2604,25 @@ function ParentAnalysisTab(props: {
       parentStudentId={props.selectedStudent.id}
       analysisActionTextOverride={parentSuggestedPhrase}
     />
+  );
+}
+
+function ParentNotificationsTab(props: {
+  apiBase: string;
+  authToken: string | null;
+  onReadAll?: () => void;
+  onNotificationAction?: (action: ParentNotificationAction) => void;
+}) {
+  return (
+    <div className="coach-page">
+      <NotificationsPage
+        apiBase={props.apiBase}
+        authToken={props.authToken}
+        meRole="parent"
+        onReadAll={props.onReadAll}
+        onNotificationAction={props.onNotificationAction}
+      />
+    </div>
   );
 }
 
@@ -2644,6 +2651,8 @@ export function ParentCoachApp(props: {
   setParentLockStatus: React.Dispatch<React.SetStateAction<ParentLockStatus | null>>;
   hapticWarning: () => void;
   hapticSuccess: () => void;
+  onParentNotificationsReadAll?: () => void;
+  onParentNotificationAction?: (action: ParentNotificationAction) => void;
 }) {
   const selectedStudent =
     props.parentStudents.find(student => student.id === props.parentStudentId) ||
@@ -2661,6 +2670,7 @@ export function ParentCoachApp(props: {
         parentStudentId={props.parentStudentId}
         setParentStudentId={props.setParentStudentId}
         selectedStudent={selectedStudent}
+        parentReport={props.parentReport}
         parentLockStatus={props.parentLockStatus}
         notificationUnreadCount={props.parentNotificationUnreadCount}
         hapticSelection={props.hapticSelection}
@@ -2711,6 +2721,15 @@ export function ParentCoachApp(props: {
         parentAiDaily={props.parentAiDaily}
       />
     );
+  } else if (props.tab === "notifications") {
+    view = (
+      <ParentNotificationsTab
+        apiBase={props.apiBase}
+        authToken={props.authToken}
+        onReadAll={props.onParentNotificationsReadAll}
+        onNotificationAction={props.onParentNotificationAction}
+      />
+    );
   } else {
     view = (
       <ManageTab
@@ -2728,9 +2747,9 @@ export function ParentCoachApp(props: {
       <TabTransitionPanel
         tabKey={props.tab}
         className={
-          props.tab === "manage" || props.tab === "home"
-            ? "coach-shell__tab-panel coach-unified-tab-panel--fill"
-            : "coach-shell__tab-panel"
+          props.tab === "home"
+            ? "coach-shell__tab-panel coach-shell__tab-panel--parent coach-unified-tab-panel--fill"
+            : "coach-shell__tab-panel coach-shell__tab-panel--parent"
         }
       >
         {view}
