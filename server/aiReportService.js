@@ -12,6 +12,7 @@ const {
   buildWeeklySummaryLines,
   buildWeeklyReportPrompt
 } = require("./analytics");
+const { parentDailyAiReport } = require("./prompts");
 
 const MODEL = process.env.OPENAI_MODEL || "gpt-4o-mini";
 
@@ -87,13 +88,12 @@ async function generateAiReportText(studentUserId, weekStart, weekEnd) {
     messages: [
       {
         role: "system",
-        content:
-          "You write short parent-facing study reports in Korean. No markdown headings unless user asks."
+        content: parentDailyAiReport.systemPrompt
       },
       { role: "user", content: userContent }
     ],
-    max_tokens: 700,
-    temperature: 0.45
+    max_tokens: parentDailyAiReport.maxTokens,
+    temperature: parentDailyAiReport.temperature
   });
 
   const text = completion.choices[0]?.message?.content?.trim();

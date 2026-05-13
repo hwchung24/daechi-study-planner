@@ -10,6 +10,7 @@ const rateLimit = require("express-rate-limit");
 const helmet = require("helmet");
 require("dotenv").config({ path: path.join(__dirname, ".env") });
 const OpenAI = require("openai");
+const prompts = require("./prompts");
 
 const {
   findUserByEmail,
@@ -1602,16 +1603,15 @@ function parsePatternsJsonFromAssistantText(text) {
 
 async function openAiPatternCompletion(payload) {
   const userContent = JSON.stringify(payload);
-  const systemContent =
-    "너는 한국 중·고등학생 학습 코치다. 입력 JSON의 weekRhythm 배열에서 최근 7일의 다섯 지표(sleepHours, stressScore, concentrationPercent, studyMinutes, planCompletionRate)를 핵심 근거로 2~6개의 패턴을 진단한다. studyRoomSummary가 있으면 독서실 체류시간·방문일수는 보조 근거로 사용할 수 있다. null은 해당 날 미기록이며 억지 추정은 금지한다. 의학·정신질환 진단, 자해 조장, 시험 부정행위는 금지. 반드시 아래 형태의 JSON만 출력하고 다른 글자는 쓰지 마라: {\"patterns\":[{\"title\":\"짧은 제목\",\"severity\":\"낮음\"|\"보통\"|\"높음\",\"explanation\":\"2~4문장\",\"recommendation\":\"실행 팁 1~2문장\"}]}. 기록이 거의 없으면 patterns는 1개로 짧게 안내한다.";
+  const { systemPrompt: systemContent, temperature, maxTokens } = prompts.patternInsights;
   const messages = [
     { role: "system", content: systemContent },
     { role: "user", content: userContent }
   ];
   const baseArgs = {
     model: OPENAI_MODEL,
-    temperature: 0.35,
-    max_tokens: 1400,
+    temperature,
+    max_tokens: maxTokens,
     messages
   };
   let text = "";
@@ -1777,7 +1777,7 @@ async function requestGrowthSectionText(options) {
   } = options;
   if (!openai) return "";
   const args = {
-    model: "gpt-4o-mini",
+    model: OPENAI_MODEL,
     temperature,
     max_tokens: 450,
     messages: [
@@ -1798,182 +1798,31 @@ async function requestGrowthSectionText(options) {
 
 async function openAiParentGrowthReportSections(input) {
   if (!openai) return null;
-  const {
-    studentName,
-    weekLabel,
-    avgSleep,
-    avgStress10,
-    totalStudyHours,
-    totalFocusHours,
-    avgDeskHoursPerDay,
-    achievementRate,
-    lastWeekAchievementRate,
-    bestFocusDay,
-    highStressDay,
-    highStressScore10,
-    shortestSleepDay,
-    shortestSleepHours,
-    unfinishedPlans,
-    achievementDelta,
-    focusEfficiencyPercent,
-    lastWeekFocusEfficiencyPercent,
-    maxFocusStreak,
-    maxFocusStreakDay,
-    percentile,
-    sleepByDay,
-    stressByDay
-  } = input;
-
-  const summarySystem = [
-    "너는 대치동 학원가에서 학생 데이터를 분석해 학부모에게 리포트를 쓰는 전문가야.",
-    "학부모와 학생의 갈등을 줄이는 것이 최우선 목표야.",
-    "",
-    "글쓰기 원칙:",
-    "- 항상 긍정적 사실 하나로 시작한다",
-    "- 수치는 절대 판정하지 않는다. 관찰만 한다",
-    '- "못 했다", "부족하다", "낮다" 같은 부정 평가 표현은 쓰지 않는다',
-    '- "오히려", "그럼에도", "다행히" 같은 전환어로 부정적 데이터를 맥락화한다',
-    "- 문장은 2-3문장 이내, 구어체에 가까운 따뜻한 문어체"
-  ].join("\n");
-  const summaryUser = [
-    `학생 이름: ${studentName}`,
-    `관찰 기간: ${weekLabel}`,
-    "",
-    "이번 주 데이터:",
-    `- 평균 수면 시간: ${avgSleep}시간`,
-    `- 평균 스트레스 지수: ${avgStress10} / 10`,
-    `- 총 학습 시간: ${totalStudyHours}시간`,
-    `- 총 집중 시간: ${totalFocusHours}시간`,
-    `- 독서실 평균 체류: ${avgDeskHoursPerDay}시간/일`,
-    `- 계획 달성률: ${achievementRate}%`,
-    `- 지난 주 달성률: ${lastWeekAchievementRate}%`,
-    `- 이번 주 가장 집중이 잘 됐던 요일: ${bestFocusDay}`,
-    `- 이번 주 스트레스가 가장 높았던 요일: ${highStressDay}`,
-    "",
-    "위 데이터를 바탕으로 주간 한 줄 요약 텍스트를 2-3문장으로 작성해줘.",
-    "반드시 잘한 점 하나를 첫 문장에 넣어야 해.",
-    "출력은 텍스트만, 따옴표나 마크다운 없이."
-  ].join("\n");
-
-  const energySystem = [
-    "너는 청소년 수면과 스트레스를 전문으로 연구하는 상담 교사야.",
-    "학부모에게 학생의 에너지 상태를 설명하는 글을 쓴다.",
-    "",
-    "글쓰기 원칙:",
-    '- 수면 시간이 짧은 날을 "부족"이라고 표현하지 않는다. "회복이 더 필요한 날"로 표현한다',
-    '- 스트레스 수치를 점수로 판정하지 않는다. "이런 날이 있었어요" 식의 공감 서술을 한다',
-    "- 스트레스가 높은 특정 요일이 있으면, 그 날에 대해 부모가 대화를 시도할 수 있도록 유도한다",
-    "- 처방하지 않는다. 관찰하고 공감한다",
-    "- 문장은 3문장 이내"
-  ].join("\n");
-  const energyUser = [
-    `학생 이름: ${studentName}`,
-    "",
-    "일별 수면 데이터 (시간):",
-    `월: ${sleepByDay.mon}, 화: ${sleepByDay.tue}, 수: ${sleepByDay.wed}, 목: ${sleepByDay.thu}, 금: ${sleepByDay.fri}, 토: ${sleepByDay.sat}, 일: ${sleepByDay.sun}`,
-    "",
-    "일별 스트레스 지수 (1-10):",
-    `월: ${stressByDay.mon}, 화: ${stressByDay.tue}, 수: ${stressByDay.wed}, 목: ${stressByDay.thu}, 금: ${stressByDay.fri}, 토: ${stressByDay.sat}, 일: ${stressByDay.sun}`,
-    "",
-    "수면 목표: 7시간",
-    "스트레스 경계값: 7 이상이면 높음으로 간주",
-    "",
-    "위 데이터를 바탕으로:",
-    "1. 수면 패턴에 대한 공감 코멘트 1문장",
-    "2. 스트레스가 높았던 날에 대한 부모 행동 유도 1문장 (있을 경우에만)",
-    "3. 긍정적 마무리 1문장",
-    "",
-    "출력은 자연스럽게 이어지는 단락으로. 따옴표나 번호 없이."
-  ].join("\n");
-
-  const efficiencySystem = [
-    "너는 학습 코칭 전문가야. 학생의 학습 효율 데이터를 학부모에게 설명한다.",
-    "",
-    "절대 하지 말아야 할 표현:",
-    '- "독서실에서 시간을 낭비했다"',
-    '- "집중을 못 했다"',
-    '- "효율이 낮다"',
-    "- 체류 시간과 집중 시간의 차이를 부정적으로 프레이밍하는 모든 표현",
-    "",
-    "반드시 해야 하는 것:",
-    "- 집중 효율(집중시간/학습시간 × 100)을 긍정적으로 맥락화한다",
-    "- 지난 주보다 수치가 좋아졌으면 반드시 언급한다",
-    "- 체류 시간이 긴 것 자체를 의지와 성실함의 표현으로 읽는다",
-    "- 문장은 2-3문장"
-  ].join("\n");
-  const efficiencyUser = [
-    `학생 이름: ${studentName}`,
-    "",
-    "이번 주 수치:",
-    `- 독서실 총 체류 시간: ${roundOrNull(avgDeskHoursPerDay * 7, 1) ?? "데이터 없음"}시간`,
-    `- 실제 학습 시간: ${totalStudyHours}시간`,
-    `- 집중 구간 합계: ${totalFocusHours}시간`,
-    `- 집중 효율 (집중/학습): ${focusEfficiencyPercent}%`,
-    `- 지난 주 집중 효율: ${lastWeekFocusEfficiencyPercent}%`,
-    `- 최장 연속 집중 구간: ${maxFocusStreak}분 (${maxFocusStreakDay})`,
-    `- 또래 집중 효율 상위 퍼센타일: ${percentile}%`,
-    "",
-    "위 데이터를 2-3문장으로 설명해줘.",
-    "집중이 가장 잘 됐던 순간을 구체적으로 언급하고, 전주 대비 변화를 긍정적으로 표현해줘.",
-    "출력은 텍스트만."
-  ].join("\n");
-
-  const suggestionSystem = [
-    "너는 학생과 학부모 사이의 관계를 개선하는 교육 상담사야.",
-    "이번 주 데이터를 보고, 다음 주를 위한 제안을 학생용 1개, 부모용 1개 작성한다.",
-    "",
-    "핵심 원칙:",
-    '- 학생 제안: 잔소리나 지시가 아니라 학생 스스로 시도해보고 싶어지는 문장이어야 한다. "~해야 한다"가 아니라 "~해보는 건 어떨까요?"',
-    "- 부모 제안: 공부나 성적 이야기가 아니라 관계와 감정에 관한 행동을 제안한다. 구체적인 행동(언제, 어떻게)을 포함한다",
-    "- 부모 제안에 이번 주 데이터에서 나온 구체적 사실(요일, 상황)을 반드시 1개 이상 녹여넣는다",
-    "- 각 1-2문장"
-  ].join("\n");
-  const suggestionUser = [
-    `학생 이름: ${studentName}`,
-    "",
-    "이번 주 요약:",
-    `- 스트레스 피크: ${highStressDay} (지수 ${highStressScore10}/10)`,
-    `- 수면이 가장 짧았던 날: ${shortestSleepDay} (${shortestSleepHours}시간)`,
-    `- 집중이 가장 잘 됐던 날: ${bestFocusDay}`,
-    `- 달성 못 한 계획: ${unfinishedPlans || "없음"}`,
-    `- 지난 주 대비 달성률 변화: ${achievementDelta}% (${achievementDelta > 0 ? "증가" : "감소"})`,
-    "",
-    "두 가지를 각각 작성해줘:",
-    "",
-    "1. 학생에게 (변수명: studentSuggestion)",
-    "다음 주에 한 가지만 바꿔본다면 무엇이 좋을지, 부드럽고 실현 가능한 제안 1-2문장.",
-    "",
-    "2. 부모에게 (변수명: parentSuggestion)",
-    "이번 주 데이터에서 읽히는 학생의 감정 상태를 언급하고, 부모가 취할 수 있는 구체적 행동 1가지를 1-2문장으로.",
-    "",
-    "출력 형식 (JSON):",
-    "{",
-    '  "studentSuggestion": "...",',
-    '  "parentSuggestion": "..."',
-    "}"
-  ].join("\n");
-
+  const { sections } = prompts.parentGrowthReport;
   const sectionResults = await Promise.allSettled([
     requestGrowthSectionText({
-      systemPrompt: summarySystem,
-      userPrompt: summaryUser,
-      temperature: 0.7
+      systemPrompt: sections.summary.system,
+      userPrompt: sections.summary.buildUser(input),
+      temperature: sections.summary.temperature,
+      jsonObject: sections.summary.jsonObject
     }),
     requestGrowthSectionText({
-      systemPrompt: energySystem,
-      userPrompt: energyUser,
-      temperature: 0.7
+      systemPrompt: sections.energy.system,
+      userPrompt: sections.energy.buildUser(input),
+      temperature: sections.energy.temperature,
+      jsonObject: sections.energy.jsonObject
     }),
     requestGrowthSectionText({
-      systemPrompt: efficiencySystem,
-      userPrompt: efficiencyUser,
-      temperature: 0.7
+      systemPrompt: sections.efficiency.system,
+      userPrompt: sections.efficiency.buildUser(input),
+      temperature: sections.efficiency.temperature,
+      jsonObject: sections.efficiency.jsonObject
     }),
     requestGrowthSectionText({
-      systemPrompt: suggestionSystem,
-      userPrompt: suggestionUser,
-      temperature: 0.5,
-      jsonObject: true
+      systemPrompt: sections.suggestion.system,
+      userPrompt: sections.suggestion.buildUser(input),
+      temperature: sections.suggestion.temperature,
+      jsonObject: sections.suggestion.jsonObject
     })
   ]);
 
@@ -3760,14 +3609,13 @@ async function buildWeeklyAppRequestAssistantReply({
 
   const response = await openai.chat.completions.create({
     model: OPENAI_MODEL,
-    temperature: 0.25,
-    max_tokens: 900,
+    temperature: prompts.weeklyAppRequest.temperature,
+    max_tokens: prompts.weeklyAppRequest.maxTokens,
     response_format: { type: "json_object" },
     messages: [
       {
         role: "system",
-        content:
-          "너는 학생이 학부모에게 보낼 주간 허용 앱 요청을 정리해 주는 AI 코치다. installedApps, schedules, studyPlans는 참고 정보이며, 학생이 명시하지 않은 요일·시간·앱을 임의로 만들면 안 된다. 반드시 JSON 객체만 출력한다. 형식은 {\"reply\":\"학생에게 보여줄 짧은 한국어 답변\",\"summary\":\"학부모에게 보여줄 한두 문장 요약\",\"slots\":[{\"dayKey\":\"mon|tue|wed|thu|fri|sat|sun\",\"title\":\"요청 제목\",\"source\":\"plan\"|\"schedule\"|\"free\",\"startTime\":\"HH:MM\",\"endTime\":\"HH:MM\",\"reason\":\"짧은 근거\",\"allowedAppIds\":[\"com.daechiroot.ios\"]}]} 이다. 허용 앱은 installedApps에 있는 것만 allowedAppIds로 넣을 수 있다. 대치루트 앱(id=com.daechiroot.ios)은 모든 슬롯에 반드시 포함한다. 요청이 불충분하면 slots는 빈 배열로 두고 reply에서 필요한 정보를 짧게 다시 물어본다."
+        content: prompts.weeklyAppRequest.systemPrompt
       },
       {
         role: "user",
@@ -3827,14 +3675,13 @@ async function generateStudentAppAllowancePlan({
   try {
     const response = await openai.chat.completions.create({
       model: OPENAI_MODEL,
-      temperature: 0.35,
-      max_tokens: 1100,
+      temperature: prompts.appAllowanceTomorrowPlan.temperature,
+      max_tokens: prompts.appAllowanceTomorrowPlan.maxTokens,
       response_format: { type: "json_object" },
       messages: [
         {
           role: "system",
-          content:
-            "너는 한국 학생의 내일 휴대폰 허용 앱 시간표를 짜는 코치다. 반드시 학습 계획(studyPlans)과 등록 일정(schedules)에 직접 근거한 내용만 사용해야 하며, 제공되지 않은 새로운 공부 주제·앱·활동을 임의로 만들면 안 된다. schedules는 고정 일정이므로 시간을 바꾸지 않는다. studyPlans 중 startTime/endTime이 둘 다 있는 항목도 고정 시간으로 유지한다. 시간이 없는 studyPlans만 남는 시간대에 배치할 수 있다. 결과는 00:00부터 24:00까지 하루 전체가 빈틈없이 이어지는 슬롯이어야 하며, 슬롯끼리 절대 겹치면 안 된다. 계획이나 일정이 없는 구간도 슬롯으로 포함한다. 대치루트 앱(id=com.daechiroot.ios)은 모든 슬롯 allowedAppIds에 반드시 포함해야 한다. installedApps에 있는 id만 allowedAppIds에 넣을 수 있고, 계획/일정 텍스트와 직접 관련이 없는 앱은 넣지 않는다. 반드시 JSON 객체만 출력한다. 형식은 {\"summary\":\"한두 문장\",\"slots\":[{\"title\":\"표시 제목\",\"source\":\"schedule\"|\"plan\"|\"free\",\"startTime\":\"HH:MM\",\"endTime\":\"HH:MM\",\"reason\":\"짧은 근거\",\"allowedAppIds\":[\"com.daechiroot.ios\"]}]} 이다."
+          content: prompts.appAllowanceTomorrowPlan.systemPrompt
         },
         {
           role: "user",
@@ -4077,13 +3924,12 @@ async function generateScheduleValidationReply(params) {
 
   const response = await openai.chat.completions.create({
     model: OPENAI_MODEL,
-    temperature: 0.25,
-    max_tokens: 220,
+    temperature: prompts.scheduleValidationReply.temperature,
+    max_tokens: prompts.scheduleValidationReply.maxTokens,
     messages: [
       {
         role: "system",
-        content:
-          "너는 한국 학생의 일정 관리를 도와주는 AI 코치다. 서버 검증 결과를 학생에게 자연스럽고 짧은 한국어로 설명한다. 절대 JSON을 출력하지 말고, 지금 필요한 질문이나 안내만 2~4문장으로 답한다. 정보를 추정하지 말고 꼭 필요한 정보만 다시 물어본다. 사용자가 방금 논의하던 일정 자체를 접거나 말을 바꾼 상황이면 이전 일정은 더 붙잡지 말고, 그 일정은 진행하지 않겠다고 정리한 뒤 다음 일정 내용을 다시 물어본다."
+        content: prompts.scheduleValidationReply.systemPrompt
       },
       {
         role: "system",
@@ -8935,14 +8781,13 @@ app.post("/api/student/coach/app-timetable/message", authMiddleware, async (req,
 
     const response = await openai.chat.completions.create({
       model: OPENAI_MODEL,
-      temperature: 0.35,
-      max_tokens: 1100,
+      temperature: prompts.appAllowanceTimetableChat.temperature,
+      max_tokens: prompts.appAllowanceTimetableChat.maxTokens,
       response_format: { type: "json_object" },
       messages: [
         {
           role: "system",
-          content:
-            "너는 한국 학생의 내일 앱 허용 시간표를 대화로 수정해 주는 AI 코치다. 반드시 JSON 객체만 출력한다. 형식은 {\"reply\":\"학생에게 보여줄 자연스러운 한국어 답변\",\"summary\":\"시간표 요약 한두 문장\",\"slots\":[{\"title\":\"표시 제목\",\"source\":\"schedule\"|\"plan\"|\"free\",\"startTime\":\"HH:MM\",\"endTime\":\"HH:MM\",\"reason\":\"짧은 근거\",\"allowedAppIds\":[\"com.daechiroot.ios\"]}]} 이다. currentPlan.slots는 지금 팝업에 떠 있는 앱 허용 시간표 초안이다. 사용자의 요청에 맞게 이 초안을 수정해라. 대치루트 앱(id=com.daechiroot.ios)은 모든 슬롯 allowedAppIds에 반드시 포함해야 한다. availableApps에 있는 id만 allowedAppIds에 넣을 수 있다. time slot은 00:00부터 24:00까지 하루 전체가 끊김 없이 이어지도록 구성하고, 슬롯끼리 겹치면 안 된다. 계획이나 일정이 없는 구간도 슬롯으로 포함한다. tomorrowSchedules와 시간이 있는 tomorrowStudyPlans는 기본 앵커이므로 사용자가 명시적으로 바꾸라고 하지 않는 한 유지한다. 요청이 모호하면 slots는 currentPlan과 같게 두고 reply에서 짧게 다시 물어본다. reply는 짧고 자연스러운 존댓말로 작성한다."
+          content: prompts.appAllowanceTimetableChat.systemPrompt
         },
         {
           role: "user",
@@ -9361,14 +9206,15 @@ app.post("/api/student/coach/chat", authMiddleware, async (req, res) => {
         try {
         const response = await openai.chat.completions.create({
           model: OPENAI_MODEL,
-          temperature: 0.3,
-          max_tokens: 700,
+          temperature: prompts.studentCoachChat.scheduleChatTemperature,
+          max_tokens: prompts.studentCoachChat.scheduleChatMaxTokens,
           response_format: { type: "json_object" },
           messages: [
             {
               role: "system",
-              content:
-                `너는 한국 학생의 일정 관리를 도와주는 AI 코치다. 오늘 날짜는 ${formatYmdSeoulFromInstant(new Date())} 이다. 항상 한국어로 답하고 반드시 JSON 객체만 출력한다. 형식은 {"action":"inquire"|"create_schedule"|"update_schedule"|"delete_schedule"|"cancel_pending","message":"학생에게 보여줄 자연스러운 답변","schedule":null|{"title":"일정 제목","date":"YYYY-MM-DD","startTime":"HH:MM","endTime":"HH:MM","isRecurring":true|false,"recurrenceRule":"반복 설명 또는 빈 문자열","note":"보충 메모 또는 빈 문자열"},"targetScheduleId":null|number} 이다. create_schedule과 update_schedule은 일정 제목, 날짜, 시작 시간, 종료 시간이 모두 확실할 때만 사용한다. 이 중 하나라도 확실하지 않으면 반드시 inquire를 사용하고, 빠진 정보만 짧게 다시 물어본다. 종료 시간이 없으면 절대 생성하거나 수정하지 않는다. 반복 일정이면 recurrenceRule도 반드시 채운다. 기존 일정과 시간이 겹치더라도 사용자가 '같은 일정이다', '이름만 바꿔 달라', '기존 일정 수정이다'라고 분명히 말하면 create_schedule 대신 update_schedule을 사용한다. 일정이 취소됐다고 하거나 삭제해 달라고 하면 delete_schedule을 사용한다. 사용자가 방금 추가하려던 일정 자체를 접거나 말을 바꾼 경우, 예를 들면 '아니 그거 말고', '안 하기로 했어', '추가 안 할래' 같은 말이면 delete_schedule이 아니라 cancel_pending을 사용한다. cancel_pending은 아직 저장되지 않은 현재 대화상의 일정 초안을 그만두는 뜻이다. update_schedule과 delete_schedule일 때는 targetScheduleId에 수정/삭제할 기존 일정 id를 넣는다. 애매하면 추정하지 말고 다시 물어본다. 첫 질문은 반복 일정인지 단일 일정인지부터 묻고, 후속 대화에서도 정보가 부족하면 생성하거나 수정하거나 삭제하지 않는다. message는 학생에게 직접 보여질 짧고 자연스러운 문장이다.`
+              content: prompts.studentCoachChat.buildScheduleJsonActionSystemPrompt(
+                formatYmdSeoulFromInstant(new Date())
+              )
             },
             {
               role: "system",
@@ -9615,28 +9461,30 @@ app.post("/api/student/coach/chat", authMiddleware, async (req, res) => {
       });
     }
 
-    const systemLearning =
-      "너는 한국 학생 전용 학습 코치다. 실제 상위권 입시 코치처럼 학생과 대화하되, 항상 한국어 존댓말로 답한다. 아래로 전달되는 학생 DB 컨텍스트(학생 이름/목표/날짜별 기록/개인 일정)를 참고해 개인화하되, 질문과 직접 관련 없는 정보는 억지로 끼워 넣지 않는다. 의학적 진단·자해 조장·시험 부정행위는 거절한다. 답변은 고정 템플릿(예: 1) 원인 분석 2) 우선순위 ...)을 쓰지 말고 자연스러운 대화문으로 작성한다. 문단은 1~3개, 보통 3~7문장으로 짧고 밀도 있게 답한다. 먼저 학생의 현재 상태를 한 문장으로 짚고, 바로 실행 가능한 다음 행동 1~2개를 구체적으로 제안한 뒤, 필요한 경우에만 확인 질문을 1개 덧붙인다. 같은 문장 패턴을 반복하지 말고 상황에 맞게 말투와 흐름을 바꿔라.";
-    const systemSuneung =
-      "너는 수능(대학수학능력시험) 범위에서 학생과 질의응답하는 과목 코치다. 국어·수학·영어·탐구 등 과목별로 (1) 처음 배우는 개념 (2) 비슷해서 헷갈리는 개념 (3) 풀이가 막히거나 모르는 문제·유형에 대해 학생이 질문하면, 정의·차이·풀이 접근을 짧고 명확히 설명한다. 필요하면 예시·비유·풀이 단계(힌트)를 덧붙인다. 항상 한국어 존댓말. 아래로 전달되는 학생 DB 컨텍스트(학생 이름/목표/날짜별 기록/개인 일정)를 참고해 설명 난이도와 예시를 맞추되, 질문과 직접 관련 없는 내용은 최소화한다. 정당한 학습 범위 안에서만 답한다. 특정 시험의 정답·문제지 유출·답안 그대로 알려 달라는 요청·시험 부정행위 조력은 거절한다. 의학적 진단·자해 조장은 거절한다. 답 형식은 질문에 맞게 가되, 보통 ①핵심 설명 ②헷갈릴 때 구분 포인트 또는 풀이 단계 ③스스로 확인할 질문 한 가지 순으로 짧게 맞춘다.";
-
     let replyText = "";
     let usedOpenAi = false;
     if (openai) {
       try {
         const response = await openai.chat.completions.create({
           model: OPENAI_MODEL,
-          temperature: 0.4,
-          max_tokens: 900,
+          temperature: prompts.studentCoachChat.learningChatTemperature,
+          max_tokens: prompts.studentCoachChat.learningChatMaxTokens,
           messages: [
             {
               role: "system",
-              content: chatMode === "suneung" ? systemSuneung : systemLearning
+              content:
+                chatMode === "suneung"
+                  ? prompts.studentCoachChat.suneungCoach
+                  : prompts.studentCoachChat.learningCoach
             },
             {
               role: "system",
-              content:
-                `시간 기준은 반드시 한국/서울(KST)이다. 오늘은 ${todayDateKey}(${todayWeekdayKorean}요일), 내일은 ${tomorrowDateKey}(${tomorrowWeekdayKorean}요일)이다. 날짜/요일을 답변에 쓸 때는 이 기준만 사용하고, 확실하지 않으면 추정하지 말고 짧게 확인 질문을 해라.`
+              content: prompts.studentCoachChat.buildSeoulDateContextSystemPrompt({
+                todayDateKey,
+                todayWeekdayKorean,
+                tomorrowDateKey,
+                tomorrowWeekdayKorean
+              })
             },
             {
               role: "system",
@@ -9752,26 +9600,7 @@ app.post("/api/student/coach/tomorrow-plan/message", authMiddleware, async (req,
     }));
 
     const focus = context.collabFocus === "life" ? "life" : "study";
-    const systemBlock =
-      focus === "life"
-        ? `너는 한국 중·고등학생의 '내일 실천할 한 가지'를 기록 탭에 적을 문장으로 함께 다듬는 AI 코치다.
-규칙:
-- 항상 한국어 존댓말로, 짧고 구체적으로 답한다.
-- 아래 JSON의 오늘 생활 좋았던 점과 나빴던 점(memo)·기록한 학습 시간(todayStudyMinutes)·지금 적어 둔 내일 실천 초안(draftTomorrowPractice)을 근거로, 실행 가능한 한 가지 실천을 한 문장~두 문장으로 정하도록 질문하거나 제안한다.
-- 하루 전체 시간표·루틴을 쭉 짜는 것이 아니라, '내일 실천할 한 가지' 하나에만 집중한다.
-- 의학적 진단·자해 조장·시험 부정행위는 거절한다.
-
-[학생 상황 JSON]
-${JSON.stringify(context)}`
-        : `너는 한국 중·고등학생의 '내일 학습 계획'을 함께 세우는 AI 코치다.
-규칙:
-- 항상 한국어 존댓말로, 짧고 구체적으로 답한다.
-- 아래 JSON(학생 상황)의 오늘 이행률·시간표 칸·기록한 학습 시간(todayStudyMinutes)·오늘 공부 좋았던 점과 나빴던 점(studyEvaluation)·오늘 공부한 내용 설명(metacognitionReflection)·책별 초안 내일 계획을 근거로 내일 범위(쪽·단원·문항)와 시간을 질문하거나 제안한다.
-- 한 번에 한두 가지만 묻거나 제안한다.
-- 의학적 진단·자해 조장·시험 부정행위는 거절한다.
-
-[학생 상황 JSON]
-${JSON.stringify(context)}`;
+    const systemBlock = prompts.tomorrowPlan.buildTomorrowPlanCollabSystemBlock(focus, context);
 
     if (!openai) {
       if (focus === "life") {
@@ -9786,8 +9615,8 @@ ${JSON.stringify(context)}`;
 
     const response = await openai.chat.completions.create({
       model: OPENAI_MODEL,
-      temperature: 0.45,
-      max_tokens: 700,
+      temperature: prompts.tomorrowPlan.collabTemperature,
+      max_tokens: prompts.tomorrowPlan.collabMaxTokens,
       messages: [
         { role: "system", content: systemBlock },
         ...hist.map(m => ({ role: m.role, content: m.content })),
@@ -9847,18 +9676,12 @@ app.post("/api/student/coach/tomorrow-plan/synthesize", authMiddleware, async (r
           model: null
         });
       }
-      const systemLife = `너는 한국 학생의 '내일 실천할 한 가지' 문장을 기록 탭에 넣을 수 있게 정리한다.
-대화와 상황 JSON을 반영해, 실행 가능한 한 가지 실천을 한 문장 또는 짧은 두 문장(500자 이내)으로만 출력한다.
-
-출력: JSON 객체 하나만. 설명·마크다운·코드펜스 금지.
-스키마: {"tomorrowPractice":"..."}`;
-
       const response = await openai.chat.completions.create({
         model: OPENAI_MODEL,
-        temperature: 0.35,
-        max_tokens: 400,
+        temperature: prompts.tomorrowPlan.lifeSynthesizeTemperature,
+        max_tokens: prompts.tomorrowPlan.lifeSynthesizeMaxTokens,
         messages: [
-          { role: "system", content: systemLife },
+          { role: "system", content: prompts.tomorrowPlan.tomorrowPracticeSynthesizeSystem },
           { role: "system", content: `[상황 JSON]\n${JSON.stringify(context)}` },
           ...hist.map(m => ({ role: m.role, content: m.content })),
           {
@@ -9896,18 +9719,12 @@ app.post("/api/student/coach/tomorrow-plan/synthesize", authMiddleware, async (r
       return res.json({ ok: true, plans, usedOpenAi: false, model: null });
     }
 
-    const systemSynth = `너는 한국 학생의 내일 학습 계획을 책(교재)별로 정리한다.
-대화와 상황 JSON을 반영해 각 책에 대해 내일 공부 범위(plannedRange)와 가능하면 시작·종료 시각을 제안한다.
-
-출력: JSON 배열만. 설명·마크다운·코드펜스 금지.
-스키마: [{"bookId":number,"plannedRange":string,"startTime":string|null,"endTime":string|null}]
-bookId는 반드시 다음 중 하나만: ${bookIdsJson}
-시각은 "HH:MM" 24시간 형식이거나 null.`;
+    const systemSynth = prompts.tomorrowPlan.buildTomorrowPlanBooksSynthesizeSystem(bookIdsJson);
 
     const response = await openai.chat.completions.create({
       model: OPENAI_MODEL,
-      temperature: 0.25,
-      max_tokens: 1200,
+      temperature: prompts.tomorrowPlan.booksSynthesizeTemperature,
+      max_tokens: prompts.tomorrowPlan.booksSynthesizeMaxTokens,
       messages: [
         { role: "system", content: systemSynth },
         { role: "system", content: `[상황 JSON]\n${JSON.stringify(context)}` },
