@@ -66,6 +66,12 @@ export type ParentGrowthReportPayload = {
   usedOpenAi: boolean;
 };
 
+const GROWTH_REPORT_CACHE_PREFIX = "parent-growth-report-v1";
+
+function buildGrowthReportCacheKey(studentId: number, weekStart: string) {
+  return `${GROWTH_REPORT_CACHE_PREFIX}:${studentId}:${weekStart}`;
+}
+
 function DonutChart(props: { pct: number | null; size?: number }) {
   const gradId = React.useId().replace(/:/g, "");
   const size = props.size ?? 88;
@@ -128,6 +134,25 @@ export function ParentGrowthReportTab(props: {
       setData(null);
       return;
     }
+    const cacheKey = buildGrowthReportCacheKey(props.selectedStudent.id, weekStart);
+    let hasCached = false;
+    try {
+      const cached = localStorage.getItem(cacheKey);
+      if (cached) {
+        const parsed = JSON.parse(cached) as ParentGrowthReportPayload;
+        if (parsed && typeof parsed === "object" && typeof parsed.weekStart === "string") {
+          setData(parsed);
+          setError(null);
+          setLoading(false);
+          hasCached = true;
+        }
+      }
+    } catch {
+      // ignore cache parse errors
+    }
+    if (hasCached) {
+      return;
+    }
     let cancelled = false;
     const ac = new AbortController();
     setLoading(true);
@@ -146,7 +171,13 @@ export function ParentGrowthReportTab(props: {
           throw new Error(String((raw as { error?: string }).error || "리포트를 불러오지 못했습니다."));
         }
         if (cancelled) return;
-        setData(raw as ParentGrowthReportPayload);
+        const payload = raw as ParentGrowthReportPayload;
+        setData(payload);
+        try {
+          localStorage.setItem(cacheKey, JSON.stringify(payload));
+        } catch {
+          // ignore quota errors
+        }
       })
       .catch((e: unknown) => {
         if (cancelled || (e instanceof DOMException && e.name === "AbortError")) return;

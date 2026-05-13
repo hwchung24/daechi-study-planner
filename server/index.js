@@ -1730,52 +1730,274 @@ function buildPlanExecutionLists(days, plans, weekKeys) {
   return { bestCompleted, carryOver, totalTracked, completedCount, items };
 }
 
-async function openAiParentGrowthReportCompletion(metricsPayload) {
-  if (!openai) return null;
-  const system = [
-    '너는 한국 학부모를 위한 "우리 아이 성장 리포트" 카피라이터다.',
-    "입력 JSON은 실제 데이터베이스에서 집계한 값이다. 없는 수치·사실을 만들어내지 마라.",
-    "톤: 비판·낙인·감시 금지. 회복·대화·공동체 언어를 사용한다.",
-    '금지 표현 예: "수면 부족", "집중을 못 했다", "달성률이 낮다", "시간 낭비".',
-    "대신 입력 toneGuide.prefer의 방향을 따른다.",
-    "",
-    "반드시 아래 JSON 키만 사용하는 하나의 JSON 객체로 출력한다:",
-    "{",
-    '  "weeklySummary": "2~4문장",',
-    '  "energyParentTip": "에너지·회복 맥락에서 부모 대화 팁 1~2문장",',
-    '  "studyEfficiencyInsight": "독서실·실제학습·집중구간 관계 해설 2~3문장",',
-    '  "planExecutionSummary": "완료 인정 + 이월 허용 톤 2문장 내외",',
-    '  "nextWeekForStudent": "학생에게 한 가지",',
-    '  "nextWeekForParent": "부모에게 한 가지(공부 질책보다 안부·감정 대화 권장 가능)"',
-    "}"
-  ].join("\n");
+function roundOrNull(value, digits = 1) {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return null;
+  const p = 10 ** Math.max(0, digits);
+  return Math.round(n * p) / p;
+}
 
-  const res = await openai.chat.completions.create({
-    model: OPENAI_MODEL,
-    temperature: 0.38,
-    max_tokens: 1600,
-    response_format: { type: "json_object" },
-    messages: [
-      { role: "system", content: system },
-      { role: "user", content: JSON.stringify(metricsPayload) }
-    ]
-  });
-  const text = String(res.choices?.[0]?.message?.content || "").trim();
-  let obj;
+function pickWeekdayLabelFromIndex(index) {
+  const names = ["월", "화", "수", "목", "금", "토", "일"];
+  if (!Number.isFinite(index) || index < 0 || index > 6) return "데이터 없음";
+  return `${names[index]}요일`;
+}
+
+function toSafeText(value) {
+  const t = String(value || "").trim();
+  return t;
+}
+
+function parseGrowthSuggestionJson(text) {
+  const raw = String(text || "").trim();
+  if (!raw) return null;
   try {
-    obj = JSON.parse(text);
+    const parsed = JSON.parse(raw);
+    return {
+      studentSuggestion:
+        typeof parsed?.studentSuggestion === "string"
+          ? parsed.studentSuggestion.trim().slice(0, 500)
+          : "",
+      parentSuggestion:
+        typeof parsed?.parentSuggestion === "string"
+          ? parsed.parentSuggestion.trim().slice(0, 500)
+          : ""
+    };
   } catch {
     return null;
   }
-  const pick = k =>
-    typeof obj[k] === "string" ? String(obj[k]).trim().slice(0, 1400) : "";
+}
+
+async function requestGrowthSectionText(options) {
+  const {
+    systemPrompt,
+    userPrompt,
+    temperature = 0.7,
+    jsonObject = false
+  } = options;
+  if (!openai) return "";
+  const args = {
+    model: "gpt-4o-mini",
+    temperature,
+    max_tokens: 450,
+    messages: [
+      { role: "system", content: systemPrompt },
+      { role: "user", content: userPrompt }
+    ]
+  };
+  const res = await openai.chat.completions.create(
+    jsonObject
+      ? {
+          ...args,
+          response_format: { type: "json_object" }
+        }
+      : args
+  );
+  return String(res.choices?.[0]?.message?.content || "").trim();
+}
+
+async function openAiParentGrowthReportSections(input) {
+  if (!openai) return null;
+  const {
+    studentName,
+    weekLabel,
+    avgSleep,
+    avgStress10,
+    totalStudyHours,
+    totalFocusHours,
+    avgDeskHoursPerDay,
+    achievementRate,
+    lastWeekAchievementRate,
+    bestFocusDay,
+    highStressDay,
+    highStressScore10,
+    shortestSleepDay,
+    shortestSleepHours,
+    unfinishedPlans,
+    achievementDelta,
+    focusEfficiencyPercent,
+    lastWeekFocusEfficiencyPercent,
+    maxFocusStreak,
+    maxFocusStreakDay,
+    percentile,
+    sleepByDay,
+    stressByDay
+  } = input;
+
+  const summarySystem = [
+    "너는 대치동 학원가에서 학생 데이터를 분석해 학부모에게 리포트를 쓰는 전문가야.",
+    "학부모와 학생의 갈등을 줄이는 것이 최우선 목표야.",
+    "",
+    "글쓰기 원칙:",
+    "- 항상 긍정적 사실 하나로 시작한다",
+    "- 수치는 절대 판정하지 않는다. 관찰만 한다",
+    '- "못 했다", "부족하다", "낮다" 같은 부정 평가 표현은 쓰지 않는다',
+    '- "오히려", "그럼에도", "다행히" 같은 전환어로 부정적 데이터를 맥락화한다',
+    "- 문장은 2-3문장 이내, 구어체에 가까운 따뜻한 문어체"
+  ].join("\n");
+  const summaryUser = [
+    `학생 이름: ${studentName}`,
+    `관찰 기간: ${weekLabel}`,
+    "",
+    "이번 주 데이터:",
+    `- 평균 수면 시간: ${avgSleep}시간`,
+    `- 평균 스트레스 지수: ${avgStress10} / 10`,
+    `- 총 학습 시간: ${totalStudyHours}시간`,
+    `- 총 집중 시간: ${totalFocusHours}시간`,
+    `- 독서실 평균 체류: ${avgDeskHoursPerDay}시간/일`,
+    `- 계획 달성률: ${achievementRate}%`,
+    `- 지난 주 달성률: ${lastWeekAchievementRate}%`,
+    `- 이번 주 가장 집중이 잘 됐던 요일: ${bestFocusDay}`,
+    `- 이번 주 스트레스가 가장 높았던 요일: ${highStressDay}`,
+    "",
+    "위 데이터를 바탕으로 주간 한 줄 요약 텍스트를 2-3문장으로 작성해줘.",
+    "반드시 잘한 점 하나를 첫 문장에 넣어야 해.",
+    "출력은 텍스트만, 따옴표나 마크다운 없이."
+  ].join("\n");
+
+  const energySystem = [
+    "너는 청소년 수면과 스트레스를 전문으로 연구하는 상담 교사야.",
+    "학부모에게 학생의 에너지 상태를 설명하는 글을 쓴다.",
+    "",
+    "글쓰기 원칙:",
+    '- 수면 시간이 짧은 날을 "부족"이라고 표현하지 않는다. "회복이 더 필요한 날"로 표현한다',
+    '- 스트레스 수치를 점수로 판정하지 않는다. "이런 날이 있었어요" 식의 공감 서술을 한다',
+    "- 스트레스가 높은 특정 요일이 있으면, 그 날에 대해 부모가 대화를 시도할 수 있도록 유도한다",
+    "- 처방하지 않는다. 관찰하고 공감한다",
+    "- 문장은 3문장 이내"
+  ].join("\n");
+  const energyUser = [
+    `학생 이름: ${studentName}`,
+    "",
+    "일별 수면 데이터 (시간):",
+    `월: ${sleepByDay.mon}, 화: ${sleepByDay.tue}, 수: ${sleepByDay.wed}, 목: ${sleepByDay.thu}, 금: ${sleepByDay.fri}, 토: ${sleepByDay.sat}, 일: ${sleepByDay.sun}`,
+    "",
+    "일별 스트레스 지수 (1-10):",
+    `월: ${stressByDay.mon}, 화: ${stressByDay.tue}, 수: ${stressByDay.wed}, 목: ${stressByDay.thu}, 금: ${stressByDay.fri}, 토: ${stressByDay.sat}, 일: ${stressByDay.sun}`,
+    "",
+    "수면 목표: 7시간",
+    "스트레스 경계값: 7 이상이면 높음으로 간주",
+    "",
+    "위 데이터를 바탕으로:",
+    "1. 수면 패턴에 대한 공감 코멘트 1문장",
+    "2. 스트레스가 높았던 날에 대한 부모 행동 유도 1문장 (있을 경우에만)",
+    "3. 긍정적 마무리 1문장",
+    "",
+    "출력은 자연스럽게 이어지는 단락으로. 따옴표나 번호 없이."
+  ].join("\n");
+
+  const efficiencySystem = [
+    "너는 학습 코칭 전문가야. 학생의 학습 효율 데이터를 학부모에게 설명한다.",
+    "",
+    "절대 하지 말아야 할 표현:",
+    '- "독서실에서 시간을 낭비했다"',
+    '- "집중을 못 했다"',
+    '- "효율이 낮다"',
+    "- 체류 시간과 집중 시간의 차이를 부정적으로 프레이밍하는 모든 표현",
+    "",
+    "반드시 해야 하는 것:",
+    "- 집중 효율(집중시간/학습시간 × 100)을 긍정적으로 맥락화한다",
+    "- 지난 주보다 수치가 좋아졌으면 반드시 언급한다",
+    "- 체류 시간이 긴 것 자체를 의지와 성실함의 표현으로 읽는다",
+    "- 문장은 2-3문장"
+  ].join("\n");
+  const efficiencyUser = [
+    `학생 이름: ${studentName}`,
+    "",
+    "이번 주 수치:",
+    `- 독서실 총 체류 시간: ${roundOrNull(avgDeskHoursPerDay * 7, 1) ?? "데이터 없음"}시간`,
+    `- 실제 학습 시간: ${totalStudyHours}시간`,
+    `- 집중 구간 합계: ${totalFocusHours}시간`,
+    `- 집중 효율 (집중/학습): ${focusEfficiencyPercent}%`,
+    `- 지난 주 집중 효율: ${lastWeekFocusEfficiencyPercent}%`,
+    `- 최장 연속 집중 구간: ${maxFocusStreak}분 (${maxFocusStreakDay})`,
+    `- 또래 집중 효율 상위 퍼센타일: ${percentile}%`,
+    "",
+    "위 데이터를 2-3문장으로 설명해줘.",
+    "집중이 가장 잘 됐던 순간을 구체적으로 언급하고, 전주 대비 변화를 긍정적으로 표현해줘.",
+    "출력은 텍스트만."
+  ].join("\n");
+
+  const suggestionSystem = [
+    "너는 학생과 학부모 사이의 관계를 개선하는 교육 상담사야.",
+    "이번 주 데이터를 보고, 다음 주를 위한 제안을 학생용 1개, 부모용 1개 작성한다.",
+    "",
+    "핵심 원칙:",
+    '- 학생 제안: 잔소리나 지시가 아니라 학생 스스로 시도해보고 싶어지는 문장이어야 한다. "~해야 한다"가 아니라 "~해보는 건 어떨까요?"',
+    "- 부모 제안: 공부나 성적 이야기가 아니라 관계와 감정에 관한 행동을 제안한다. 구체적인 행동(언제, 어떻게)을 포함한다",
+    "- 부모 제안에 이번 주 데이터에서 나온 구체적 사실(요일, 상황)을 반드시 1개 이상 녹여넣는다",
+    "- 각 1-2문장"
+  ].join("\n");
+  const suggestionUser = [
+    `학생 이름: ${studentName}`,
+    "",
+    "이번 주 요약:",
+    `- 스트레스 피크: ${highStressDay} (지수 ${highStressScore10}/10)`,
+    `- 수면이 가장 짧았던 날: ${shortestSleepDay} (${shortestSleepHours}시간)`,
+    `- 집중이 가장 잘 됐던 날: ${bestFocusDay}`,
+    `- 달성 못 한 계획: ${unfinishedPlans || "없음"}`,
+    `- 지난 주 대비 달성률 변화: ${achievementDelta}% (${achievementDelta > 0 ? "증가" : "감소"})`,
+    "",
+    "두 가지를 각각 작성해줘:",
+    "",
+    "1. 학생에게 (변수명: studentSuggestion)",
+    "다음 주에 한 가지만 바꿔본다면 무엇이 좋을지, 부드럽고 실현 가능한 제안 1-2문장.",
+    "",
+    "2. 부모에게 (변수명: parentSuggestion)",
+    "이번 주 데이터에서 읽히는 학생의 감정 상태를 언급하고, 부모가 취할 수 있는 구체적 행동 1가지를 1-2문장으로.",
+    "",
+    "출력 형식 (JSON):",
+    "{",
+    '  "studentSuggestion": "...",',
+    '  "parentSuggestion": "..."',
+    "}"
+  ].join("\n");
+
+  const sectionResults = await Promise.allSettled([
+    requestGrowthSectionText({
+      systemPrompt: summarySystem,
+      userPrompt: summaryUser,
+      temperature: 0.7
+    }),
+    requestGrowthSectionText({
+      systemPrompt: energySystem,
+      userPrompt: energyUser,
+      temperature: 0.7
+    }),
+    requestGrowthSectionText({
+      systemPrompt: efficiencySystem,
+      userPrompt: efficiencyUser,
+      temperature: 0.7
+    }),
+    requestGrowthSectionText({
+      systemPrompt: suggestionSystem,
+      userPrompt: suggestionUser,
+      temperature: 0.5,
+      jsonObject: true
+    })
+  ]);
+
+  const summaryText =
+    sectionResults[0].status === "fulfilled" ? sectionResults[0].value : "";
+  const energyText =
+    sectionResults[1].status === "fulfilled" ? sectionResults[1].value : "";
+  const efficiencyText =
+    sectionResults[2].status === "fulfilled" ? sectionResults[2].value : "";
+  const suggestionRawText =
+    sectionResults[3].status === "fulfilled" ? sectionResults[3].value : "";
+
+  const suggestionParsed = parseGrowthSuggestionJson(suggestionRawText);
+  const studentSuggestion = toSafeText(suggestionParsed?.studentSuggestion);
+  const parentSuggestion = toSafeText(suggestionParsed?.parentSuggestion);
+
   return {
-    weeklySummary: pick("weeklySummary"),
-    energyParentTip: pick("energyParentTip"),
-    studyEfficiencyInsight: pick("studyEfficiencyInsight"),
-    planExecutionSummary: pick("planExecutionSummary"),
-    nextWeekForStudent: pick("nextWeekForStudent"),
-    nextWeekForParent: pick("nextWeekForParent")
+    weeklySummary: toSafeText(summaryText),
+    energyParentTip: toSafeText(energyText),
+    studyEfficiencyInsight: toSafeText(efficiencyText),
+    nextWeekForStudent:
+      studentSuggestion ||
+      toSafeText(suggestionRawText),
+    nextWeekForParent: parentSuggestion
   };
 }
 
@@ -1936,41 +2158,6 @@ async function buildParentGrowthReportPayload(studentId, weekMondayIso) {
   const headerBadgeWeek = formatGrowthWeekBadgeFromMonday(weekMondayIso);
   const dateRangeLabel = `${weekKeys[0]} ~ ${weekKeys[6]}`;
 
-  const metricsPayload = {
-    studentName,
-    gradeLine,
-    weekRange: { start: weekMondayIso, end: weekEnd },
-    sleepGoalHours,
-    daily,
-    totals: {
-      studyRoomHours,
-      actualStudyHours,
-      focusBandHours,
-      focusEfficiencyPct,
-      vsPrevWeekEfficiencyDeltaPct,
-      avgPlanCompletionPct: avgPlanThis,
-      vsPrevWeekPlanDeltaPct: badgePlanDeltaPct,
-      totalStudyMinutesFromBlocks: stats.totalStudyMinutes,
-      focusDistribution: stats.focusDistribution
-    },
-    planExecution: {
-      achievementPct,
-      completedCount: planLists.completedCount,
-      totalTracked: planLists.totalTracked,
-      bestCompletedTitles: planLists.bestCompleted.map(b => b.title),
-      carryOverSampleCount: planLists.carryOver.length
-    },
-    toneGuide: {
-      avoid: ["수면 부족", "집중을 못 했다", "달성률이 낮다", "독서실에서 시간 낭비"],
-      prefer: [
-        "회복 시간 확보가 필요한 날이 있었어요",
-        "컨디션 조절이 필요했던 날이 있었어요",
-        "완료한 항목들을 먼저 볼게요",
-        "집중 구간이 점점 늘고 있어요"
-      ]
-    }
-  };
-
   let narrative = {
     weeklySummary: "",
     energyParentTip: "",
@@ -1980,9 +2167,111 @@ async function buildParentGrowthReportPayload(studentId, weekMondayIso) {
     nextWeekForParent: ""
   };
   let usedOpenAi = false;
+
+  const bestFocusRow = [...daily]
+    .filter(d => d.studyMinutesFromLog != null && d.stressScore != null)
+    .sort((a, b) => {
+      const left = (Number(a.studyMinutesFromLog || 0) || 0) - (Number(a.stressScore || 0) || 0) * 10;
+      const right = (Number(b.studyMinutesFromLog || 0) || 0) - (Number(b.stressScore || 0) || 0) * 10;
+      return right - left;
+    })[0];
+  const highestStressRow = [...daily]
+    .filter(d => d.stressScore != null)
+    .sort((a, b) => Number(b.stressScore || 0) - Number(a.stressScore || 0))[0];
+  const shortestSleepRow = [...daily]
+    .filter(d => d.sleepHours != null)
+    .sort((a, b) => Number(a.sleepHours || 0) - Number(b.sleepHours || 0))[0];
+
+  const avgSleep = roundOrNull(
+    daily
+      .map(d => d.sleepHours)
+      .filter(v => v != null)
+      .reduce((sum, value, _, arr) => sum + Number(value || 0) / Math.max(arr.length, 1), 0),
+    1
+  );
+  const avgStress10 = roundOrNull(
+    daily
+      .map(d => d.stressScore)
+      .filter(v => v != null)
+      .reduce((sum, value, _, arr) => sum + Number(value || 0) * 2 / Math.max(arr.length, 1), 0),
+    1
+  );
+  const achievementRate = roundOrNull(achievementPct, 1);
+  const lastWeekAchievementRate = roundOrNull(avgPlanPrev, 1);
+  const focusEfficiencyThis = roundOrNull(focusEfficiencyPct, 1);
+  const focusEfficiencyPrev = roundOrNull(prevEff, 1);
+  const maxFocusBlock = [...(weekData.blocks || [])]
+    .filter(b => String(b.focus_score || "") === "◎" || String(b.focus_score || "") === "○")
+    .map(b => ({
+      duration: growthReportBlockMinutes(b.start_time, b.end_time),
+      dayLabel: (() => {
+        const day = (weekData.days || []).find(d => Number(d.id) === Number(b.study_day_id));
+        if (!day) return "데이터 없음";
+        const dayKey = normalizeStudyDayDateField(day);
+        const idx = weekKeys.indexOf(dayKey);
+        return pickWeekdayLabelFromIndex(idx);
+      })()
+    }))
+    .sort((a, b) => b.duration - a.duration)[0];
+  const unfinishedPlans = planLists.carryOver.length
+    ? planLists.carryOver.map(item => item.title).slice(0, 5).join(", ")
+    : "없음";
+
   if (openai) {
     try {
-      const parsed = await openAiParentGrowthReportCompletion(metricsPayload);
+      const parsed = await openAiParentGrowthReportSections({
+        studentName,
+        weekLabel: headerBadgeWeek || `${weekMondayIso} ~ ${weekEnd}`,
+        avgSleep: avgSleep ?? "데이터 없음",
+        avgStress10: avgStress10 ?? "데이터 없음",
+        totalStudyHours: roundOrNull(actualStudyHours, 1) ?? "데이터 없음",
+        totalFocusHours: roundOrNull(focusBandHours, 1) ?? "데이터 없음",
+        avgDeskHoursPerDay: roundOrNull(studyRoomHours / 7, 1) ?? "데이터 없음",
+        achievementRate: achievementRate ?? "데이터 없음",
+        lastWeekAchievementRate: lastWeekAchievementRate ?? "데이터 없음",
+        bestFocusDay:
+          bestFocusRow != null
+            ? pickWeekdayLabelFromIndex(weekKeys.indexOf(bestFocusRow.dateKey))
+            : "데이터 없음",
+        highStressDay:
+          highestStressRow != null
+            ? pickWeekdayLabelFromIndex(weekKeys.indexOf(highestStressRow.dateKey))
+            : "데이터 없음",
+        highStressScore10:
+          highestStressRow?.stressScore != null
+            ? roundOrNull(Number(highestStressRow.stressScore) * 2, 1)
+            : "데이터 없음",
+        shortestSleepDay:
+          shortestSleepRow != null
+            ? pickWeekdayLabelFromIndex(weekKeys.indexOf(shortestSleepRow.dateKey))
+            : "데이터 없음",
+        shortestSleepHours: shortestSleepRow?.sleepHours ?? "데이터 없음",
+        unfinishedPlans,
+        achievementDelta: roundOrNull(vsPrevWeekAchievementDeltaPct, 1) ?? 0,
+        focusEfficiencyPercent: focusEfficiencyThis ?? "데이터 없음",
+        lastWeekFocusEfficiencyPercent: focusEfficiencyPrev ?? "데이터 없음",
+        maxFocusStreak: maxFocusBlock?.duration ?? "데이터 없음",
+        maxFocusStreakDay: maxFocusBlock?.dayLabel ?? "데이터 없음",
+        percentile: "데이터 없음",
+        sleepByDay: {
+          mon: daily[0]?.sleepHours ?? "데이터 없음",
+          tue: daily[1]?.sleepHours ?? "데이터 없음",
+          wed: daily[2]?.sleepHours ?? "데이터 없음",
+          thu: daily[3]?.sleepHours ?? "데이터 없음",
+          fri: daily[4]?.sleepHours ?? "데이터 없음",
+          sat: daily[5]?.sleepHours ?? "데이터 없음",
+          sun: daily[6]?.sleepHours ?? "데이터 없음"
+        },
+        stressByDay: {
+          mon: daily[0]?.stressScore != null ? roundOrNull(Number(daily[0].stressScore) * 2, 1) : "데이터 없음",
+          tue: daily[1]?.stressScore != null ? roundOrNull(Number(daily[1].stressScore) * 2, 1) : "데이터 없음",
+          wed: daily[2]?.stressScore != null ? roundOrNull(Number(daily[2].stressScore) * 2, 1) : "데이터 없음",
+          thu: daily[3]?.stressScore != null ? roundOrNull(Number(daily[3].stressScore) * 2, 1) : "데이터 없음",
+          fri: daily[4]?.stressScore != null ? roundOrNull(Number(daily[4].stressScore) * 2, 1) : "데이터 없음",
+          sat: daily[5]?.stressScore != null ? roundOrNull(Number(daily[5].stressScore) * 2, 1) : "데이터 없음",
+          sun: daily[6]?.stressScore != null ? roundOrNull(Number(daily[6].stressScore) * 2, 1) : "데이터 없음"
+        }
+      });
       if (parsed && parsed.weeklySummary) {
         narrative = { ...narrative, ...parsed };
         usedOpenAi = true;
@@ -1995,8 +2284,12 @@ async function buildParentGrowthReportPayload(studentId, weekMondayIso) {
     const lines = buildWeeklySummaryLines(stats);
     narrative.weeklySummary =
       lines.slice(0, 2).join(" ") || "이번 주 기록을 바탕으로 계속 응원할게요.";
+  }
+  if (!narrative.energyParentTip) {
     narrative.energyParentTip =
       "대화는 먼저 하루를 인정하는 한마디로 시작하면 마음이 조금 더 가까워져요.";
+  }
+  if (!narrative.studyEfficiencyInsight) {
     narrative.studyEfficiencyInsight =
       studyRoomHours > 0
         ? `독서실 체류는 ${studyRoomHours.toFixed(
@@ -2005,12 +2298,18 @@ async function buildParentGrowthReportPayload(studentId, weekMondayIso) {
             1
           )}시간이에요. 작은 시작을 이어가면 집중 구간도 함께 자라요.`
         : "학습 기록이 더 쌓이면 독서실과 집중 시간 비교가 더 또렷해져요.";
+  }
+  if (!narrative.planExecutionSummary) {
     narrative.planExecutionSummary =
       planLists.completedCount > 0
         ? `완료한 항목부터 차근히 인정해 주시고, 이월된 항목은 다음 주로 넘겨도 괜찮아요.`
         : "계획 항목이 더 쌓이면 실행력 카드가 더 풍성해져요.";
+  }
+  if (!narrative.nextWeekForStudent) {
     narrative.nextWeekForStudent =
       "부담이 큰 날에는 목표를 ‘완료’보다 ‘시작’ 한 단계만 낮춰 보세요.";
+  }
+  if (!narrative.nextWeekForParent) {
     narrative.nextWeekForParent =
       "공부 이야기 전에 오늘 기분 한 줄만 가볍게 물어보는 시간을 가져보세요.";
   }

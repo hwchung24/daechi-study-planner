@@ -60,7 +60,7 @@ export function parseCoachParentTabFromHash(path = getAppPath()) {
   if (seg === "home") return "home" as const;
   if (seg === "manage") return "manage" as const;
   if (seg === "ai-report") return "analysis" as const;
-  if (seg === "records") return "records" as const;
+  if (seg === "records") return "home" as const;
   if (seg === "student-settings") return "studentSettings" as const;
   if (seg === "analysis") return "analysis" as const;
   if (seg === "notifications") return "notifications" as const;

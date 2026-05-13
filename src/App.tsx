@@ -1835,7 +1835,6 @@ const App: React.FC = () => {
       h === "#/parent/manage" ||
       h === "#/parent/analysis" ||
       h === "#/parent/student-settings" ||
-      h === "#/parent/records" ||
       h === "#/parent/report" ||
       h === "#/parent/notifications" ||
       h === "#/parent/profile"
@@ -1855,7 +1854,6 @@ const App: React.FC = () => {
       h === "#/parent/manage" ||
       h === "#/parent/analysis" ||
       h === "#/parent/student-settings" ||
-      h === "#/parent/records" ||
       h === "#/parent/report" ||
       h === "#/parent/notifications" ||
       h === "#/parent/profile"
@@ -2377,7 +2375,7 @@ const App: React.FC = () => {
 
   useEffect(() => {
     if (!authToken || meRole !== "parent") return;
-    if (coachParentTab !== "records") return;
+    if (coachParentTab !== "home") return;
     const onVis = () => {
       if (document.visibilityState === "visible") {
         setParentWeekRefreshNonce(n => n + 1);
@@ -3183,7 +3181,6 @@ const App: React.FC = () => {
     const requiresLinkedStudent =
       path === "#/parent/manage" ||
       path === "#/parent/analysis" ||
-      path === "#/parent/records" ||
       path === "#/parent/student-settings";
 
     if (!requiresLinkedStudent) return;
@@ -3211,9 +3208,7 @@ const App: React.FC = () => {
             ? "홈"
             : coachParentTab === "manage"
               ? "자녀"
-              : coachParentTab === "records"
-                  ? "기록"
-                  : coachParentTab === "analysis"
+              : coachParentTab === "analysis"
                     ? "분석"
                     : coachParentTab === "notifications"
                       ? "알림"
@@ -3819,8 +3814,8 @@ const App: React.FC = () => {
                   onClick={() => {
                     hapticSelection();
                     if (isParentAnalysisPage) {
-                      setCoachParentTab("records");
-                      setAppPath("#/parent/records");
+                      setCoachParentTab("home");
+                      setAppPath("#/parent/home");
                       return;
                     }
                     setCoachStudentTab("coach");
@@ -4180,9 +4175,7 @@ const App: React.FC = () => {
                     ? "#/parent/manage"
                     : nextTab === "analysis"
                       ? "#/parent/analysis"
-                      : nextTab === "records"
-                        ? "#/parent/records"
-                        : nextTab === "notifications"
+                      : nextTab === "notifications"
                           ? "#/parent/notifications"
                           : "#/parent/student-settings"
               );

@@ -1,6 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { BookOpen, CalendarDays, MapPin, Smartphone } from "lucide-react";
-import { setAppPath } from "../../lib/appNavigation";
 import type { ParentLockStatus } from "../../types/lockStatus";
 import type { ParentStudentRow } from "../../types/parent";
 import { StudyRoomPickerModal, type StudyRoomSetting } from "../../components/parent/StudyRoomPickerModal";
@@ -16,6 +15,10 @@ import {
 } from "./useParentDeviceControlState";
 import { useParentStudyRoomLive } from "./useParentStudyRoomLive";
 import { useModalReveal } from "../../lib/useModalReveal";
+import {
+  ParentRecordsWeekSection,
+  type ParentWeeklyRecordsReport
+} from "./ParentRecordsWeekSection";
 
 type ParentHomeTabProps = {
   apiBase: string;
@@ -33,15 +36,7 @@ type ParentHomeTabProps = {
   hapticSelection: () => void;
 };
 
-type ParentHomeReport = {
-  days?: Array<{ id: number | string; date: string }>;
-  blocks?: Array<{
-    study_day_id: number | string;
-    subject: string;
-    start_time: string;
-    end_time: string;
-  }>;
-};
+type ParentHomeReport = ParentWeeklyRecordsReport;
 
 function timeToMinutes(value: string) {
   const [hours, minutes] = String(value || "").split(":").map(Number);
@@ -205,11 +200,6 @@ export function ParentHomeTab(props: ParentHomeTabProps) {
   const pickStudent = (id: number | null) => {
     hapticSelection();
     setParentStudentId(id);
-  };
-
-  const goParent = (path: string) => {
-    hapticSelection();
-    setAppPath(path);
   };
 
   const saveStudyRoomSetting = (value: StudyRoomSetting) => {
@@ -797,15 +787,6 @@ export function ParentHomeTab(props: ParentHomeTabProps) {
                     <div className="parent-skeleton parent-skeleton--status-wide" aria-label="학습 일정 불러오는 중" />
                   )}
                 </div>
-                <div className="parent-home__status-card-footer">
-                  <button
-                    type="button"
-                    className="timeline-save-button study-room-editor__save-button parent-home__status-action"
-                    onClick={() => goParent("#/parent/records")}
-                  >
-                    학습 보기
-                  </button>
-                </div>
                 </div>
               </div>
             </>
@@ -814,6 +795,14 @@ export function ParentHomeTab(props: ParentHomeTabProps) {
           )}
         </section>
       )}
+      {linked ? (
+        <ParentRecordsWeekSection
+          apiBase={apiBase}
+          authToken={authToken}
+          selectedStudent={selectedStudent}
+          parentReport={parentReport}
+        />
+      ) : null}
       {freeMinutesModalOpen ? (
         <div
           className={"dday-modal" + (freeMinutesModalReveal.revealed ? " dday-modal--open" : "")}

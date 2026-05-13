@@ -67,7 +67,6 @@ import { useParentStudyRoomLive } from "./useParentStudyRoomLive";
 export type ParentTabKey =
   | "home"
   | "manage"
-  | "records"
   | "studentSettings"
   | "analysis"
   | "notifications";
@@ -1173,7 +1172,7 @@ function AiReportTab(props: {
           type="button"
           className="coach-primary-btn coach-home-insight-card__cta"
           onClick={() => {
-            setAppPath("#/parent/records");
+            setAppPath("#/parent/home");
           }}
         >
           학생 기록 보기
@@ -2645,18 +2644,6 @@ export function ParentCoachApp(props: {
         parentLockStatus={props.parentLockStatus}
         notificationUnreadCount={props.parentNotificationUnreadCount}
         hapticSelection={props.hapticSelection}
-      />
-    );
-  } else if (props.tab === "records") {
-    view = (
-      <RecordsTab
-        apiBase={props.apiBase}
-        authToken={props.authToken}
-        parentStudents={props.parentStudents}
-        selectedStudent={selectedStudent}
-        parentStudentId={props.parentStudentId}
-        setParentStudentId={props.setParentStudentId}
-        parentReport={props.parentReport}
       />
     );
   } else if (props.tab === "studentSettings") {

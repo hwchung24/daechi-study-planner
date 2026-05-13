@@ -275,18 +275,6 @@ export function AppBottomNav(props: {
           <button
             type="button"
             className={
-              "nav-item" + (coachParentTab === "records" ? " nav-item-active" : "")
-            }
-            onClick={() => onCoachParentNavClick("records")}
-          >
-            <NavIcon>
-              <ClipboardList size={20} strokeWidth={2} />
-            </NavIcon>
-            <span className="nav-label">기록</span>
-          </button>
-          <button
-            type="button"
-            className={
               "nav-item" + (coachParentTab === "studentSettings" ? " nav-item-active" : "")
             }
             onClick={() => onCoachParentNavClick("studentSettings")}
