@@ -140,10 +140,13 @@ const {
   deleteStudentParentTimedFree,
   getStudentParentTimedFreeExpiresAt,
   getStudentParentFreeSession,
-  deleteUser
+  deleteUser,
+  query: dbQuery
 } = require("./db");
 const { computeWeeklyStats } = require("./analytics");
 const { startDailyAiReportCron } = require("./dailyReportCron");
+const { startFeedbackFewshotCron } = require("./feedback/feedbackScheduler");
+const { detectSignal } = require("./feedback/signalDetector");
 const { startPlannerLockCron } = require("./plannerLockCron");
 const { startWeeklyAppAllowanceCron } = require("./weeklyAppAllowanceCron");
 const {
@@ -236,6 +239,8 @@ const UPLOADS_ROOT = path.join(__dirname, "uploads");
 const HOMEWORK_UPLOADS_DIR = path.join(UPLOADS_ROOT, "homework");
 const simpleMdmLocationRefreshAtByDeviceId = new Map();
 const patternInsightsCache = new Map();
+/** 직전 코치 응답 로그 id — 다음 사용자 메시지에서 signal 반영 (express-session 미사용, userId 키). */
+const lastCoachResponseLogIdByUserId = new Map();
 const lockStatusCache = new Map();
 const responseCache = new Map();
 const DAECHI_ROOT_BUNDLE_ID = "com.daechiroot.ios";
@@ -245,6 +250,96 @@ const APP_ALLOWANCE_MODE_TO_PROFILE_NAME = Object.freeze({
   free: String(process.env.SIMPLEMDM_APP_ALLOWANCE_FREE_PROFILE || "free").trim(),
   block: String(process.env.SIMPLEMDM_APP_ALLOWANCE_BLOCK_PROFILE || "block").trim()
 });
+
+function coachResponseLogSessionId(req, extra = "") {
+  const fromBody =
+    req.body && req.body.sessionId != null ? String(req.body.sessionId).trim() : "";
+  if (fromBody) return fromBody.slice(0, 200);
+  const uid = Number(req.userId);
+  if (Number.isFinite(uid)) return `user:${uid}${extra ? `:${extra}` : ""}`;
+  return "anonymous";
+}
+
+async function applyCoachSignalFromPreviousTurn(userId, userType, message) {
+  const uid = Number(userId);
+  if (!Number.isFinite(uid)) return;
+  const lastLogId = lastCoachResponseLogIdByUserId.get(uid);
+  if (!lastLogId) return;
+  const ut = userType === "parent" ? "parent" : "student";
+  const { signal, reason } = detectSignal(String(message || ""), ut);
+  if (signal !== "neutral") {
+    try {
+      await dbQuery(
+        `UPDATE coach_response_log SET signal = $1, signal_reason = $2 WHERE id = $3`,
+        [signal, reason, lastLogId]
+      );
+    } catch (err) {
+      console.error("[coach_response_log] signal 업데이트 실패:", err);
+    }
+  }
+  lastCoachResponseLogIdByUserId.delete(uid);
+}
+
+async function insertCoachResponseLogRow({
+  sessionId,
+  userType,
+  coachMode,
+  userMessage,
+  aiResponse,
+  contextSnapshot,
+  userIdForSignalLink
+}) {
+  try {
+    const logResult = await dbQuery(
+      `INSERT INTO coach_response_log
+       (session_id, user_type, coach_mode, user_message, ai_response, context_snapshot)
+       VALUES ($1, $2, $3, $4, $5, $6)
+       RETURNING id`,
+      [
+        sessionId,
+        userType,
+        coachMode,
+        String(userMessage ?? "").slice(0, 12000),
+        String(aiResponse ?? "").slice(0, 12000),
+        contextSnapshot && typeof contextSnapshot === "object" ? contextSnapshot : null
+      ]
+    );
+    const id = logResult.rows[0]?.id;
+    if (
+      userIdForSignalLink != null &&
+      Number.isFinite(Number(userIdForSignalLink)) &&
+      Number.isFinite(Number(id))
+    ) {
+      lastCoachResponseLogIdByUserId.set(Number(userIdForSignalLink), Number(id));
+    }
+    return Number(id);
+  } catch (err) {
+    console.error("[coach_response_log] 저장 실패:", err);
+    return null;
+  }
+}
+
+function coachContextSnapshotFromStudentSnapshot(snapshot) {
+  if (!snapshot || !snapshot.metrics) return null;
+  const m = snapshot.metrics;
+  const stress = m.stress != null ? Number(m.stress) : null;
+  const conc = m.concentration != null ? Number(m.concentration) : null;
+  return {
+    sleepHours: m.sleepHours != null ? Number(m.sleepHours) : null,
+    stressScore: Number.isFinite(stress) ? stress : null,
+    concentrationPercent: Number.isFinite(conc) ? conc : null,
+    planCompletionRate:
+      m.planCompletionRate != null ? Number(m.planCompletionRate) : null
+  };
+}
+
+function coachContextSnapshotFromTomorrowContext(context) {
+  if (!context || typeof context !== "object") return null;
+  return {
+    collabFocus: context.collabFocus ?? null,
+    todayProgressPercent: context.todayProgressPercent ?? null
+  };
+}
 
 function resolveAppAllowanceModeFromProfileName(profileNameRaw) {
   const profileName = normalizeSimpleMdmProfileName(profileNameRaw);
@@ -1263,7 +1358,7 @@ function parsePatternsJsonFromAssistantText(text) {
   return null;
 }
 
-async function openAiPatternCompletion(payload) {
+async function openAiPatternCompletion(payload, logOptions = null) {
   const userContent = JSON.stringify(payload);
   const { systemPrompt: systemContent, temperature, maxTokens } = prompts.patternInsights;
   const messages = [
@@ -1297,6 +1392,26 @@ async function openAiPatternCompletion(payload) {
     const res2 = await openai.chat.completions.create(baseArgs);
     lastText = String(res2.choices?.[0]?.message?.content || "").trim();
     parsed = parsePatternsJsonFromAssistantText(lastText);
+  }
+  if (openai && lastText && logOptions?.req) {
+    const uid = Number(logOptions.req.userId);
+    if (Number.isFinite(uid)) {
+      try {
+        await insertCoachResponseLogRow({
+          sessionId: coachResponseLogSessionId(logOptions.req, "pattern"),
+          userType: logOptions.userType === "parent" ? "parent" : "student",
+          coachMode: "patternInsights",
+          userMessage: userContent.slice(0, 12000),
+          aiResponse: String(lastText).slice(0, 12000),
+          contextSnapshot: {
+            recordedDayCount: payload.recordedDayCount ?? null
+          },
+          userIdForSignalLink: null
+        });
+      } catch (logErr) {
+        console.warn("[coach_response_log] patternInsights 로그 생략:", logErr?.message || logErr);
+      }
+    }
   }
   return { parsed, rawText: lastText };
 }
@@ -1512,7 +1627,7 @@ async function openAiParentGrowthReportSections(input) {
   };
 }
 
-async function buildParentGrowthReportPayload(studentId, weekMondayIso) {
+async function buildParentGrowthReportPayload(studentId, weekMondayIso, parentUserIdForLog = null) {
   const weekEnd = addCalendarDaysIso(weekMondayIso, 6);
   const prevMonday = addCalendarDaysIso(weekMondayIso, -7);
   const prevWeekEnd = addCalendarDaysIso(prevMonday, 6);
@@ -1786,6 +1901,23 @@ async function buildParentGrowthReportPayload(studentId, weekMondayIso) {
       if (parsed && parsed.weeklySummary) {
         narrative = { ...narrative, ...parsed };
         usedOpenAi = true;
+        if (parentUserIdForLog) {
+          try {
+            await insertCoachResponseLogRow({
+              sessionId: `growth:${parentUserIdForLog}:${studentId}:${weekMondayIso}`,
+              userType: "parent",
+              coachMode: "growthReport",
+              userMessage: `growth_report:${studentName}:${weekMondayIso}`.slice(0, 2000),
+              aiResponse: JSON.stringify(parsed).slice(0, 12000),
+              contextSnapshot: {
+                achievementPct: achievementPct ?? null
+              },
+              userIdForSignalLink: null
+            });
+          } catch (logErr) {
+            console.warn("[coach_response_log] growthReport 로그 생략:", logErr?.message || logErr);
+          }
+        }
       }
     } catch (e) {
       console.warn("[growth-report] openai failed", e?.message || e);
@@ -6841,7 +6973,10 @@ app.get("/api/parent/coach/pattern-insights", authMiddleware, async (req, res) =
       fieldHelp: { ...prompts.patternInsights.fieldHelpParent }
     };
 
-    const { parsed, rawText } = await openAiPatternCompletion(payload);
+    const { parsed, rawText } = await openAiPatternCompletion(payload, {
+      req,
+      userType: "parent"
+    });
     let patterns = sanitizeAiPatterns(parsed?.patterns);
     if (!patterns.length) {
       console.warn(
@@ -6889,7 +7024,7 @@ app.get("/api/parent/growth-report", authMiddleware, async (req, res) => {
     if (!has) {
       return res.status(403).json({ error: "연결된 학생이 아닙니다." });
     }
-    const payload = await buildParentGrowthReportPayload(studentId, weekStart);
+    const payload = await buildParentGrowthReportPayload(studentId, weekStart, req.userId);
     res.json(payload);
   } catch (e) {
     console.error("/api/parent/growth-report error", e);
@@ -7933,7 +8068,10 @@ app.get("/api/student/coach/pattern-insights", authMiddleware, async (req, res) 
           : null
     };
 
-    const { parsed, rawText } = await openAiPatternCompletion(payload);
+    const { parsed, rawText } = await openAiPatternCompletion(payload, {
+      req,
+      userType: "student"
+    });
     if (!parsed || !Array.isArray(parsed.patterns)) {
       console.warn(
         "[pattern-insights] JSON 파싱 실패, 응답 앞 240자:",
@@ -8710,6 +8848,12 @@ app.post("/api/student/coach/chat", authMiddleware, async (req, res) => {
           ? "schedule"
           : "learning";
 
+    await applyCoachSignalFromPreviousTurn(
+      req.userId,
+      (req.body || {}).userType === "parent" ? "parent" : "student",
+      text
+    );
+
     await insertStudentCoachMessage(req.userId, "user", text);
 
     const profile = await getStudentCoachProfile(req.userId);
@@ -9004,6 +9148,10 @@ app.post("/api/student/coach/chat", authMiddleware, async (req, res) => {
     let usedOpenAi = false;
     if (openai) {
       try {
+        const coachLearningSystem =
+          chatMode === "suneung"
+            ? await prompts.studentCoachChat.buildSuneungCoachSystem()
+            : await prompts.studentCoachChat.buildLearningCoachSystem();
         const response = await openai.chat.completions.create({
           model: OPENAI_MODEL,
           temperature: prompts.studentCoachChat.learningChatTemperature,
@@ -9011,10 +9159,7 @@ app.post("/api/student/coach/chat", authMiddleware, async (req, res) => {
           messages: [
             {
               role: "system",
-              content:
-                chatMode === "suneung"
-                  ? prompts.studentCoachChat.suneungCoach
-                  : prompts.studentCoachChat.learningCoach
+              content: coachLearningSystem
             },
             {
               role: "system",
@@ -9068,6 +9213,18 @@ app.post("/api/student/coach/chat", authMiddleware, async (req, res) => {
           customizedParagraph
         );
       }
+    }
+
+    if (chatMode === "learning" || chatMode === "suneung") {
+      await insertCoachResponseLogRow({
+        sessionId: coachResponseLogSessionId(req),
+        userType: (req.body || {}).userType === "parent" ? "parent" : "student",
+        coachMode: chatMode,
+        userMessage: text,
+        aiResponse: replyText,
+        contextSnapshot: coachContextSnapshotFromStudentSnapshot(snapshot),
+        userIdForSignalLink: req.userId
+      });
     }
 
     await insertStudentCoachMessage(req.userId, "assistant", replyText);
@@ -9127,6 +9284,7 @@ app.post("/api/student/coach/tomorrow-plan/message", authMiddleware, async (req,
     if (!context || typeof context !== "object") {
       return res.status(400).json({ error: "context가 필요합니다." });
     }
+    await applyCoachSignalFromPreviousTurn(req.userId, "student", message);
     const hist = history.slice(-24).map(h => ({
       role: h.role === "assistant" ? "assistant" : "user",
       content: String(h.content || "").slice(0, 6000)
@@ -9164,6 +9322,15 @@ app.post("/api/student/coach/tomorrow-plan/message", authMiddleware, async (req,
         error: prompts.tomorrowPlan.apiEmptyGptCollabReply
       });
     }
+    await insertCoachResponseLogRow({
+      sessionId: coachResponseLogSessionId(req, "tomorrow"),
+      userType: "student",
+      coachMode: "tomorrowPlan",
+      userMessage: message,
+      aiResponse: replyText,
+      contextSnapshot: coachContextSnapshotFromTomorrowContext(context),
+      userIdForSignalLink: req.userId
+    });
     res.json({
       ok: true,
       reply: replyText,
@@ -9232,6 +9399,15 @@ app.post("/api/student/coach/tomorrow-plan/synthesize", authMiddleware, async (r
           error: prompts.tomorrowPlan.apiLifePracticeJsonDecodeError
         });
       }
+      await insertCoachResponseLogRow({
+        sessionId: coachResponseLogSessionId(req, "tomorrow-synth-life"),
+        userType: "student",
+        coachMode: "tomorrowPlan",
+        userMessage: prompts.tomorrowPlan.synthesizeTomorrowPracticeUserInstruction,
+        aiResponse: raw,
+        contextSnapshot: coachContextSnapshotFromTomorrowContext(context),
+        userIdForSignalLink: null
+      });
       return res.json({
         ok: true,
         tomorrowPractice: tp,
@@ -9300,6 +9476,15 @@ app.post("/api/student/coach/tomorrow-plan/synthesize", authMiddleware, async (r
         error: prompts.tomorrowPlan.apiNoValidBookPlansError
       });
     }
+    await insertCoachResponseLogRow({
+      sessionId: coachResponseLogSessionId(req, "tomorrow-synth-books"),
+      userType: "student",
+      coachMode: "tomorrowPlan",
+      userMessage: prompts.tomorrowPlan.synthesizeBookPlansUserInstruction,
+      aiResponse: raw,
+      contextSnapshot: coachContextSnapshotFromTomorrowContext(context),
+      userIdForSignalLink: null
+    });
     res.json({ ok: true, plans, usedOpenAi: true, model: OPENAI_MODEL });
   } catch (e) {
     console.error("/api/student/coach/tomorrow-plan/synthesize error", e);
@@ -9517,6 +9702,7 @@ async function connectDbWithRetry() {
     dbConnected = true;
     if (!cronStarted) {
       startDailyAiReportCron();
+      startFeedbackFewshotCron();
       startPlannerLockCron();
       startWeeklyAppAllowanceCron();
       startParentAppModeScheduleTicker({

@@ -8,7 +8,11 @@
 1. [진입점](#1-진입점) — `require("./prompts")`, `koFallbackLoader`, 클라이언트 `ko.json` import  
 2. [`server/prompts/` 모듈별](#2-serverprompts-모듈별--프롬프트문구-전문--용도) — `baseSystem` 포함, 프롬프트·문구 전문 + 용도  
 3. [`koFallbackLoader` + `ko.json` 키 요약](#31-serverpromptskofallbackloaderjs)  
-4. [부록: `ko.json` 전문](#4-부록--srccoachfallbackskojson-전문-생략-없음)
+4. [부록: `ko.json` 전문](#4-부록--srccoachfallbackskojson-전문-생략-없음)  
+5. [관련 DB: `coach_response_log`](#5-관련-db-coach_response_log) — `server/migrations/` (부록 다음)  
+6. [신호 탐지: `signalDetector.js`](#6-신호-탐지-signaldetectorjs) — `server/feedback/` (GPT·`ko.json` 비사용)  
+7. [Few-shot 관리·피드백 스케줄러](#7-few-shot-관리-피드백-스케줄러) — `fewshotManager`·`feedbackScheduler` (GPT·`ko.json` 비사용)  
+8. [로그·시그널 통합 (`index.js`, step4)](#8-로그시그널-통합-indexjs-step4) — `coach_response_log` INSERT·`detectSignal`·학습 few-shot
 
 `ko.json` 내용을 바꾼 뒤에는 부록과 실제 파일이 어긋날 수 있으니, 필요 시 부록을 `src/coach/fallbacks/ko.json`과 다시 맞추면 됩니다.
 
@@ -24,7 +28,7 @@
 
 ### 1.1 `require("./prompts")` 사용처 (서버)
 
-- `server/index.js` — 학생/학부모 코치 API, 일정·허용앱·내일계획·패턴 인사이트·코치 채팅 등 대부분의 OpenAI 호출과 규칙 기반 폴백.
+- `server/index.js` — 학생/학부모 코치 API, 일정·허용앱·내일계획·패턴 인사이트·코치 채팅 등 대부분의 OpenAI 호출과 규칙 기반 폴백. DB 연결 후 `startFeedbackFewshotCron()`(§7)으로 `coach_response_log` few-shot 후보를 매일 갱신.
 - `server/aiReportService.js` — 자정 배치 등 **학부모 일일 AI 리포트** 생성 시 `parentDailyAiReport`만 사용.
 
 ### 1.2 `ko.json` 직접 import (클라이언트)
@@ -321,7 +325,12 @@
 ### 2.8 `studentCoachChat.js`
 
 **용도:** 학생 코치 채팅 — **일정 JSON 액션 모드**, **학습 코치**, **수능 코치**, **서울 날짜 컨텍스트** system 문자열.  
-`learningCoach`·`suneungCoach`는 **`BASE_COACH_SYSTEM` + 모드 전용 블록**을 하나의 문자열로 이어 붙인 값이다 (`./baseSystem.js`).
+`learningCoach`·`suneungCoach` 상수는 **`BASE_COACH_SYSTEM` + 모드 전용 블록**만 담은 **few-shot 없는** 문자열이다 (폴백·문서 대조용). **실제 OpenAI 호출**에는 `buildLearningCoachSystem()` / `buildSuneungCoachSystem()`을 쓴다 — 내부에서 `getFewshotBlock('learning'|'suneung')` 결과를 뒤에 붙인다 (§7, §8).
+
+#### `buildLearningCoachSystem()` / `buildSuneungCoachSystem()`
+
+- **async** — DB에서 few-shot 블록을 읽을 수 있음. 반환: `[BASE, 모드, fewshot].filter(Boolean).join('\n\n')`.
+- **`server/index.js`** `/api/student/coach/chat` 학습·수능 분기에서만 `await`로 호출한다.
 
 #### `buildScheduleJsonActionSystemPrompt(todayYmd)` 반환 문자열 (전문 — 백틱 내 `${todayYmd}` 치환)
 
@@ -1318,3 +1327,227 @@ bookId는 반드시 다음 중 하나만: [1,2,3]
   }
 }
 ```
+
+---
+
+## 5. 관련 DB: `coach_response_log`
+
+코치 대화·응답을 적재할 **`coach_response_log`** 테이블은 프롬프트/`ko.json`이 아니라 **PostgreSQL 마이그레이션 SQL**로만 정의되어 있다.
+
+| 항목 | 내용 |
+|------|------|
+| **파일** | `server/migrations/create_coach_response_log.sql` |
+| **컬럼 요약** | `session_id`, `user_type` (`student` \| `parent`), `coach_mode`, `user_message`, `ai_response`, `context_snapshot` (JSONB), `signal` (`positive` \| `negative` \| `neutral`), `signal_reason`, `is_fewshot`, `created_at` |
+| **인덱스** | `coach_mode`, `signal`, `is_fewshot` |
+
+**적용:** DB에 연결한 뒤 해당 `.sql` 파일을 실행한다. `server/migrate.js`는 기본적으로 `server/schema.sql`만 적용하므로, 이 마이그레이션은 **별도 실행**이 필요하다(스펙 `cursor-step1-db`: 마이그레이션 파일만 추가, 앱 코드 변경 없음).
+
+**SQL 전문** (`create_coach_response_log.sql`과 동일):
+
+```sql
+CREATE TABLE IF NOT EXISTS coach_response_log (
+  id               SERIAL PRIMARY KEY,
+  session_id       TEXT NOT NULL,
+  user_type        TEXT NOT NULL CHECK (user_type IN ('student', 'parent')),
+  coach_mode       TEXT NOT NULL,
+  user_message     TEXT NOT NULL,
+  ai_response      TEXT NOT NULL,
+  context_snapshot JSONB,
+  signal           TEXT CHECK (signal IN ('positive', 'negative', 'neutral')),
+  signal_reason    TEXT,
+  is_fewshot       BOOLEAN DEFAULT FALSE,
+  created_at       TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_crl_coach_mode ON coach_response_log (coach_mode);
+CREATE INDEX IF NOT EXISTS idx_crl_signal ON coach_response_log (signal);
+CREATE INDEX IF NOT EXISTS idx_crl_is_fewshot ON coach_response_log (is_fewshot);
+```
+
+---
+
+## 6. 신호 탐지: `signalDetector.js`
+
+**용도:** 코치 대화 **다음 사용자 메시지**에서 `positive` / `negative` / `neutral` 신호를 **키워드 포함 여부**로 휴리스틱 판별한다. `coach_response_log.signal`·`signal_reason` 컬럼과 논리적으로 맞물리도록 설계되었으며, **OpenAI 프롬프트·`ko.json`에는 넣지 않는다** (`server/feedback/signalDetector.js` 단독).
+
+**export:** `detectSignal(nextUserMessage, userType)` — `userType`은 `'student'` \| `'parent'`만 가정.
+
+**구현 비고 (스펙 대비):** `cursor-step2-signal.md` 원문은 `trim().length <= 5`일 때 neutral이지만, 그대로면 `"해봤어요"`(4자)·`"모르겠어요"`(5자)도 짧다고 처리되어 문서 내 검증 예시와 모순된다. 저장소 구현은 **trim 길이가 1 이하**일 때만 `메시지가 너무 짧음`으로 neutral 처리한다.
+
+**검증 예시 (문서용):**
+
+| 입력 | `userType` | 기대 `signal` |
+|------|------------|----------------|
+| `해봤어요` | `student` | `positive` |
+| `모르겠어요` | `student` | `negative` |
+| `응` | `student` | `neutral` |
+| `맞아요 근데 모르겠어요` | `student` | `neutral` (긍·부정 동시) |
+
+**전문** (`server/feedback/signalDetector.js`와 동일):
+
+```js
+"use strict";
+
+const POSITIVE_STUDENT = [
+  "해봤어",
+  "해봤어요",
+  "됐어",
+  "됐어요",
+  "고마워",
+  "감사해요",
+  "맞아요",
+  "그렇게 해볼게요",
+  "알겠어요",
+  "이해했어요",
+  "좋아요",
+  "해볼게",
+  "시작했어",
+  "시작했어요"
+];
+
+const NEGATIVE_STUDENT = [
+  "모르겠어",
+  "모르겠어요",
+  "다시",
+  "무슨 말이야",
+  "이해 안 돼",
+  "그게 아니라",
+  "아니",
+  "별로",
+  "도움 안 됐어",
+  "다른 방법",
+  "왜요",
+  "어떻게요"
+];
+
+const POSITIVE_PARENT = [
+  "좋네요",
+  "도움됐어요",
+  "맞아요",
+  "감사해요",
+  "그렇군요",
+  "해볼게요",
+  "알겠어요",
+  "좋은 것 같아요"
+];
+
+const NEGATIVE_PARENT = [
+  "이게 맞나요",
+  "다시 설명해줘",
+  "모르겠어요",
+  "아닌 것 같아요",
+  "별로예요",
+  "도움이 안 돼요",
+  "다른 방법 없나요"
+];
+
+/**
+ * @param {string} nextUserMessage
+ * @param {'student'|'parent'} userType
+ * @returns {{ signal: 'positive'|'negative'|'neutral', reason: string }}
+ */
+function detectSignal(nextUserMessage, userType) {
+  // 스펙 원문은 trim 길이 <= 5였으나, 그렇게 하면 "해봤어요"(4)·"모르겠어요"(5)가
+  // 키워드 매칭 전에 neutral 처리되어 cursor-step2-signal.md 검증과 맞지 않음.
+  if (!nextUserMessage || nextUserMessage.trim().length <= 1) {
+    return { signal: "neutral", reason: "메시지가 너무 짧음" };
+  }
+
+  const msg = nextUserMessage.trim();
+  const positiveList = userType === "parent" ? POSITIVE_PARENT : POSITIVE_STUDENT;
+  const negativeList = userType === "parent" ? NEGATIVE_PARENT : NEGATIVE_STUDENT;
+
+  const hasPositive = positiveList.some(k => msg.includes(k));
+  const hasNegative = negativeList.some(k => msg.includes(k));
+
+  if (hasPositive && hasNegative) {
+    return { signal: "neutral", reason: "긍정·부정 신호 동시 감지" };
+  }
+  if (hasPositive) {
+    const matched = positiveList.find(k => msg.includes(k));
+    return { signal: "positive", reason: `긍정 키워드 감지: "${matched}"` };
+  }
+  if (hasNegative) {
+    const matched = negativeList.find(k => msg.includes(k));
+    return { signal: "negative", reason: `부정 키워드 감지: "${matched}"` };
+  }
+  return { signal: "neutral", reason: "매칭 키워드 없음" };
+}
+
+module.exports = { detectSignal };
+```
+
+---
+
+## 7. Few-shot 관리·피드백 스케줄러
+
+`coach_response_log`(§5)에 쌓인 **긍정 응답**을 few-shot 후보로 올리고, GPT `system`에 붙일 **예시 블록 문자열**을 만든다. **OpenAI 프롬프트 문구·`ko.json`에는 넣지 않는다** — 전부 `server/feedback/` + DB.
+
+### 7.1 `server/feedback/fewshotManager.js`
+
+| export | 설명 |
+|--------|------|
+| `refreshFewshotCandidates(coachMode)` | 해당 `coach_mode`에서 `signal='positive'`·`is_fewshot=false`인 행을 최대 **3건**(`MAX_FEWSHOT_PER_MODE`) 후보로 고른 뒤 `is_fewshot=true`로 표시. 이미 true인 행이 3건을 넘기면 **`created_at`이 가장 오래된** true 행부터 `false`로 내려 용량을 맞춘다. |
+| `getFewshotBlock(coachMode)` | `is_fewshot=true`인 행을 `created_at DESC`로 읽어, 아래 접두 + 예시 블록을 합친 문자열을 반환. 행이 없으면 `''`. |
+
+**후보 정렬:** `context_snapshot IS NOT NULL`인 행을 우선, 그다음 `created_at DESC`.
+
+**`context_snapshot` 요약 (`summarizeContext`, 비 export):** 객체(또는 JSON 문자열)에서 `sleepHours`, `stressScore`, `concentrationPercent`, `planCompletionRate`가 있으면 `수면 N시간`, `스트레스 N/10` 등으로 한 줄 요약에 붙인다.
+
+**Few-shot 블록 접두 (고정):**
+
+```
+[좋은 답변 예시 — 실제 대화 기반]
+```
+
+각 예시는 `예시 n)` / (요약 있으면) `학생 상황 요약: …` / `학생 질문: …` / `코치 답변: …` 형태로 이어 붙인다.
+
+**DB:** `require("../db").query` 사용 (`server/db.js`).
+
+### 7.2 `server/feedback/feedbackScheduler.js`
+
+| export | 설명 |
+|--------|------|
+| `startFeedbackFewshotCron()` | `node-cron`으로 **매일 02:00 KST**(`0 2 * * *`, `timezone: "Asia/Seoul"`)에 `COACH_MODES`를 순회하며 `refreshFewshotCandidates(mode)` 호출. 중복 등록 방지용 `started` 플래그. |
+| `COACH_MODES` | `['learning', 'suneung', 'tomorrowPlan', 'patternInsights', 'growthReport']` (스펙 `cursor-step3-fewshot.md`와 동일). |
+
+**스케줄 표기:** 스펙 원문의 `0 17 * * *` + `Asia/Seoul`은 한국 시각 기준으로는 **오후 5시**가 되어, 문서·코드는 **`0 2 * * *` + `Asia/Seoul`**(새벽 2시)로 맞춤.
+
+### 7.3 `server/index.js` 연동
+
+DB 연결 후 기존 크론과 같이 **`startFeedbackFewshotCron()`**을 한 번 호출한다 (`require("./feedback/feedbackScheduler")`). `coach_response_log` 테이블이 없으면 해당 잡에서 쿼리 오류가 나며 모드별로 로그만 남긴다.
+
+---
+
+## 8. 로그·시그널 통합 (`index.js`, step4)
+
+`cursor-step4-integration.md`에 맞춰 **`coach_response_log`**에 응답을 남기고, 다음 사용자 메시지에서 **`signalDetector`**로 직전 행을 갱신하며, 학습·수능 system에 **few-shot**을 붙인다. **문구·프롬프트 본문은 `server/prompts/`·`ko.json`에 추가하지 않는다** — 로직·INSERT만 `server/index.js`·`studentCoachChat.js`·`fewshotManager` 경로.
+
+### 8.1 세션 대용·직전 로그 id
+
+express-session 미사용. **`lastCoachResponseLogIdByUserId`** `Map`(키: `userId`)에 직전 INSERT의 `id`를 저장하고, 다음 대화형 요청에서 `applyCoachSignalFromPreviousTurn`이 `detectSignal`로 `signal`·`signal_reason`을 UPDATE한 뒤 맵에서 제거한다.
+
+### 8.2 `coachResponseLogSessionId(req, extra?)`
+
+`req.body.sessionId`가 있으면 우선, 없으면 `` `user:${req.userId}` `` (+ `extra` 접미사). INSERT `session_id` 컬럼에 사용.
+
+### 8.3 대화형 API에서의 순서
+
+| 엔드포인트 | 시작 시 signal | 응답 후 INSERT | `coach_mode` | `userIdForSignalLink` |
+|------------|-----------------|----------------|--------------|------------------------|
+| `POST /api/student/coach/chat` | 학생·`message`로 `applyCoachSignal…` | 학습·수능 분기만 (`learning` / `suneung`) | `learning` \| `suneung` | `req.userId` |
+| `POST /api/student/coach/tomorrow-plan/message` | 동일 | 협업 GPT 응답 후 | `tomorrowPlan` | `req.userId` |
+| `POST /api/student/coach/tomorrow-plan/synthesize` | 없음 | life/books GPT 성공 시 | `tomorrowPlan` | 합성은 `null` |
+| `openAiPatternCompletion` (학부모·학생 패턴) | 없음 | 응답 텍스트 확정 후 | `patternInsights` | `null` |
+| `buildParentGrowthReportPayload` (OpenAI 성공 시) | 없음 | 부모 id 전달 시 1행 | `growthReport` | `null` |
+
+**컨텍스트 스냅샷:** 학생 코치는 `coachContextSnapshotFromStudentSnapshot(snapshot)`(수면·스트레스·집중·달성률 등), 내일 계획은 `coachContextSnapshotFromTomorrowContext(context)`.
+
+### 8.4 `openAiPatternCompletion(payload, logOptions?)`
+
+두 번째 인자 `{ req, userType: 'parent' \| 'student' }`가 있으면, OpenAI 호출이 끝난 뒤 **user 메시지 = payload JSON**, **assistant = 모델 원문**으로 `coach_response_log`에 한 줄 INSERT한다 (`userIdForSignalLink` 없음 — GET 기반).
+
+### 8.5 성장 리포트
+
+`GET /api/parent/growth-report` → `buildParentGrowthReportPayload(studentId, weekStart, req.userId)` 세 번째 인자로 부모 id를 넘기면, GPT 섹션 합성이 성공했을 때 **`growthReport`** 모드로 요약 JSON을 로그에 남긴다.
+
