@@ -1,10 +1,11 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Building2,
   CheckCircle2,
   ChevronLeft,
   ChevronRight,
   Clock,
+  FileDown,
   Home,
   Lightbulb,
   Moon,
@@ -12,6 +13,7 @@ import {
   User
 } from "lucide-react";
 import { getSeoulWeekRangeCompactLabel, getWeekStartKeySeoul } from "../../lib/weekDates";
+import { exportElementToPdf } from "../../lib/exportElementToPdf";
 import type { ParentStudentRow } from "../../types/parent";
 
 type StressBand = "high" | "mid" | "low" | null;
@@ -113,6 +115,8 @@ export function ParentGrowthReportTab(props: {
   const [data, setData] = useState<ParentGrowthReportPayload | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [pdfExporting, setPdfExporting] = useState(false);
+  const pdfCaptureRef = useRef<HTMLDivElement | null>(null);
 
   const weekStart = useMemo(
     () => getWeekStartKeySeoul(props.parentWeekOffset),
@@ -160,14 +164,44 @@ export function ParentGrowthReportTab(props: {
 
   const n = data?.narrative;
 
+  const handleSavePdf = useCallback(async () => {
+    const root = pdfCaptureRef.current;
+    if (!root || !data?.narrative) return;
+    setPdfExporting(true);
+    try {
+      await exportElementToPdf(root, `성장리포트_${data.studentName}_${weekStart}`, {
+        ignoreClassName: "parent-growth-report__pdf-skip"
+      });
+    } catch (e) {
+      alert(
+        e instanceof Error
+          ? e.message
+          : "PDF를 만들지 못했습니다. 잠시 후 다시 시도해 주세요."
+      );
+    } finally {
+      setPdfExporting(false);
+    }
+  }, [data, weekStart]);
+
   return (
     <div className="coach-page parent-growth-report">
+      <div ref={pdfCaptureRef} className="parent-growth-report__pdf-root">
       <div className="parent-growth-report__header">
         <div className="parent-growth-report__header-top">
           <span className="parent-growth-report__eyebrow">
             {data?.headerBadgeWeek || "—"}
           </span>
-          <div className="parent-growth-report__week-nav">
+          <div className="parent-growth-report__header-actions">
+            <button
+              type="button"
+              className="parent-growth-report__pdf-btn coach-ghost-btn parent-growth-report__pdf-skip"
+              disabled={!n || loading || pdfExporting}
+              onClick={() => void handleSavePdf()}
+            >
+              <FileDown size={18} aria-hidden />
+              {pdfExporting ? "PDF 만드는 중…" : "PDF 저장"}
+            </button>
+            <div className="parent-growth-report__week-nav">
             <button
               type="button"
               className="parent-growth-report__week-btn"
@@ -187,6 +221,7 @@ export function ParentGrowthReportTab(props: {
             >
               <ChevronRight size={18} />
             </button>
+            </div>
           </div>
         </div>
         <h1 className="parent-growth-report__title">
@@ -501,6 +536,7 @@ export function ParentGrowthReportTab(props: {
       ) : !loading && !error ? (
         <p className="coach-muted">표시할 데이터가 없습니다.</p>
       ) : null}
+      </div>
     </div>
   );
 }

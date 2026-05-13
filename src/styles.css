@@ -10405,6 +10405,31 @@ button:active:not(:disabled),
   gap: 10px;
 }
 
+.parent-growth-report__pdf-root {
+  min-height: 0;
+}
+
+.parent-growth-report__header-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.parent-growth-report__pdf-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 12px;
+  font-size: var(--font-size-small);
+  font-weight: var(--font-weight-semibold);
+  white-space: nowrap;
+}
+
+.parent-growth-report__pdf-btn:disabled {
+  opacity: 0.55;
+}
+
 .parent-growth-report__eyebrow {
   font-size: var(--font-size-small);
   color: var(--text-muted);
