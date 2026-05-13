@@ -12,7 +12,7 @@
 5. [관련 DB: `coach_response_log`](#5-관련-db-coach_response_log) — `server/migrations/` (부록 다음)  
 6. [신호 탐지: `signalDetector.js`](#6-신호-탐지-signaldetectorjs) — `server/feedback/` (GPT·`ko.json` 비사용)  
 7. [Few-shot 관리·피드백 스케줄러](#7-few-shot-관리-피드백-스케줄러) — `fewshotManager`·`feedbackScheduler` (GPT·`ko.json` 비사용)  
-8. [로그·시그널 통합 (`index.js`, step4)](#8-로그시그널-통합-indexjs-step4) — `coach_response_log` INSERT·`detectSignal`·학습 few-shot
+8. [로그·시그널 통합 (`index.js`, step4)](#8-로그시그널-통합-indexjs-step4) — `coach_response_log` INSERT·`detectSignal`·`build*CoachSystem` few-shot
 
 `ko.json` 내용을 바꾼 뒤에는 부록과 실제 파일이 어긋날 수 있으니, 필요 시 부록을 `src/coach/fallbacks/ko.json`과 다시 맞추면 됩니다.
 
@@ -28,7 +28,7 @@
 
 ### 1.1 `require("./prompts")` 사용처 (서버)
 
-- `server/index.js` — 학생/학부모 코치 API, 일정·허용앱·내일계획·패턴 인사이트·코치 채팅 등 대부분의 OpenAI 호출과 규칙 기반 폴백. DB 연결 후 `startFeedbackFewshotCron()`(§7)으로 `coach_response_log` few-shot 후보를 매일 갱신.
+- `server/index.js` — 학생/학부모 코치 API, 일정·허용앱·내일계획·패턴 인사이트·코치 채팅 등 대부분의 OpenAI 호출과 규칙 기반 폴백. DB 연결 후 `startFeedbackFewshotCron()`(§7)으로 `coach_response_log` few-shot 후보를 매일 갱신. **§8:** 학습·수능·내일계획·패턴·성장 리포트 응답을 `coach_response_log`에 INSERT하고, 대화형 요청 시작 시 `detectSignal`로 직전 행 `signal` 갱신.
 - `server/aiReportService.js` — 자정 배치 등 **학부모 일일 AI 리포트** 생성 시 `parentDailyAiReport`만 사용.
 
 ### 1.2 `ko.json` 직접 import (클라이언트)
@@ -1550,4 +1550,13 @@ express-session 미사용. **`lastCoachResponseLogIdByUserId`** `Map`(키: `user
 ### 8.5 성장 리포트
 
 `GET /api/parent/growth-report` → `buildParentGrowthReportPayload(studentId, weekStart, req.userId)` 세 번째 인자로 부모 id를 넘기면, GPT 섹션 합성이 성공했을 때 **`growthReport`** 모드로 요약 JSON을 로그에 남긴다.
+
+### 8.6 `studentCoachChat.js` (few-shot 빌더)
+
+| export | 설명 |
+|--------|------|
+| `buildLearningCoachSystem()` | `BASE_COACH_SYSTEM` + `[학습 코칭 모드]` + `getFewshotBlock('learning')` (비동기). |
+| `buildSuneungCoachSystem()` | `BASE_COACH_SYSTEM` + `[수능 질의응답 모드]` + `getFewshotBlock('suneung')` (비동기). |
+
+`ko.json`에는 추가하지 않으며, few-shot 문구는 전부 DB에서 조립된다(§7).
 

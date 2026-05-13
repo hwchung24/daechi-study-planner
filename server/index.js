@@ -1359,6 +1359,9 @@ function parsePatternsJsonFromAssistantText(text) {
 }
 
 async function openAiPatternCompletion(payload, logOptions = null) {
+  if (!openai) {
+    return { parsed: null, rawText: "" };
+  }
   const userContent = JSON.stringify(payload);
   const { systemPrompt: systemContent, temperature, maxTokens } = prompts.patternInsights;
   const messages = [
