@@ -169,7 +169,8 @@ export function normalizeWeeklyAppAllowanceSchedule(
 ): WeeklyAppAllowanceSchedule {
   const empty = createEmptyWeeklyAppAllowanceSchedule();
   for (const day of WEEKLY_APP_ALLOWANCE_DAYS) {
-    const source = Array.isArray(raw?.[day.key]) ? raw?.[day.key] : [];
+    const rawDaySlots = raw?.[day.key];
+    const source = Array.isArray(rawDaySlots) ? rawDaySlots : [];
     empty[day.key] = sortWeeklyAppAllowanceSlots(
       source
         .map(slot => {

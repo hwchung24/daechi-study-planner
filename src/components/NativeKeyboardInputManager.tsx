@@ -83,7 +83,14 @@ function toShowOptions(source: SourceElement): NativeKeyboardInputShowOptions {
     enterKeyHint: source.enterKeyHint || undefined,
     maxLength: source.maxLength > 0 ? source.maxLength : undefined,
     autoCapitalize: source.autocapitalize || undefined,
-    autoCorrect: source.autocorrect || undefined,
+    autoCorrect:
+      source.autocorrect === true
+        ? "on"
+        : source.autocorrect === false
+          ? "off"
+          : typeof source.autocorrect === "string"
+            ? source.autocorrect
+            : undefined,
     spellCheck: source.spellcheck
   };
 }

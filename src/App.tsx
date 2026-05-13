@@ -173,6 +173,7 @@ type ParentPlanAddRequestRow = {
 
 type ParentAppTimetableRequestDetail = {
   studentEmail: string;
+  studentDisplayName?: string;
   targetDate: string;
   summary: string;
   slotSummary: string;
@@ -858,6 +859,7 @@ const App: React.FC = () => {
     (action: ParentNotificationAction) => {
       if (action.type !== "parent_app_timetable_request") return;
       const studentEmail = String(action.studentEmail || "").trim().toLowerCase();
+      const studentDisplayName = String(action.studentDisplayName || "").trim();
       const targetDate = String(action.targetDate || "").trim();
       const summary = String(action.summary || "").trim();
       const slotSummary = String(action.slotSummary || "").trim();
@@ -879,6 +881,7 @@ const App: React.FC = () => {
         setParentAppTimetableRequestError("");
         setParentAppTimetableRequestDetail({
           studentEmail,
+          studentDisplayName: studentDisplayName || undefined,
           targetDate,
           summary,
           slotSummary,
@@ -908,6 +911,7 @@ const App: React.FC = () => {
       }
       if (action.type === "parent_app_timetable_request") {
         const studentEmail = String(action.studentEmail || "").trim().toLowerCase();
+        const studentDisplayName = String(action.studentDisplayName || "").trim();
         const targetDate = String(action.targetDate || "").trim();
         const summary = String(action.summary || "").trim();
         const slotSummary = String(action.slotSummary || "").trim();
@@ -923,6 +927,7 @@ const App: React.FC = () => {
         setParentAppTimetableRequestError("");
         setParentAppTimetableRequestDetail({
           studentEmail,
+          studentDisplayName: studentDisplayName || undefined,
           targetDate,
           summary,
           slotSummary,
@@ -3954,6 +3959,8 @@ const App: React.FC = () => {
                     setParentNotificationUnreadCount(0);
                   }}
                   onParentNotificationAction={openParentNotificationFromPage}
+                  parentWeekOffset={parentWeekOffset}
+                  setParentWeekOffset={setParentWeekOffset}
                 />
               </React.Suspense>
             )}
@@ -4805,7 +4812,9 @@ const App: React.FC = () => {
                   <div className="parent-app-request-modal__meta-row">
                     <span className="parent-app-request-modal__label">학생</span>
                     <span className="parent-app-request-modal__value">
-                      {parentAppTimetableRequestDetail.studentEmail || "연결 학생"}
+                      {parentAppTimetableRequestDetail.studentDisplayName ||
+                        parentAppTimetableRequestDetail.studentEmail ||
+                        "연결 학생"}
                     </span>
                   </div>
                   <div className="parent-app-request-modal__meta-row">

@@ -69,7 +69,7 @@ function normalizeSimpleMdmNetwork(
   };
 }
 
-function computeSnapshot(data: {
+export function computeParentDeviceControlSnapshot(data: {
   mdmSurfaceMode?: string;
   kioskEnabled?: boolean;
   bulkLockOverride?: boolean;
@@ -95,6 +95,41 @@ function computeSnapshot(data: {
     activeAppAllowanceMode,
     parentTimedFreeExpiresAt,
     simpleMdmNetwork: normalizeSimpleMdmNetwork(data.simpleMdmNetwork)
+  };
+}
+
+/** 허용앱 모드 전환 직후 홈·요약 UI용 낙관적 스냅샷(서버 GET으로 정합) */
+export function patchParentDeviceSnapshotForAllowanceMode(
+  prev: ParentDeviceControlSnapshot | null,
+  mode: "utility" | "free" | "default",
+  opts?: { parentTimedFreeExpiresAt?: string | null }
+): ParentDeviceControlSnapshot {
+  const base = prev ?? computeParentDeviceControlSnapshot({});
+  if (mode === "utility") {
+    return {
+      ...base,
+      displaySurfaceMode: "utility",
+      activeAppAllowanceMode: "utility",
+      parentTimedFreeExpiresAt: null
+    };
+  }
+  if (mode === "free") {
+    const until =
+      opts?.parentTimedFreeExpiresAt !== undefined
+        ? opts.parentTimedFreeExpiresAt ?? null
+        : base.parentTimedFreeExpiresAt;
+    return {
+      ...base,
+      displaySurfaceMode: "free",
+      activeAppAllowanceMode: "free",
+      parentTimedFreeExpiresAt: until
+    };
+  }
+  return {
+    ...base,
+    displaySurfaceMode: "default",
+    activeAppAllowanceMode: null,
+    parentTimedFreeExpiresAt: null
   };
 }
 
@@ -138,24 +173,36 @@ export function useParentDeviceControlState(args: UseArgs) {
           simpleMdmNetwork?: unknown;
         };
         if (!res.ok) {
-          const fallback = computeSnapshot({});
+          const fallback = computeParentDeviceControlSnapshot({});
           const sig = stableStringify({ ok: false, ...fallback });
           if (lastSigRef.current !== sig) {
             lastSigRef.current = sig;
-            scheduleBackgroundUiUpdate(() => setSnapshot(fallback));
+            if (options?.silent) {
+              setSnapshot(fallback);
+            } else {
+              scheduleBackgroundUiUpdate(() => setSnapshot(fallback));
+            }
           }
           return;
         }
-        const next = computeSnapshot(data);
+        const next = computeParentDeviceControlSnapshot(data);
         const sig = stableStringify({ ok: true, ...next });
         if (lastSigRef.current === sig) {
           return;
         }
         lastSigRef.current = sig;
-        scheduleBackgroundUiUpdate(() => setSnapshot(next));
+        if (options?.silent) {
+          setSnapshot(next);
+        } else {
+          scheduleBackgroundUiUpdate(() => setSnapshot(next));
+        }
       } catch {
         lastSigRef.current = null;
-        scheduleBackgroundUiUpdate(() => setSnapshot(null));
+        if (options?.silent) {
+          setSnapshot(null);
+        } else {
+          scheduleBackgroundUiUpdate(() => setSnapshot(null));
+        }
       } finally {
         if (!options?.silent) {
           setLoading(false);
@@ -163,6 +210,22 @@ export function useParentDeviceControlState(args: UseArgs) {
       }
     },
     [apiBase, bearer, studentId]
+  );
+
+  /** MDM 적용 대기 없이 즉시 UI 반영(서버 폴링·재조회로 정합성 맞춤) */
+  const patchSnapshot = useCallback(
+    (updater: (prev: ParentDeviceControlSnapshot | null) => ParentDeviceControlSnapshot | null) => {
+      setSnapshot(prev => {
+        const next = updater(prev);
+        if (next != null) {
+          lastSigRef.current = stableStringify({ ok: true, ...next });
+        } else {
+          lastSigRef.current = null;
+        }
+        return next;
+      });
+    },
+    []
   );
 
   useEffect(() => {
@@ -191,5 +254,5 @@ export function useParentDeviceControlState(args: UseArgs) {
     };
   }, [bearer, studentId, refresh]);
 
-  return { loading, snapshot, refresh };
+  return { loading, snapshot, refresh, patchSnapshot };
 }

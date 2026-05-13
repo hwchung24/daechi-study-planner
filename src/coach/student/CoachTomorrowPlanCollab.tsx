@@ -111,7 +111,14 @@ function normalizeAppAllowanceCandidates(rows: AppAllowanceCandidate[]): AppAllo
       return true;
     });
   if (!next.some(isDaechiRootApp)) {
-    next.unshift({ ...DAECHI_ROOT_APP });
+    const rootApp: (typeof next)[number] = {
+      id: DAECHI_ROOT_APP.id,
+      name: DAECHI_ROOT_APP.name,
+      category: DAECHI_ROOT_APP.category,
+      description: DAECHI_ROOT_APP.description ?? null,
+      bundleId: DAECHI_ROOT_APP.bundleId ?? null
+    };
+    next.unshift(rootApp);
   }
   const root = next.find(isDaechiRootApp) || { ...DAECHI_ROOT_APP };
   const others = next.filter(app => !isDaechiRootApp(app));
@@ -268,7 +275,7 @@ function buildCollabContext(params: {
   studyEvaluation: string;
   metacognitionReflection: string;
   todayProgressPercent: number;
-  collabFocus: "study" | "life";
+  collabFocus: CollabFocus;
   todayMemo: string;
   draftTomorrowPractice: string;
   todayStudyMinutes: number | null;

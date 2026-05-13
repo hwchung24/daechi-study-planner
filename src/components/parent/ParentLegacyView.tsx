@@ -26,6 +26,19 @@ type ParentAiDaily = {
   created_at: string;
 };
 
+type ParentWeeklyReport = {
+  stats?: {
+    totalStudyMinutes?: number;
+    focusDistribution?: {
+      best: number;
+      good: number;
+      ok: number;
+      bad: number;
+    };
+  };
+  summaryLines?: string[];
+};
+
 export function ParentLegacyView(props: {
   apiBase: string;
   authToken: string | null;
@@ -123,24 +136,122 @@ export function ParentLegacyView(props: {
 
   // 홈(리포트)용 학생/insight/guide 생성
   const student = parentStudentId
-    ? demoStudents.find(s => s.id === parentStudentId) || demoStudents[0]
+    ? demoStudents.find(
+        s => Number(s.id) === Number(parentStudentId)
+      ) || demoStudents[0]
     : demoStudents[0];
-  const logs7d = demoDailyLogs.filter(l => l.studentId === student.id).slice(-7);
+  const logs7d = demoDailyLogs
+    .filter(l => Number(l.studentId) === Number(student.id))
+    .slice(-7);
   const insight = buildWeeklyInsight(student.id, demoDailyLogs);
   const guide = buildAdminGuide(insight, logs7d);
 
-  const report = parentReport as {
-    stats?: {
-      totalStudyMinutes?: number;
-      focusDistribution?: {
-        best: number;
-        good: number;
-        ok: number;
-        bad: number;
-      };
-    };
-    summaryLines?: string[];
-  } | null;
+  const report = parentReport as ParentWeeklyReport | null;
+
+  const renderPlannerLockHint = (lockStatus: ParentLockStatus | null) => {
+    if (lockStatus == null) return null;
+    return (
+      <div style={{ marginTop: 10 }}>
+        <p className="settings-hint">
+          현재 상태: {lockStatus.locked ? "잠김" : "열림"}
+        </p>
+        <p className="settings-hint">
+          마지막 변경:{" "}
+          {lockStatus.session?.unlocked_at ||
+            lockStatus.session?.locked_at ||
+            "아직 없음"}
+        </p>
+        {/* 지금 잠그기/지금 해제 버튼 제거됨 */}
+      </div>
+    );
+  };
+
+  const renderAiDailyCard = (daily: ParentAiDaily | null) => {
+    if (daily == null) return null;
+    return (
+      <div className="progress-card">
+        <div className="progress-meta-row">
+          <span
+            className="progress-meta"
+            style={{ whiteSpace: "pre-wrap", lineHeight: 1.5 }}
+          >
+            {String(daily.summary_text ?? "")}
+          </span>
+        </div>
+      </div>
+    );
+  };
+
+  const renderWeeklyReportBlock = (
+    weekly: ParentWeeklyReport | null,
+    guideBlock: ReturnType<typeof buildAdminGuide>
+  ) => {
+    if (weekly == null) return null;
+    const lines = weekly.summaryLines ?? [];
+    const focusDist = weekly.stats?.focusDistribution;
+    return (
+      <>
+        <div className="progress-card">
+          <div className="progress-row">
+            <span className="progress-label">총 학습 시간</span>
+            <span className="progress-value">
+              {Math.floor((weekly.stats?.totalStudyMinutes ?? 0) / 60)}
+              {"시간 "}
+              {(weekly.stats?.totalStudyMinutes ?? 0) % 60}
+              {"분"}
+            </span>
+          </div>
+          <div className="progress-meta-row" style={{ marginTop: 10 }}>
+            <span className="progress-meta">
+              {lines.length ? lines.join(" ") : ""}
+            </span>
+          </div>
+          {focusDist != null ? (
+            <div className="progress-meta-row" style={{ marginTop: 10 }}>
+              <span className="progress-meta">
+                집중도 분포 ◎/○/△/✕: {focusDist.best}/{focusDist.good}/{focusDist.ok}/
+                {focusDist.bad}
+              </span>
+            </div>
+          ) : null}
+        </div>
+        {guideBlock &&
+          guideBlock.suggestedPhrases &&
+          guideBlock.suggestedPhrases.length > 0 && (
+            <div className="coach-card coach-card--padded" style={{ marginTop: 12 }}>
+              <div className="coach-section-header">
+                <div className="coach-section-header__left">
+                  <h2 className="coach-section-title">바로 쓸 수 있는 문장</h2>
+                  <p className="coach-section-subtitle">
+                    짧고 구체적인 말이 가장 효과적입니다.
+                  </p>
+                </div>
+              </div>
+              <div className="coach-phrases">
+                {guideBlock.suggestedPhrases.map((p, i) => (
+                  <button
+                    key={i}
+                    type="button"
+                    className="coach-phrase"
+                    onClick={() => {
+                      try {
+                        navigator.clipboard.writeText(p);
+                        alert("문장을 복사했어요.");
+                      } catch {
+                        alert(p);
+                      }
+                    }}
+                  >
+                    {p}
+                    <span className="coach-phrase__hint">탭해서 복사</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+      </>
+    );
+  };
 
   return (
     <>
@@ -316,20 +427,7 @@ export function ParentLegacyView(props: {
                     </p>
                   )}
                 </div>
-                {parentLockStatus && (
-                  <div style={{ marginTop: 10 }}>
-                    <p className="settings-hint">
-                      현재 상태: {parentLockStatus.locked ? "잠김" : "열림"}
-                    </p>
-                    <p className="settings-hint">
-                      마지막 변경:{" "}
-                      {parentLockStatus.session?.unlocked_at ||
-                        parentLockStatus.session?.locked_at ||
-                        "아직 없음"}
-                    </p>
-                    {/* 지금 잠그기/지금 해제 버튼 제거됨 */}
-                  </div>
-                )}
+                {renderPlannerLockHint(parentLockStatus)}
               </div>
 
               <div className="section-header">
@@ -337,18 +435,7 @@ export function ParentLegacyView(props: {
                   AI 일일 리포트
                 </h3>
               </div>
-              {parentAiDaily ? (
-                <div className="progress-card">
-                  <div className="progress-meta-row">
-                    <span
-                      className="progress-meta"
-                      style={{ whiteSpace: "pre-wrap", lineHeight: 1.5 }}
-                    >
-                      {parentAiDaily.summary_text}
-                    </span>
-                  </div>
-                </div>
-              ) : null}
+              {renderAiDailyCard(parentAiDaily)}
               <button
                 type="button"
                 className="progress-footer-btn"
@@ -390,69 +477,7 @@ export function ParentLegacyView(props: {
           )}
 
           <div style={{ marginTop: 14 }}>
-            {!report ? null : (
-              <>
-                <div className="progress-card">
-                  <div className="progress-row">
-                    <span className="progress-label">총 학습 시간</span>
-                    <span className="progress-value">
-                      {Math.floor((report.stats?.totalStudyMinutes || 0) / 60)}
-                      {"시간 "}
-                      {(report.stats?.totalStudyMinutes || 0) % 60}
-                      {"분"}
-                    </span>
-                  </div>
-                  <div className="progress-meta-row" style={{ marginTop: 10 }}>
-                    <span className="progress-meta">
-                      {report.summaryLines?.length
-                        ? report.summaryLines.join(" ")
-                        : ""}
-                    </span>
-                  </div>
-                  {report.stats?.focusDistribution && (
-                    <div className="progress-meta-row" style={{ marginTop: 10 }}>
-                      <span className="progress-meta">
-                        집중도 분포 ◎/○/△/✕: {report.stats.focusDistribution.best}/
-                        {report.stats.focusDistribution.good}/
-                        {report.stats.focusDistribution.ok}/
-                        {report.stats.focusDistribution.bad}
-                      </span>
-                    </div>
-                  )}
-                </div>
-                {/* 바로 쓸 수 있는 문장 카드 추가 */}
-                {guide && guide.suggestedPhrases && guide.suggestedPhrases.length > 0 && (
-                  <div className="coach-card coach-card--padded" style={{ marginTop: 12 }}>
-                    <div className="coach-section-header">
-                      <div className="coach-section-header__left">
-                        <h2 className="coach-section-title">바로 쓸 수 있는 문장</h2>
-                        <p className="coach-section-subtitle">짧고 구체적인 말이 가장 효과적입니다.</p>
-                      </div>
-                    </div>
-                    <div className="coach-phrases">
-                      {guide.suggestedPhrases.map((p, i) => (
-                        <button
-                          key={i}
-                          type="button"
-                          className="coach-phrase"
-                          onClick={() => {
-                            try {
-                              navigator.clipboard.writeText(p);
-                              alert("문장을 복사했어요.");
-                            } catch {
-                              alert(p);
-                            }
-                          }}
-                        >
-                          {p}
-                          <span className="coach-phrase__hint">탭해서 복사</span>
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                )}
-              </>
-            )}
+            {renderWeeklyReportBlock(report, guide)}
           </div>
         </section>
       )}

@@ -14,6 +14,7 @@ type NotificationItem = {
 
 export type ParentNotificationAction = {
   type: "parent_app_timetable_request";
+  studentDisplayName?: string;
   studentEmail?: string;
   targetDate?: string;
   summary?: string;
@@ -65,6 +66,10 @@ function parseNotificationAction(body?: string | null): {
         visibleBody: visibleBody || null,
         action: {
           type: "parent_app_timetable_request",
+          studentDisplayName:
+            parsed.studentDisplayName != null
+              ? String(parsed.studentDisplayName).trim()
+              : undefined,
           studentEmail:
             parsed.studentEmail != null ? String(parsed.studentEmail).trim() : undefined,
           targetDate:

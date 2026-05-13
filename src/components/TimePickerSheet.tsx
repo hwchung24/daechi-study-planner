@@ -250,22 +250,31 @@ export function TimePickerInline(props: InlineProps) {
 
 type Props = {
   open: boolean;
-  title: string;
+  /** 생략 시 기본 제목 사용 */
+  title?: string;
   value: string;
   onClose: () => void;
-  onConfirm: (hhmm: string) => void;
+  onConfirm?: (hhmm: string) => void | Promise<void>;
+  /** @deprecated `onConfirm`과 동일 — 기존 호출부 호환 */
+  onSave?: (hhmm: string) => void | Promise<void>;
+  /** true면 확인 버튼 비활성 */
+  disabled?: boolean;
   hapticSelection?: () => void;
 };
 
 export function TimePickerSheet(props: Props) {
   const {
     open,
-    title,
+    title: titleProp,
     value,
     onClose,
-    onConfirm,
+    onConfirm: onConfirmProp,
+    onSave,
+    disabled = false,
     hapticSelection
   } = props;
+  const title = titleProp?.trim() ? titleProp : "시간 선택";
+  const onConfirm = onConfirmProp ?? onSave;
   const [hour, setHour] = useState(9);
   const [minute, setMinute] = useState(0);
   const modalReveal = useModalReveal(open);
@@ -322,8 +331,16 @@ export function TimePickerSheet(props: Props) {
           <button
             type="button"
             className="modal-primary"
+            disabled={disabled}
             onClick={() => {
-              modalReveal.beginClose(() => onConfirm(formatHHmm(hour, minute)));
+              const handler = onConfirm;
+              if (!handler) {
+                closeModal();
+                return;
+              }
+              modalReveal.beginClose(() => {
+                void Promise.resolve(handler(formatHHmm(hour, minute)));
+              });
             }}
           >
             확인

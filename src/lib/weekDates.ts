@@ -198,6 +198,13 @@ export function getWeekRangeLabel(offset: number) {
   return `${format(monday)} ~ ${format(sunday)}`;
 }
 
+/** 서울 달력 월~일 (기록 탭·성장 리포트와 동일 타임존) */
+export function getSeoulWeekRangeCompactLabel(offsetWeeks: number): string {
+  const days = getWeekDaysSeoul(offsetWeeks);
+  if (days.length < 7) return "";
+  return `${days[0].label} — ${days[6].label}`;
+}
+
 export function getWeekStartKey(offsetWeeks: number) {
   const base = new Date();
   const day = base.getDay();

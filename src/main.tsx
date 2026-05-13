@@ -1,7 +1,7 @@
 import React from "react";
 import ReactDOM from "react-dom/client";
 import { Capacitor } from "@capacitor/core";
-import { Keyboard } from "@capacitor/keyboard";
+import { Keyboard, KeyboardResize } from "@capacitor/keyboard";
 import { AppConfig } from "@capacitor-community/mdm-appconfig";
 import { persistApiBaseOverride } from "./lib/apiBase";
 import { installNativeClientFetchHeader } from "./lib/installNativeClientFetchHeader";
@@ -498,7 +498,7 @@ function installViewportCssVars() {
       scheduleSync();
     });
 
-    void Keyboard.setResizeMode({ mode: "none" }).catch(() => {
+    void Keyboard.setResizeMode({ mode: KeyboardResize.None }).catch(() => {
       // ignore: older bridge/plugin edge cases should fall back to config-level behavior
     });
     void Keyboard.setAccessoryBarVisible({ isVisible: false }).catch(() => {

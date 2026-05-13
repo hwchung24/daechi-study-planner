@@ -10,6 +10,8 @@ import { getDateKeySeoul, seoulDateKeyFromApiValue } from "../../lib/weekDates";
 import { ParentStudentSelector } from "./ParentStudentSelector";
 import {
   type ParentSimpleMdmNetworkStatus,
+  computeParentDeviceControlSnapshot,
+  patchParentDeviceSnapshotForAllowanceMode,
   useParentDeviceControlState
 } from "./useParentDeviceControlState";
 import { useParentStudyRoomLive } from "./useParentStudyRoomLive";
@@ -190,7 +192,8 @@ export function ParentHomeTab(props: ParentHomeTabProps) {
   const {
     loading: deviceLoading,
     snapshot: deviceSnapshot,
-    refresh: refreshDeviceSnapshot
+    refresh: refreshDeviceSnapshot,
+    patchSnapshot: patchDeviceSnapshot
   } = useParentDeviceControlState({
     apiBase,
     authToken,
@@ -238,6 +241,7 @@ export function ParentHomeTab(props: ParentHomeTabProps) {
         setStudyRoomModalOpen(false);
         window.dispatchEvent(new Event(DAECHI_LINKS_UPDATED_EVENT));
       } catch (error) {
+        void refreshDeviceSnapshot({ silent: true });
         alert(
           error instanceof Error && error.message
             ? error.message
@@ -362,7 +366,11 @@ export function ParentHomeTab(props: ParentHomeTabProps) {
         alert(String(data.message || "일부 기기에 적용하지 못했습니다."));
         return;
       }
-      await refreshDeviceSnapshot();
+      patchDeviceSnapshot(prev => {
+        const base = prev ?? computeParentDeviceControlSnapshot({});
+        return { ...base, kioskEnabled: nextEnabled };
+      });
+      void refreshDeviceSnapshot({ silent: true });
     } catch (error) {
       alert(
         error instanceof Error && error.message
@@ -395,8 +403,10 @@ export function ParentHomeTab(props: ParentHomeTabProps) {
         if (!res.ok || data.ok === false) {
           throw new Error(String(data.error || data.message || "자유시간 모드 변경에 실패했습니다."));
         }
-        await refreshDeviceSnapshot();
+        patchDeviceSnapshot(prev => patchParentDeviceSnapshotForAllowanceMode(prev, "default"));
+        void refreshDeviceSnapshot({ silent: true });
       } catch (error) {
+        void refreshDeviceSnapshot({ silent: true });
         alert(
           error instanceof Error && error.message
             ? error.message
@@ -435,8 +445,15 @@ export function ParentHomeTab(props: ParentHomeTabProps) {
           throw new Error(String(data.error || data.message || "자유시간 모드 변경에 실패했습니다."));
         }
         freeMinutesModalReveal.beginClose(() => setFreeMinutesModalOpen(false));
-        await refreshDeviceSnapshot();
+        const untilIso = new Date(Date.now() + m * 60_000).toISOString();
+        patchDeviceSnapshot(prev =>
+          patchParentDeviceSnapshotForAllowanceMode(prev, "free", {
+            parentTimedFreeExpiresAt: untilIso
+          })
+        );
+        void refreshDeviceSnapshot({ silent: true });
       } catch (error) {
+        void refreshDeviceSnapshot({ silent: true });
         alert(
           error instanceof Error && error.message
             ? error.message

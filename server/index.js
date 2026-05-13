@@ -1639,6 +1639,413 @@ async function openAiPatternCompletion(payload) {
   return { parsed, rawText: lastText };
 }
 
+function growthReportBlockMinutes(start, end) {
+  const [sh, sm] = String(start || "")
+    .split(":")
+    .map(Number);
+  const [eh, em] = String(end || "")
+    .split(":")
+    .map(Number);
+  if (![sh, sm, eh, em].every(n => Number.isFinite(n))) return 0;
+  return Math.max(0, eh * 60 + em - (sh * 60 + sm));
+}
+
+function normalizeStudyDayDateField(day) {
+  if (!day?.date) return "";
+  const raw = day.date;
+  const s =
+    typeof raw === "string"
+      ? raw
+      : raw instanceof Date
+        ? raw.toISOString()
+        : String(raw);
+  const m = s.match(/^(\d{4}-\d{2}-\d{2})/);
+  return m ? m[1] : "";
+}
+
+function avgPlanCompletionFromLogs(logRows) {
+  const vals = [];
+  for (const r of logRows || []) {
+    const v = r.plan_completion_rate;
+    if (v != null && Number.isFinite(Number(v))) vals.push(Number(v));
+  }
+  if (!vals.length) return null;
+  return vals.reduce((a, b) => a + b, 0) / vals.length;
+}
+
+function formatGrowthWeekBadgeFromMonday(mondayIso) {
+  if (!isIsoDate(mondayIso)) return "";
+  const parsed = String(mondayIso)
+    .trim()
+    .slice(0, 10)
+    .match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!parsed) return "";
+  const y = parsed[1];
+  const monthNum = Number(parsed[2]);
+  const firstOfMonthKey = `${parsed[1]}-${parsed[2]}-01`;
+  let firstMondayKey = firstOfMonthKey;
+  for (let back = 0; back < 7; back++) {
+    const key = addDaysToSeoulDateKey(firstOfMonthKey, -back);
+    if (weekdayMon0FromIsoDate(key) === 0) {
+      firstMondayKey = key;
+      break;
+    }
+  }
+  const monMs = new Date(`${mondayIso}T12:00:00+09:00`).getTime();
+  const firstMonMs = new Date(`${firstMondayKey}T12:00:00+09:00`).getTime();
+  const weekIndex = Math.floor((monMs - firstMonMs) / (7 * 86400000)) + 1;
+  const ordinals = ["첫", "둘", "셋", "넷", "다섯"];
+  const ordinal =
+    weekIndex >= 1 && weekIndex <= 5 ? ordinals[weekIndex - 1] : String(weekIndex);
+  return `${y}년 ${monthNum}월 ${ordinal}째 주`;
+}
+
+function buildPlanExecutionLists(days, plans, weekKeys) {
+  const dayById = new Map((days || []).map(d => [d.id, d]));
+  const weekdayShort = ["월", "화", "수", "목", "금", "토", "일"];
+  const items = [];
+  for (const p of plans || []) {
+    const day = dayById.get(p.study_day_id);
+    if (!day) continue;
+    const dateKey = normalizeStudyDayDateField(day);
+    const title = String(p.book_name || "교재").trim() || "교재";
+    const fp = p.final_pct != null ? Number(p.final_pct) : null;
+    const done = fp != null && fp >= 95;
+    items.push({ title, dateKey, done, finalPct: fp });
+  }
+  const completed = items.filter(i => i.done);
+  const pending = items.filter(i => !i.done && i.finalPct != null);
+  const bestCompleted = [...completed]
+    .sort((a, b) => (b.finalPct || 0) - (a.finalPct || 0))
+    .slice(0, 3)
+    .map(i => {
+      const wi = weekKeys.indexOf(i.dateKey);
+      const completedDayLabel =
+        wi >= 0 ? `${weekdayShort[wi]}요일에 완료` : "완료";
+      return { title: i.title, completedDayLabel };
+    });
+  const carryOver = pending.slice(0, 12).map(i => ({ title: i.title }));
+  const totalTracked = items.filter(i => i.finalPct != null).length;
+  const completedCount = completed.length;
+  return { bestCompleted, carryOver, totalTracked, completedCount, items };
+}
+
+async function openAiParentGrowthReportCompletion(metricsPayload) {
+  if (!openai) return null;
+  const system = [
+    '너는 한국 학부모를 위한 "우리 아이 성장 리포트" 카피라이터다.',
+    "입력 JSON은 실제 데이터베이스에서 집계한 값이다. 없는 수치·사실을 만들어내지 마라.",
+    "톤: 비판·낙인·감시 금지. 회복·대화·공동체 언어를 사용한다.",
+    '금지 표현 예: "수면 부족", "집중을 못 했다", "달성률이 낮다", "시간 낭비".',
+    "대신 입력 toneGuide.prefer의 방향을 따른다.",
+    "",
+    "반드시 아래 JSON 키만 사용하는 하나의 JSON 객체로 출력한다:",
+    "{",
+    '  "weeklySummary": "2~4문장",',
+    '  "energyParentTip": "에너지·회복 맥락에서 부모 대화 팁 1~2문장",',
+    '  "studyEfficiencyInsight": "독서실·실제학습·집중구간 관계 해설 2~3문장",',
+    '  "planExecutionSummary": "완료 인정 + 이월 허용 톤 2문장 내외",',
+    '  "nextWeekForStudent": "학생에게 한 가지",',
+    '  "nextWeekForParent": "부모에게 한 가지(공부 질책보다 안부·감정 대화 권장 가능)"',
+    "}"
+  ].join("\n");
+
+  const res = await openai.chat.completions.create({
+    model: OPENAI_MODEL,
+    temperature: 0.38,
+    max_tokens: 1600,
+    response_format: { type: "json_object" },
+    messages: [
+      { role: "system", content: system },
+      { role: "user", content: JSON.stringify(metricsPayload) }
+    ]
+  });
+  const text = String(res.choices?.[0]?.message?.content || "").trim();
+  let obj;
+  try {
+    obj = JSON.parse(text);
+  } catch {
+    return null;
+  }
+  const pick = k =>
+    typeof obj[k] === "string" ? String(obj[k]).trim().slice(0, 1400) : "";
+  return {
+    weeklySummary: pick("weeklySummary"),
+    energyParentTip: pick("energyParentTip"),
+    studyEfficiencyInsight: pick("studyEfficiencyInsight"),
+    planExecutionSummary: pick("planExecutionSummary"),
+    nextWeekForStudent: pick("nextWeekForStudent"),
+    nextWeekForParent: pick("nextWeekForParent")
+  };
+}
+
+async function buildParentGrowthReportPayload(studentId, weekMondayIso) {
+  const weekEnd = addCalendarDaysIso(weekMondayIso, 6);
+  const prevMonday = addCalendarDaysIso(weekMondayIso, -7);
+  const prevWeekEnd = addCalendarDaysIso(prevMonday, 6);
+
+  const [
+    weekData,
+    prevWeekData,
+    logs,
+    prevLogs,
+    profile,
+    studyRoomLive,
+    visits
+  ] = await Promise.all([
+    getWeekData(studentId, weekMondayIso, weekEnd),
+    getWeekData(studentId, prevMonday, prevWeekEnd),
+    listStudentCoachLogsInWeekRange(studentId, weekMondayIso),
+    listStudentCoachLogsInWeekRange(studentId, prevMonday),
+    getStudentCoachProfile(studentId),
+    getMergedStudyRoomTrackingSummary(studentId),
+    listRecentStudyRoomVisitSessionsForStudent(studentId, 48)
+  ]);
+
+  const stats = computeWeeklyStats({
+    days: weekData.days,
+    blocks: weekData.blocks,
+    plans: weekData.plans
+  });
+  const studyRoom = buildStudyRoomSummary(studyRoomLive, visits, weekMondayIso);
+
+  const weekKeys = getWeekKeysFromMonday(weekMondayIso);
+  const logByDate = new Map();
+  for (const r of logs) {
+    const k = formatPgLogDate(r.log_date);
+    if (k && !logByDate.has(k)) logByDate.set(k, r);
+  }
+
+  const sleepGoalHours = 7;
+  const daily = weekKeys.map((dateKey, idx) => {
+    const r = logByDate.get(dateKey);
+    const sleep =
+      r?.sleep_hours != null && Number.isFinite(Number(r.sleep_hours))
+        ? Number(r.sleep_hours)
+        : null;
+    const stress =
+      r?.stress_score != null && Number.isFinite(Number(r.stress_score))
+        ? Number(r.stress_score)
+        : null;
+    let stressBand = null;
+    if (stress != null && Number.isFinite(stress)) {
+      if (stress >= 4) stressBand = "high";
+      else if (stress >= 3) stressBand = "mid";
+      else stressBand = "low";
+    }
+    const srRow = (studyRoom.series || []).find(s => String(s.date) === dateKey);
+    const sr = srRow?.minutes ?? 0;
+    const studyMinutesFromLog =
+      r?.study_minutes != null && Number.isFinite(Number(r.study_minutes))
+        ? Number(r.study_minutes)
+        : null;
+    const brainRecoveryIndex =
+      sleep != null && sleepGoalHours > 0
+        ? Math.min(100, Math.round((sleep / sleepGoalHours) * 100))
+        : null;
+    return {
+      dateKey,
+      weekdayLabel: ["월", "화", "수", "목", "금", "토", "일"][idx],
+      sleepHours: sleep,
+      brainRecoveryIndex,
+      stressScore: stress,
+      stressBand,
+      studyRoomMinutes: Math.round(sr),
+      studyMinutesFromLog
+    };
+  });
+
+  let focusMinutes = 0;
+  for (const b of weekData.blocks || []) {
+    const mins = growthReportBlockMinutes(b.start_time, b.end_time);
+    const fs = String(b.focus_score || "");
+    if (fs === "◎" || fs === "○") focusMinutes += mins;
+  }
+
+  let prevFocusMinutes = 0;
+  for (const b of prevWeekData.blocks || []) {
+    const mins = growthReportBlockMinutes(b.start_time, b.end_time);
+    const fs = String(b.focus_score || "");
+    if (fs === "◎" || fs === "○") prevFocusMinutes += mins;
+  }
+
+  const studyRoomHours = (studyRoom.weeklyMinutes || 0) / 60;
+  const actualStudyHours = stats.totalStudyMinutes / 60;
+  const focusBandHours = focusMinutes / 60;
+
+  const denom =
+    studyRoom.weeklyMinutes && studyRoom.weeklyMinutes > 0
+      ? studyRoom.weeklyMinutes
+      : stats.totalStudyMinutes > 0
+        ? stats.totalStudyMinutes
+        : null;
+  const focusEfficiencyPct =
+    denom != null && denom > 0
+      ? Math.min(100, Math.round((focusMinutes / denom) * 100))
+      : null;
+
+  const prevStudyRoom = buildStudyRoomSummary(studyRoomLive, visits, prevMonday);
+  const prevStats = computeWeeklyStats({
+    days: prevWeekData.days,
+    blocks: prevWeekData.blocks,
+    plans: prevWeekData.plans
+  });
+  const prevDenom =
+    prevStudyRoom.weeklyMinutes && prevStudyRoom.weeklyMinutes > 0
+      ? prevStudyRoom.weeklyMinutes
+      : prevStats.totalStudyMinutes > 0
+        ? prevStats.totalStudyMinutes
+        : null;
+  const prevEff =
+    prevDenom != null && prevDenom > 0
+      ? Math.min(100, Math.round((prevFocusMinutes / prevDenom) * 100))
+      : null;
+  const vsPrevWeekEfficiencyDeltaPct =
+    focusEfficiencyPct != null && prevEff != null
+      ? focusEfficiencyPct - prevEff
+      : null;
+
+  const avgPlanThis = avgPlanCompletionFromLogs(logs);
+  const avgPlanPrev = avgPlanCompletionFromLogs(prevLogs);
+  const vsPrevWeekAchievementDeltaPct =
+    avgPlanThis != null && avgPlanPrev != null
+      ? avgPlanThis - avgPlanPrev
+      : null;
+
+  const badgePlanDeltaPct = vsPrevWeekAchievementDeltaPct;
+
+  const sleepVals = daily.map(d => d.sleepHours).filter(v => v != null);
+  const avgSleep =
+    sleepVals.length > 0 ? sleepVals.reduce((a, b) => a + b, 0) / sleepVals.length : null;
+  const badgeSleepRecovery =
+    (avgSleep != null && avgSleep < 6.5) ||
+    daily.some(d => d.sleepHours != null && d.sleepHours < 6);
+
+  const planLists = buildPlanExecutionLists(weekData.days, weekData.plans, weekKeys);
+  const achievementPct = avgPlanThis;
+
+  const studentName = String(profile?.name || "").trim() || "학생";
+  let gradeLine = null;
+  if (profile?.school_level || profile?.grade != null) {
+    const parts = [];
+    if (profile.school_level) parts.push(String(profile.school_level));
+    if (profile.grade != null) parts.push(`${profile.grade}학년`);
+    gradeLine = parts.join(" ");
+  }
+
+  const headerBadgeWeek = formatGrowthWeekBadgeFromMonday(weekMondayIso);
+  const dateRangeLabel = `${weekKeys[0]} ~ ${weekKeys[6]}`;
+
+  const metricsPayload = {
+    studentName,
+    gradeLine,
+    weekRange: { start: weekMondayIso, end: weekEnd },
+    sleepGoalHours,
+    daily,
+    totals: {
+      studyRoomHours,
+      actualStudyHours,
+      focusBandHours,
+      focusEfficiencyPct,
+      vsPrevWeekEfficiencyDeltaPct,
+      avgPlanCompletionPct: avgPlanThis,
+      vsPrevWeekPlanDeltaPct: badgePlanDeltaPct,
+      totalStudyMinutesFromBlocks: stats.totalStudyMinutes,
+      focusDistribution: stats.focusDistribution
+    },
+    planExecution: {
+      achievementPct,
+      completedCount: planLists.completedCount,
+      totalTracked: planLists.totalTracked,
+      bestCompletedTitles: planLists.bestCompleted.map(b => b.title),
+      carryOverSampleCount: planLists.carryOver.length
+    },
+    toneGuide: {
+      avoid: ["수면 부족", "집중을 못 했다", "달성률이 낮다", "독서실에서 시간 낭비"],
+      prefer: [
+        "회복 시간 확보가 필요한 날이 있었어요",
+        "컨디션 조절이 필요했던 날이 있었어요",
+        "완료한 항목들을 먼저 볼게요",
+        "집중 구간이 점점 늘고 있어요"
+      ]
+    }
+  };
+
+  let narrative = {
+    weeklySummary: "",
+    energyParentTip: "",
+    studyEfficiencyInsight: "",
+    planExecutionSummary: "",
+    nextWeekForStudent: "",
+    nextWeekForParent: ""
+  };
+  let usedOpenAi = false;
+  if (openai) {
+    try {
+      const parsed = await openAiParentGrowthReportCompletion(metricsPayload);
+      if (parsed && parsed.weeklySummary) {
+        narrative = { ...narrative, ...parsed };
+        usedOpenAi = true;
+      }
+    } catch (e) {
+      console.warn("[growth-report] openai failed", e?.message || e);
+    }
+  }
+  if (!narrative.weeklySummary) {
+    const lines = buildWeeklySummaryLines(stats);
+    narrative.weeklySummary =
+      lines.slice(0, 2).join(" ") || "이번 주 기록을 바탕으로 계속 응원할게요.";
+    narrative.energyParentTip =
+      "대화는 먼저 하루를 인정하는 한마디로 시작하면 마음이 조금 더 가까워져요.";
+    narrative.studyEfficiencyInsight =
+      studyRoomHours > 0
+        ? `독서실 체류는 ${studyRoomHours.toFixed(
+            1
+          )}시간, 같은 주간 기록된 학습 시간은 ${actualStudyHours.toFixed(
+            1
+          )}시간이에요. 작은 시작을 이어가면 집중 구간도 함께 자라요.`
+        : "학습 기록이 더 쌓이면 독서실과 집중 시간 비교가 더 또렷해져요.";
+    narrative.planExecutionSummary =
+      planLists.completedCount > 0
+        ? `완료한 항목부터 차근히 인정해 주시고, 이월된 항목은 다음 주로 넘겨도 괜찮아요.`
+        : "계획 항목이 더 쌓이면 실행력 카드가 더 풍성해져요.";
+    narrative.nextWeekForStudent =
+      "부담이 큰 날에는 목표를 ‘완료’보다 ‘시작’ 한 단계만 낮춰 보세요.";
+    narrative.nextWeekForParent =
+      "공부 이야기 전에 오늘 기분 한 줄만 가볍게 물어보는 시간을 가져보세요.";
+  }
+
+  return {
+    weekStart: weekMondayIso,
+    weekEnd,
+    studentName,
+    gradeLine,
+    headerBadgeWeek,
+    dateRangeLabel,
+    badgePlanDeltaPct,
+    badgeSleepRecovery,
+    sleepGoalHours,
+    daily,
+    studyEfficiency: {
+      studyRoomHours: Math.round(studyRoomHours * 10) / 10,
+      actualStudyHours: Math.round(actualStudyHours * 10) / 10,
+      focusBandHours: Math.round(focusBandHours * 10) / 10,
+      focusEfficiencyPct,
+      vsPrevWeekEfficiencyDeltaPct
+    },
+    planExecution: {
+      achievementPct,
+      completedCount: planLists.completedCount,
+      totalTracked: planLists.totalTracked,
+      vsPrevWeekAchievementDeltaPct,
+      bestCompleted: planLists.bestCompleted,
+      carryOver: planLists.carryOver
+    },
+    narrative,
+    usedOpenAi
+  };
+}
+
 function isIsoDate(v) {
   return /^\d{4}-\d{2}-\d{2}$/.test(String(v || ""));
 }
@@ -1725,6 +2132,19 @@ function extractVisibleNotificationBody(body) {
   }
   const divider = raw.indexOf("\n\n");
   return divider >= 0 ? raw.slice(divider + 2).trim() : "";
+}
+
+/** 학부모 알림·푸시·카카오에 쓸 학생 표시 이름: 프로필 이름 우선, 없으면 이메일 @ 앞, 없으면 "학생". */
+function formatStudentDisplayNameForParentNotify(me) {
+  const profileName = String(me?.name ?? "").trim();
+  if (profileName) return profileName;
+  const email = String(me?.email ?? "").trim().toLowerCase();
+  if (email) {
+    const at = email.indexOf("@");
+    const local = (at > 0 ? email.slice(0, at) : email).trim();
+    if (local) return local;
+  }
+  return "학생";
 }
 
 async function sendStudentPushNotification(userId, title, body, data = undefined) {
@@ -5761,7 +6181,7 @@ app.post("/api/student/request-parent", authMiddleware, async (req, res) => {
         Number(result.parentUserId),
         "studentLinkAlerts",
         "학생 연결 요청 도착",
-        `${String(me.email || "학생").trim() || "학생"} 님이 계정 연결을 요청했습니다. 프로필에서 확인할 수 있습니다.`
+        `${formatStudentDisplayNameForParentNotify(me)} 님이 계정 연결을 요청했습니다. 프로필에서 확인할 수 있습니다.`
       ).catch(() => {});
     }
     res.json({ ok: true, requestId: result.requestId });
@@ -5838,8 +6258,8 @@ app.get("/api/student/admin-channel", authMiddleware, async (req, res) => {
 
 app.post("/api/student/admin-channel/messages", authMiddleware, async (req, res) => {
   try {
-    const me = await getUserByIdForAuth(req.userId);
-    const studentEmail = String(me?.email || "학생").trim() || "학생";
+    const me = await getMe(req.userId);
+    const studentLabel = formatStudentDisplayNameForParentNotify(me);
     const parent = await resolvePrimaryParentForStudent(req.userId);
     if (!parent) {
       return res.status(400).json({ error: "연결된 학부모가 없습니다." });
@@ -5858,7 +6278,7 @@ app.post("/api/student/admin-channel/messages", authMiddleware, async (req, res)
       req.userId,
       "messageAlerts",
       "새 학생 메시지",
-      `${studentEmail} 학생이 학부모 1:1 채널에 새 메시지를 보냈습니다.`
+      `${studentLabel} 학생이 학부모 1:1 채널에 새 메시지를 보냈습니다.`
     ).catch(() => {});
     res.json({ ok: true, message: saved });
   } catch (e) {
@@ -5873,8 +6293,8 @@ app.post(
   homeworkUpload.single("file"),
   async (req, res) => {
     try {
-      const me = await getUserByIdForAuth(req.userId);
-      const studentEmail = String(me?.email || "학생").trim() || "학생";
+      const me = await getMe(req.userId);
+      const studentLabel = formatStudentDisplayNameForParentNotify(me);
       const parent = await resolvePrimaryParentForStudent(req.userId);
       if (!parent) {
         return res.status(400).json({ error: "연결된 학부모가 없습니다." });
@@ -5905,7 +6325,7 @@ app.post(
         req.userId,
         "homeworkAlerts",
         "새 숙제 제출",
-        `${studentEmail} 학생이 새 숙제를 제출했습니다. 코치 탭에서 검토할 수 있어요.`
+        `${studentLabel} 학생이 새 숙제를 제출했습니다. 코치 탭에서 검토할 수 있어요.`
       ).catch(() => {});
       res.json({ ok: true, submission: created });
     } catch (e) {
@@ -6207,7 +6627,7 @@ app.post("/api/student/link-confirm", authMiddleware, async (req, res) => {
         Number(result.parentUserId),
         "studentLinkAlerts",
         "학생 연결 승인 완료",
-        `${String(me.email || "학생").trim() || "학생"} 님이 연결 요청을 승인했습니다. 이제 계정이 연결되었습니다.`
+        `${formatStudentDisplayNameForParentNotify(me)} 님이 연결 요청을 승인했습니다. 이제 계정이 연결되었습니다.`
       ).catch(() => {});
     }
     res.json({ ok: true });
@@ -6269,7 +6689,7 @@ app.post("/api/student/plan-add-request", authMiddleware, async (req, res) => {
       req.userId,
       "requestAlerts",
       "오늘 계획 수정 요청",
-      `${String(me.email || "학생")}(이)가 ${d} ${st}-${et} ${name}${plannedRange ? ` · ${String(plannedRange).trim()}` : ""} 계획 수정을 요청했어요.`,
+      `${formatStudentDisplayNameForParentNotify(me)} 님이 ${d} ${st}-${et} ${name}${plannedRange ? ` · ${String(plannedRange).trim()}` : ""} 계획 수정을 요청했어요.`,
       undefined,
       { forceKakaoPush: true }
     );
@@ -6326,7 +6746,7 @@ app.post("/api/link/reject", authMiddleware, async (req, res) => {
         Number(result.parentUserId),
         "studentLinkAlerts",
         "학생 연결 요청 거절됨",
-        `${String(me.email || "학생").trim() || "학생"} 님이 연결 요청을 거절했습니다.`
+        `${formatStudentDisplayNameForParentNotify(me)} 님이 연결 요청을 거절했습니다.`
       ).catch(() => {});
     }
     res.json({ ok: true });
@@ -6396,7 +6816,7 @@ app.post("/api/link/unlink", authMiddleware, async (req, res) => {
               initiatorRole: "student",
               counterpartEmail: String(me.email || "").trim()
             },
-            `${String(me.email || "학생").trim() || "학생"} 님이 연결 끊기를 요청했습니다. 알림을 열어 확인하면 연결이 해제됩니다.`
+            `${formatStudentDisplayNameForParentNotify(me)} 님이 연결 끊기를 요청했습니다. 알림을 열어 확인하면 연결이 해제됩니다.`
           )
         ).catch(() => {});
       }
@@ -6757,6 +7177,36 @@ app.get("/api/parent/coach/pattern-insights", authMiddleware, async (req, res) =
     res.status(500).json({ error: "학생 AI 패턴 분석을 불러오지 못했습니다." });
   }
 });
+
+/** 학부모 성장 리포트: DB 집계 + GPT 문구 (OPENAI_API_KEY 없으면 규칙 기반 문구) */
+app.get("/api/parent/growth-report", authMiddleware, async (req, res) => {
+  try {
+    const me = await getMe(req.userId);
+    if (!me || me.role !== "parent") {
+      return res.status(403).json({ error: "권한이 없습니다." });
+    }
+    const studentId = Number(req.query.studentId || 0);
+    const weekStart = String(req.query.weekStart || "").trim();
+    if (!studentId) {
+      return res.status(400).json({ error: "studentId가 필요합니다." });
+    }
+    if (!weekStart || !isIsoDate(weekStart)) {
+      return res
+        .status(400)
+        .json({ error: "weekStart(월요일 YYYY-MM-DD)가 필요합니다." });
+    }
+    const has = await parentHasStudent(req.userId, studentId);
+    if (!has) {
+      return res.status(403).json({ error: "연결된 학생이 아닙니다." });
+    }
+    const payload = await buildParentGrowthReportPayload(studentId, weekStart);
+    res.json(payload);
+  } catch (e) {
+    console.error("/api/parent/growth-report error", e);
+    res.status(500).json({ error: "성장 리포트를 불러오지 못했습니다." });
+  }
+});
+
 app.post("/api/parent/ai-daily-report/refresh", authMiddleware, async (req, res) => {
   try {
     if (!process.env.OPENAI_API_KEY) {
@@ -8353,7 +8803,7 @@ app.post("/api/student/coach/app-timetable-request", authMiddleware, async (req,
     const slotSummary = buildWeeklyAppRequestSlotSummary(normalizedSlots);
 
     const bodyParts = [
-      `${String(me.email || "학생")}(이)가 허용 앱 요청 확인을 보냈어요.`
+      `${formatStudentDisplayNameForParentNotify(me)} 님이 허용 앱 요청 확인을 보냈어요.`
     ];
     if (summary) bodyParts.push(summary);
     if (slotSummary) bodyParts.push(`추천 시간대: ${slotSummary}`);
@@ -8362,6 +8812,7 @@ app.post("/api/student/coach/app-timetable-request", authMiddleware, async (req,
     const actionBody = embedNotificationAction(
       {
         type: "parent_app_timetable_request",
+        studentDisplayName: formatStudentDisplayNameForParentNotify(me),
         studentEmail: String(me.email || "").trim().toLowerCase(),
         targetDate: "",
         summary,

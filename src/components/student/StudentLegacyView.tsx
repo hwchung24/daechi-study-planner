@@ -18,10 +18,8 @@ import {
   seoulDateKeyFromApiValue
 } from "../../lib/weekDates";
 import { TAB_TRANSITION_SETTLE_MS } from "../../lib/uiTiming";
+import { setAppPath } from "../../lib/appNavigation";
 import { storeAppIcons } from "../../lib/storeIconAssets";
-
-/** 탭 전환이 거의 마무리될 시점에 기록 스크롤을 다시 정렬 */
-const RECORDS_TAB_ENTER_MS = TAB_TRANSITION_SETTLE_MS + 40;
 import type { StudentLockStatus } from "../../types/lockStatus";
 import type {
   ProgressBook,
@@ -35,6 +33,9 @@ import {
   DAECHI_COACH_TOMORROW_STARTER_KEY
 } from "../../lib/coachEvents";
 import { useModalReveal } from "../../lib/useModalReveal";
+
+/** 탭 전환이 거의 마무리될 시점에 기록 스크롤을 다시 정렬 */
+const RECORDS_TAB_ENTER_MS = TAB_TRANSITION_SETTLE_MS + 40;
 
 const COMMITMENT_DONE_STORAGE_PREFIX = "daechi_commitment_done_";
 

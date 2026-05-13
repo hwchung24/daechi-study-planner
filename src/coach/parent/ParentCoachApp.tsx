@@ -42,7 +42,7 @@ import {
   seoulDateKeyFromApiValue
 } from "../../lib/weekDates";
 import { ParentAdminChannelPanel } from "../admin/AdminChannelPanels";
-import { StudentCoachApp } from "../student/StudentCoachApp";
+import { ParentGrowthReportTab } from "./ParentGrowthReportTab";
 import { Card, EmptyState, GradientHeroCard, MetricCard, RiskBadge, SectionHeader } from "../ui/components";
 import { NotificationsPage, type ParentNotificationAction } from "../../components/student/NotificationsPage";
 import { formatMinutes } from "../utils/format";
@@ -260,62 +260,8 @@ function buildDailyChart(report: ParentWeeklyReport | null) {
   });
 }
 
-const SLEEP_HOURS_MAX = 14;
-const STUDY_HOURS_MAX = SLEEP_HOURS_MAX;
-
-function recordLifeSliderFillPct(value: string | number | null | undefined): string {
-  const numericValue = Number(value);
-  if (!Number.isFinite(numericValue)) return "0%";
-  const clamped = Math.max(1, Math.min(5, numericValue));
-  const pct = ((clamped - 1) / 4) * 100;
-  return `${pct}%`;
-}
-
-function recordSleepSliderFillPct(value: string | number | null | undefined): string {
-  const numericValue = Number(value);
-  if (!Number.isFinite(numericValue)) return "0%";
-  const clamped = Math.max(0, Math.min(SLEEP_HOURS_MAX, numericValue));
-  const pct = (clamped / SLEEP_HOURS_MAX) * 100;
-  return `${pct}%`;
-}
-
-function recordStudyHoursSliderFillPctFromMinutes(value: string | number | null | undefined): string {
-  const numericValue = Number(value);
-  if (!Number.isFinite(numericValue)) return "0%";
-  const clamped = Math.max(0, Math.min(STUDY_HOURS_MAX * 60, numericValue));
-  const pct = ((clamped / 60) / STUDY_HOURS_MAX) * 100;
-  return `${pct}%`;
-}
-
-function formatNumericHours(value: number | null | undefined): string {
-  if (value == null || !Number.isFinite(Number(value))) return "—";
-  const clamped = Math.max(0, Math.min(SLEEP_HOURS_MAX, Number(value)));
-  return Number.isInteger(clamped) ? `${clamped}시간` : `${clamped.toFixed(1)}시간`;
-}
-
-function formatStudyHoursLabel(value: number | null | undefined): string {
-  if (value == null || !Number.isFinite(Number(value))) return "—";
-  const hours = Math.max(0, Math.min(STUDY_HOURS_MAX, Number(value) / 60));
-  return Number.isInteger(hours) ? `${hours}시간` : `${hours.toFixed(1)}시간`;
-}
-
 function normalizeDateKey(value: string | null | undefined): string {
   return String(value || "").trim().slice(0, 10);
-}
-
-function shiftDateKey(dateKey: string, offsetDays: number): string {
-  const base = new Date(`${normalizeDateKey(dateKey)}T12:00:00+09:00`);
-  if (Number.isNaN(base.getTime())) return normalizeDateKey(dateKey);
-  base.setDate(base.getDate() + offsetDays);
-  return `${base.getFullYear()}-${String(base.getMonth() + 1).padStart(2, "0")}-${String(base.getDate()).padStart(2, "0")}`;
-}
-
-function sortBlocks(blocks: ParentWeekBlock[]) {
-  return [...blocks].sort((left, right) => {
-    const start = timeToMinutes(left.start_time) - timeToMinutes(right.start_time);
-    if (start !== 0) return start;
-    return String(left.subject || "").localeCompare(String(right.subject || ""), "ko");
-  });
 }
 
 function trimText(value: string | null | undefined): string {
@@ -404,7 +350,18 @@ function labelShort(dateKey: string) {
 }
 
 function riskLevelFromSnapshotMetrics(
-  metrics: ParentCoachAnalysisState["snapshot"] extends { metrics?: infer T } ? T : never
+  metrics:
+    | {
+        sleepHours?: number | null;
+        steps?: number | null;
+        stress?: number | null;
+        mealsRegularity?: number | null;
+        concentration?: number | null;
+        studyMinutes?: number | null;
+        planCompletionRate?: number | null;
+      }
+    | null
+    | undefined
 ): Severity {
   if (!metrics) return "낮음";
   const stress = Number(metrics.stress ?? 0);
@@ -567,6 +524,66 @@ function hasLifeLogContent(log: ParentCoachLog | null | undefined) {
     trimText(log.tomorrowPractice).length > 0 ||
     typeof log.tomorrowPracticeDone === "boolean"
   );
+}
+
+const RECORDS_SLEEP_HOURS_MAX = 14;
+const RECORDS_STUDY_HOURS_MAX = RECORDS_SLEEP_HOURS_MAX;
+
+function blockStartTimeSortMinutes(value: string) {
+  const [hours, minutes] = String(value || "").split(":").map(Number);
+  if (!Number.isFinite(hours) || !Number.isFinite(minutes)) return 0;
+  return hours * 60 + minutes;
+}
+
+function sortBlocks(blocks: ParentWeekBlock[]) {
+  return [...blocks].sort((left, right) => {
+    const start = blockStartTimeSortMinutes(left.start_time) - blockStartTimeSortMinutes(right.start_time);
+    if (start !== 0) return start;
+    return String(left.subject || "").localeCompare(String(right.subject || ""), "ko");
+  });
+}
+
+function shiftDateKey(dateKey: string, offsetDays: number): string {
+  const base = new Date(`${normalizeDateKey(dateKey)}T12:00:00+09:00`);
+  if (Number.isNaN(base.getTime())) return normalizeDateKey(dateKey);
+  base.setDate(base.getDate() + offsetDays);
+  return `${base.getFullYear()}-${String(base.getMonth() + 1).padStart(2, "0")}-${String(base.getDate()).padStart(2, "0")}`;
+}
+
+function recordLifeSliderFillPct(value: string | number | null | undefined): string {
+  const numericValue = Number(value);
+  if (!Number.isFinite(numericValue)) return "0%";
+  const clamped = Math.max(1, Math.min(5, numericValue));
+  const pct = ((clamped - 1) / 4) * 100;
+  return `${pct}%`;
+}
+
+function recordSleepSliderFillPct(value: string | number | null | undefined): string {
+  const numericValue = Number(value);
+  if (!Number.isFinite(numericValue)) return "0%";
+  const clamped = Math.max(0, Math.min(RECORDS_SLEEP_HOURS_MAX, numericValue));
+  const pct = (clamped / RECORDS_SLEEP_HOURS_MAX) * 100;
+  return `${pct}%`;
+}
+
+function recordStudyHoursSliderFillPctFromMinutes(value: string | number | null | undefined): string {
+  const numericValue = Number(value);
+  if (!Number.isFinite(numericValue)) return "0%";
+  const clamped = Math.max(0, Math.min(RECORDS_STUDY_HOURS_MAX * 60, numericValue));
+  const pct = ((clamped / 60) / RECORDS_STUDY_HOURS_MAX) * 100;
+  return `${pct}%`;
+}
+
+function formatNumericHours(value: number | null | undefined): string {
+  if (value == null || !Number.isFinite(Number(value))) return "—";
+  const clamped = Math.max(0, Math.min(RECORDS_SLEEP_HOURS_MAX, Number(value)));
+  return Number.isInteger(clamped) ? `${clamped}시간` : `${clamped.toFixed(1)}시간`;
+}
+
+function formatStudyHoursLabel(value: number | null | undefined): string {
+  if (value == null || !Number.isFinite(Number(value))) return "—";
+  const hours = Math.max(0, Math.min(RECORDS_STUDY_HOURS_MAX, Number(value) / 60));
+  return Number.isInteger(hours) ? `${hours}시간` : `${hours.toFixed(1)}시간`;
 }
 
 function ReadonlySliderField(props: {
@@ -1908,28 +1925,24 @@ function StudentSettingsTab(props: {
       }
 
       if (!res.ok) {
-        startTransition(() => {
-          setBulkLockOverrideFromApi(false);
-          setMdmSurfaceMode("default");
-        });
+        setBulkLockOverrideFromApi(false);
+        setMdmSurfaceMode("default");
         return;
       }
 
       const parsedSurface = parseParentMdmSurfaceMode(data.mdmSurfaceMode);
       const effectiveSurface: ParentMdmSurfaceMode = parsedSurface ?? "default";
-      startTransition(() => {
-        setMdmSurfaceMode(effectiveSurface);
-        setBulkLockOverrideFromApi(
-          effectiveSurface === "block" || Boolean(data.bulkLockOverride)
-        );
+      setMdmSurfaceMode(effectiveSurface);
+      setBulkLockOverrideFromApi(
+        effectiveSurface === "block" || Boolean(data.bulkLockOverride)
+      );
 
-        setActiveAppAllowanceMode(
-          data.appAllowanceMode === "utility" || data.appAllowanceMode === "free"
-            ? data.appAllowanceMode
-            : null
-        );
-        setIsBulkKioskEnabled(Boolean(data.kioskEnabled));
-      });
+      setActiveAppAllowanceMode(
+        data.appAllowanceMode === "utility" || data.appAllowanceMode === "free"
+          ? data.appAllowanceMode
+          : null
+      );
+      setIsBulkKioskEnabled(Boolean(data.kioskEnabled));
 
       if (
         options?.loadGeneration !== undefined &&
@@ -2103,6 +2116,15 @@ function StudentSettingsTab(props: {
   const toggleBulkDaechiRootLock = async (nextLocked: boolean) => {
     if (!props.authToken || !props.parentStudentId) return;
     setBulkDaechiRootLockSaving(true);
+    if (nextLocked) {
+      setMdmSurfaceMode("block");
+      setBulkLockOverrideFromApi(true);
+      setActiveAppAllowanceMode(null);
+    } else {
+      setBulkLockOverrideFromApi(false);
+      setMdmSurfaceMode("default");
+      setActiveAppAllowanceMode(null);
+    }
     props.setParentPlannerMessage("");
     try {
       const res = await fetch(
@@ -2126,6 +2148,7 @@ function StudentSettingsTab(props: {
           data.error || (nextLocked ? "일괄 잠금에 실패했습니다." : "일괄 해제에 실패했습니다.")
         );
         props.hapticWarning();
+        void reloadStudentDeviceUi();
         return;
       }
       props.setParentPlannerMessage(
@@ -2136,9 +2159,10 @@ function StudentSettingsTab(props: {
       );
       if ((data.summary?.failed || 0) > 0) {
         props.hapticWarning();
+        void reloadStudentDeviceUi();
       } else {
         props.hapticSuccess();
-        await reloadStudentDeviceUi();
+        void reloadStudentDeviceUi();
       }
     } catch (error) {
       const detail =
@@ -2149,14 +2173,31 @@ function StudentSettingsTab(props: {
         `일괄 제어 중 오류가 발생했습니다. 서버: ${props.apiBase}${detail}`
       );
       props.hapticWarning();
+      void reloadStudentDeviceUi();
     } finally {
       setBulkDaechiRootLockSaving(false);
     }
   };
 
+  const applyOptimisticAppAllowanceMode = (mode: "utility" | "free" | "default") => {
+    if (mode === "utility") {
+      setActiveAppAllowanceMode("utility");
+      setMdmSurfaceMode("utility");
+      setBulkLockOverrideFromApi(false);
+    } else if (mode === "free") {
+      setActiveAppAllowanceMode("free");
+      setMdmSurfaceMode("free");
+      setBulkLockOverrideFromApi(false);
+    } else {
+      setActiveAppAllowanceMode(null);
+      setBulkLockOverrideFromApi(false);
+      setMdmSurfaceMode("default");
+    }
+  };
+
   const activateAppAllowanceMode = async (mode: "utility" | "free" | "default") => {
     if (!props.authToken || !props.parentStudentId) return;
-    setActivatingAppMode(mode);
+    applyOptimisticAppAllowanceMode(mode);
     props.setParentPlannerMessage("");
     try {
       const res = await fetch(`${props.apiBase}/api/parent/app-allowance/activate-mode`, {
@@ -2180,6 +2221,7 @@ function StudentSettingsTab(props: {
       if (!res.ok) {
         props.setParentPlannerMessage(data.error || "허용앱 프로파일 적용에 실패했습니다.");
         props.hapticWarning();
+        void reloadStudentDeviceUi();
         return;
       }
       const failed = Number(data.summary?.failed ?? 0) > 0 || data.ok === false;
@@ -2189,17 +2231,17 @@ function StudentSettingsTab(props: {
           rowErr || data.message || "허용앱 프로파일 적용에 실패했습니다."
         );
         props.hapticWarning();
+        void reloadStudentDeviceUi();
         return;
       }
       props.setParentPlannerMessage(data.message || "허용앱 프로파일을 적용했습니다.");
       props.hapticSuccess();
-      await reloadStudentDeviceUi();
+      void reloadStudentDeviceUi();
     } catch (error) {
       const detail = error instanceof Error && error.message ? ` (${error.message})` : "";
       props.setParentPlannerMessage(`허용앱 프로파일 적용 중 오류가 발생했습니다.${detail}`);
       props.hapticWarning();
-    } finally {
-      setActivatingAppMode(null);
+      void reloadStudentDeviceUi();
     }
   };
 
@@ -2208,6 +2250,7 @@ function StudentSettingsTab(props: {
 
   const toggleBulkKioskMode = async (nextEnabled: boolean) => {
     if (!props.authToken || !props.parentStudentId) return;
+    setIsBulkKioskEnabled(nextEnabled);
     setBulkKioskSaving(true);
     props.setParentPlannerMessage("");
     try {
@@ -2232,6 +2275,7 @@ function StudentSettingsTab(props: {
           data.error || (nextEnabled ? "키오스크 모드 적용에 실패했습니다." : "키오스크 모드 해제에 실패했습니다.")
         );
         props.hapticWarning();
+        void reloadStudentDeviceUi();
         return;
       }
       props.setParentPlannerMessage(
@@ -2242,9 +2286,10 @@ function StudentSettingsTab(props: {
       );
       if ((data.summary?.failed || 0) > 0) {
         props.hapticWarning();
+        void reloadStudentDeviceUi();
       } else {
         props.hapticSuccess();
-        await reloadStudentDeviceUi();
+        void reloadStudentDeviceUi();
       }
     } catch (error) {
       const detail =
@@ -2255,6 +2300,7 @@ function StudentSettingsTab(props: {
         `키오스크 모드 제어 중 오류가 발생했습니다. 서버: ${props.apiBase}${detail}`
       );
       props.hapticWarning();
+      void reloadStudentDeviceUi();
     } finally {
       setBulkKioskSaving(false);
     }
@@ -2487,26 +2533,34 @@ function ManageTab(props: {
 }
 
 function ParentAnalysisTab(props: {
+  apiBase: string;
   authToken: string | null;
+  parentStudents: ParentStudentRow[];
+  parentStudentId: number | null;
+  setParentStudentId: (id: number | null) => void;
   selectedStudent: ParentStudentRow | null;
-  parentReport: ParentWeeklyReport | null;
-  parentAiDaily: ParentAiDaily | null;
+  parentWeekOffset: number;
+  setParentWeekOffset: React.Dispatch<React.SetStateAction<number>>;
 }) {
-  if (!props.selectedStudent) {
-    return <EmptyState title="학생을 선택하세요" />;
-  }
-  const parentSuggestedPhrase = pickParentSuggestedPhrase(
-    props.parentAiDaily,
-    deriveGuide(props.parentReport, props.parentAiDaily).suggestedPhrases[0] || ""
-  );
   return (
-    <StudentCoachApp
-      tab="analysis"
-      authToken={props.authToken}
-      apiScope="parent"
-      parentStudentId={props.selectedStudent.id}
-      analysisActionTextOverride={parentSuggestedPhrase}
-    />
+    <div className="coach-page">
+      <ParentStudentSelector
+        parentStudents={props.parentStudents}
+        parentStudentId={props.parentStudentId}
+        setParentStudentId={props.setParentStudentId}
+      />
+      {!props.selectedStudent ? (
+        <EmptyState title="학생을 선택하세요" />
+      ) : (
+        <ParentGrowthReportTab
+          apiBase={props.apiBase}
+          authToken={props.authToken}
+          selectedStudent={props.selectedStudent}
+          parentWeekOffset={props.parentWeekOffset}
+          setParentWeekOffset={props.setParentWeekOffset}
+        />
+      )}
+    </div>
   );
 }
 
@@ -2560,6 +2614,8 @@ export function ParentCoachApp(props: {
   hapticSuccess: () => void;
   onParentNotificationsReadAll?: () => void;
   onParentNotificationAction?: (action: ParentNotificationAction) => void;
+  parentWeekOffset: number;
+  setParentWeekOffset: React.Dispatch<React.SetStateAction<number>>;
 }) {
   const selectedStudent =
     props.parentStudents.find(student => student.id === props.parentStudentId) ||
@@ -2630,10 +2686,14 @@ export function ParentCoachApp(props: {
   } else if (props.tab === "analysis") {
     view = (
       <ParentAnalysisTab
+        apiBase={props.apiBase}
         authToken={props.authToken}
+        parentStudents={props.parentStudents}
+        parentStudentId={props.parentStudentId}
+        setParentStudentId={props.setParentStudentId}
         selectedStudent={selectedStudent}
-        parentReport={props.parentReport}
-        parentAiDaily={props.parentAiDaily}
+        parentWeekOffset={props.parentWeekOffset}
+        setParentWeekOffset={props.setParentWeekOffset}
       />
     );
   } else if (props.tab === "notifications") {
