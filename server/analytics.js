@@ -136,69 +136,7 @@ function computeWeeklyStats(input) {
   };
 }
 
-function buildWeeklySummaryLines(stats) {
-  const hours = Math.floor(stats.totalStudyMinutes / 60);
-  const mins = stats.totalStudyMinutes % 60;
-
-  const mainSubject =
-    stats.subjectTimes && stats.subjectTimes.length > 0
-      ? stats.subjectTimes[0].subject
-      : null;
-
-  const bestCompletion =
-    stats.completionRates && stats.completionRates.length > 0
-      ? stats.completionRates[0]
-      : null;
-
-  const worstCompletion =
-    stats.completionRates && stats.completionRates.length > 0
-      ? stats.completionRates[stats.completionRates.length - 1]
-      : null;
-
-  const lines = [];
-
-  lines.push(
-    `이번 주 학습 기간은 ${stats.weekStart} ~ ${stats.weekEnd}이며, 총 학습 시간은 약 ${hours}시간 ${mins}분입니다.`
-  );
-
-  if (mainSubject) {
-    lines.push(`가장 많은 시간을 투자한 과목은 「${mainSubject}」입니다.`);
-  }
-
-  if (bestCompletion) {
-    lines.push(
-      `계획 대비 완료율이 가장 높은 교재는 ${bestCompletion.subject}로 평균 ${bestCompletion.avgFinalPct}%를 기록했습니다.`
-    );
-  }
-
-  if (worstCompletion && worstCompletion !== bestCompletion) {
-    lines.push(
-      `완료율이 상대적으로 낮은 교재는 ${worstCompletion.subject}로 평균 ${worstCompletion.avgFinalPct}% 수준입니다.`
-    );
-  }
-
-  if (stats.consecutiveAbsentDays >= 2) {
-    lines.push(
-      `최근 ${stats.consecutiveAbsentDays}일 연속으로 학습 기록이 없어, 일정 관리에 추가적인 점검이 필요해 보입니다.`
-    );
-  }
-
-  return lines;
-}
-
-function buildWeeklyReportPrompt(stats) {
-  const baseJson = JSON.stringify(stats, null, 2);
-  return [
-    "다음은 한 학생의 1주일 학습 통계입니다.",
-    "이 내용을 바탕으로 학부모에게 보내는 4~5줄짜리 리포트를 한국어로 작성해 주세요.",
-    "",
-    baseJson
-  ].join("\n");
-}
-
 module.exports = {
-  computeWeeklyStats,
-  buildWeeklySummaryLines,
-  buildWeeklyReportPrompt
+  computeWeeklyStats
 };
 

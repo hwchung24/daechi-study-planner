@@ -19,6 +19,8 @@ import {
 } from "lucide-react";
 import { motion } from "framer-motion";
 import { demoStudents } from "../demoData";
+import ko from "../fallbacks/ko.json";
+import { tpl } from "../fallbacks/tpl";
 import { useCoachStore, type CoachChatGreetingMode } from "../state/useCoachStore";
 import type { Severity } from "../types";
 import {
@@ -72,7 +74,8 @@ const CoachTomorrowPlanCollabLazy = React.lazy(() =>
 );
 import { StudentAdminChannelPanel } from "../admin/AdminChannelPanels";
 
-export type StudentTabKey = "home" | "coach" | "analysis";
+const SC = ko.studentCoachApp;
+const C = ko.common;
 
 const IS_NATIVE_PLATFORM = Capacitor.isNativePlatform();
 const NATIVE_KEYBOARD_DISMISS_EVENT = "daechi:native-keyboard-input-dismiss";
@@ -105,10 +108,11 @@ function formatCoachLogDateKey(raw: string | undefined | null): string {
 
 function formatMinutesAsHourLabel(minutes: number | null | undefined): string {
   const value = Number(minutes);
-  if (!Number.isFinite(value) || value <= 0) return "0시간";
+  const f = SC.format;
+  if (!Number.isFinite(value) || value <= 0) return f.hoursZero;
   const hours = value / 60;
-  if (hours >= 10) return `${Math.round(hours)}시간`;
-  return `${hours.toFixed(1).replace(/\.0$/, "")}시간`;
+  if (hours >= 10) return `${Math.round(hours)}${f.hourSuffix}`;
+  return `${hours.toFixed(1).replace(/\.0$/, "")}${f.hourSuffix}`;
 }
 
 function AnalysisInsightCard(props: {
@@ -124,11 +128,11 @@ function AnalysisInsightCard(props: {
         <div>
           <div className="coach-analysis-insight__eyebrow">
             {renderAnalysisIcon("insight", "coach-analysis-icon coach-analysis-icon--eyebrow")}
-            <span>AI 인사이트</span>
+            <span>{SC.aiInsightEyebrow}</span>
           </div>
           <div className="coach-analysis-insight__title">{props.title}</div>
         </div>
-        <span className={"coach-badge " + (props.severity === "높음" ? "coach-badge--danger" : props.severity === "보통" ? "coach-badge--warn" : "coach-badge--ok")}>
+        <span className={"coach-badge " + (props.severity === C.severityHigh ? "coach-badge--danger" : props.severity === C.severityMid ? "coach-badge--warn" : "coach-badge--ok")}>
           {props.severity}
         </span>
       </div>
@@ -204,6 +208,7 @@ function buildFallbackAnalysis(
   rows: RhythmChartRow[],
   studyRoom: StudyRoomSummary | undefined
 ): SnapshotAnalysis {
+  const FB = SC.fallback;
   const metrics = snapshot?.metrics;
   const totalStudyMinutes = rows.reduce(
     (sum, row) => sum + (row.studyMinutes != null ? row.studyMinutes : 0),
@@ -227,35 +232,38 @@ function buildFallbackAnalysis(
   if (sleep != null && Number.isFinite(Number(sleep))) {
     highlightMetrics.push({
       key: "sleepHours",
-      title: "수면",
-      value: `${Number(sleep).toFixed(1)}시간`,
+      title: FB.sleepTitle,
+      value: `${Number(sleep).toFixed(1)}${SC.format.hourSuffix}`,
       hint:
         Number(sleep) >= 6.5
-          ? "회복 리듬이 유지되고 있어요"
-          : "수면이 짧아 집중 회복이 늦을 수 있어요",
+          ? FB.sleepHintGood
+          : FB.sleepHintWarn,
       tone: Number(sleep) >= 6.5 ? "good" : "warn"
     });
   }
   if (concentrationPercent != null && Number.isFinite(concentrationPercent)) {
     highlightMetrics.push({
       key: "concentration",
-      title: "집중",
-      value: `${concentrationPercent}%`,
+      title: FB.concTitle,
+      value: `${concentrationPercent}${SC.format.percentSuffix}`,
       hint:
         concentrationPercent >= 70
-          ? "집중 흐름이 비교적 안정적이에요"
-          : "시작 마찰을 줄이면 더 좋아질 수 있어요",
+          ? FB.concHintGood
+          : FB.concHintWarn,
       tone: concentrationPercent >= 70 ? "good" : "warn"
     });
   }
   highlightMetrics.push({
     key: "studyRoomMinutes",
-    title: "독서실 체류",
+    title: FB.studyRoomTitle,
     value: formatMinutesAsHourLabel(studyRoomMinutes),
     hint:
       studyRoomMinutes > 0
-        ? `${studyRoom?.activeDays ?? 0}일 방문 · ${studyRoom?.consistencyLabel ?? "환경 기록"}`
-        : "이번 주 체류 기록이 아직 없어요",
+        ? tpl(FB.studyRoomVisitLine, {
+            days: String(studyRoom?.activeDays ?? 0),
+            label: String(studyRoom?.consistencyLabel ?? FB.envRecordFallback)
+          })
+        : FB.studyRoomNoVisits,
     tone: studyRoomMinutes > 0
       ? Number(studyRoom?.activeDays ?? 0) >= 3
         ? "good"
@@ -265,12 +273,12 @@ function buildFallbackAnalysis(
   if (planCompletion != null && highlightMetrics.length < 3) {
     highlightMetrics.push({
       key: "planCompletionRate",
-      title: "계획 완료",
-      value: `${planCompletion}%`,
+      title: FB.planTitle,
+      value: `${planCompletion}${SC.format.percentSuffix}`,
       hint:
         planCompletion >= 65
-          ? "실행률이 유지되고 있어요"
-          : "해야 할 일을 더 줄이는 편이 좋아요",
+          ? FB.planHintGood
+          : FB.planHintWarn,
       tone: planCompletion >= 65 ? "good" : "warn"
     });
   }
@@ -281,17 +289,20 @@ function buildFallbackAnalysis(
     totalStudyMinutes < studyRoomMinutes * 0.45;
 
   return {
-    statusLabel: hasStudyRoomGap ? "실행 연결 필요" : "리듬 점검",
+    statusLabel: hasStudyRoomGap ? FB.statusExecutionGap : FB.statusRhythmCheck,
     headline:
       snapshot?.heroNarrative ||
-      "이번 주 흐름을 한 번 더 정리하면 더 좋아질 구간이 보여요.",
+      FB.headlineDefault,
     body: hasStudyRoomGap
-      ? `독서실 체류 ${formatMinutesAsHourLabel(studyRoomMinutes)}, 기록 공부 ${formatMinutesAsHourLabel(totalStudyMinutes)}예요. 환경은 확보됐으니 시작 루틴 연결이 핵심입니다.`
+      ? tpl(FB.bodyStudyRoomGap, {
+          sr: formatMinutesAsHourLabel(studyRoomMinutes),
+          study: formatMinutesAsHourLabel(totalStudyMinutes)
+        })
       : studyRoomMinutes > 0
-        ? `${studyRoom?.consistencyHint || "독서실 체류 흐름을 함께 보고 있어요."}`
-        : "핵심 지표를 1~2개만 집중해서 보면 현재 상태를 더 빠르게 읽을 수 있어요.",
+        ? `${studyRoom?.consistencyHint || FB.bodyConsistencyFallback}`
+        : FB.bodyDefault,
     recommendedAction:
-      snapshot?.nextActions?.[0] || "첫 공부는 25분만 시작하기",
+      snapshot?.nextActions?.[0] || FB.nextActionDefault,
     focusMetricKey: hasStudyRoomGap
       ? "studyRoomMinutes"
       : studyRoomMinutes > 0
@@ -568,7 +579,7 @@ function CoachRhythmSparkline(props: {
       viewBox={`0 0 ${w} ${h}`}
       preserveAspectRatio="xMidYMid meet"
       role="img"
-      aria-label="최근 7일 리듬"
+      aria-label={SC.rhythmSparkAria}
       style={{ display: "block", maxWidth: "100%", minWidth: 280 }}
     >
       {[0, 0.5, 1].map(t => {
@@ -655,7 +666,7 @@ function CoachRhythmSparkline(props: {
 type SnapshotMetrics = NonNullable<RemoteCoachState["snapshot"]>["metrics"];
 
 function riskLevelFromSnapshotMetrics(m: SnapshotMetrics | undefined): Severity {
-  if (!m) return "낮음";
+  if (!m) return C.severityLow as Severity;
   const stress = Number(m.stress ?? 0);
   const plan =
     m.planCompletionRate != null && Number.isFinite(Number(m.planCompletionRate))
@@ -665,11 +676,11 @@ function riskLevelFromSnapshotMetrics(m: SnapshotMetrics | undefined): Severity 
     m.sleepHours != null && Number.isFinite(Number(m.sleepHours))
       ? Number(m.sleepHours)
       : null;
-  if (stress >= 4 && plan != null && plan < 45) return "높음";
-  if (stress >= 3.8) return "높음";
-  if (plan != null && plan < 55 && sleep != null && sleep < 6) return "보통";
-  if (stress >= 3.2 || (plan != null && plan < 60)) return "보통";
-  return "낮음";
+  if (stress >= 4 && plan != null && plan < 45) return C.severityHigh as Severity;
+  if (stress >= 3.8) return C.severityHigh as Severity;
+  if (plan != null && plan < 55 && sleep != null && sleep < 6) return C.severityMid as Severity;
+  if (stress >= 3.2 || (plan != null && plan < 60)) return C.severityMid as Severity;
+  return C.severityLow as Severity;
 }
 
 function CoachStudentUnified(props: {
@@ -692,7 +703,7 @@ function CoachStudentUnified(props: {
 }) {
   const token = props.apiToken;
   const apiScope = props.apiScope === "parent" ? "parent" : "student";
-  const actionLabel = apiScope === "parent" ? "추천 한마디" : "추천 한 가지";
+  const actionLabel = apiScope === "parent" ? SC.actionLabelParent : SC.actionLabelStudent;
   const scopedStudentId =
     apiScope === "parent" && Number.isFinite(Number(props.parentStudentId))
       ? Number(props.parentStudentId)
@@ -918,7 +929,7 @@ function CoachStudentUnified(props: {
         const data = await r.json().catch(() => ({}));
         if (ac.signal.aborted) return;
         if (!r.ok) {
-          setPatternsError(String((data as { error?: string }).error || "").trim() || "패턴을 불러오지 못했습니다.");
+          setPatternsError(String((data as { error?: string }).error || "").trim() || SC.patternsErrorDefault);
           patternsListSigRef.current = null;
           setAiPatterns([]);
           setPatternsUsedOpenAi(false);
@@ -940,7 +951,7 @@ function CoachStudentUnified(props: {
       .catch((e: unknown) => {
         if (e instanceof DOMException && e.name === "AbortError") return;
         if (ac.signal.aborted) return;
-        setPatternsError("네트워크 오류로 패턴을 불러오지 못했습니다.");
+        setPatternsError(SC.patternsErrorNetwork);
         setPatternsUsedOpenAi(false);
       })
       .finally(() => {
@@ -1024,52 +1035,55 @@ function CoachStudentUnified(props: {
   }, [rhythmChartData]);
 
   const weeklyCharts = useMemo(
-    () =>
-      [
+    () => {
+      const Ch = SC.charts;
+      const f = SC.format;
+      return [
         {
           key: "sleep",
-          title: "수면 패턴",
+          title: Ch.sleepPattern,
           dataKey: "sleepHours" as const,
           color: "var(--accent-strong)",
           yDomain: [0, 10] as [number, number],
-          tooltipLabel: "수면 시간",
-          valueFormatter: (v: number) => `${v.toFixed(1)}시간`
+          tooltipLabel: Ch.tooltipSleep,
+          valueFormatter: (v: number) => `${v.toFixed(1)}${f.hourSuffix}`
         },
         {
           key: "concentration",
-          title: "학습 집중도",
+          title: Ch.studyConc,
           dataKey: "concentration" as const,
           color: "var(--accent-strong)",
           yDomain: [0, 100] as [number, number],
-          tooltipLabel: "집중도",
-          valueFormatter: (v: number) => `${Math.round(v)}%`
+          tooltipLabel: Ch.tooltipConc,
+          valueFormatter: (v: number) => `${Math.round(v)}${f.percentSuffix}`
         },
         {
           key: "studyMinutes",
-          title: "공부 시간",
+          title: Ch.studyMinutes,
           dataKey: "studyMinutes" as const,
           color: "var(--accent-strong)",
           yDomain: [0, studyMinutesMax] as [number, number],
-          tooltipLabel: "공부 시간(분)",
-          valueFormatter: (v: number) => `${Math.round(v)}분`
+          tooltipLabel: Ch.tooltipStudyMin,
+          valueFormatter: (v: number) => `${Math.round(v)}${f.minuteSuffix}`
         },
         {
           key: "planCompletionRate",
-          title: "목표 달성률",
+          title: Ch.planRate,
           dataKey: "planCompletionRate" as const,
           color: "var(--accent-strong)",
           yDomain: [0, 100] as [number, number],
-          valueFormatter: (v: number) => `${Math.round(v)}%`
+          valueFormatter: (v: number) => `${Math.round(v)}${f.percentSuffix}`
         },
         {
           key: "studyRoomMinutes",
-          title: "독서실 체류",
+          title: Ch.studyRoom,
           dataKey: "studyRoomMinutes" as const,
           color: "var(--accent-strong)",
           yDomain: [0, studyRoomMinutesMax] as [number, number],
-          valueFormatter: (v: number) => `${Math.round(v)}분`
+          valueFormatter: (v: number) => `${Math.round(v)}${f.minuteSuffix}`
         }
-      ] as const,
+      ] as const;
+    },
     [studyMinutesMax, studyRoomMinutesMax]
   );
   const availableCharts = weeklyCharts;
@@ -1078,8 +1092,8 @@ function CoachStudentUnified(props: {
 
   const heroNarrative = token
     ? remote?.snapshot?.heroNarrative ||
-      "현재 학습 흐름은 유지되고 있어요. 오늘은 우선순위 한 가지부터 시작해 보세요."
-    : "로그인하고 오늘 공부 탭에서 기록을 남기면 맞춤 요약과 그래프가 표시돼요.";
+      SC.heroLoggedInDefault
+    : SC.heroGuest;
   const profile = remote?.snapshot?.profile;
   const analysis = useMemo(
     () =>
@@ -1101,8 +1115,8 @@ function CoachStudentUnified(props: {
   /** 로그인 시 데모(현우) 이름이 잠깐 보였다가 서버 기본값으로 바뀌는 깜빡임 방지 */
   const displayName = token
     ? remote
-      ? String(profile?.name ?? "").trim() || "학생"
-      : "학생"
+      ? String(profile?.name ?? "").trim() || SC.studentFallbackName
+      : SC.studentFallbackName
     : profile?.name || student.name;
 
   const analysisContent = (
@@ -1111,11 +1125,14 @@ function CoachStudentUnified(props: {
         <div className="coach-home-insight-card__top">
           <span className="coach-home-insight-card__eyebrow coach-home-insight-card__eyebrow--icon">
             {renderAnalysisIcon("insight", "coach-analysis-icon coach-analysis-icon--eyebrow")}
-            <span>오늘의 학습 상태</span>
+            <span>{SC.todayLearningState}</span>
           </span>
         </div>
         <div className="coach-analysis-hero__title">
-          {displayName}님은 {analysis.statusLabel || "리듬 점검"} 상태예요
+          {tpl(SC.statusLine, {
+            name: displayName,
+            status: analysis.statusLabel || SC.rhythmCheckDefault
+          })}
         </div>
         <p className="coach-home-insight-card__body">{analysis.headline || heroNarrative}</p>
         <div className="coach-analysis-hero__action-box">
@@ -1126,7 +1143,7 @@ function CoachStudentUnified(props: {
           <div className="coach-analysis-hero__action-text">
             {String(props.analysisActionTextOverride || "").trim() ||
               analysis.recommendedAction ||
-              "오늘 할 일 한 가지부터 시작해 보세요."}
+              SC.actionRecommendOne}
           </div>
         </div>
       </Card>
@@ -1147,8 +1164,8 @@ function CoachStudentUnified(props: {
       ) : null}
 
       <Card className="coach-card coach-card--padded coach-analysis-trend-card">
-        <SectionHeader title={selectedChart?.title || "이번 주 추이"} />
-        <div className="coach-analysis-trend-tabs" role="tablist" aria-label="분석 추세 지표 선택">
+        <SectionHeader title={selectedChart?.title || SC.trendThisWeek} />
+        <div className="coach-analysis-trend-tabs" role="tablist" aria-label={SC.trendTabAria}>
           {availableCharts.map(chart => (
             <button
               key={chart.key}
@@ -1178,21 +1195,21 @@ function CoachStudentUnified(props: {
           </div>
         ) : (
           <p className="coach-muted" style={{ marginTop: 10 }}>
-            추세를 보여줄 기록이 아직 충분하지 않아요.
+            {SC.trendNotEnoughData}
           </p>
         )}
       </Card>
 
       <div className="coach-stack">
-        <SectionHeader title="이번 주 패턴" />
+        <SectionHeader title={SC.patternsThisWeek} />
         {patternsLoading && (
           <p
             className="coach-muted"
             style={{ padding: "0 4px 10px", fontSize: "var(--font-size-medium)" }}
           >
             {displayPatterns.length > 0
-              ? "최신 기록을 반영하는 중…"
-              : "이번 주 기록을 분석하는 중…"}
+              ? SC.patternsRefreshing
+              : SC.patternsAnalyzing}
           </p>
         )}
         {!patternsLoading && patternsError && token && (
@@ -1219,15 +1236,15 @@ function CoachStudentUnified(props: {
         ) : (
           !patternsLoading && (
             <EmptyState
-              title="아직 패턴이 없어요"
+              title={SC.patternEmptyTitle}
               body={
                 !token
-                  ? "로그인하면 이번 주 기록으로 패턴을 보여 드려요."
+                  ? SC.patternEmptyGuest
                   : patternsError
                     ? undefined
                     : !patternsUsedOpenAi
-                      ? "패턴 분석은 서버에서 이 기능을 켠 뒤 이용할 수 있어요."
-                      : "이번 주 기록을 더 남기면 분석이 더 정확해져요."
+                      ? SC.patternEmptyServerOff
+                      : SC.patternEmptyNeedData
               }
             />
           )
@@ -1241,7 +1258,7 @@ function CoachStudentUnified(props: {
       <div
         className="store-filter-row coach-subtab-row"
         role="tablist"
-        aria-label="코치 구분"
+        aria-label={SC.coachTablistAria}
       >
         <button
           type="button"
@@ -1253,7 +1270,7 @@ function CoachStudentUnified(props: {
           }
           onClick={() => selectCoachPanel("plan")}
         >
-          계획
+          {SC.tabPlan}
         </button>
         <button
           type="button"
@@ -1265,7 +1282,7 @@ function CoachStudentUnified(props: {
           }
           onClick={() => selectCoachPanel("chat")}
         >
-          학습 코칭
+          {SC.tabCoaching}
         </button>
         <button
           type="button"
@@ -1277,7 +1294,7 @@ function CoachStudentUnified(props: {
           }
           onClick={() => selectCoachPanel("admin")}
         >
-          학부모 1:1
+          {SC.tabParentDm}
         </button>
       </div>
 
@@ -1318,8 +1335,8 @@ function CoachStudentUnified(props: {
           ) : (
             <div className="coach-stack">
               <EmptyState
-                title="내일 계획을 함께 보는 화면을 열 수 없어요"
-                body="앱에서 학생으로 로그인한 뒤 다시 시도해 주세요."
+                title={SC.planGateTitle}
+                body={SC.planGateBody}
               />
             </div>
           )}
@@ -1397,7 +1414,7 @@ function CoachChatTabConnected(props: { apiToken: string }) {
       id: `u_${Date.now()}`,
       role: "user",
       createdAt: Date.now(),
-      text: "학습 분석"
+      text: SC.chatAnalysisPreviewText
     });
     setCoachMode("learning");
     setTyping(true);
@@ -1410,9 +1427,9 @@ function CoachChatTabConnected(props: { apiToken: string }) {
         id: `c_${Date.now()}`,
         role: "coach",
         createdAt: Date.now(),
-        text: "이번 주 학습 리포트를 정리했어요. 아래 버튼을 누르면 바로 확인할 수 있어요.",
+        text: SC.chatReportCoachText,
         cta: {
-          label: "학습 리포트 보기",
+          label: SC.chatReportCtaLabel,
           action: "open-analysis-report"
         }
       });
@@ -1432,7 +1449,7 @@ function CoachChatTabConnected(props: { apiToken: string }) {
     setDraft("");
     setTyping(true);
     try {
-      if (!token) throw new Error("로그인이 필요합니다.");
+      if (!token) throw new Error(SC.chatNeedLogin);
       const res = await fetch(`${API_BASE}/api/student/coach/chat`, {
         method: "POST",
         headers: {
@@ -1450,7 +1467,7 @@ function CoachChatTabConnected(props: { apiToken: string }) {
         })
       });
       const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(String(data?.error || "코치 응답을 받지 못했습니다."));
+      if (!res.ok) throw new Error(String(data?.error || SC.chatResponseFailed));
       setLastResponseType(String(data.responseType || ""));
       setCoachAiMode(data.usedOpenAi ? "live" : "template");
       if (data.schedule || data.scheduleChanged) {
@@ -1466,7 +1483,7 @@ function CoachChatTabConnected(props: { apiToken: string }) {
       const msg =
         e instanceof Error
           ? e.message
-          : "연결이 불안정하거나 서버에 문제가 있을 수 있어요. 잠시 후 다시 시도해 주세요.";
+          : SC.chatNetworkError;
       addMessage({
         id: `c_${Date.now()}`,
         role: "coach",
@@ -1481,23 +1498,9 @@ function CoachChatTabConnected(props: { apiToken: string }) {
     });
   };
 
-  const startersLearning = [
-    "오늘 집중이 안 된 이유가 뭐야?",
-    "내일은 뭘 먼저 하면 좋을까?",
-    "왜 계획은 세우는데 실행이 안 될까?",
-    "시험 전에는 루틴을 어떻게 유지해?"
-  ];
-  const startersSuneung = [
-    "수학에서 극한이랑 연속이 헷갈려요. 차이를 설명해 주세요",
-    "영어 도치 동사랑 5형식이 비슷해 보이는데 어떻게 구분해요?",
-    "이차함수 그래프 문제에서 식 세우는 게 막혀요. 접근 순서 알려 주세요",
-    "탐구에서 반응 속도식 세우는 유형이 안 풀려요. 개념부터 짚어 주세요"
-  ];
-  const startersSchedule = [
-    "매주 일요일 15:00~18:00 지구과학 수업이 있어요",
-    "이번 주 금요일 19:00에 영어 학원 보강 있어요",
-    "매주 화목 16:30 수학 학원 일정 추가해 주세요"
-  ];
+  const startersLearning = [...SC.startersLearning];
+  const startersSuneung = [...SC.startersSuneung];
+  const startersSchedule = [...SC.startersSchedule];
   const starters =
     coachMode === "suneung"
       ? startersSuneung
@@ -1552,7 +1555,7 @@ function CoachChatTabConnected(props: { apiToken: string }) {
       // ignore
     }
     void send(
-      kind === "app-allowance" ? "허용 앱을 관리하고 싶어요" : "일정을 관리하고 싶어요",
+      kind === "app-allowance" ? SC.sendTextAppAllowance : SC.sendTextSchedule,
       "schedule"
     );
   }, [send, token]);
@@ -1584,7 +1587,7 @@ function CoachChatTabConnected(props: { apiToken: string }) {
             lineHeight: 1.45
           }}
         >
-          지금은 준비된 규칙으로만 답해요. 서버에서 대화 기능을 켜면 더 자연스러운 답변이 가능해요.
+          {SC.chatTemplateNotice}
         </p>
       )}
       <div ref={chatScrollRef} className="coach-chat">
@@ -1631,7 +1634,7 @@ function CoachChatTabConnected(props: { apiToken: string }) {
         {!hasUserTurn && !typing && (
           <div
             className="coach-bubble-row is-coach coach-tomorrow-collab__coach-offer-row"
-            aria-label="코치 선택지"
+            aria-label={SC.chatCoachPickAria}
           >
             <CoachAvatar />
             <motion.div
@@ -1641,8 +1644,7 @@ function CoachChatTabConnected(props: { apiToken: string }) {
               transition={{ duration: 0.18 }}
             >
               <div className="coach-bubble__line">
-                학습 습관·루틴 코칭과 수능 과목 질의응답 중에서 골라 주세요. 직접 입력하셔도
-                돼요.
+                {SC.chatCoachPickIntro}
               </div>
               <div className="coach-tomorrow-collab__coach-picks">
                 <button
@@ -1650,27 +1652,27 @@ function CoachChatTabConnected(props: { apiToken: string }) {
                   className="coach-tomorrow-collab__coach-pick"
                   onClick={queueAnalysisPreview}
                 >
-                  학습 분석
+                  {SC.quickBtnAnalysis}
                 </button>
                 <button
                   type="button"
                   className="coach-tomorrow-collab__coach-pick"
                   disabled={!token}
                   onClick={() =>
-                    void send("학습 코칭으로 이야기하고 싶어요", "learning")
+                    void send(SC.sendLearningCoachIntent, "learning")
                   }
                 >
-                  학습 코칭
+                  {SC.quickBtnCoaching}
                 </button>
                 <button
                   type="button"
                   className="coach-tomorrow-collab__coach-pick"
                   disabled={!token}
                   onClick={() =>
-                    void send("수능 과목 질문이 있어요", "suneung")
+                    void send(SC.sendSuneungIntent, "suneung")
                   }
                 >
-                  수능 질의응답
+                  {SC.quickBtnSuneung}
                 </button>
               </div>
             </motion.div>
@@ -1681,7 +1683,7 @@ function CoachChatTabConnected(props: { apiToken: string }) {
 
       <div ref={inputDockRef} className="coach-chat-bottom-rail keyboard-dock">
         {hasUserTurn && (
-          <div className="coach-chat-starters" aria-label="추천 질문">
+          <div className="coach-chat-starters" aria-label={SC.startersAria}>
             {starters.map(s => (
               <button key={s} type="button" className="coach-starter" onClick={() => send(s)}>
                 {s}
@@ -1714,8 +1716,8 @@ function CoachChatTabConnected(props: { apiToken: string }) {
                 send(draft);
               }}
               disabled={typing}
-              aria-label="메시지 보내기"
-              title="보내기"
+              aria-label={SC.composerSendAria}
+              title={SC.composerSendTitle}
             >
               <SendHorizontal size={15} strokeWidth={2.2} aria-hidden />
             </button>

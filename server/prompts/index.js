@@ -12,6 +12,12 @@ module.exports = {
   appAllowanceTimetableChat: require("./appAllowanceTimetableChat"),
   scheduleValidationReply: require("./scheduleValidationReply"),
   studentCoachChat: require("./studentCoachChat"),
+  studentCoachSnapshot: require("./studentCoachSnapshot"),
+  studentCoachAnalysis: require("./studentCoachAnalysis"),
   tomorrowPlan: require("./tomorrowPlan"),
-  parentDailyAiReport: require("./parentDailyAiReport")
+  parentDailyAiReport: require("./parentDailyAiReport"),
+  parentCoachCustomization: require("./parentCoachCustomization"),
+  coachContextMessages: require("./coachContextMessages"),
+  coachFallbackMessages: require("./coachFallbackMessages"),
+  parentGrowthReportNarrativeFallback: require("./parentGrowthReportNarrativeFallback")
 };

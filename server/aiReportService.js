@@ -7,11 +7,7 @@ const {
 } = require("./db");
 const { sendPushToUser } = require("./pushService");
 const { sendParentKakaoIfEnabled } = require("./parentKakaoNotify");
-const {
-  computeWeeklyStats,
-  buildWeeklySummaryLines,
-  buildWeeklyReportPrompt
-} = require("./analytics");
+const { computeWeeklyStats } = require("./analytics");
 const { parentDailyAiReport } = require("./prompts");
 
 const MODEL = process.env.OPENAI_MODEL || "gpt-4o-mini";
@@ -62,25 +58,10 @@ async function generateAiReportText(studentUserId, weekStart, weekEnd) {
     weekEnd
   );
   const stats = computeWeeklyStats({ days, blocks, plans });
-  const summaryLines = buildWeeklySummaryLines(stats);
-  const statsPrompt = buildWeeklyReportPrompt(stats);
+  const summaryLines = parentDailyAiReport.buildWeeklySummaryLines(stats);
+  const statsPrompt = parentDailyAiReport.buildWeeklyReportPrompt(stats);
 
-  const userContent = [
-    "역할: 학원 학습 플래너 앱의 코치입니다.",
-    "아래는 학생의 최근 7일(또는 해당 기간) 학습 계획·진도표에서 계산한 통계와 요약입니다.",
-    "학부모에게 보내는 '일일 리포트' 본문만 작성하세요.",
-    "",
-    "규칙:",
-    "- 한국어, 4~7문장, 존댓말·따뜻한 톤",
-    "- 구체적 수치(시간·과목)는 통계에 근거해 언급 가능",
-    "- 과장·진단명(예: ADHD)·가학적 조언 금지",
-    "",
-    "요약 문장:",
-    ...summaryLines.map(l => `- ${l}`),
-    "",
-    "통계(JSON):",
-    statsPrompt
-  ].join("\n");
+  const userContent = parentDailyAiReport.buildUserContent(summaryLines, statsPrompt);
 
   const openai = new OpenAI({ apiKey });
   const completion = await openai.chat.completions.create({

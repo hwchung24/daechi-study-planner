@@ -1,5 +1,9 @@
 "use strict";
 
+const { getKoFallbacks, tpl } = require("./koFallbackLoader");
+
+const t0 = getKoFallbacks().tomorrowPlan;
+
 /** 내일 계획 협업 대화 — 단일 system 블록 (상황 JSON 포함) */
 function buildTomorrowPlanCollabSystemBlock(focus, context) {
   const ctxJson = JSON.stringify(context);
@@ -41,10 +45,47 @@ bookId는 반드시 다음 중 하나만: ${bookIdsJson}
 시각은 "HH:MM" 24시간 형식이거나 null.`;
 }
 
+function wrapSituationJsonForSynthesize(context) {
+  return `[상황 JSON]\n${JSON.stringify(context)}`;
+}
+
+const synthesizeTomorrowPracticeUserInstruction =
+  "위 대화를 반영해 내일 실천할 한 가지 문장만 JSON 객체로 출력하라.";
+
+const synthesizeBookPlansUserInstruction =
+  "위 대화 전체를 반영해, 각 등록 교재에 대한 내일 계획만 JSON 배열로 출력하라.";
+
+function collabNoGptStudyReply(pct) {
+  const p = Number(pct) || 0;
+  return tpl(getKoFallbacks().tomorrowPlan.collabNoGptStudyReply, { pct: String(p) });
+}
+
+function synthesizeBooksNoGptPlannedRangeLine(bookName, pct) {
+  const p = Number(pct) || 0;
+  return tpl(getKoFallbacks().tomorrowPlan.synthesizeBooksNoGptPlannedRangeLine, {
+    bookName: String(bookName || ""),
+    pct: String(p)
+  });
+}
+
 module.exports = {
   buildTomorrowPlanCollabSystemBlock,
   tomorrowPracticeSynthesizeSystem,
   buildTomorrowPlanBooksSynthesizeSystem,
+  wrapSituationJsonForSynthesize,
+  synthesizeTomorrowPracticeUserInstruction,
+  synthesizeBookPlansUserInstruction,
+  collabNoGptLifeReply: t0.collabNoGptLifeReply,
+  collabNoGptStudyReply,
+  synthesizeLifeNoGptTomorrowPractice: t0.synthesizeLifeNoGptTomorrowPractice,
+  synthesizeBooksNoGptPlannedRangeLine,
+  apiEmptyGptCollabReply: t0.apiEmptyGptCollabReply,
+  apiLifePracticeJsonDecodeError: t0.apiLifePracticeJsonDecodeError,
+  apiBookPlansJsonDecodeError: t0.apiBookPlansJsonDecodeError,
+  apiNoValidBookPlansError: t0.apiNoValidBookPlansError,
+  apiTomorrowPlanMessageFailed: t0.apiTomorrowPlanMessageFailed,
+  apiTomorrowPlanSynthesizeFailed: t0.apiTomorrowPlanSynthesizeFailed,
+  defaultPlannedRangeWhenModelEmpty: t0.defaultPlannedRangeWhenModelEmpty,
   collabTemperature: 0.45,
   collabMaxTokens: 700,
   lifeSynthesizeTemperature: 0.35,

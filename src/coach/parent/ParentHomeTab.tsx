@@ -19,6 +19,10 @@ import {
   ParentRecordsWeekSection,
   type ParentWeeklyRecordsReport
 } from "./ParentRecordsWeekSection";
+import ko from "../fallbacks/ko.json";
+import { tpl } from "../fallbacks/tpl";
+
+const H = ko.parentHomeTab;
 
 type ParentHomeTabProps = {
   apiBase: string;
@@ -75,20 +79,22 @@ function formatSeoulTimeLabel(iso: string) {
 }
 
 function formatSimpleMdmAgePhraseKo(ageMinutes: number) {
+  const a = H.mdmAge;
   if (!Number.isFinite(ageMinutes) || ageMinutes < 0) return "";
-  if (ageMinutes <= 1) return "1분 이내";
-  if (ageMinutes < 60) return `약 ${ageMinutes}분 전`;
-  if (ageMinutes < 1440) return `약 ${Math.floor(ageMinutes / 60)}시간 전`;
-  return `약 ${Math.floor(ageMinutes / 1440)}일 전`;
+  if (ageMinutes <= 1) return a.within1Min;
+  if (ageMinutes < 60) return tpl(a.aboutMinutes, { n: String(Math.floor(ageMinutes)) });
+  if (ageMinutes < 1440) return tpl(a.aboutHours, { n: String(Math.floor(ageMinutes / 60)) });
+  return tpl(a.aboutDays, { n: String(Math.floor(ageMinutes / 1440)) });
 }
 
 /** MDM last_seen 기준 경과(문장에 그대로 넣기 좋은 짧은 구) */
 function formatSimpleMdmLastContactDetail(net: ParentSimpleMdmNetworkStatus) {
+  const a = H.mdmAge;
   const sec = net.lastSeenAgeSeconds;
   if (sec != null && Number.isFinite(sec) && sec >= 0) {
-    if (sec < 20) return "20초 이내";
-    if (sec < 60) return `약 ${sec}초 전`;
-    if (sec < 120) return "약 1분 전";
+    if (sec < 20) return a.within20Sec;
+    if (sec < 60) return tpl(a.aboutSeconds, { n: String(Math.floor(sec)) });
+    if (sec < 120) return a.about1Min;
   }
   const m = net.ageMinutes;
   if (m != null && Number.isFinite(m)) {
@@ -101,42 +107,41 @@ function simpleMdmNetworkDescription(opts: {
   net: ParentSimpleMdmNetworkStatus;
 }): string | null {
   const { net } = opts;
+  const M = H.mdmNet;
   if (!net.available) {
     if (net.status !== "skipped") return null;
     const r = net.skippedReason || "";
     if (r === "simplemdm_not_configured") {
-      return "Simple MDM(API)가 서버에 연결되어 있지 않아, 기기 네트워크(통신) 상태는 여기서 확인할 수 없어요.";
+      return M.notConfigured;
     }
     if (r === "no_active_device_serial") {
-      return "학생 계정에 등록된 활성 기기 시리얼이 없어 Simple MDM으로 네트워크 여부를 확인할 수 없어요.";
+      return M.noSerial;
     }
     if (r === "device_not_in_simplemdm") {
-      return "Simple MDM에 해당 기기가 보이지 않습니다. 기기 등록·동기화를 확인해 주세요.";
+      return M.deviceMissing;
     }
     if (r === "simplemdm_rate_limited") {
-      return "Simple MDM 요청이 잠시 제한되어 연결 상태를 가져오지 못했습니다. 잠시 후 다시 열어 주세요.";
+      return M.rateLimited;
     }
     if (r === "simplemdm_error") {
-      return "Simple MDM 조회에 실패했습니다. 잠시 후 다시 시도해 주세요.";
+      return M.queryFailed;
     }
     return null;
   }
   if (net.status === "recent") {
     const detail = formatSimpleMdmLastContactDetail(net);
-    const carrier = net.carrierNetwork ? ` (통신사: ${net.carrierNetwork})` : "";
+    const carrier = net.carrierNetwork ? tpl(M.carrierSuffix, { carrier: net.carrierNetwork }) : "";
     const head = detail
-      ? `MDM 서버와 마지막으로 통신한 시점은 ${detail}입니다.${carrier}`
-      : `MDM 서버와의 통신 시각이 아주 최근입니다.${carrier}`;
-    return `${head} Wi-Fi·데이터를 끈 뒤에도 이 시각은 잠시 멈춰 있을 수 있어, 지금 이 순간 온라인인지는 여기서 확정할 수 없습니다.`;
+      ? tpl(M.recentWithDetail, { detail, carrier })
+      : tpl(M.recentRecent, { carrier });
+    return tpl(M.recentTail, { head });
   }
   if (net.status === "stale") {
     const detail = formatSimpleMdmLastContactDetail(net);
-    return detail
-      ? `마지막 MDM 통신은 ${detail}입니다. 네트워크를 끈 뒤라면 더 이상 갱신되지 않을 수 있어요.`
-      : "마지막 MDM 통신 시각이 오래되었습니다. 기기 전원·네트워크를 확인해 보세요.";
+    return detail ? tpl(M.staleWithDetail, { detail }) : M.staleOld;
   }
   if (net.status === "unknown") {
-    return "Simple MDM에 기기는 있으나 마지막 통신 시각을 확인하지 못했습니다.";
+    return M.unknownLastSeen;
   }
   return null;
 }
@@ -228,7 +233,7 @@ export function ParentHomeTab(props: ParentHomeTabProps) {
         );
         if (!res.ok) {
           const data = (await res.json().catch(() => ({}))) as { error?: string };
-          throw new Error(String(data.error || "독서실 위치 저장에 실패했습니다."));
+          throw new Error(String(data.error || H.studyRoomSaveFailed));
         }
         setStudyRoomModalOpen(false);
         window.dispatchEvent(new Event(DAECHI_LINKS_UPDATED_EVENT));
@@ -237,7 +242,7 @@ export function ParentHomeTab(props: ParentHomeTabProps) {
         alert(
           error instanceof Error && error.message
             ? error.message
-            : "독서실 위치 저장 중 오류가 발생했습니다."
+            : H.studyRoomSaveError
         );
       } finally {
         setStudyRoomSaving(false);
@@ -266,7 +271,7 @@ export function ParentHomeTab(props: ParentHomeTabProps) {
           error?: string;
           rule?: { enabled?: boolean; lockTime?: string };
         };
-        if (!res.ok) throw new Error(String(data.error || "설정 정보를 불러오지 못했습니다."));
+        if (!res.ok) throw new Error(String(data.error || H.settingsLoadFailed));
         if (cancelled) return;
         setPlannerEnabled(Boolean(data.rule?.enabled));
         setPlannerTime(String(data.rule?.lockTime || "21:00").slice(0, 5));
@@ -303,14 +308,14 @@ export function ParentHomeTab(props: ParentHomeTabProps) {
         error?: string;
         rule?: { enabled?: boolean; lockTime?: string };
       };
-      if (!res.ok) throw new Error(String(data.error || "설정 저장에 실패했습니다."));
+      if (!res.ok) throw new Error(String(data.error || H.settingsSaveFailed));
       setPlannerEnabled(Boolean(data.rule?.enabled));
       setPlannerTime(String(data.rule?.lockTime || next.lockTime).slice(0, 5));
     } catch (error) {
       alert(
         error instanceof Error && error.message
           ? error.message
-          : "설정 저장 중 오류가 발생했습니다."
+          : H.settingsSaveError
       );
     } finally {
       setPlannerSaving(false);
@@ -350,12 +355,12 @@ export function ParentHomeTab(props: ParentHomeTabProps) {
         throw new Error(
           String(
             data.error ||
-              (nextEnabled ? "키오스크 모드 적용에 실패했습니다." : "키오스크 모드 해제에 실패했습니다.")
+              (nextEnabled ? H.kioskEnableFailed : H.kioskDisableFailed)
           )
         );
       }
       if ((data.summary?.failed || 0) > 0) {
-        alert(String(data.message || "일부 기기에 적용하지 못했습니다."));
+        alert(String(data.message || H.kioskPartialFailed));
         return;
       }
       patchDeviceSnapshot(prev => {
@@ -367,7 +372,7 @@ export function ParentHomeTab(props: ParentHomeTabProps) {
       alert(
         error instanceof Error && error.message
           ? error.message
-          : "키오스크 모드 제어 중 오류가 발생했습니다."
+          : H.kioskControlError
       );
     } finally {
       setBulkKioskSaving(false);
@@ -393,7 +398,7 @@ export function ParentHomeTab(props: ParentHomeTabProps) {
         });
         const data = (await res.json().catch(() => ({}))) as { error?: string; message?: string; ok?: boolean };
         if (!res.ok || data.ok === false) {
-          throw new Error(String(data.error || data.message || "자유시간 모드 변경에 실패했습니다."));
+          throw new Error(String(data.error || data.message || H.freeModeChangeFailed));
         }
         patchDeviceSnapshot(prev => patchParentDeviceSnapshotForAllowanceMode(prev, "default"));
         void refreshDeviceSnapshot({ silent: true });
@@ -402,7 +407,7 @@ export function ParentHomeTab(props: ParentHomeTabProps) {
         alert(
           error instanceof Error && error.message
             ? error.message
-            : "자유시간 모드 변경 중 오류가 발생했습니다."
+            : H.freeModeChangeError
         );
       } finally {
         setFreeModeToggling(false);
@@ -414,7 +419,7 @@ export function ParentHomeTab(props: ParentHomeTabProps) {
     if (!authToken || !selectedStudent?.id || freeModeToggling) return;
     const m = Math.floor(Number(minutes));
     if (!Number.isFinite(m) || m < 1 || m > 180) {
-      alert("자유시간은 1분~180분 사이로 설정할 수 있습니다.");
+      alert(H.freeMinutesRange);
       return;
     }
     setFreeModeToggling(true);
@@ -434,7 +439,7 @@ export function ParentHomeTab(props: ParentHomeTabProps) {
         });
         const data = (await res.json().catch(() => ({}))) as { error?: string; message?: string; ok?: boolean };
         if (!res.ok || data.ok === false) {
-          throw new Error(String(data.error || data.message || "자유시간 모드 변경에 실패했습니다."));
+          throw new Error(String(data.error || data.message || H.freeModeChangeFailed));
         }
         freeMinutesModalReveal.beginClose(() => setFreeMinutesModalOpen(false));
         const untilIso = new Date(Date.now() + m * 60_000).toISOString();
@@ -449,7 +454,7 @@ export function ParentHomeTab(props: ParentHomeTabProps) {
         alert(
           error instanceof Error && error.message
             ? error.message
-            : "자유시간 모드 변경 중 오류가 발생했습니다."
+            : H.freeModeChangeError
         );
       } finally {
         setFreeModeToggling(false);
@@ -478,12 +483,12 @@ export function ParentHomeTab(props: ParentHomeTabProps) {
 
   const phoneModeLabel = deviceSnapshot
     ? deviceSnapshot.displaySurfaceMode === "block"
-      ? "차단"
+      ? H.modeBlock
       : deviceSnapshot.activeAppAllowanceMode === "free"
-        ? "자유"
+        ? H.modeFree
         : deviceSnapshot.activeAppAllowanceMode === "utility"
-          ? "유틸"
-          : "기본"
+          ? H.modeUtility
+          : H.modeDefault
     : null;
 
   const freeTimedUntilLabel = useMemo(() => {
@@ -491,7 +496,7 @@ export function ParentHomeTab(props: ParentHomeTabProps) {
     const iso = deviceSnapshot.parentTimedFreeExpiresAt;
     if (!iso) return null;
     const t = formatSeoulTimeLabel(iso);
-    return t ? `${t}까지 자유` : null;
+    return t ? tpl(H.freeUntil, { time: t }) : null;
   }, [deviceSnapshot?.activeAppAllowanceMode, deviceSnapshot?.parentTimedFreeExpiresAt]);
 
   const plannerKioskModeActive = Boolean(deviceSnapshot?.kioskEnabled);
@@ -559,32 +564,32 @@ export function ParentHomeTab(props: ParentHomeTabProps) {
       }) || null;
 
     if (!currentBlock) return null;
-    return String(currentBlock.subject || "").trim() || "과목 미설정";
+    return String(currentBlock.subject || "").trim() || H.subjectUnset;
   }, [parentReport]);
 
   return (
     <div className="coach-page parent-home">
       {!linked ? (
-        <section className="section parent-home__live" aria-label="자녀 실시간 상태">
+        <section className="section parent-home__live" aria-label={H.ariaLiveSection}>
           {showNoLinkedHint ? (
             <p className="parent-home__status-hint">
-              연결된 자녀가 없습니다. 상단 메뉴에서 학생을 연결해 주세요.
+              {H.noLinkedHint}
             </p>
           ) : (
             null
           )}
         </section>
       ) : (
-        <section className="section parent-home__live" aria-label="자녀 실시간 상태">
+        <section className="section parent-home__live" aria-label={H.ariaLiveSection}>
           {selectedStudent ? (
             <>
               <div
                 className="parent-home__coach-phrase-card parent-home__coach-phrase-card--with-title"
                 aria-busy={suggestedPhraseLoading}
               >
-                <p className="parent-home__coach-phrase-card-title">SNU AI 학부모 가이드</p>
+                <p className="parent-home__coach-phrase-card-title">{H.coachGuideTitle}</p>
                 {suggestedPhraseLoading ? (
-                  <div className="parent-home__skeleton-phrase-row" aria-label="코치 문구 불러오는 중">
+                  <div className="parent-home__skeleton-phrase-row" aria-label={H.loadingCoachPhrase}>
                     <div className="parent-skeleton parent-skeleton--phrase" />
                     <div className="parent-skeleton parent-skeleton--phrase parent-skeleton--phrase-row-2" />
                   </div>
@@ -599,10 +604,10 @@ export function ParentHomeTab(props: ParentHomeTabProps) {
                 aria-busy={delayedNetConnected == null}
               >
                 {delayedNetConnected == null ? (
-                  <div className="parent-skeleton parent-skeleton--phrase-short" aria-label="연결 상태 불러오는 중" />
+                  <div className="parent-skeleton parent-skeleton--phrase-short" aria-label={H.loadingNetStatus} />
                 ) : (
                   <p className="parent-home__coach-phrase parent-home__coach-phrase--sub parent-home__coach-phrase--fade">
-                    {delayedNetConnected ? "연결됨" : "연결 끊김"}
+                    {delayedNetConnected ? H.netConnected : H.netDisconnected}
                   </p>
                 )}
               </div>
@@ -610,19 +615,19 @@ export function ParentHomeTab(props: ParentHomeTabProps) {
                 <div className="parent-home__status-card">
                 <div className="parent-home__status-card-head">
                   <MapPin size={18} strokeWidth={2} aria-hidden />
-                  <span className="parent-home__status-card-title">실시간 위치</span>
+                  <span className="parent-home__status-card-title">{H.liveLocationTitle}</span>
                 </div>
                 <div className="parent-home__status-center">
                   {!hasStudyRoomConfig ? (
-                    <p className="parent-home__status-body parent-home__status-body--fade">독서실 미등록</p>
+                    <p className="parent-home__status-body parent-home__status-body--fade">{H.studyRoomNotRegistered}</p>
                   ) : typeof studyRoomLiveStatus.currentWithinRadius === "boolean" ? (
                     <p className="parent-home__status-body parent-home__status-body--fade">
-                      {studyRoomLiveStatus.currentWithinRadius ? "체크인" : "체크아웃"}
+                      {studyRoomLiveStatus.currentWithinRadius ? H.checkIn : H.checkOut}
                     </p>
                   ) : studyRoomVisitsLoading ? (
-                    <div className="parent-skeleton parent-skeleton--status-wide" aria-label="위치 상태 불러오는 중" />
+                    <div className="parent-skeleton parent-skeleton--status-wide" aria-label={H.loadingLocationStatus} />
                   ) : (
-                    <p className="parent-home__status-body parent-home__status-body--fade">상태 없음</p>
+                    <p className="parent-home__status-body parent-home__status-body--fade">{H.statusUnknown}</p>
                   )}
                 </div>
                 <div className="parent-home__status-card-footer">
@@ -635,17 +640,17 @@ export function ParentHomeTab(props: ParentHomeTabProps) {
                     }}
                     disabled={!selectedStudent || studyRoomSaving}
                   >
-                    독서실 설정
+                    {H.studyRoomSettings}
                   </button>
                 </div>
               </div>
               <div className="parent-home__status-card">
                 <div className="parent-home__status-card-head">
                   <Smartphone size={18} strokeWidth={2} aria-hidden />
-                  <span className="parent-home__status-card-title">휴대폰 모드</span>
+                  <span className="parent-home__status-card-title">{H.phoneModeTitle}</span>
                 </div>
                 {deviceLoading && !deviceSnapshot ? (
-                  <div className="parent-home__status-center" aria-busy="true" aria-label="휴대폰 모드 불러오는 중">
+                  <div className="parent-home__status-center" aria-busy="true" aria-label={H.loadingPhoneMode}>
                     <div className="parent-skeleton parent-skeleton--status-wide" />
                   </div>
                 ) : deviceSnapshot ? (
@@ -654,10 +659,10 @@ export function ParentHomeTab(props: ParentHomeTabProps) {
                       {phoneModeLabel ? (
                         <span className="parent-home__status-em">
                           {phoneModeLabel}
-                          {plannerKioskModeActive ? " · 계획표" : ""}
+                          {plannerKioskModeActive ? H.plannerSuffix : ""}
                         </span>
                       ) : (
-                        "모드 정보를 불러오지 못했습니다."
+                        H.modeLoadFailed
                       )}
                     </p>
                     {freeTimedUntilLabel ? (
@@ -666,7 +671,7 @@ export function ParentHomeTab(props: ParentHomeTabProps) {
                   </div>
                 ) : (
                   <div className="parent-home__status-center">
-                    <p className="parent-home__status-body parent-home__status-body--fade">기기 상태를 가져오지 못했습니다.</p>
+                    <p className="parent-home__status-body parent-home__status-body--fade">{H.deviceStatusFailed}</p>
                   </div>
                 )}
                 <div className="parent-home__status-card-footer">
@@ -684,14 +689,14 @@ export function ParentHomeTab(props: ParentHomeTabProps) {
                     disabled={!selectedStudent?.id || !authToken || freeModeToggling}
                     aria-busy={freeModeToggling}
                   >
-                    {deviceSnapshot?.activeAppAllowanceMode === "free" ? "자유 끄기" : "자유시간 주기"}
+                    {deviceSnapshot?.activeAppAllowanceMode === "free" ? H.freeOff : H.freeTimeGive}
                   </button>
                 </div>
               </div>
-              <div className="parent-home__status-card" aria-label="계획표 카드">
+              <div className="parent-home__status-card" aria-label={H.plannerCardAria}>
                 <div className="parent-home__status-card-head">
                   <CalendarDays size={18} strokeWidth={2} aria-hidden />
-                  <span className="parent-home__status-card-title">계획표</span>
+                  <span className="parent-home__status-card-title">{H.plannerTitle}</span>
                   {plannerLoading ? (
                     <div
                       className="parent-home__skeleton-toggle-pill parent-home__skeleton-shimmer"
@@ -707,7 +712,7 @@ export function ParentHomeTab(props: ParentHomeTabProps) {
                       }}
                       disabled={bulkKioskSaving || !selectedStudent?.id || !authToken}
                       aria-pressed={Boolean(deviceSnapshot?.kioskEnabled)}
-                      aria-label={deviceSnapshot?.kioskEnabled ? "지금 끄기" : "지금 켜기"}
+                      aria-label={deviceSnapshot?.kioskEnabled ? H.plannerBulkOff : H.plannerBulkOn}
                       aria-busy={bulkKioskSaving}
                     >
                       {bulkKioskSaving ? (
@@ -716,9 +721,9 @@ export function ParentHomeTab(props: ParentHomeTabProps) {
                           aria-hidden
                         />
                       ) : deviceSnapshot?.kioskEnabled ? (
-                        "지금 끄기"
+                        H.plannerBulkOff
                       ) : (
-                        "지금 켜기"
+                        H.plannerBulkOn
                       )}
                     </button>
                   )}
@@ -727,7 +732,7 @@ export function ParentHomeTab(props: ParentHomeTabProps) {
                   <div
                     className="parent-home__status-center parent-home__skeleton-planner-stack"
                     aria-busy="true"
-                    aria-label="계획표 설정 불러오는 중"
+                    aria-label={H.loadingPlannerSettings}
                   >
                     <div className="parent-home__skeleton-planner-time parent-home__skeleton-shimmer" />
                     <div className="parent-home__skeleton-planner-action parent-home__skeleton-shimmer" />
@@ -740,7 +745,7 @@ export function ParentHomeTab(props: ParentHomeTabProps) {
                         className="parent-home__status-time-btn"
                         disabled={!plannerEnabled || plannerSaving}
                         onClick={() => setPlannerTimeSheetOpen(true)}
-                        aria-label="계획표 시간 설정"
+                        aria-label={H.plannerTimeSetAria}
                       >
                         {plannerTime}
                       </button>
@@ -765,35 +770,35 @@ export function ParentHomeTab(props: ParentHomeTabProps) {
                         }
                         onClick={() => void togglePlannerEnabled()}
                         aria-pressed={plannerEnabled}
-                        aria-label={plannerEnabled ? "시간 설정 해제" : "시간 설정"}
+                        aria-label={plannerEnabled ? H.timeSettingOff : H.timeSettingOn}
                         disabled={plannerSaving}
                         aria-busy={plannerSaving}
                       >
-                        {plannerEnabled ? "시간 설정 해제" : "시간 설정"}
+                        {plannerEnabled ? H.timeSettingOff : H.timeSettingOn}
                       </button>
                     </div>
                   </>
                 )}
               </div>
-              <div className="parent-home__status-card" aria-label="현재 공부 내용 카드">
+              <div className="parent-home__status-card" aria-label={H.currentStudyCardAria}>
                 <div className="parent-home__status-card-head">
                   <BookOpen size={18} strokeWidth={2} aria-hidden />
-                  <span className="parent-home__status-card-title">현재 공부</span>
+                  <span className="parent-home__status-card-title">{H.currentStudyTitle}</span>
                 </div>
                 <div className="parent-home__status-center" aria-busy={!reportReady}>
                   {reportReady ? (
                     <p className="parent-home__status-body parent-home__status-body--fade">
-                      {currentTimelineStudy || "설정 안됨"}
+                      {currentTimelineStudy || H.plannerNotConfigured}
                     </p>
                   ) : (
-                    <div className="parent-skeleton parent-skeleton--status-wide" aria-label="학습 일정 불러오는 중" />
+                    <div className="parent-skeleton parent-skeleton--status-wide" aria-label={H.loadingStudySchedule} />
                   )}
                 </div>
                 </div>
               </div>
             </>
           ) : (
-            <p className="parent-home__status-hint">표시할 학생을 선택해 주세요.</p>
+            <p className="parent-home__status-hint">{H.selectStudentHint}</p>
           )}
         </section>
       )}
@@ -825,14 +830,14 @@ export function ParentHomeTab(props: ParentHomeTabProps) {
           >
             <div className="dday-modal-header">
               <span id="parent-home-free-modal-title" className="dday-modal-title">
-                자유시간
+                {H.freeModalTitle}
               </span>
             </div>
             <div className="dday-modal-body parent-home__free-modal-body">
               <p className="parent-home__free-modal-lead">
-                몇 분 동안 자유시간을 줄까요? 시간이 지나면 자동으로 기본 모드로 돌아갑니다.
+                {H.freeModalLead}
               </p>
-              <div className="parent-home__free-chip-grid" role="group" aria-label="분 선택">
+              <div className="parent-home__free-chip-grid" role="group" aria-label={H.minutePickAria}>
                 {PARENT_FREE_MINUTE_PRESETS.map(min => (
                   <button
                     key={min}
@@ -850,7 +855,7 @@ export function ParentHomeTab(props: ParentHomeTabProps) {
                       setFreeMinutesChoice(min);
                     }}
                   >
-                    {min}분
+                    {`${min}${H.minuteUnit}`}
                   </button>
                 ))}
               </div>
@@ -862,7 +867,7 @@ export function ParentHomeTab(props: ParentHomeTabProps) {
                     disabled={freeModeToggling}
                     onChange={e => setFreeMinutesUseCustom(e.target.checked)}
                   />{" "}
-                  직접 입력 (1~180분)
+                  {H.customInputLabel}
                 </label>
                 {freeMinutesUseCustom ? (
                   <input
@@ -872,7 +877,7 @@ export function ParentHomeTab(props: ParentHomeTabProps) {
                     max={180}
                     className="parent-home__free-custom-input"
                     value={freeMinutesCustom}
-                    placeholder="예: 25"
+                    placeholder={H.customPlaceholder}
                     disabled={freeModeToggling}
                     onChange={e => setFreeMinutesCustom(e.target.value)}
                   />
@@ -889,7 +894,7 @@ export function ParentHomeTab(props: ParentHomeTabProps) {
                   freeMinutesModalReveal.beginClose(() => setFreeMinutesModalOpen(false));
                 }}
               >
-                취소
+                {H.cancel}
               </button>
               <button
                 type="button"
@@ -897,7 +902,7 @@ export function ParentHomeTab(props: ParentHomeTabProps) {
                 disabled={freeModeToggling}
                 onClick={() => confirmFreeMinutesFromModal()}
               >
-                적용
+                {H.apply}
               </button>
             </div>
           </div>

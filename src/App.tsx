@@ -23,6 +23,7 @@ import { TimePickerInline } from "./components/TimePickerSheet";
 import { NativeKeyboardInputManager } from "./components/NativeKeyboardInputManager";
 import { useOnlineStatus } from "./hooks/useOnlineStatus";
 import { canUseNativeAppShell, AppShell, type PendingNetworkBanner } from "./lib/nativeAppShell";
+import koFallbacks from "./coach/fallbacks/ko.json";
 import { DAECHI_LINKS_UPDATED_EVENT } from "./lib/linkEvents";
 import type { StudentTabKey as CoachStudentTabKey } from "./coach/student/StudentCoachApp";
 import type { ParentTabKey as ParentCoachShellTab } from "./coach/parent/ParentCoachApp";
@@ -754,8 +755,8 @@ const App: React.FC = () => {
       setNetworkBanner({
         kind: online ? "online" : "offline",
         message: online
-          ? "다시 연결되었습니다."
-          : "오프라인입니다."
+          ? koFallbacks.ui.onlineBanner
+          : koFallbacks.ui.offlineBanner
       });
       return;
     }
@@ -763,7 +764,7 @@ const App: React.FC = () => {
     if (!online) {
       setNetworkBanner({
         kind: "offline",
-        message: "오프라인입니다."
+        message: koFallbacks.ui.offlineBanner
       });
     }
   }, [online]);

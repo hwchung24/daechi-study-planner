@@ -137,10 +137,7 @@ const {
   getStudentParentFreeSession,
   deleteUser
 } = require("./db");
-const {
-  computeWeeklyStats,
-  buildWeeklySummaryLines
-} = require("./analytics");
+const { computeWeeklyStats } = require("./analytics");
 const { startDailyAiReportCron } = require("./dailyReportCron");
 const { startPlannerLockCron } = require("./plannerLockCron");
 const { startWeeklyAppAllowanceCron } = require("./weeklyAppAllowanceCron");
@@ -892,25 +889,9 @@ function buildCoachSnapshot(profile, logs = [], studyRoomSummary = null, weekSta
   const study = avg(recent.map(r => Number(r.study_minutes)));
   const meals = avg(recent.map(r => Number(r.meals_regularity)));
 
-  let hero = "현재 학습 흐름은 유지되고 있어요. 오늘은 우선순위 1개부터 시작해보세요.";
-  if (sleep > 0 && sleep < 6.2 && conc > 0 && conc < 3.2) {
-    hero = "단순 의지 문제가 아니라 수면 회복 부족이 집중 저하로 이어지고 있어요.";
-  } else if (stress >= 3.8) {
-    hero = "최근에는 스트레스 과부하 신호가 보여요. 계획보다 실행 진입장벽을 낮추는 게 먼저예요.";
-  } else if (plan > 0 && plan < 60) {
-    hero = "계획 대비 실행률이 낮아요. 할 일을 줄이고 시작 마찰을 없애는 게 핵심입니다.";
-  } else if (steps > 0 && steps < 3000) {
-    hero = "활동량이 낮아 집중 각성이 떨어질 수 있어요. 공부 전 짧은 걷기가 도움이 됩니다.";
-  }
-
-  const nextActions = [
-    "첫 공부는 25분만 시작하기",
-    "오늘 할 일을 3개로 줄이기",
-    "핸드폰은 첫 공부 시간 동안 시야 밖에 두기"
-  ];
-  if (sleep > 0 && sleep < 6.2) nextActions[0] = "취침 시간을 20분만 당기기";
-  if (plan > 0 && plan < 60) nextActions[1] = "실행률이 낮은 과목 1개만 먼저 시작하기";
-  if (stress >= 3.8) nextActions[2] = "오늘 목표를 ‘완료’보다 ‘시작’으로 재설정하기";
+  const m = { sleep, conc, stress, plan, steps };
+  const hero = prompts.studentCoachSnapshot.pickCoachHeroNarrative(m);
+  const nextActions = prompts.studentCoachSnapshot.pickCoachNextActions(m);
 
   const metrics = {
     sleepHours: sleep || null,
@@ -921,7 +902,7 @@ function buildCoachSnapshot(profile, logs = [], studyRoomSummary = null, weekSta
     studyMinutes: study || null,
     mealsRegularity: meals || null
   };
-  const analysis = buildStudentCoachAnalysis(
+  const analysis = prompts.studentCoachAnalysis.buildStudentCoachAnalysis(
     metrics,
     nextActions,
     buildWeekRhythmPayloadFromLogs(logs, weekStart),
@@ -1216,186 +1197,6 @@ function buildStudyRoomSummary(liveSummary, visits, startIso = null) {
   };
 }
 
-function buildAnalysisMetric(key, title, value, hint, tone = "neutral") {
-  return { key, title, value, hint, tone };
-}
-
-function buildStudentCoachAnalysis(metrics, nextActions, rhythmWeek, studyRoomSummary) {
-  const recordedDays = Array.isArray(rhythmWeek)
-    ? rhythmWeek.filter(hasAnyRhythmMetric).length
-    : 0;
-  const totalStudyMinutes = (Array.isArray(rhythmWeek) ? rhythmWeek : []).reduce(
-    (sum, row) =>
-      sum +
-      (row?.studyMinutes != null && Number.isFinite(Number(row.studyMinutes))
-        ? Number(row.studyMinutes)
-        : 0),
-    0
-  );
-  const sleep =
-    metrics?.sleepHours != null && Number.isFinite(Number(metrics.sleepHours))
-      ? Number(metrics.sleepHours)
-      : null;
-  const concentration =
-    metrics?.concentration != null && Number.isFinite(Number(metrics.concentration))
-      ? Number(metrics.concentration)
-      : null;
-  const concentrationPercent =
-    concentration == null ? null : Math.round((concentration / 5) * 100);
-  const stress =
-    metrics?.stress != null && Number.isFinite(Number(metrics.stress))
-      ? Number(metrics.stress)
-      : null;
-  const plan =
-    metrics?.planCompletionRate != null && Number.isFinite(Number(metrics.planCompletionRate))
-      ? Number(metrics.planCompletionRate)
-      : null;
-  const studyRoomMinutes =
-    studyRoomSummary?.weeklyMinutes != null &&
-    Number.isFinite(Number(studyRoomSummary.weeklyMinutes))
-      ? Number(studyRoomSummary.weeklyMinutes)
-      : 0;
-  const studyRoomActiveDays =
-    studyRoomSummary?.activeDays != null &&
-    Number.isFinite(Number(studyRoomSummary.activeDays))
-      ? Number(studyRoomSummary.activeDays)
-      : 0;
-
-  let statusLabel = "리듬 점검";
-  let headline = "이번 주 흐름을 한 번 더 정리하면 더 좋아질 구간이 보여요.";
-  let body =
-    "핵심 지표를 1~2개만 집중해서 보면 현재 상태를 더 빠르게 읽을 수 있어요.";
-  let recommendedAction = nextActions?.[0] || "첫 공부는 25분만 시작하기";
-  let focusMetricKey = "studyMinutes";
-
-  if (
-    studyRoomMinutes >= 240 &&
-    totalStudyMinutes > 0 &&
-    totalStudyMinutes < studyRoomMinutes * 0.45
-  ) {
-    statusLabel = "실행 연결 필요";
-    headline = "독서실 체류는 꾸준한데 기록된 공부시간이 아직 따라오지 않아요.";
-    body = `최근 7일 독서실 체류 ${formatMinutesAsHourLabel(studyRoomMinutes)}, 기록 공부 ${formatMinutesAsHourLabel(totalStudyMinutes)}예요. 환경은 잡혀 있으니 들어가자마자 시작 루틴을 고정하는 쪽이 맞아요.`;
-    recommendedAction = "독서실 도착 직후 20분 루틴부터 시작하기";
-    focusMetricKey = "studyRoomMinutes";
-  } else if (stress != null && stress >= 3.8) {
-    statusLabel = "부하 높음";
-    headline = "스트레스가 높아져서 실행 진입 장벽이 커진 상태예요.";
-    body =
-      "이번 주에는 계획을 늘리는 것보다, 바로 시작할 수 있는 쉬운 첫 공부를 정하는 게 효과적이에요.";
-    recommendedAction = "오늘 목표를 완료보다 시작 중심으로 다시 줄이기";
-    focusMetricKey = "concentration";
-  } else if (
-    sleep != null &&
-    sleep < 6.2 &&
-    concentrationPercent != null &&
-    concentrationPercent < 65
-  ) {
-    statusLabel = "회복 우선";
-    headline = "수면 회복이 먼저 잡혀야 집중 흐름도 같이 올라올 가능성이 커요.";
-    body = `최근 평균 수면 ${sleep.toFixed(1)}시간, 집중 ${concentrationPercent}% 수준이에요. 오늘은 공부량보다 회복과 시작 리듬 정렬이 먼저예요.`;
-    recommendedAction = "취침 시간을 20분만 당기기";
-    focusMetricKey = "sleepHours";
-  } else if (plan != null && plan < 60) {
-    statusLabel = "실행 흔들림";
-    headline = "계획 대비 실행률이 낮아서 목표보다 시작 마찰을 줄여야 하는 구간이에요.";
-    body = `최근 계획 완료율 ${Math.round(plan)}%예요. 해야 할 일을 줄이고 먼저 끝낼 수 있는 과제 하나를 고정하는 게 맞아요.`;
-    recommendedAction = "실행률이 낮은 과목 1개만 먼저 시작하기";
-    focusMetricKey = "planCompletionRate";
-  } else if (studyRoomMinutes >= 360 || totalStudyMinutes >= 420) {
-    statusLabel = "루틴 안정";
-    headline = "이번 주 학습 루틴은 비교적 안정적으로 유지되고 있어요.";
-    body =
-      studyRoomMinutes > 0
-        ? `독서실 체류 ${formatMinutesAsHourLabel(studyRoomMinutes)}, 기록 공부 ${formatMinutesAsHourLabel(totalStudyMinutes)}로 학습 환경과 실행이 같이 유지되고 있어요.`
-        : `최근 7일 기록 공부 ${formatMinutesAsHourLabel(totalStudyMinutes)}로 학습 루틴이 크게 흐트러지지 않았어요.`;
-    recommendedAction = "내일도 같은 시작 시간으로 첫 공부를 이어가기";
-    focusMetricKey =
-      studyRoomMinutes > totalStudyMinutes ? "studyRoomMinutes" : "studyMinutes";
-  }
-
-  const highlightMetrics = [];
-  if (sleep != null) {
-    highlightMetrics.push(
-      buildAnalysisMetric(
-        "sleepHours",
-        "수면",
-        `${sleep.toFixed(1)}시간`,
-        sleep >= 6.5 ? "회복 리듬이 유지되고 있어요" : "수면이 짧아 집중 회복이 늦을 수 있어요",
-        sleep >= 6.5 ? "good" : "warn"
-      )
-    );
-  }
-  if (concentrationPercent != null) {
-    highlightMetrics.push(
-      buildAnalysisMetric(
-        "concentration",
-        "집중",
-        `${concentrationPercent}%`,
-        concentrationPercent >= 70
-          ? "집중 흐름이 비교적 안정적이에요"
-          : "시작 마찰을 줄이면 더 좋아질 수 있어요",
-        concentrationPercent >= 70 ? "good" : "warn"
-      )
-    );
-  }
-  if (studyRoomMinutes > 0) {
-    highlightMetrics.push(
-      buildAnalysisMetric(
-        "studyRoomMinutes",
-        "독서실 체류",
-        formatMinutesAsHourLabel(studyRoomMinutes),
-        `${studyRoomActiveDays}일 방문 · ${studyRoomSummary?.consistencyLabel || "환경 기록"}`,
-        studyRoomActiveDays >= 3 ? "good" : "neutral"
-      )
-    );
-  } else if (plan != null) {
-    highlightMetrics.push(
-      buildAnalysisMetric(
-        "planCompletionRate",
-        "계획 완료",
-        `${Math.round(plan)}%`,
-        plan >= 65 ? "실행률이 유지되고 있어요" : "해야 할 일을 더 줄이는 편이 좋아요",
-        plan >= 65 ? "good" : "warn"
-      )
-    );
-  }
-
-  return {
-    statusLabel,
-    headline,
-    body,
-    recommendedAction,
-    focusMetricKey,
-    pills: [
-      { label: "기록", value: `${recordedDays}일` },
-      studyRoomMinutes > 0
-        ? {
-            label: "독서실",
-            value: `${studyRoomActiveDays}일 · ${formatMinutesAsHourLabel(studyRoomMinutes)}`
-          }
-        : { label: "계획", value: plan != null ? `${Math.round(plan)}%` : "기록 대기" }
-    ],
-    highlightMetrics: highlightMetrics.slice(0, 3)
-  };
-}
-
-function deriveInsightParts(explanation, recommendation) {
-  const normalizedExplanation = String(explanation || "").trim();
-  const normalizedRecommendation = String(recommendation || "").trim();
-  const sentences = normalizedExplanation
-    .split(/(?<=[.!?])\s+/)
-    .map(line => line.trim())
-    .filter(Boolean);
-  const headline = (sentences[0] || normalizedExplanation || "핵심 흐름을 확인해 보세요.").slice(0, 120);
-  const evidence = (sentences.slice(1).join(" ") || normalizedExplanation || headline).slice(0, 220);
-  return {
-    headline,
-    evidence,
-    action: (normalizedRecommendation || "하루 한 가지 작은 루틴부터 조정해 보세요.").slice(0, 180)
-  };
-}
-
 function normalizePatternSeverity(s) {
   const t = String(s || "").trim();
   if (t === "높음" || t === "보통" || t === "낮음") return t;
@@ -1411,7 +1212,7 @@ function sanitizeAiPatterns(raw) {
       const explanation = String(p?.explanation || "").trim().slice(0, 500);
       const recommendation = String(p?.recommendation || "").trim().slice(0, 500);
       if (!title || !explanation) return null;
-      const insightParts = deriveInsightParts(
+      const insightParts = prompts.patternInsights.deriveInsightParts(
         String(p?.headline || explanation),
         String(p?.action || recommendation)
       );
@@ -1421,157 +1222,13 @@ function sanitizeAiPatterns(raw) {
         severity: normalizePatternSeverity(p?.severity),
         explanation,
         recommendation:
-          recommendation || "하루 한 가지 작은 루틴부터 조정해 보세요.",
+          recommendation || prompts.patternInsights.defaultEmptyPatternRecommendation,
         headline: String(p?.headline || insightParts.headline).trim().slice(0, 120),
         evidence: String(p?.evidence || insightParts.evidence).trim().slice(0, 220),
         action: String(p?.action || insightParts.action).trim().slice(0, 180)
       };
     })
     .filter(Boolean);
-}
-
-function hasAnyRhythmMetric(row) {
-  return (
-    row?.sleepHours != null ||
-    row?.stressScore != null ||
-    row?.concentrationPercent != null ||
-    row?.studyMinutes != null ||
-    row?.planCompletionRate != null
-  );
-}
-
-function looksLikeInsufficientPattern(p) {
-  const t = `${String(p?.title || "")} ${String(p?.explanation || "")}`;
-  return /(기록\s*부족|데이터\s*부족|분석\s*불가|분석이\s*어렵|판단이\s*어렵|기록이\s*더\s*필요)/.test(
-    t
-  );
-}
-
-function shortDateLabel(isoDate) {
-  const s = String(isoDate || "").trim();
-  return /^\d{4}-\d{2}-\d{2}$/.test(s) ? s.slice(5) : s;
-}
-
-function buildRhythmFallbackPattern(rhythmWeek, recordedDays, studyRoomSummary = null) {
-  if (recordedDays < 2) {
-    return {
-      key: "ai_pat_0",
-      title: "기록이 더 필요해요",
-      severity: "낮음",
-      explanation:
-        "이번 주에 입력된 날이 적어요. 오늘 공부 탭에서 하루 기록을 쌓으면 그래프·AI 분석이 정확해져요.",
-      recommendation:
-        "수면·스트레스·집중·공부 시간·목표 달성률을 같은 날에 저장해 두면 한 주 흐름을 보기 좋아요.",
-      headline: "이번 주 기록이 아직 적어서 AI가 패턴을 좁혀 보기 어려워요.",
-      evidence: "하루 기록만 더 쌓여도 수면, 집중, 공부 시간의 연결을 훨씬 정확하게 읽을 수 있어요.",
-      action: "오늘 공부 탭에서 같은 날 기준으로 핵심 지표를 함께 저장해 주세요."
-    };
-  }
-
-  const rows = Array.isArray(rhythmWeek) ? rhythmWeek.filter(hasAnyRhythmMetric) : [];
-  if (rows.length < 2) {
-    return {
-      key: "ai_pat_0",
-      title: "패턴 요약",
-      severity: "낮음",
-      explanation:
-        "이틀 이상 기록은 있지만 지표가 서로 다른 날에 흩어져 있어 직접 비교가 어려워요.",
-      recommendation:
-        "같은 날에 수면·스트레스·집중·공부 시간·목표 달성률을 함께 기록해 주세요.",
-      headline: "기록은 쌓였지만 같은 날 기준 비교가 아직 어렵습니다.",
-      evidence: "수면과 공부시간이 다른 날짜에 나뉘어 있으면 변화 방향을 한 번에 읽기 어려워요.",
-      action: "핵심 지표를 같은 날 한 번에 기록해 주세요."
-    };
-  }
-
-  const totalStudyMinutes = rows.reduce(
-    (sum, row) => sum + (row.studyMinutes != null ? Number(row.studyMinutes) : 0),
-    0
-  );
-  const studyRoomMinutes =
-    studyRoomSummary?.weeklyMinutes != null &&
-    Number.isFinite(Number(studyRoomSummary.weeklyMinutes))
-      ? Number(studyRoomSummary.weeklyMinutes)
-      : 0;
-  if (studyRoomMinutes >= 240 && totalStudyMinutes > 0 && totalStudyMinutes < studyRoomMinutes * 0.45) {
-    return {
-      key: "ai_pat_0",
-      title: "환경 대비 실행이 약해요",
-      severity: "보통",
-      explanation: `최근 7일 독서실 체류는 ${formatMinutesAsHourLabel(studyRoomMinutes)}인데 기록된 공부시간은 ${formatMinutesAsHourLabel(totalStudyMinutes)}예요. 학습 환경은 확보됐지만 실제 시작 루틴 연결이 약한 흐름입니다.`,
-      recommendation: "독서실에 도착한 직후 바로 시작할 20분 루틴을 하나만 고정해 보세요.",
-      headline: "독서실 체류에 비해 실제 공부시간 기록이 적어요.",
-      evidence: `환경은 이미 잡혀 있어요. 최근 체류 ${formatMinutesAsHourLabel(studyRoomMinutes)}, 기록 공부 ${formatMinutesAsHourLabel(totalStudyMinutes)}입니다.`,
-      action: "독서실 도착 직후 첫 20분 루틴을 고정해 보세요."
-    };
-  }
-
-  const prev = rows[rows.length - 2];
-  const curr = rows[rows.length - 1];
-  const positive = [];
-  const negative = [];
-
-  if (prev.sleepHours != null && curr.sleepHours != null) {
-    const d = curr.sleepHours - prev.sleepHours;
-    if (d >= 0.8) positive.push(`수면시간이 ${d.toFixed(1)}시간 늘었어요`);
-    else if (d <= -0.8) negative.push(`수면시간이 ${Math.abs(d).toFixed(1)}시간 줄었어요`);
-  }
-  if (prev.stressScore != null && curr.stressScore != null) {
-    const d = curr.stressScore - prev.stressScore;
-    if (d <= -0.6) positive.push(`스트레스 점수가 ${Math.abs(d).toFixed(1)}점 낮아졌어요`);
-    else if (d >= 0.6) negative.push(`스트레스 점수가 ${d.toFixed(1)}점 높아졌어요`);
-  }
-  if (prev.concentrationPercent != null && curr.concentrationPercent != null) {
-    const d = curr.concentrationPercent - prev.concentrationPercent;
-    if (d >= 8) positive.push(`집중도가 ${Math.round(d)}% 올랐어요`);
-    else if (d <= -8) negative.push(`집중도가 ${Math.round(Math.abs(d))}% 떨어졌어요`);
-  }
-  if (prev.studyMinutes != null && curr.studyMinutes != null) {
-    const d = curr.studyMinutes - prev.studyMinutes;
-    if (d >= 30) positive.push(`공부시간이 ${Math.round(d)}분 늘었어요`);
-    else if (d <= -30) negative.push(`공부시간이 ${Math.round(Math.abs(d))}분 줄었어요`);
-  }
-  if (prev.planCompletionRate != null && curr.planCompletionRate != null) {
-    const d = curr.planCompletionRate - prev.planCompletionRate;
-    if (d >= 10) positive.push(`목표 달성률이 ${Math.round(d)}%p 올랐어요`);
-    else if (d <= -10) negative.push(`목표 달성률이 ${Math.round(Math.abs(d))}%p 내려갔어요`);
-  }
-
-  const compareLabel = `${shortDateLabel(prev.date)} 대비 ${shortDateLabel(curr.date)}`;
-  const summaryParts = [];
-  if (positive.length) summaryParts.push(`좋아진 신호: ${positive.slice(0, 2).join(", ")}`);
-  if (negative.length) summaryParts.push(`주의 신호: ${negative.slice(0, 2).join(", ")}`);
-  if (!summaryParts.length) {
-    summaryParts.push("확인 가능한 지표는 큰 변화 없이 비슷한 흐름을 보였어요");
-  }
-
-  let recommendation = "내일도 같은 5개 지표를 같은 시간대에 기록해 변화 방향을 더 선명하게 확인해 보세요.";
-  if (negative.some(s => s.includes("수면시간"))) {
-    recommendation = "취침 시간을 30분만 앞당겨 수면시간을 먼저 회복해 보세요. 수면이 안정되면 집중도와 공부시간이 같이 회복될 가능성이 커요.";
-  } else if (negative.some(s => s.includes("스트레스"))) {
-    recommendation = "학습 시작 전 5분 호흡 정리나 쉬운 과목 워밍업을 넣어 스트레스 상승 구간을 낮춰 보세요.";
-  } else if (negative.some(s => s.includes("집중도"))) {
-    recommendation = "첫 25분은 알림 차단 + 단일 과목으로 시작해 집중도 하락 구간을 줄여 보세요.";
-  } else if (negative.some(s => s.includes("공부시간"))) {
-    recommendation = "공부 시작 시간을 고정하고 최소 20분 타이머 2회만 먼저 완주해 총 공부시간을 다시 끌어올려 보세요.";
-  } else if (negative.some(s => s.includes("목표 달성률"))) {
-    recommendation = "내일 목표 개수를 1~2개 줄여 완료 경험을 먼저 만들고, 달성률이 회복되면 다시 늘려 보세요.";
-  }
-
-  const fallback = {
-    key: "ai_pat_0",
-    title: "이틀 기록 기반 변화 신호",
-    severity: negative.length >= 2 ? "높음" : negative.length === 1 ? "보통" : "낮음",
-    explanation: `${compareLabel} 기준으로 ${summaryParts.join(". ")}.`,
-    recommendation
-  };
-  const insightParts = deriveInsightParts(fallback.explanation, fallback.recommendation);
-  return {
-    ...fallback,
-    headline: insightParts.headline,
-    evidence: insightParts.evidence,
-    action: insightParts.action
-  };
 }
 
 /** 마크다운·앞뒤 잡담이 섞인 응답에서 patterns JSON 추출 */
@@ -2129,39 +1786,13 @@ async function buildParentGrowthReportPayload(studentId, weekMondayIso) {
       console.warn("[growth-report] openai failed", e?.message || e);
     }
   }
-  if (!narrative.weeklySummary) {
-    const lines = buildWeeklySummaryLines(stats);
-    narrative.weeklySummary =
-      lines.slice(0, 2).join(" ") || "이번 주 기록을 바탕으로 계속 응원할게요.";
-  }
-  if (!narrative.energyParentTip) {
-    narrative.energyParentTip =
-      "대화는 먼저 하루를 인정하는 한마디로 시작하면 마음이 조금 더 가까워져요.";
-  }
-  if (!narrative.studyEfficiencyInsight) {
-    narrative.studyEfficiencyInsight =
-      studyRoomHours > 0
-        ? `독서실 체류는 ${studyRoomHours.toFixed(
-            1
-          )}시간, 같은 주간 기록된 학습 시간은 ${actualStudyHours.toFixed(
-            1
-          )}시간이에요. 작은 시작을 이어가면 집중 구간도 함께 자라요.`
-        : "학습 기록이 더 쌓이면 독서실과 집중 시간 비교가 더 또렷해져요.";
-  }
-  if (!narrative.planExecutionSummary) {
-    narrative.planExecutionSummary =
-      planLists.completedCount > 0
-        ? `완료한 항목부터 차근히 인정해 주시고, 이월된 항목은 다음 주로 넘겨도 괜찮아요.`
-        : "계획 항목이 더 쌓이면 실행력 카드가 더 풍성해져요.";
-  }
-  if (!narrative.nextWeekForStudent) {
-    narrative.nextWeekForStudent =
-      "부담이 큰 날에는 목표를 ‘완료’보다 ‘시작’ 한 단계만 낮춰 보세요.";
-  }
-  if (!narrative.nextWeekForParent) {
-    narrative.nextWeekForParent =
-      "공부 이야기 전에 오늘 기분 한 줄만 가볍게 물어보는 시간을 가져보세요.";
-  }
+  const lines = prompts.parentDailyAiReport.buildWeeklySummaryLines(stats);
+  prompts.parentGrowthReportNarrativeFallback.fillParentGrowthReportNarrativeGaps(narrative, {
+    lines,
+    studyRoomHours,
+    actualStudyHours,
+    planLists
+  });
 
   return {
     weekStart: weekMondayIso,
@@ -2490,40 +2121,6 @@ function serializeParentCoachCustomization(row) {
   };
 }
 
-function buildParentCoachCustomizationPrompt(customization) {
-  const cfg = serializeParentCoachCustomization(customization);
-  const intensityGuide =
-    cfg.controlIntensity <= 1
-      ? "매우 낮음: 자율성을 존중하고 선택지를 제안하는 쪽으로 답한다."
-      : cfg.controlIntensity === 2
-        ? "낮음: 부드럽게 권하지만 행동 제안은 분명하게 한다."
-        : cfg.controlIntensity === 3
-          ? "보통: 공감과 기준 제시를 균형 있게 유지한다."
-          : cfg.controlIntensity === 4
-            ? "높음: 미루기나 회피는 짚되, 학생을 깎아내리지 말고 바로 실행을 요구한다."
-            : "매우 높음: 매우 분명하고 단호하게 방향을 제시하되, 위협·모욕·비난은 금지한다.";
-  return [
-    "연결된 학부모가 이 학생의 AI 코치 스타일을 다음과 같이 커스터마이징했다.",
-    `- 페르소나: ${cfg.persona}`,
-    `- 말투/화법: ${cfg.tone}`,
-    `- 통제 강도: ${cfg.controlIntensity}/5. ${intensityGuide}`,
-    `- 특히 강조할 원칙: ${cfg.focusRules}`,
-    "이 설정을 우선 반영하되, 항상 한국어 존댓말을 유지하고 학생을 인격적으로 존중하라. 공격적·모욕적·위협적인 표현은 금지한다."
-  ].join("\n");
-}
-
-function buildCustomizedFallbackAction(customization, suggestedAction) {
-  const cfg = serializeParentCoachCustomization(customization);
-  const action = String(suggestedAction || "첫 25분만 하는 공부부터 시작해 보세요.").trim();
-  if (cfg.controlIntensity <= 2) {
-    return `부담을 크게 잡지 말고 ${action}`;
-  }
-  if (cfg.controlIntensity === 3) {
-    return `지금은 생각을 길게 끌기보다 ${action}`;
-  }
-  return `지금 바로 미루지 말고 ${action}`;
-}
-
 const NOTIFICATION_ACTION_PREFIX = "[[DAECHI_ACTION]]";
 
 function embedNotificationAction(action, visibleBody) {
@@ -2561,15 +2158,6 @@ function isScheduleManagementRequest(text) {
     "반복 일정",
     "이번 주 일정"
   ].some(keyword => t.includes(keyword));
-}
-
-function buildScheduleManagementReply() {
-  return [
-    "일정 관리 도와드릴게요.",
-    "먼저 이 일정이 매주 반복되는 일정인지, 이번 주만 있는 일정인지 알려주세요.",
-    "예를 들면 `매주 월수금 7시 수학 학원`, `이번 주 토요일만 2시 모의고사`처럼 말씀해 주시면 돼요.",
-    "반복 여부와 요일 또는 날짜를 알려주시면 다음으로 시간과 내용을 정리해볼게요."
-  ].join("\n");
 }
 
 function looksLikeScheduleDetails(text) {
@@ -2953,22 +2541,6 @@ function getMissingScheduleFields(schedule) {
   return missing;
 }
 
-function buildMissingScheduleFieldsMessage(missing) {
-  if (!Array.isArray(missing) || missing.length === 0) {
-    return "일정을 저장하려면 날짜, 시작 시간, 종료 시간이 모두 확정되어야 해요. 일정을 한 번 더 확인해 주세요.";
-  }
-  if (missing.includes("종료 시간") && !missing.includes("시작 시간")) {
-    return "시작 시간은 확인됐어요. 몇 시에 끝나는지도 알려주세요. 시작 시간과 종료 시간이 둘 다 있어야 일정을 저장할 수 있어요.";
-  }
-  if (missing.includes("시작 시간") && !missing.includes("종료 시간")) {
-    return "종료 시간은 확인됐어요. 몇 시에 시작하는지 알려주세요. 시작 시간과 종료 시간이 둘 다 있어야 일정을 저장할 수 있어요.";
-  }
-  if (missing.includes("시작 시간") && missing.includes("종료 시간")) {
-    return "몇 시부터 몇 시까지인지 알려주세요. 시작 시간과 종료 시간이 둘 다 있어야 일정을 저장할 수 있어요.";
-  }
-  return `${missing.join(", ")} 정보가 아직 확실하지 않아요. 시작 시간과 종료 시간이 둘 다 확정되어야 저장할 수 있으니, 정확한 날짜(또는 반복 요일)와 몇 시부터 몇 시까지인지 다시 알려주세요.`;
-}
-
 function hhmmToMinutes(value) {
   const m = String(value || "")
     .trim()
@@ -3020,22 +2592,6 @@ function findScheduleConflicts(existingRows, draft, options = {}) {
     })
     .map(serializeStudentProfileSchedule)
     .filter(Boolean);
-}
-
-function buildScheduleConflictMessage(draft, conflicts) {
-  const lead = `추가하려는 일정 ${draft.startTime}~${draft.endTime} "${draft.title}" 이 기존 일정과 겹쳐요.`;
-  const details = conflicts
-    .slice(0, 3)
-    .map(item => `- ${item.title}: ${item.date} ${item.startTime}${item.endTime ? `~${item.endTime}` : ""}`)
-    .join("\n");
-  return [
-    lead,
-    details,
-    "시간을 바꾸거나 기존 일정을 수정할지 정해야 해서, 그대로 저장하지는 않았어요.",
-    "새 일정 시간을 조정할지, 기존 일정을 바꿀지 말씀해 주세요."
-  ]
-    .filter(Boolean)
-    .join("\n");
 }
 
 function serializeScheduleRowsForPrompt(rows) {
@@ -3585,10 +3141,7 @@ async function buildWeeklyAppRequestAssistantReply({
 }) {
   if (!openai) {
     return {
-      reply:
-        "원하는 요일, 시간, 허용할 앱 이름을 같이 적어 주세요. 예: 월요일 18:00-20:00 유튜브, 사전 허용",
-      summary: "",
-      slots: [],
+      ...prompts.coachFallbackMessages.weeklyAppRequestNoOpenAi,
       usedOpenAi: false,
       model: null
     };
@@ -3633,9 +3186,7 @@ async function buildWeeklyAppRequestAssistantReply({
   return {
     reply:
       sanitizePromptText(parsed.reply, 1200) ||
-      (normalized.slots.length > 0
-        ? "요청하신 허용 앱 내용을 학부모에게 전달할 수 있게 정리했어요."
-        : "원하는 요일, 시간, 허용 앱을 조금 더 구체적으로 알려 주세요."),
+      prompts.coachFallbackMessages.weeklyAppRequestReplyWhenParsedEmpty(normalized),
     summary: normalized.summary,
     slots: normalized.slots,
     usedOpenAi: true,
@@ -3864,17 +3415,11 @@ function findDeleteCandidatesFromText(text, existingRows) {
 }
 
 function buildAmbiguousDeleteMessage(candidates) {
-  const items = (candidates || [])
-    .slice(0, 5)
-    .map(row => `- ${row.title}: ${formatPgLogDate(row.schedule_date)} ${String(row.start_time || "").slice(0, 5)}${row.end_time ? `~${String(row.end_time).slice(0, 5)}` : ""}`)
-    .join("\n");
-  return [
-    "지울 수 있는 일정이 여러 개라서 어떤 일정을 취소할지 아직 확실하지 않아요.",
-    items,
-    "취소할 일정 이름이나 시간을 하나만 더 정확히 알려주세요."
-  ]
-    .filter(Boolean)
-    .join("\n");
+  return prompts.coachFallbackMessages.buildAmbiguousDeleteMessageFromCandidates(candidates, row =>
+    `- ${row.title}: ${formatPgLogDate(row.schedule_date)} ${String(row.start_time || "").slice(0, 5)}${
+      row.end_time ? `~${String(row.end_time).slice(0, 5)}` : ""
+    }`
+  );
 }
 
 function conversationHasExplicitEndTimeInfo(history = [], latestText = "") {
@@ -3908,18 +3453,18 @@ async function generateScheduleValidationReply(params) {
 
   if (!openai) {
     if (scenario === "intent_reset") {
-      return "알겠어. 방금 이야기하던 일정 추가는 진행하지 않을게. 새로 관리할 일정이 있으면 그 내용만 다시 말해줘.";
+      return prompts.coachFallbackMessages.scheduleValidationIntentResetNoOpenAi;
     }
     if (scenario === "missing_fields") {
-      return buildMissingScheduleFieldsMessage(missingFields);
+      return prompts.coachFallbackMessages.buildMissingScheduleFieldsMessage(missingFields);
     }
     if (scenario === "conflict") {
-      return buildScheduleConflictMessage(draft || {}, conflicts);
+      return prompts.coachFallbackMessages.buildScheduleConflictMessage(draft || {}, conflicts);
     }
     if (scenario === "ambiguous_delete") {
       return buildAmbiguousDeleteMessage(candidates);
     }
-    return "일정 정보를 다시 한 번 확인해 주세요.";
+    return prompts.coachFallbackMessages.scheduleValidationDefaultNoOpenAi;
   }
 
   const response = await openai.chat.completions.create({
@@ -3933,15 +3478,17 @@ async function generateScheduleValidationReply(params) {
       },
       {
         role: "system",
-        content: buildParentCoachCustomizationPrompt(coachCustomization)
+        content: prompts.parentCoachCustomization.buildSystemPromptFromConfig(
+          serializeParentCoachCustomization(coachCustomization)
+        )
       },
       {
         role: "system",
-        content: `학생 프로필/요약: ${JSON.stringify(snapshot || {})}`
+        content: prompts.coachContextMessages.wrapStudentProfileSnapshot(snapshot)
       },
       {
         role: "system",
-        content: `현재 등록된 일정 목록: ${JSON.stringify(existingSchedules || [])}`
+        content: prompts.coachContextMessages.wrapExistingSchedules(existingSchedules)
       },
       {
         role: "user",
@@ -4629,7 +4176,7 @@ app.post("/api/student/profile-schedules", authMiddleware, async (req, res) => {
     const conflicts = findScheduleConflicts(existingRows, draft);
     if (conflicts.length > 0) {
       return res.status(409).json({
-        error: buildScheduleConflictMessage(draft, conflicts),
+        error: prompts.coachFallbackMessages.buildScheduleConflictMessage(draft, conflicts),
         conflicts
       });
     }
@@ -7287,13 +6834,7 @@ app.get("/api/parent/coach/pattern-insights", authMiddleware, async (req, res) =
         "studyMinutes",
         "planCompletionRate"
       ],
-      fieldHelp: {
-        sleepHours: "해당 날짜 학생이 입력한 수면 시간(시간)",
-        stressScore: "1~5, 높을수록 스트레스 큼",
-        concentrationPercent: "집중도 1~5를 0~100%로 환산한 값",
-        studyMinutes: "해당 날짜 학생이 기록한 공부 시간(분)",
-        planCompletionRate: "해당 날짜 목표 달성률 0~100"
-      }
+      fieldHelp: { ...prompts.patternInsights.fieldHelpParent }
     };
 
     const { parsed, rawText } = await openAiPatternCompletion(payload);
@@ -7305,7 +6846,7 @@ app.get("/api/parent/coach/pattern-insights", authMiddleware, async (req, res) =
       );
     }
     if (!patterns.length || patterns.every(looksLikeInsufficientPattern)) {
-      patterns = [buildRhythmFallbackPattern(rhythmWeek, recordedDays)];
+      patterns = [prompts.patternInsights.buildRhythmFallbackPattern(rhythmWeek, recordedDays)];
     }
 
     const response = {
@@ -7319,7 +6860,7 @@ app.get("/api/parent/coach/pattern-insights", authMiddleware, async (req, res) =
     res.json(response);
   } catch (e) {
     console.error("/api/parent/coach/pattern-insights error", e);
-    res.status(500).json({ error: "학생 AI 패턴 분석을 불러오지 못했습니다." });
+    res.status(500).json({ error: prompts.patternInsights.apiParentPatternInsightsLoadFailed });
   }
 });
 
@@ -8355,7 +7896,7 @@ app.get("/api/student/coach/pattern-insights", authMiddleware, async (req, res) 
     if (!openai) {
       const response = {
         patterns: [
-          buildRhythmFallbackPattern(rhythmWeek, recordedDays, studyRoomSummary)
+          prompts.patternInsights.buildRhythmFallbackPattern(rhythmWeek, recordedDays, studyRoomSummary)
         ],
         usedOpenAi: false,
         studyRoomSummary,
@@ -8376,13 +7917,7 @@ app.get("/api/student/coach/pattern-insights", authMiddleware, async (req, res) 
         "studyMinutes",
         "planCompletionRate"
       ],
-      fieldHelp: {
-        sleepHours: "시간, 미기록은 null",
-        stressScore: "1~5 (높을수록 스트레스 큼)",
-        concentrationPercent: "대략 0~100 환산",
-        studyMinutes: "분",
-        planCompletionRate: "0~100"
-      },
+      fieldHelp: { ...prompts.patternInsights.fieldHelpStudent },
       studyRoomSummary:
         studyRoomSummary?.weeklyMinutes > 0
           ? {
@@ -8401,8 +7936,7 @@ app.get("/api/student/coach/pattern-insights", authMiddleware, async (req, res) 
         String(rawText || "").slice(0, 240)
       );
       return res.status(502).json({
-        error:
-          "AI 응답 형식이 맞지 않습니다. 잠시 후 다시 시도하거나 OPENAI_MODEL을 gpt-4o-mini로 두고 확인해 주세요."
+        error: prompts.patternInsights.apiStudentPatternInsightsInvalidAiResponse
       });
     }
     let patterns = sanitizeAiPatterns(parsed.patterns);
@@ -8411,7 +7945,7 @@ app.get("/api/student/coach/pattern-insights", authMiddleware, async (req, res) 
     }
     if (patterns.length === 0) {
       patterns = [
-        buildRhythmFallbackPattern(rhythmWeek, recordedDays, studyRoomSummary)
+        prompts.patternInsights.buildRhythmFallbackPattern(rhythmWeek, recordedDays, studyRoomSummary)
       ];
     }
     const response = {
@@ -8426,7 +7960,7 @@ app.get("/api/student/coach/pattern-insights", authMiddleware, async (req, res) 
     res.json(response);
   } catch (e) {
     console.error("/api/student/coach/pattern-insights error", e);
-    res.status(500).json({ error: "패턴 분석에 실패했습니다." });
+    res.status(500).json({ error: prompts.patternInsights.apiStudentPatternInsightsFailed });
   }
 });
 
@@ -8751,8 +8285,7 @@ app.post("/api/student/coach/app-timetable/message", authMiddleware, async (req,
     if (!openai) {
       return res.json({
         ok: true,
-        reply:
-          "지금은 GPT 연결이 없어 자동 대화 수정은 어렵습니다. 아래 시간표를 직접 조정하시거나, 다시 시도해 주세요.",
+        reply: prompts.coachFallbackMessages.appTimetableChatNoGptReply,
         summary: currentPlan.summary,
         slots: currentPlan.slots,
         availableApps,
@@ -8808,7 +8341,7 @@ app.post("/api/student/coach/app-timetable/message", authMiddleware, async (req,
       ) || currentPlan;
     const reply =
       sanitizePromptText(parsed.reply, 1200) ||
-      "말씀하신 방향으로 앱 허용 시간표를 다시 정리해 봤어요.";
+      prompts.coachFallbackMessages.appTimetableChatParsedReplyFallback;
 
     res.json({
       ok: true,
@@ -9218,15 +8751,17 @@ app.post("/api/student/coach/chat", authMiddleware, async (req, res) => {
             },
             {
               role: "system",
-              content: buildParentCoachCustomizationPrompt(effectiveParentCoachCustomization)
+              content: prompts.parentCoachCustomization.buildSystemPromptFromConfig(
+                serializeParentCoachCustomization(effectiveParentCoachCustomization)
+              )
             },
             {
               role: "system",
-              content: `학생 DB 컨텍스트(JSON): ${coachDbContextJson}`
+              content: prompts.coachContextMessages.wrapCoachDbContextJson(coachDbContextJson)
             },
             {
               role: "system",
-              content: `현재 등록된 일정 목록: ${JSON.stringify(existingSchedules)}`
+              content: prompts.coachContextMessages.wrapExistingSchedules(existingSchedules)
             },
             ...sanitizedCoachHistory
           ]
@@ -9267,7 +8802,7 @@ app.post("/api/student/coach/chat", authMiddleware, async (req, res) => {
                 coachCustomization: effectiveParentCoachCustomization
               }) ||
               parsedReply?.message ||
-              "알겠어. 방금 이야기하던 일정은 추가하지 않을게. 다른 일정이 있으면 새로 말해줘."
+              prompts.coachFallbackMessages.scheduleIntentResetParsedFallback
             : mustInquire
             ? await generateScheduleValidationReply({
                 scenario: "missing_fields",
@@ -9277,11 +8812,11 @@ app.post("/api/student/coach/chat", authMiddleware, async (req, res) => {
                 snapshot,
                 existingSchedules,
                 coachCustomization: effectiveParentCoachCustomization
-              }) || buildMissingScheduleFieldsMessage(missingFields)
-            : parsedReply?.message || "일정을 저장할게요."
+              }) || prompts.coachFallbackMessages.buildMissingScheduleFieldsMessage(missingFields)
+            : parsedReply?.message || prompts.coachFallbackMessages.scheduleSaveDefaultMessage
         ).trim();
         if (!replyText) {
-          const emptyFallback = buildScheduleManagementReply();
+          const emptyFallback = prompts.coachFallbackMessages.buildScheduleManagementReply();
           await insertStudentCoachMessage(req.userId, "assistant", emptyFallback);
           return res.json({
             ok: true,
@@ -9357,7 +8892,7 @@ app.post("/api/student/coach/chat", authMiddleware, async (req, res) => {
                   existingSchedules,
                   coachCustomization: effectiveParentCoachCustomization
                 })) ||
-                buildScheduleConflictMessage(
+                prompts.coachFallbackMessages.buildScheduleConflictMessage(
                   normalizedScheduleUpdate.schedule,
                   conflicts
                 );
@@ -9393,7 +8928,7 @@ app.post("/api/student/coach/chat", authMiddleware, async (req, res) => {
                   existingSchedules,
                   coachCustomization: effectiveParentCoachCustomization
                 })) ||
-                buildScheduleConflictMessage(
+                prompts.coachFallbackMessages.buildScheduleConflictMessage(
                   accumulatedSchedule,
                   conflicts
                 );
@@ -9438,7 +8973,7 @@ app.post("/api/student/coach/chat", authMiddleware, async (req, res) => {
             "/api/student/coach/chat schedule branch error:",
             scheduleBranchError?.message || scheduleBranchError
           );
-          const fallbackReply = buildScheduleManagementReply();
+          const fallbackReply = prompts.coachFallbackMessages.buildScheduleManagementReply();
           await insertStudentCoachMessage(req.userId, "assistant", fallbackReply);
           return res.json({
             ok: true,
@@ -9450,7 +8985,7 @@ app.post("/api/student/coach/chat", authMiddleware, async (req, res) => {
         }
       }
 
-      const replyText = buildScheduleManagementReply();
+      const replyText = prompts.coachFallbackMessages.buildScheduleManagementReply();
       await insertStudentCoachMessage(req.userId, "assistant", replyText);
       return res.json({
         ok: true,
@@ -9488,11 +9023,13 @@ app.post("/api/student/coach/chat", authMiddleware, async (req, res) => {
             },
             {
               role: "system",
-              content: buildParentCoachCustomizationPrompt(effectiveParentCoachCustomization)
+              content: prompts.parentCoachCustomization.buildSystemPromptFromConfig(
+                serializeParentCoachCustomization(effectiveParentCoachCustomization)
+              )
             },
             {
               role: "system",
-              content: `학생 DB 컨텍스트(JSON): ${coachDbContextJson}`
+              content: prompts.coachContextMessages.wrapCoachDbContextJson(coachDbContextJson)
             },
             ...sanitizedCoachHistory
           ]
@@ -9514,26 +9051,18 @@ app.post("/api/student/coach/chat", authMiddleware, async (req, res) => {
 
     if (!replyText) {
       if (chatMode === "suneung") {
-        replyText = [
-          "1) 핵심 안내",
-          "- 수능 질문 모드에서는 과목(국어·수학·영어·탐구 등)과 함께, 모르는 개념·헷갈리는 개념·막히는 문제를 그대로 질문해 주세요. 그에 맞춰 정의·구분·풀이 접근을 설명해 드릴 수 있어요.",
-          "",
-          "2) 참고",
-          `- 최근 기록 요약: ${snapshot.heroNarrative}`,
-          "",
-          "3) 질문 예시",
-          "- 「미적에서 극한이랑 연속이 헷갈려요」「이 문장 5형식인지 도치인지 모르겠어요」「이 그래프 문제 식부터 못 세우겠어요」처럼 적어 주시면 됩니다.",
-          "",
-          "4) 안내",
-          "- GPT가 연결되면 더 구체적으로 답해 드릴 수 있어요. 정답만 알려 달라는 식의 요청은 도와드리기 어려워요."
-        ].join("\n");
+        replyText = prompts.coachFallbackMessages.buildSuneungCoachTemplateFallback(snapshot.heroNarrative);
       } else {
-        const topAction = snapshot.nextActions[0] || "첫 25분만 하는 공부부터 시작해 보세요.";
-        replyText = [
-          `${snapshot.heroNarrative} 흐름으로 보여요.`,
-          buildCustomizedFallbackAction(effectiveParentCoachCustomization, topAction),
-          "완벽하게 하려 하기보다 시작 난도를 낮추면 집중이 더 빨리 살아납니다. 지금 바로 시작할 수 있는 가장 짧은 과제 하나를 정해볼까요?"
-        ].join("\n\n");
+        const topAction =
+          snapshot.nextActions[0] || prompts.coachFallbackMessages.defaultLearningCoachTopAction;
+        const customizedParagraph = prompts.parentCoachCustomization.buildCustomizedFallbackAction(
+          serializeParentCoachCustomization(effectiveParentCoachCustomization),
+          topAction
+        );
+        replyText = prompts.coachFallbackMessages.buildLearningCoachTemplateFallback(
+          snapshot.heroNarrative,
+          customizedParagraph
+        );
       }
     }
 
@@ -9547,7 +9076,7 @@ app.post("/api/student/coach/chat", authMiddleware, async (req, res) => {
     });
   } catch (e) {
     console.error("/api/student/coach/chat error", e);
-    res.status(500).json({ error: "코치 답변 생성에 실패했습니다." });
+    res.status(500).json({ error: prompts.coachFallbackMessages.apiCoachChatGenerationFailed });
   }
 });
 
@@ -9604,12 +9133,14 @@ app.post("/api/student/coach/tomorrow-plan/message", authMiddleware, async (req,
 
     if (!openai) {
       if (focus === "life") {
-        const replyText =
-          "오늘 생활을 돌아보며, 내일 꼭 한 가지 실천으로 남기고 싶은 것이 있으신가요? 한 문장으로만 적어 보시면 기록 탭「내일 실천할 한 가지」에 맞춰 다듬어 드릴게요. (GPT 연결 시 더 구체적으로 도와드릴 수 있어요.)";
-        return res.json({ ok: true, reply: replyText, usedOpenAi: false, model: null });
+        return res.json({
+          ok: true,
+          reply: prompts.tomorrowPlan.collabNoGptLifeReply,
+          usedOpenAi: false,
+          model: null
+        });
       }
-      const pct = Number(context.todayProgressPercent) || 0;
-      const replyText = `오늘 계획 칸 기준 이행률이 ${pct}%로 보입니다. 내일은 가장 먼저 다루고 싶은 교재 한 권 이름과, 그날 목표로 삼을 공부 범위(예: 몇 쪽~몇 쪽)를 한 줄로 알려 주시겠어요? (GPT 연결 시 더 맞춤 제안을 드릴 수 있어요.)`;
+      const replyText = prompts.tomorrowPlan.collabNoGptStudyReply(Number(context.todayProgressPercent) || 0);
       return res.json({ ok: true, reply: replyText, usedOpenAi: false, model: null });
     }
 
@@ -9626,7 +9157,7 @@ app.post("/api/student/coach/tomorrow-plan/message", authMiddleware, async (req,
     const replyText = String(response.choices?.[0]?.message?.content || "").trim();
     if (!replyText) {
       return res.status(502).json({
-        error: "GPT 응답이 비어 있습니다. 잠시 후 다시 시도해 주세요."
+        error: prompts.tomorrowPlan.apiEmptyGptCollabReply
       });
     }
     res.json({
@@ -9637,7 +9168,7 @@ app.post("/api/student/coach/tomorrow-plan/message", authMiddleware, async (req,
     });
   } catch (e) {
     console.error("/api/student/coach/tomorrow-plan/message error", e);
-    res.status(500).json({ error: "내일 계획 대화 응답에 실패했습니다." });
+    res.status(500).json({ error: prompts.tomorrowPlan.apiTomorrowPlanMessageFailed });
   }
 });
 
@@ -9667,8 +9198,7 @@ app.post("/api/student/coach/tomorrow-plan/synthesize", authMiddleware, async (r
 
     if (focus === "life") {
       if (!openai) {
-        const fallback =
-          "내일 아침에 10분만이라도 실천할 한 가지를 기록 탭에 적어 주세요.";
+        const fallback = prompts.tomorrowPlan.synthesizeLifeNoGptTomorrowPractice;
         return res.json({
           ok: true,
           tomorrowPractice: fallback.slice(0, 500),
@@ -9682,12 +9212,11 @@ app.post("/api/student/coach/tomorrow-plan/synthesize", authMiddleware, async (r
         max_tokens: prompts.tomorrowPlan.lifeSynthesizeMaxTokens,
         messages: [
           { role: "system", content: prompts.tomorrowPlan.tomorrowPracticeSynthesizeSystem },
-          { role: "system", content: `[상황 JSON]\n${JSON.stringify(context)}` },
+          { role: "system", content: prompts.tomorrowPlan.wrapSituationJsonForSynthesize(context) },
           ...hist.map(m => ({ role: m.role, content: m.content })),
           {
             role: "user",
-            content:
-              "위 대화를 반영해 내일 실천할 한 가지 문장만 JSON 객체로 출력하라."
+            content: prompts.tomorrowPlan.synthesizeTomorrowPracticeUserInstruction
           }
         ]
       });
@@ -9696,8 +9225,7 @@ app.post("/api/student/coach/tomorrow-plan/synthesize", authMiddleware, async (r
       const tp = String(obj?.tomorrowPractice ?? "").trim().slice(0, 500);
       if (!tp) {
         return res.status(502).json({
-          error:
-            "내일 실천 문장을 해석하지 못했습니다. 대화를 조금 더 한 뒤 다시 시도해 주세요."
+          error: prompts.tomorrowPlan.apiLifePracticeJsonDecodeError
         });
       }
       return res.json({
@@ -9712,7 +9240,7 @@ app.post("/api/student/coach/tomorrow-plan/synthesize", authMiddleware, async (r
       const pct = Number(context.todayProgressPercent) || 0;
       const plans = books.map(b => ({
         bookId: Number(b.id),
-        plannedRange: `${String(b.name || "")}: 오늘 이행률 ${pct}%. 대화를 바탕으로 범위를 직접 다듬어 주세요.`,
+        plannedRange: prompts.tomorrowPlan.synthesizeBooksNoGptPlannedRangeLine(b.name, pct),
         startTime: null,
         endTime: null
       }));
@@ -9727,12 +9255,11 @@ app.post("/api/student/coach/tomorrow-plan/synthesize", authMiddleware, async (r
       max_tokens: prompts.tomorrowPlan.booksSynthesizeMaxTokens,
       messages: [
         { role: "system", content: systemSynth },
-        { role: "system", content: `[상황 JSON]\n${JSON.stringify(context)}` },
+        { role: "system", content: prompts.tomorrowPlan.wrapSituationJsonForSynthesize(context) },
         ...hist.map(m => ({ role: m.role, content: m.content })),
         {
           role: "user",
-          content:
-            "위 대화 전체를 반영해, 각 등록 교재에 대한 내일 계획만 JSON 배열로 출력하라."
+          content: prompts.tomorrowPlan.synthesizeBookPlansUserInstruction
         }
       ]
     });
@@ -9740,7 +9267,7 @@ app.post("/api/student/coach/tomorrow-plan/synthesize", authMiddleware, async (r
     const arr = extractJsonArrayFromModelText(raw);
     if (!arr || arr.length === 0) {
       return res.status(502).json({
-        error: "계획 JSON을 해석하지 못했습니다. 대화를 조금 더 한 뒤 다시 시도해 주세요."
+        error: prompts.tomorrowPlan.apiBookPlansJsonDecodeError
       });
     }
     const normHHMM = v => {
@@ -9759,20 +9286,20 @@ app.post("/api/student/coach/tomorrow-plan/synthesize", authMiddleware, async (r
       const plannedRange = String(row.plannedRange || "").trim().slice(0, 500);
       plans.push({
         bookId,
-        plannedRange: plannedRange || "범위를 기록 탭에서 입력해 주세요.",
+        plannedRange: plannedRange || prompts.tomorrowPlan.defaultPlannedRangeWhenModelEmpty,
         startTime: normHHMM(row.startTime),
         endTime: normHHMM(row.endTime)
       });
     }
     if (plans.length === 0) {
       return res.status(502).json({
-        error: "유효한 책별 계획이 없습니다. 대화를 조금 더 한 뒤 다시 시도해 주세요."
+        error: prompts.tomorrowPlan.apiNoValidBookPlansError
       });
     }
     res.json({ ok: true, plans, usedOpenAi: true, model: OPENAI_MODEL });
   } catch (e) {
     console.error("/api/student/coach/tomorrow-plan/synthesize error", e);
-    res.status(500).json({ error: "내일 계획 반영용 데이터 생성에 실패했습니다." });
+    res.status(500).json({ error: prompts.tomorrowPlan.apiTomorrowPlanSynthesizeFailed });
   }
 });
 
