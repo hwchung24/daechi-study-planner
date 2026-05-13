@@ -34,6 +34,8 @@ type ParentHomeTabProps = {
   parentLockStatus: ParentLockStatus | null;
   notificationUnreadCount: number;
   hapticSelection: () => void;
+  parentWeekOffset: number;
+  setParentWeekOffset: React.Dispatch<React.SetStateAction<number>>;
 };
 
 type ParentHomeReport = ParentWeeklyRecordsReport;
@@ -801,6 +803,8 @@ export function ParentHomeTab(props: ParentHomeTabProps) {
           authToken={authToken}
           selectedStudent={selectedStudent}
           parentReport={parentReport}
+          parentWeekOffset={props.parentWeekOffset}
+          setParentWeekOffset={props.setParentWeekOffset}
         />
       ) : null}
       {freeMinutesModalOpen ? (

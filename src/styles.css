@@ -1204,6 +1204,36 @@ html.parent-session .app-main {
   overflow: hidden;
 }
 
+.parent-home__status-card--records {
+  height: auto;
+  min-height: 0;
+  gap: calc(10px * var(--parent-ui-scale));
+}
+
+.parent-home__status-card-head--records {
+  justify-content: space-between;
+  align-items: center;
+}
+
+.parent-home__status-card-head-left {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.parent-home__status-action--loading {
+  opacity: 0.72;
+}
+
+.parent-home__records-week-label {
+  margin: 0;
+  color: var(--parent-gray-3);
+  font-size: calc(12px * var(--parent-ui-scale));
+  font-weight: var(--font-weight-semibold);
+  text-align: center;
+}
+
 .parent-home__status-center {
   flex: 1 1 auto;
   display: flex;
@@ -5027,6 +5057,52 @@ body.app-keyboard-open .app-main {
 
 .coach-records-overview-card {
   min-height: 100%;
+}
+
+/* 학부모 홈 > 날짜별 기록: 내부 요일 카드 톤을 상태 카드 계열로 통일 */
+.parent-home__records-week .coach-records-week-frame {
+  margin-top: 10px;
+}
+
+.parent-home__records-week .progress-cards-container {
+  gap: 10px;
+  padding: 6px 2px;
+}
+
+.parent-home__records-week .parent-home__records-day-sheet {
+  scroll-snap-align: center;
+  flex: 0 0 100%;
+  max-width: 100%;
+  min-height: min(420px, calc(var(--app-viewport-height) - 220px));
+  display: flex;
+  flex-direction: column;
+  background: transparent;
+  border: none;
+  box-shadow: none;
+  border-radius: 0;
+}
+
+.parent-home__records-week .parent-home__records-day-head {
+  padding: 8px 2px 10px;
+  color: var(--parent-gray-1);
+  font-size: calc(16px * var(--parent-ui-scale));
+  font-weight: var(--font-weight-bold);
+  border-bottom: 1px solid rgba(148, 163, 184, 0.26);
+  text-align: center;
+}
+
+.parent-home__records-week .parent-home__records-day-sheet--today .parent-home__records-day-head {
+  color: #1f3f78;
+}
+
+.parent-home__records-week .parent-home__records-day-body {
+  padding: 10px 2px 12px;
+  gap: 10px;
+}
+
+.parent-home__records-week .coach-records-unified-block + .coach-records-unified-block {
+  padding-top: 10px;
+  border-top: 1px solid rgba(148, 163, 184, 0.24);
 }
 
 /* 오늘 계획 열과 동일 너비: 태블릿 이상에서 주간 카드만 1열에 배치 */

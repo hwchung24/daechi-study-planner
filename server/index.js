@@ -2182,7 +2182,7 @@ async function buildParentGrowthReportPayload(studentId, weekMondayIso) {
     .filter(d => d.sleepHours != null)
     .sort((a, b) => Number(a.sleepHours || 0) - Number(b.sleepHours || 0))[0];
 
-  const avgSleep = roundOrNull(
+  const avgSleepRounded = roundOrNull(
     daily
       .map(d => d.sleepHours)
       .filter(v => v != null)
@@ -2222,7 +2222,7 @@ async function buildParentGrowthReportPayload(studentId, weekMondayIso) {
       const parsed = await openAiParentGrowthReportSections({
         studentName,
         weekLabel: headerBadgeWeek || `${weekMondayIso} ~ ${weekEnd}`,
-        avgSleep: avgSleep ?? "데이터 없음",
+        avgSleep: avgSleepRounded ?? "데이터 없음",
         avgStress10: avgStress10 ?? "데이터 없음",
         totalStudyHours: roundOrNull(actualStudyHours, 1) ?? "데이터 없음",
         totalFocusHours: roundOrNull(focusBandHours, 1) ?? "데이터 없음",

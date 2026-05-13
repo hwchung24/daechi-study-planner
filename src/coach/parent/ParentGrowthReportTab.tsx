@@ -194,6 +194,22 @@ export function ParentGrowthReportTab(props: {
   }, [props.apiBase, props.authToken, props.selectedStudent.id, weekStart]);
 
   const n = data?.narrative;
+  const sleepBadgeText = useMemo(() => {
+    if (!data?.daily?.length) return "수면 데이터 수집 중";
+    const validSleep = data.daily
+      .map(row => row.sleepHours)
+      .filter((v): v is number => v != null && Number.isFinite(v));
+    if (!validSleep.length) return "수면 데이터 수집 중";
+    const avgSleepHours =
+      validSleep.reduce((sum, hours) => sum + hours, 0) / Math.max(validSleep.length, 1);
+    const belowGoalDays = data.daily.filter(
+      row => row.sleepHours != null && row.sleepHours < data.sleepGoalHours
+    ).length;
+    if (data.badgeSleepRecovery) {
+      return `평균 ${avgSleepHours.toFixed(1)}h · 목표 미달 ${belowGoalDays}일`;
+    }
+    return `평균 ${avgSleepHours.toFixed(1)}h · 수면 흐름 안정`;
+  }, [data]);
 
   const handleSavePdf = useCallback(async () => {
     const root = pdfCaptureRef.current;
@@ -201,7 +217,9 @@ export function ParentGrowthReportTab(props: {
     setPdfExporting(true);
     try {
       await exportElementToPdf(root, `성장리포트_${data.studentName}_${weekStart}`, {
-        ignoreClassName: "parent-growth-report__pdf-skip"
+        ignoreClassName: "parent-growth-report__pdf-skip",
+        fitSinglePage: true,
+        marginMm: 6
       });
     } catch (e) {
       alert(
@@ -271,16 +289,16 @@ export function ParentGrowthReportTab(props: {
             </span>
           ) : (
             <span className="parent-growth-report__badge parent-growth-report__badge--muted">
-              계획 추이 계산 중
+              계획 추이 비교용 지난주 데이터 없음
             </span>
           )}
           {data?.badgeSleepRecovery ? (
             <span className="parent-growth-report__badge parent-growth-report__badge--sleep">
-              회복 시간 보완이 도움되는 날이 있었어요
+              {sleepBadgeText}
             </span>
           ) : (
             <span className="parent-growth-report__badge parent-growth-report__badge--ok">
-              수면 흐름 양호
+              {sleepBadgeText}
             </span>
           )}
         </div>

@@ -2644,6 +2644,8 @@ export function ParentCoachApp(props: {
         parentLockStatus={props.parentLockStatus}
         notificationUnreadCount={props.parentNotificationUnreadCount}
         hapticSelection={props.hapticSelection}
+        parentWeekOffset={props.parentWeekOffset}
+        setParentWeekOffset={props.setParentWeekOffset}
       />
     );
   } else if (props.tab === "studentSettings") {

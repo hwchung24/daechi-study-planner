@@ -1,10 +1,14 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { BookOpen, CalendarRange, CheckCircle2, Library, ListChecks, NotebookPen } from "lucide-react";
-import { setAppPath } from "../../lib/appNavigation";
-import { getDateKeySeoul, getWeekDaysIncludingTomorrowSeoul, seoulDateKeyFromApiValue } from "../../lib/weekDates";
+import { BookOpen, CalendarRange, CheckCircle2, ChevronLeft, ChevronRight, Library, ListChecks, NotebookPen } from "lucide-react";
+import {
+  getDateKeySeoul,
+  getSeoulWeekRangeCompactLabel,
+  getWeekDaysIncludingTomorrowSeoul,
+  seoulDateKeyFromApiValue
+} from "../../lib/weekDates";
 import type { ParentStudentRow } from "../../types/parent";
 import type { StudyRoomVisitSession } from "../../types/studyRoomTracking";
-import { Card, EmptyState, SectionHeader } from "../ui/components";
+import { Card, EmptyState } from "../ui/components";
 import { useParentStudyRoomLive } from "./useParentStudyRoomLive";
 
 type ParentWeekDay = { id: number | string; date: string };
@@ -280,25 +284,21 @@ function TimelineListView(props: {
   );
 }
 
-function formatStudyRoomVisitDateTime(value: string | null) {
-  if (!value) return "-";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "-";
-  return date.toLocaleString("ko-KR", {
-    timeZone: "Asia/Seoul",
-    month: "numeric",
-    day: "numeric",
-    hour: "2-digit",
-    minute: "2-digit"
-  });
-}
-
 function formatStudyRoomVisitDateLabel(value: string | null) {
   if (!value) return "날짜 미확인";
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return "날짜 미확인";
   const weekdays = ["일", "월", "화", "수", "목", "금", "토"];
   return `${date.getMonth() + 1}.${date.getDate()} ${weekdays[date.getDay()]}요일`;
+}
+
+function formatCompactWeekLabel(dateKey: string, fallbackLabel: string): string {
+  if (!dateKey) return fallbackLabel;
+  const date = new Date(`${dateKey}T00:00:00+09:00`);
+  if (Number.isNaN(date.getTime())) return fallbackLabel;
+  const weekdays = ["일", "월", "화", "수", "목", "금", "토"];
+  const weekday = weekdays[date.getDay()] || "";
+  return `${weekday} ${date.getMonth() + 1}.${date.getDate()}`;
 }
 
 function formatStudyRoomVisitTimeRange(visit: StudyRoomVisitSession) {
@@ -323,6 +323,8 @@ export type ParentRecordsWeekSectionProps = {
   authToken: string | null;
   selectedStudent: ParentStudentRow | null;
   parentReport: ParentWeeklyRecordsReport | null;
+  parentWeekOffset: number;
+  setParentWeekOffset: React.Dispatch<React.SetStateAction<number>>;
 };
 
 export function ParentRecordsWeekSection(props: ParentRecordsWeekSectionProps) {
@@ -330,14 +332,10 @@ export function ParentRecordsWeekSection(props: ParentRecordsWeekSectionProps) {
   const blocks = Array.isArray(props.parentReport?.blocks) ? props.parentReport.blocks : [];
   const plans = Array.isArray(props.parentReport?.plans) ? props.parentReport.plans : [];
   const logs = Array.isArray(props.parentReport?.logs) ? props.parentReport.logs : [];
-  const [aiReportRefreshing, setAiReportRefreshing] = useState(false);
-  const [aiReportMessage, setAiReportMessage] = useState("");
   const {
     studyRoomVisits,
     studyRoomVisitsLoading,
-    studyRoomLiveStatus,
     hasStudyRoomConfig,
-    displayDistanceMeters,
     studyRoomVisitsByDate
   } = useParentStudyRoomLive({
     apiBase: props.apiBase,
@@ -345,10 +343,6 @@ export function ParentRecordsWeekSection(props: ParentRecordsWeekSectionProps) {
     studentId: props.selectedStudent?.id ?? null,
     hasStudyRoomSettingHint: Boolean(props.selectedStudent?.studyRoom)
   });
-
-  useEffect(() => {
-    setAiReportMessage("");
-  }, [props.selectedStudent?.id]);
 
   const daysByDate = useMemo(
     () =>
@@ -583,119 +577,53 @@ export function ParentRecordsWeekSection(props: ParentRecordsWeekSectionProps) {
       ) : (
         <>
           <div className="coach-records-page-grid coach-records-page-grid--unified">
-            <Card className="coach-card coach-card--padded coach-records-overview-card">
-              <SectionHeader
-                title="날짜별 기록"
-                icon={<CalendarRange aria-hidden />}
-                right={(
+            <Card className="coach-card coach-card--padded coach-records-overview-card parent-home__status-card parent-home__status-card--records">
+              <div className="parent-home__status-card-head parent-home__status-card-head--records">
+                <span className="parent-home__status-card-head-left">
+                  <CalendarRange size={18} strokeWidth={2} aria-hidden />
+                  <span className="parent-home__status-card-title">날짜별 기록</span>
+                </span>
+                <div className="parent-growth-report__week-nav" aria-label="날짜별 기록 주차 이동">
                   <button
                     type="button"
-                    className={
-                      "parent-settings-header-toggle" +
-                      (aiReportRefreshing ? " parent-settings-header-toggle--loading" : "")
-                    }
-                    disabled={aiReportRefreshing}
-                    onClick={() => {
-                      if (!props.authToken || !props.selectedStudent?.id) return;
-                      setAiReportRefreshing(true);
-                      setAiReportMessage("");
-                      void (async () => {
-                        try {
-                          const res = await fetch(`${props.apiBase}/api/parent/ai-daily-report/refresh`, {
-                            method: "POST",
-                            headers: {
-                              "Content-Type": "application/json",
-                              Authorization: `Bearer ${props.authToken}`
-                            },
-                            body: JSON.stringify({ studentId: props.selectedStudent?.id })
-                          });
-                          const data = (await res.json().catch(() => ({}))) as {
-                            error?: string;
-                            result?: { message?: string };
-                          };
-                          if (!res.ok) {
-                            setAiReportMessage(data.error || "AI 리포트 생성에 실패했습니다.");
-                            return;
-                          }
-                          setAiReportMessage(
-                            data.result?.message || "리포트가 준비됐어요. 리포트 탭에서 확인하세요."
-                          );
-                        } catch (error) {
-                          setAiReportMessage(
-                            error instanceof Error && error.message
-                              ? `AI 리포트 생성 중 오류가 발생했습니다. (${error.message})`
-                              : "AI 리포트 생성 중 오류가 발생했습니다."
-                          );
-                        } finally {
-                          setAiReportRefreshing(false);
-                          setAppPath("#/parent/analysis");
-                        }
-                      })();
-                    }}
+                    className="parent-growth-report__week-btn"
+                    aria-label="이전 주"
+                    onClick={() => props.setParentWeekOffset(offset => offset + 1)}
                   >
-                    <span>{aiReportRefreshing ? "생성 중..." : "AI 리포트 생성"}</span>
+                    <ChevronLeft size={18} />
                   </button>
-                )}
-              />
-              <p className="coach-records-card-lead">
-                공부 계획·독서실 체크인·생활 기록을 요일별 카드에서 함께 확인할 수 있어요.
-              </p>
-              {aiReportMessage ? (
-                <p className="settings-hint" style={{ margin: "8px 2px 0" }}>
-                  {aiReportMessage}
-                </p>
-              ) : null}
-              {!hasStudyRoomConfig ? (
-                <p className="settings-hint" style={{ margin: "8px 2px 0" }}>
-                  독서실을 설정하면 각 날짜 카드에 체크인·체크아웃 기록이 표시됩니다.
-                </p>
-              ) : null}
-              {hasStudyRoomConfig ? (
-                <div className="parent-study-room-item__visit-empty" style={{ marginTop: 12, marginBottom: 4 }}>
-                  {displayDistanceMeters != null
-                    ? `${studyRoomLiveStatus.currentDistanceMeters != null ? "현재 거리" : "최근 거리"} ${Math.round(displayDistanceMeters)}m${
-                        typeof studyRoomLiveStatus.currentWithinRadius === "boolean"
-                          ? ` · ${studyRoomLiveStatus.currentWithinRadius ? "체크인됨" : "체크아웃됨"}`
-                          : ""
-                      }`
-                    : "아직 실시간 거리 정보가 없습니다."}
-                  {studyRoomLiveStatus.currentHeartbeatAt
-                    ? ` · 기준 ${formatStudyRoomVisitDateTime(studyRoomLiveStatus.currentHeartbeatAt)}`
-                    : ""}
-                  {studyRoomLiveStatus.currentLatitude != null &&
-                  studyRoomLiveStatus.currentLongitude != null &&
-                  Number.isFinite(Number(studyRoomLiveStatus.currentLatitude)) &&
-                  Number.isFinite(Number(studyRoomLiveStatus.currentLongitude)) ? (
-                    <div style={{ marginTop: 10, lineHeight: 1.45 }}>
-                      마지막 보고 좌표(WGS84): 위도{" "}
-                      {Number(studyRoomLiveStatus.currentLatitude).toFixed(6)}°, 경도{" "}
-                      {Number(studyRoomLiveStatus.currentLongitude).toFixed(6)}° ·{" "}
-                      <a
-                        href={`https://www.google.com/maps?q=${encodeURIComponent(
-                          `${studyRoomLiveStatus.currentLatitude},${studyRoomLiveStatus.currentLongitude}`
-                        )}`}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                      >
-                        지도에서 보기
-                      </a>
-                    </div>
-                  ) : null}
+                  <button
+                    type="button"
+                    className="parent-growth-report__week-btn"
+                    aria-label="다음 주"
+                    disabled={props.parentWeekOffset <= 0}
+                    onClick={() =>
+                      props.setParentWeekOffset(offset => (offset > 0 ? offset - 1 : 0))
+                    }
+                  >
+                    <ChevronRight size={18} />
+                  </button>
                 </div>
-              ) : null}
+              </div>
+              <p className="parent-home__records-week-label">
+                {getSeoulWeekRangeCompactLabel(props.parentWeekOffset)}
+              </p>
               <section className="coach-records-unified-week" aria-label="날짜별 공부·독서실·생활 기록">
                 <div className="week-frame coach-records-week-frame">
                   <div className="progress-cards-scroll">
                     <div className="progress-cards-container">
-                      {getWeekDaysIncludingTomorrowSeoul(0).map(day => (
+                      {getWeekDaysIncludingTomorrowSeoul(props.parentWeekOffset).map(day => (
                         <div
                           key={`parent-records-unified-${day.key}`}
                           className={
-                            "progress-day-card" + (day.key === todayKey ? " progress-day-card--today" : "")
+                            "parent-home__records-day-sheet" +
+                            (day.key === todayKey ? " parent-home__records-day-sheet--today" : "")
                           }
                         >
-                          <div className="progress-day-card-header">{day.label}</div>
-                          <div className="progress-day-card-body coach-records-unified-day-body">
+                          <div className="parent-home__records-day-head">
+                            {formatCompactWeekLabel(day.key, day.label)}
+                          </div>
+                          <div className="parent-home__records-day-body coach-records-unified-day-body">
                             {hasStudyRoomConfig ? (
                               <div className="coach-records-unified-block">
                                 <RecordSubgroupHeading icon={<Library aria-hidden />}>
@@ -705,9 +633,6 @@ export function ParentRecordsWeekSection(props: ParentRecordsWeekSectionProps) {
                               </div>
                             ) : null}
                             <div className="coach-records-unified-block">
-                              <RecordSubgroupHeading icon={<ListChecks aria-hidden />}>
-                                공부·계획
-                              </RecordSubgroupHeading>
                               {renderStudyCard(day.key)}
                             </div>
                             <div className="coach-records-unified-block">
