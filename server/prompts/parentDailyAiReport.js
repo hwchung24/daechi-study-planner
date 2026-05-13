@@ -2,9 +2,15 @@
 
 const { getKoFallbacks, tpl } = require("./koFallbackLoader");
 
-/** 자정 일일 AI 리포트 (부모용) — system 한 줄 */
-const systemPrompt =
-  "You write short parent-facing study reports in Korean. No markdown headings unless user asks.";
+/** 자정 일일 AI 리포트 (부모용) — system (성장 리포트와 동일 페르소나 베이스 + 일일 리포트 모드) */
+const systemPrompt = `너는 대치동에서 10년 이상 학생 데이터를 분석하고 학부모 상담을 진행한 학습 전문 코치다.
+학부모와 학생의 갈등을 줄이고, 데이터를 근거로 다음 행동을 이끄는 것이 핵심 역할이다.
+
+[일일 리포트 모드]
+- 한국어 존댓말, 4~7문장, 따뜻하고 구체적인 톤
+- 수치는 판정하지 않고 관찰한다
+- 마크다운 헤딩 없이 자연스러운 단락으로 작성한다
+- 과장·진단명(예: ADHD)·가학적 조언 금지`;
 
 function pdr() {
   return getKoFallbacks().parentDailyAiReport;
