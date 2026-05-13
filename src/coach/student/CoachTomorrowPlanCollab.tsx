@@ -7,6 +7,11 @@ import { API_BASE } from "../../lib/apiBase";
 import { DAECHI_COACH_TOMORROW_STARTER_KEY } from "../../lib/coachEvents";
 import { resolvePreferredSerial } from "../../lib/hashRouteUtils";
 import type { ProgressBook, ProgressPlan, StudyBlock } from "../../types/planner";
+import ko from "../fallbacks/ko.json";
+import { tpl } from "../fallbacks/tpl";
+
+const fb = ko.gptOutputFallbacks.coachTomorrowPlanCollab;
+const weekdayMonSun = ko.common.weekdaysMonSun;
 
 export type CoachTomorrowPlanCollabProps = {
   apiToken: string;
@@ -58,20 +63,20 @@ type AppAllowancePlan = {
 const DAECHI_ROOT_APP_ID = "com.daechiroot.ios";
 const DAECHI_ROOT_APP: AppAllowanceCandidate = {
   id: DAECHI_ROOT_APP_ID,
-  name: "대치루트",
-  category: "필수 앱",
-  description: "대치루트 앱은 항상 허용됩니다.",
+  name: fb.daechiRootName,
+  category: fb.requiredAppCategory,
+  description: fb.daechiRootDescription,
   bundleId: DAECHI_ROOT_APP_ID
 };
 
 const WEEKDAY_LABELS: Record<AppAllowanceSlot["dayKey"], string> = {
-  mon: "월",
-  tue: "화",
-  wed: "수",
-  thu: "목",
-  fri: "금",
-  sat: "토",
-  sun: "일"
+  mon: weekdayMonSun[0] ?? "월",
+  tue: weekdayMonSun[1] ?? "화",
+  wed: weekdayMonSun[2] ?? "수",
+  thu: weekdayMonSun[3] ?? "목",
+  fri: weekdayMonSun[4] ?? "금",
+  sat: weekdayMonSun[5] ?? "토",
+  sun: weekdayMonSun[6] ?? "일"
 };
 
 let appAllowanceSlotSequence = 0;
@@ -85,7 +90,7 @@ function isDaechiRootApp(app: AppAllowanceCandidate | null | undefined) {
   const id = String(app?.id || "").trim().toLowerCase();
   const bundleId = String(app?.bundleId || "").trim().toLowerCase();
   const name = String(app?.name || "").trim();
-  return id === DAECHI_ROOT_APP_ID || bundleId === DAECHI_ROOT_APP_ID || name === "대치루트";
+  return id === DAECHI_ROOT_APP_ID || bundleId === DAECHI_ROOT_APP_ID || name === fb.daechiRootName;
 }
 
 function normalizeAppAllowanceCandidates(rows: AppAllowanceCandidate[]): AppAllowanceCandidate[] {
@@ -94,7 +99,7 @@ function normalizeAppAllowanceCandidates(rows: AppAllowanceCandidate[]): AppAllo
     .map(app => ({
       id: String(app?.id || "").trim(),
       name: String(app?.name || "").trim(),
-      category: String(app?.category || "").trim() || "기기 앱",
+      category: String(app?.category || "").trim() || fb.defaultAppCategory,
       description:
         app?.description != null && String(app.description).trim() !== ""
           ? String(app.description).trim()
@@ -145,7 +150,7 @@ function hydrateAppAllowancePlan(raw: {
         slot.dayKey === "sun"
           ? slot.dayKey
           : "mon",
-      title: String(slot.title || "").trim() || "시간표",
+      title: String(slot.title || "").trim() || fb.defaultSlotTitle,
       source:
         slot.source === "schedule"
           ? "schedule"
@@ -193,7 +198,7 @@ function serializeAppAllowancePlan(plan: AppAllowancePlan) {
 
 function buildAppAllowanceAssistantOpening(plan: AppAllowancePlan) {
   if (plan.slots.length === 0) {
-    return plan.summary || "원하는 요일, 시간, 허용할 앱 이름을 같이 알려 주세요.";
+    return plan.summary || fb.allowanceSummaryNoAi;
   }
   const preview = plan.slots
     .slice(0, 3)
@@ -208,11 +213,11 @@ function buildAppAllowanceAssistantOpening(plan: AppAllowancePlan) {
     })
     .join(", ");
   return [
-    plan.summary || "학부모에게 보낼 허용 앱 요청을 정리했어요.",
+    plan.summary || fb.allowanceReplyLineDefault,
     "",
-    preview ? `정리된 요청: ${preview}` : "",
+    preview ? `${fb.allowancePreviewPrefix}${preview}` : "",
     "",
-    "수정할 내용이 있으면 요일, 시간, 앱 이름을 다시 말씀해 주세요."
+    fb.allowanceReplyFooter
   ]
     .filter(Boolean)
     .join("\n");
@@ -255,17 +260,23 @@ function httpErrorMessage(res: Response, bodyText: string, fallback: string): st
   const flat = bodyText.trim().replace(/\s+/g, " ");
   const snip = flat.slice(0, 220);
   if (res.status === 404) {
-    return `내일 계획을 불러올 수 없습니다(404). 서버가 실행 중인지, 주소가 맞는지 확인해 주세요.`;
+    return fb.httpTomorrow404;
   }
   if (snip && !snip.startsWith("<")) {
-    return `서버 오류 ${res.status}: ${snip}`;
+    return tpl(fb.httpServerErrorLineTpl, { status: res.status, snip });
   }
-  return `${fallback} (HTTP ${res.status})`;
+  return tpl(fb.httpErrorWithStatusTpl, { fallback, status: res.status });
 }
 
 function isLikelyNetworkTypeError(error: TypeError): boolean {
   const msg = String(error.message || "");
   return /fetch|network|load failed|failed to fetch/i.test(msg);
+}
+
+function buildNetworkInstallHint(): string {
+  return tpl(fb.networkBackendHintTpl, {
+    apiBaseSuffix: API_BASE ? tpl(fb.networkApiBaseSuffixTpl, { apiBase: API_BASE }) : ""
+  });
 }
 
 function buildCollabContext(params: {
@@ -350,70 +361,67 @@ function openingAssistantText(ctx: ReturnType<typeof buildCollabContext>): strin
     todayStudyMinutes
   } = ctx;
   const { totalSlots, doneSlots } = todayBlocksSummary;
-  const se = studyEvaluation ? studyEvaluation.slice(0, 220) + (studyEvaluation.length > 220 ? "…" : "") : "(아직 없음)";
+  const se = studyEvaluation ? studyEvaluation.slice(0, 220) + (studyEvaluation.length > 220 ? "…" : "") : fb.valueNotYetRecorded;
   const me = metacognitionReflection
     ? metacognitionReflection.slice(0, 220) + (metacognitionReflection.length > 220 ? "…" : "")
-    : "(아직 없음)";
+    : fb.valueNotYetRecorded;
   const sm =
     todayStudyMinutes != null && Number.isFinite(Number(todayStudyMinutes))
       ? `${Math.round(Number(todayStudyMinutes))}분`
-      : "(아직 없음)";
+      : fb.valueNotYetRecorded;
   return [
-    "오늘 기록을 바탕으로 내일 계획을 같이 잡아 볼게요.",
+    fb.studyPlanAssistIntro,
     "",
     `· 오늘 계획 칸 기준 이행률: ${todayProgressPercent}% (${doneSlots}/${totalSlots || 0}칸 완료)`,
     `· 오늘 기록한 학습 시간: ${sm}`,
     `· 오늘 공부 좋았던 점과 나빴던 점(발췌): ${se}`,
     `· 오늘 공부한 내용(발췌): ${me}`,
     "",
-    "책별 범위와 시간은 아래에서 대화로 함께 맞춰 가요."
+    fb.studyPlanAssistSub
   ].join("\n");
 }
 
 function openingLifePracticeText(ctx: ReturnType<typeof buildCollabContext>): string {
   const memo = ctx.todayMemo
     ? ctx.todayMemo.slice(0, 220) + (ctx.todayMemo.length > 220 ? "…" : "")
-    : "(아직 없음)";
+    : fb.valueNotYetRecorded;
   const draft = ctx.draftTomorrowPractice
     ? ctx.draftTomorrowPractice.slice(0, 220) +
       (ctx.draftTomorrowPractice.length > 220 ? "…" : "")
-    : "(아직 없음)";
+    : fb.valueNotYetRecorded;
   const sm =
     ctx.todayStudyMinutes != null && Number.isFinite(Number(ctx.todayStudyMinutes))
       ? `${Math.round(Number(ctx.todayStudyMinutes))}분`
-      : "(아직 없음)";
+      : fb.valueNotYetRecorded;
   return [
-    "오늘 생활 기록을 바탕으로, 기록 탭에 쓸「내일 실천할 한 가지」를 같이 정해 볼게요.",
+    fb.lifePlanAssistIntro,
     "",
     `· 오늘 생활 좋았던 점과 나빴던 점(발췌): ${memo}`,
     `· 오늘 기록한 학습 시간: ${sm}`,
     `· 지금 적어 둔 실천 초안: ${draft}`,
     "",
-    "한 가지로 구체적으로 정하면 아래 대화로 다듬은 뒤 기록에 반영할 수 있어요."
+    fb.lifePlanAssistSub
   ].join("\n");
 }
 
 /** 학습 계획 짜기 클릭 시에만 오늘 기록 요약 인사(openingAssistantText)를 코치 답변 앞에 붙임 */
-const STUDY_PLAN_STARTER_LABEL = "학습 계획 짜기";
+const STUDY_PLAN_STARTER_LABEL = fb.studyPlanStarterLabel;
 /** 생활 = 기록 탭「내일 실천할 한 가지」문장 협업 */
-const LIFE_PLAN_STARTER_LABEL = "내일 실천 짜기";
-const APP_ALLOWANCE_STARTER_LABEL = "허용 앱 관리";
+const LIFE_PLAN_STARTER_LABEL = fb.lifePlanStarterLabel;
+const APP_ALLOWANCE_STARTER_LABEL = fb.appAllowanceStarterLabel;
 
 const TOMORROW_PLAN_STARTERS: { label: string; message: string }[] = [
   {
     label: STUDY_PLAN_STARTER_LABEL,
-    message:
-      "내일 학습 계획을 같이 짜고 싶어요. 등록한 교재별로 목표 범위와 공부 시간을 제안해 주세요."
+    message: fb.studyPlanStarterMessage
   },
   {
     label: LIFE_PLAN_STARTER_LABEL,
-    message:
-      "기록 탭의「내일 실천할 한 가지」에 넣을 문장을 같이 정하고 싶어요. 오늘 생활 좋았던 점과 나빴던 점과 연결해 실행 가능한 한 가지만 제안해 주세요."
+    message: fb.lifePlanStarterMessage
   },
   {
     label: APP_ALLOWANCE_STARTER_LABEL,
-    message:
-      "허용 앱을 관리하고 싶어요. 원하는 요일·시간·앱을 말하면 학부모에게 보낼 수 있게 정리해 주세요."
+    message: fb.appAllowanceStarterMessage
   }
 ];
 
@@ -500,7 +508,7 @@ export function CoachTomorrowPlanCollab(props: CoachTomorrowPlanCollabProps) {
 
   const requestAppAllowanceAdjustment = async (message: string, history: ChatTurn[]) => {
     if (!apiToken) {
-      throw new Error("로그인이 필요합니다.");
+      throw new Error(fb.loginRequired);
     }
     const res = await fetch(`${API_BASE}/api/student/coach/weekly-app-request/message`, {
       method: "POST",
@@ -524,11 +532,11 @@ export function CoachTomorrowPlanCollab(props: CoachTomorrowPlanCollabProps) {
       availableApps?: AppAllowanceCandidate[];
     };
     if (!res.ok) {
-      throw new Error(String(data.error || "허용 앱 요청을 정리하지 못했습니다."));
+      throw new Error(String(data.error || fb.allowanceRequestFailed));
     }
     return {
       reply:
-        String(data.reply || "").trim() || "말씀하신 내용을 학부모에게 보낼 형태로 정리했어요.",
+        String(data.reply || "").trim() || fb.allowanceReplyDefault,
       plan: hydrateAppAllowancePlan({
         summary: String(data.summary || "").trim(),
         slots: Array.isArray(data.slots) ? data.slots : [],
@@ -577,17 +585,15 @@ export function CoachTomorrowPlanCollab(props: CoachTomorrowPlanCollabProps) {
       if (!res.ok) {
         throw new Error(
           String(data.error || "").trim() ||
-            (data.code === "NO_LINKED_PARENT"
-              ? "연결된 학부모 계정이 없어 요청을 보낼 수 없습니다."
-              : "학부모에게 요청을 보내지 못했습니다.")
+            (data.code === "NO_LINKED_PARENT" ? fb.noParentLinked : fb.parentRequestSendFailed)
         );
       }
-      setBanner("학부모 앱에 알림으로 허용 앱 요청을 보냈어요.");
+      setBanner(fb.parentRequestSentBanner);
     } catch (error) {
       setBanner(
         error instanceof Error && error.message
           ? error.message
-          : "네트워크 오류로 요청을 보내지 못했습니다."
+          : fb.networkSendFailed
       );
     } finally {
       setAppAllowanceRequesting(false);
@@ -625,17 +631,13 @@ export function CoachTomorrowPlanCollab(props: CoachTomorrowPlanCollabProps) {
         const assistantContent =
           adjusted.reply ||
           buildAppAllowanceAssistantOpening(nextPlan) ||
-          "원하는 요일, 시간, 허용 앱을 더 자세히 알려 주세요.";
+          fb.allowanceDetailHint;
         setAppAllowancePlan(nextPlan);
         setMessages([...before, userMsg, { role: "assistant", content: assistantContent }]);
       } catch (e) {
         const netHint =
-          e instanceof TypeError && isLikelyNetworkTypeError(e)
-            ? `서버에 연결할 수 없습니다. 터미널에서 백엔드(node server, 보통 포트 3000)를 켠 뒤 다시 시도해 주세요.${
-                API_BASE ? ` (API: ${API_BASE})` : ""
-              }`
-            : null;
-        setBanner(netHint || (e instanceof Error ? e.message : "전송에 실패했습니다."));
+          e instanceof TypeError && isLikelyNetworkTypeError(e) ? buildNetworkInstallHint() : null;
+        setBanner(netHint || (e instanceof Error ? e.message : fb.transferFailed));
         setMessages(before);
       } finally {
         setTyping(false);
@@ -673,7 +675,7 @@ export function CoachTomorrowPlanCollab(props: CoachTomorrowPlanCollabProps) {
       const rawText = await res.text();
       const data = parseApiJson(rawText);
       if (!res.ok) {
-        throw new Error(httpErrorMessage(res, rawText, "응답을 처리하지 못했습니다"));
+        throw new Error(httpErrorMessage(res, rawText, fb.httpParseFailed));
       }
       const reply = String(data.reply || "").trim();
       const studyIntro =
@@ -685,7 +687,7 @@ export function CoachTomorrowPlanCollab(props: CoachTomorrowPlanCollabProps) {
         ? reply
           ? `${headIntro}\n\n${reply}`
           : headIntro
-        : reply || "답변이 비어 있어요.";
+        : reply || fb.emptyReply;
       setMessages([
         ...before,
         userMsg,
@@ -693,12 +695,8 @@ export function CoachTomorrowPlanCollab(props: CoachTomorrowPlanCollabProps) {
       ]);
     } catch (e) {
       const netHint =
-        e instanceof TypeError && isLikelyNetworkTypeError(e)
-          ? `서버에 연결할 수 없습니다. 터미널에서 백엔드(node server, 보통 포트 3000)를 켠 뒤 다시 시도해 주세요.${
-              API_BASE ? ` (API: ${API_BASE})` : ""
-            }`
-          : null;
-      setBanner(netHint || (e instanceof Error ? e.message : "전송에 실패했습니다."));
+        e instanceof TypeError && isLikelyNetworkTypeError(e) ? buildNetworkInstallHint() : null;
+      setBanner(netHint || (e instanceof Error ? e.message : fb.transferFailed));
       setMessages(before);
     } finally {
       setTyping(false);
@@ -805,24 +803,22 @@ export function CoachTomorrowPlanCollab(props: CoachTomorrowPlanCollabProps) {
       const rawSynth = await res.text();
       const data = parseApiJson(rawSynth);
       if (!res.ok) {
-        throw new Error(httpErrorMessage(res, rawSynth, "계획을 만들지 못했습니다"));
+        throw new Error(httpErrorMessage(res, rawSynth, fb.planSynthFailed));
       }
       if (collabFocus === "life") {
         const tp = String(data.tomorrowPractice ?? "").trim();
         if (!tp) {
-          throw new Error(
-            "내일 실천 문장이 비어 있습니다. 대화를 조금 더 나눈 뒤 다시 시도해 주세요."
-          );
+          throw new Error(fb.tomorrowPracticeEmpty);
         }
         const ok = await onApplyTomorrowPracticeAndGoRecords(tp);
         if (!ok) {
-          setBanner("저장에 실패했습니다. 네트워크를 확인해 주세요.");
+          setBanner(fb.saveFailedNetwork);
         }
         return;
       }
       const raw = data.plans;
       if (!Array.isArray(raw) || raw.length === 0) {
-        throw new Error("책별 계획이 비어 있습니다. 대화를 조금 더 나눈 뒤 다시 시도해 주세요.");
+        throw new Error(fb.studyPlanEmpty);
       }
       const bookIds = new Set(progressBooks.map(b => b.id));
       const next: ProgressPlan = { ...tomorrowPlan };
@@ -837,10 +833,10 @@ export function CoachTomorrowPlanCollab(props: CoachTomorrowPlanCollabProps) {
       }
       const ok = await onApplyAndReturnToRecords(next);
       if (!ok) {
-        setBanner("저장에 실패했습니다. 잠금이나 네트워크를 확인해 주세요.");
+        setBanner(fb.saveFailedLockNetwork);
       }
     } catch (e) {
-      setBanner(e instanceof Error ? e.message : "반영에 실패했습니다.");
+      setBanner(e instanceof Error ? e.message : fb.applyFailed);
     } finally {
       setApplyBusy(false);
     }
@@ -882,7 +878,7 @@ export function CoachTomorrowPlanCollab(props: CoachTomorrowPlanCollabProps) {
                     disabled={!apiToken || typing || applyBusy}
                     onClick={() => void applyToRecords()}
                   >
-                    {applyBusy ? "반영 중…" : "내일 계획에 반영"}
+                    {applyBusy ? fb.applyButtonApplying : fb.applyButtonApplyToTomorrow}
                   </button>
                 </div>
               )}
@@ -899,7 +895,7 @@ export function CoachTomorrowPlanCollab(props: CoachTomorrowPlanCollabProps) {
                     }
                     onClick={() => void requestParentAppAllowanceReview()}
                   >
-                    {appAllowanceRequesting ? "요청 중…" : "학부모에게 요청하기"}
+                    {appAllowanceRequesting ? fb.requestButtonRequesting : fb.requestButtonSendToParent}
                   </button>
                 </div>
               ) : null}
@@ -909,7 +905,7 @@ export function CoachTomorrowPlanCollab(props: CoachTomorrowPlanCollabProps) {
         {!hasUserTurn && !typing && (
           <div
             className="coach-bubble-row is-coach coach-tomorrow-collab__coach-offer-row"
-            aria-label="코치 선택지"
+            aria-label={fb.coachPicksAria}
           >
             <CoachAvatar />
             <motion.div
@@ -919,7 +915,7 @@ export function CoachTomorrowPlanCollab(props: CoachTomorrowPlanCollabProps) {
               transition={{ duration: 0.18 }}
             >
               <div className="coach-bubble__line">
-                학습 계획(교재별) 또는 내일 실천 한 가지(생활 기록) 중에서 골라 주세요. 직접 입력하셔도 돼요.
+                {fb.coachOfferIntro}
               </div>
               <div className="coach-tomorrow-collab__coach-picks">
                 {TOMORROW_PLAN_STARTERS.map(s => (
@@ -943,7 +939,7 @@ export function CoachTomorrowPlanCollab(props: CoachTomorrowPlanCollabProps) {
                   className="coach-tomorrow-collab__coach-pick"
                   onClick={onOpenScheduleManager}
                 >
-                  일정 관리
+                  {fb.scheduleManagerButton}
                 </button>
               </div>
             </motion.div>
@@ -970,7 +966,7 @@ export function CoachTomorrowPlanCollab(props: CoachTomorrowPlanCollabProps) {
             <input
               ref={composerInputRef}
               className="coach-chat-text"
-              placeholder="내일 하고 싶은 것, 고민을 적어 주세요…"
+              placeholder={fb.composerPlaceholder}
               value={draft}
               enterKeyHint="send"
               data-native-keyboard-submit="custom"
@@ -991,7 +987,7 @@ export function CoachTomorrowPlanCollab(props: CoachTomorrowPlanCollabProps) {
                 void sendMessage(draft);
               }}
               disabled={!apiToken || typing}
-              aria-label="보내기"
+              aria-label={fb.composerSendAria}
             >
               <SendHorizontal size={15} strokeWidth={2.2} aria-hidden />
             </button>

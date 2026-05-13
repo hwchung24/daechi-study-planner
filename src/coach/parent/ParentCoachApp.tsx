@@ -63,6 +63,11 @@ import {
 } from "./parentDeviceModeDisplay";
 import { ParentStudentSelector, formatStudentLabel } from "./ParentStudentSelector";
 import { useParentStudyRoomLive } from "./useParentStudyRoomLive";
+import ko from "../fallbacks/ko.json";
+import { tpl } from "../fallbacks/tpl";
+
+const parentCoachFb = ko.gptOutputFallbacks.parentCoachApp;
+const parentCharts = ko.studentCoachApp.charts;
 
 export type ParentTabKey =
   | "home"
@@ -991,7 +996,7 @@ function AiReportTab(props: {
           logs?: unknown[];
         };
         if (!response.ok) {
-          throw new Error(String(data.error || "학생 AI 분석을 불러오지 못했습니다."));
+          throw new Error(String(data.error || parentCoachFb.studentAiAnalysisLoadFailed));
         }
         if (cancelled) return;
         const nextState = {
@@ -1010,7 +1015,7 @@ function AiReportTab(props: {
         setAnalysisError(
           error instanceof Error && error.message
             ? error.message
-            : "학생 AI 분석을 불러오지 못했습니다."
+            : parentCoachFb.studentAiAnalysisLoadFailed
         );
       })
       .finally(() => {
@@ -1051,7 +1056,7 @@ function AiReportTab(props: {
           patterns?: ParentAiPatternRow[];
         };
         if (!response.ok) {
-          throw new Error(String(data.error || "학생 AI 패턴을 불러오지 못했습니다."));
+          throw new Error(String(data.error || parentCoachFb.studentAiPatternsLoadFailed));
         }
         if (cancelled) return;
         setPatternsUsedOpenAi(Boolean(data.usedOpenAi));
@@ -1065,7 +1070,7 @@ function AiReportTab(props: {
         setPatternsError(
           error instanceof Error && error.message
             ? error.message
-            : "학생 AI 패턴을 불러오지 못했습니다."
+            : parentCoachFb.studentAiPatternsLoadFailed
         );
       })
       .finally(() => {
@@ -1099,35 +1104,35 @@ function AiReportTab(props: {
       [
         {
           key: "sleep",
-          title: "수면 패턴",
+          title: parentCharts.sleepPattern,
           dataKey: "sleepHours" as const,
           yDomain: [0, 10] as [number, number],
           valueFormatter: (value: number) => `${value.toFixed(1)}시간`
         },
         {
           key: "stress",
-          title: "스트레스 점수",
+          title: parentCharts.stressScore,
           dataKey: "stressScore" as const,
           yDomain: [1, 5] as [number, number],
           valueFormatter: (value: number) => `${value.toFixed(1)}/5`
         },
         {
           key: "concentration",
-          title: "학습 집중도",
+          title: parentCharts.studyConc,
           dataKey: "concentration" as const,
           yDomain: [0, 100] as [number, number],
           valueFormatter: (value: number) => `${Math.round(value)}%`
         },
         {
           key: "studyMinutes",
-          title: "공부 시간",
+          title: parentCharts.studyMinutes,
           dataKey: "studyMinutes" as const,
           yDomain: [0, studyMinutesMax] as [number, number],
           valueFormatter: (value: number) => `${Math.round(value)}분`
         },
         {
           key: "planCompletionRate",
-          title: "목표 달성률",
+          title: parentCharts.planRate,
           dataKey: "planCompletionRate" as const,
           yDomain: [0, 100] as [number, number],
           valueFormatter: (value: number) => `${Math.round(value)}%`
@@ -1137,7 +1142,7 @@ function AiReportTab(props: {
   );
   const heroNarrative =
     analysisState?.snapshot?.heroNarrative ||
-    `${formatStudentLabel(selectedStudent)} 학생의 최근 학습 흐름을 바탕으로 요약을 준비 중입니다.`;
+    tpl(parentCoachFb.heroNarrativePreparingTpl, { name: formatStudentLabel(selectedStudent) });
   const coachRiskLevel = riskLevelFromSnapshotMetrics(analysisState?.snapshot?.metrics);
   const nextActions = Array.isArray(analysisState?.snapshot?.nextActions)
     ? analysisState?.snapshot?.nextActions.filter(action => trimText(action).length > 0).slice(0, 3)
@@ -1256,7 +1261,7 @@ function AiReportTab(props: {
         />
         {patternsLoading ? (
           <p className="coach-muted" style={{ padding: "10px 4px 0", fontSize: "var(--font-size-medium)" }}>
-            {aiPatterns.length > 0 ? "최신 기록을 반영하는 중…" : "패턴을 분석하는 중…"}
+            {aiPatterns.length > 0 ? parentCoachFb.patternsRefreshingWithData : parentCoachFb.patternsAnalyzing}
           </p>
         ) : patternsError ? (
           <p className="coach-muted" style={{ padding: "10px 4px 0", fontSize: "var(--font-size-medium)" }}>
@@ -1276,11 +1281,11 @@ function AiReportTab(props: {
           </div>
         ) : (
           <EmptyState
-            title="표시할 패턴이 없어요"
+            title={parentCoachFb.patternEmptyTitle}
             body={
               patternsUsedOpenAi
-                ? "기록이 더 쌓이면 패턴이 표시됩니다."
-                : "AI 패턴 분석을 사용할 수 없습니다."
+                ? parentCoachFb.patternEmptyWhenAiOn
+                : parentCoachFb.patternEmptyWhenAiOff
             }
           />
         )}
@@ -1625,17 +1630,19 @@ function RecordsTab(props: {
                             result?: { message?: string };
                           };
                           if (!res.ok) {
-                            setAiReportMessage(data.error || "AI 리포트 생성에 실패했습니다.");
+                            setAiReportMessage(data.error || parentCoachFb.parentAiDailyRefreshFailed);
                             return;
                           }
                           setAiReportMessage(
-                            data.result?.message || "리포트가 준비됐어요. 리포트 탭에서 확인하세요."
+                            data.result?.message || parentCoachFb.parentAiDailyRefreshOk
                           );
                         } catch (error) {
                           setAiReportMessage(
                             error instanceof Error && error.message
-                              ? `AI 리포트 생성 중 오류가 발생했습니다. (${error.message})`
-                              : "AI 리포트 생성 중 오류가 발생했습니다."
+                              ? tpl(parentCoachFb.parentAiDailyRefreshErrorTpl, {
+                                  detail: error.message
+                                })
+                              : parentCoachFb.parentAiDailyRefreshErrorGeneric
                           );
                         } finally {
                           setAiReportRefreshing(false);
@@ -1644,7 +1651,7 @@ function RecordsTab(props: {
                       })();
                     }}
                   >
-                    <span>{aiReportRefreshing ? "생성 중..." : "AI 리포트 생성"}</span>
+                    <span>{aiReportRefreshing ? parentCoachFb.parentAiDailyRefreshBusy : parentCoachFb.parentAiDailyRefreshButton}</span>
                   </button>
                 )}
               />

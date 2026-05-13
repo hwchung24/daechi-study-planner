@@ -11,6 +11,11 @@ const helmet = require("helmet");
 require("dotenv").config({ path: path.join(__dirname, ".env") });
 const OpenAI = require("openai");
 const prompts = require("./prompts");
+const { getKoFallbacks } = require("./prompts/koFallbackLoader");
+
+function gptFbServer() {
+  return getKoFallbacks().gptOutputFallbacks.server;
+}
 
 const {
   findUserByEmail,
@@ -848,7 +853,7 @@ if (process.env.NODE_ENV !== "test") {
   console.log(
     openai
       ? `[openai] ready (coach chat + reports), model=${OPENAI_MODEL}`
-      : "[openai] OPENAI_API_KEY 없음 — 코치 채팅은 규칙 기반 템플릿, 일일 AI 리포트는 생략"
+      : gptFbServer().startupOpenaiKeyMissingLog
   );
   if (!isSimpleMdmConfigured()) {
     console.warn(
@@ -6688,8 +6693,7 @@ app.get("/api/parent/ai-daily-report", authMiddleware, async (req, res) => {
     if (!row) {
       return res.json({
         report: null,
-        message:
-          "아직 생성된 AI 리포트가 없습니다. 매일 자정(한국시간)에 자동으로 생성됩니다. OPENAI_API_KEY가 서버에 설정되어 있어야 합니다."
+        message: gptFbServer().parentAiDailyReportNotYetMessage
       });
     }
     res.json({
@@ -6702,7 +6706,7 @@ app.get("/api/parent/ai-daily-report", authMiddleware, async (req, res) => {
     });
   } catch (e) {
     console.error("/api/parent/ai-daily-report error", e);
-    res.status(500).json({ error: "AI 리포트를 불러오지 못했습니다." });
+    res.status(500).json({ error: gptFbServer().parentAiDailyReportLoadFailed });
   }
 });
 
@@ -6772,7 +6776,7 @@ app.get("/api/parent/coach/state", authMiddleware, async (req, res) => {
     });
   } catch (e) {
     console.error("/api/parent/coach/state error", e);
-    res.status(500).json({ error: "학생 AI 분석 상태를 불러오지 못했습니다." });
+    res.status(500).json({ error: gptFbServer().parentCoachStateLoadFailed });
   }
 });
 
@@ -6889,7 +6893,7 @@ app.get("/api/parent/growth-report", authMiddleware, async (req, res) => {
     res.json(payload);
   } catch (e) {
     console.error("/api/parent/growth-report error", e);
-    res.status(500).json({ error: "성장 리포트를 불러오지 못했습니다." });
+    res.status(500).json({ error: gptFbServer().parentGrowthReportLoadFailed });
   }
 });
 
@@ -6897,7 +6901,7 @@ app.post("/api/parent/ai-daily-report/refresh", authMiddleware, async (req, res)
   try {
     if (!process.env.OPENAI_API_KEY) {
       return res.status(503).json({
-        error: "서버에 OPENAI_API_KEY가 없습니다."
+        error: gptFbServer().parentAiDailyReportRefreshNoKey
       });
     }
     const me = await getMe(req.userId);
@@ -6919,7 +6923,7 @@ app.post("/api/parent/ai-daily-report/refresh", authMiddleware, async (req, res)
   } catch (e) {
     console.error("/api/parent/ai-daily-report/refresh error", e);
     res.status(500).json({
-      error: e.message || "AI 리포트 생성에 실패했습니다."
+      error: e.message || gptFbServer().parentAiDailyReportGenerateFailed
     });
   }
 });
@@ -7015,7 +7019,7 @@ app.get("/api/parent/coach-customization", authMiddleware, async (req, res) => {
     });
   } catch (e) {
     console.error("/api/parent/coach-customization GET error", e);
-    res.status(500).json({ error: "AI 코치 설정을 불러오지 못했습니다." });
+    res.status(500).json({ error: gptFbServer().parentAiCoachSettingsLoadFailed });
   }
 });
 
@@ -7045,7 +7049,7 @@ app.put("/api/parent/coach-customization", authMiddleware, async (req, res) => {
     });
   } catch (e) {
     console.error("/api/parent/coach-customization PUT error", e);
-    res.status(500).json({ error: "AI 코치 설정 저장에 실패했습니다." });
+    res.status(500).json({ error: gptFbServer().parentAiCoachSettingsSaveFailed });
   }
 });
 
@@ -7852,7 +7856,7 @@ app.get("/api/student/coach/state", authMiddleware, async (req, res) => {
     });
   } catch (e) {
     console.error("/api/student/coach/state error", e);
-    res.status(500).json({ error: "코치 상태를 불러오지 못했습니다." });
+    res.status(500).json({ error: gptFbServer().studentCoachStateLoadFailed });
   }
 });
 
@@ -8156,7 +8160,7 @@ app.post("/api/student/coach/app-timetable", authMiddleware, async (req, res) =>
     });
   } catch (e) {
     console.error("/api/student/coach/app-timetable error", e);
-    res.status(500).json({ error: "앱 허용 시간표 생성에 실패했습니다." });
+    res.status(500).json({ error: gptFbServer().appAllowanceTimetableGenerateFailed });
   }
 });
 
@@ -8354,7 +8358,7 @@ app.post("/api/student/coach/app-timetable/message", authMiddleware, async (req,
     });
   } catch (e) {
     console.error("/api/student/coach/app-timetable/message error", e);
-    res.status(500).json({ error: "앱 허용 시간표 대화 수정에 실패했습니다." });
+    res.status(500).json({ error: gptFbServer().appAllowanceTimetableMessageFailed });
   }
 });
 

@@ -15,6 +15,9 @@ import {
 import { getSeoulWeekRangeCompactLabel, getWeekStartKeySeoul } from "../../lib/weekDates";
 import { exportElementToPdf } from "../../lib/exportElementToPdf";
 import type { ParentStudentRow } from "../../types/parent";
+import ko from "../fallbacks/ko.json";
+
+const growthFb = ko.gptOutputFallbacks.parentGrowthReport;
 
 type StressBand = "high" | "mid" | "low" | null;
 
@@ -168,7 +171,7 @@ export function ParentGrowthReportTab(props: {
       .then(async res => {
         const raw = await res.json().catch(() => ({}));
         if (!res.ok) {
-          throw new Error(String((raw as { error?: string }).error || "리포트를 불러오지 못했습니다."));
+          throw new Error(String((raw as { error?: string }).error || growthFb.loadFailed));
         }
         if (cancelled) return;
         const payload = raw as ParentGrowthReportPayload;
@@ -181,7 +184,7 @@ export function ParentGrowthReportTab(props: {
       })
       .catch((e: unknown) => {
         if (cancelled || (e instanceof DOMException && e.name === "AbortError")) return;
-        setError(e instanceof Error ? e.message : "리포트를 불러오지 못했습니다.");
+        setError(e instanceof Error ? e.message : growthFb.loadFailed);
         setData(null);
       })
       .finally(() => {
@@ -225,7 +228,7 @@ export function ParentGrowthReportTab(props: {
       alert(
         e instanceof Error
           ? e.message
-          : "PDF를 만들지 못했습니다. 잠시 후 다시 시도해 주세요."
+          : growthFb.pdfExportFailedGeneric
       );
     } finally {
       setPdfExporting(false);
@@ -321,7 +324,7 @@ export function ParentGrowthReportTab(props: {
               <p className="parent-growth-report__summary-text">{n.weeklySummary}</p>
               {!data?.usedOpenAi ? (
                 <p className="parent-growth-report__ai-note">
-                  AI 문구 생성을 위해 서버에 OPENAI_API_KEY가 필요합니다. 숫자는 실제 기록입니다.
+                  {growthFb.openAiKeyNotice}
                 </p>
               ) : null}
             </div>
