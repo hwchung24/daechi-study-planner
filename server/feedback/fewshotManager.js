@@ -19,7 +19,10 @@ async function refreshFewshotCandidates(coachMode) {
 
   const { rows: candidates } = await query(
     `SELECT id FROM coach_response_log
-     WHERE coach_mode = $1 AND signal = 'positive' AND is_fewshot = FALSE
+     WHERE coach_mode = $1
+       AND signal = 'positive'
+       AND is_fewshot = FALSE
+       AND COALESCE(is_blacklisted, FALSE) = FALSE
      ORDER BY (context_snapshot IS NOT NULL) DESC, created_at DESC
      LIMIT $2`,
     [coachMode, MAX_FEWSHOT_PER_MODE]
@@ -46,7 +49,9 @@ async function refreshFewshotCandidates(coachMode) {
   if (ids.length === 0) return;
 
   await query(
-    `UPDATE coach_response_log SET is_fewshot = TRUE WHERE id = ANY($1::int[])`,
+    `UPDATE coach_response_log
+     SET is_fewshot = TRUE, fewshot_selected_at = NOW()
+     WHERE id = ANY($1::int[])`,
     [ids]
   );
 }
@@ -59,7 +64,9 @@ async function getFewshotBlock(coachMode) {
   const { rows } = await query(
     `SELECT user_message, ai_response, context_snapshot
      FROM coach_response_log
-     WHERE coach_mode = $1 AND is_fewshot = TRUE
+     WHERE coach_mode = $1
+       AND is_fewshot = TRUE
+       AND COALESCE(is_blacklisted, FALSE) = FALSE
      ORDER BY created_at DESC`,
     [coachMode]
   );

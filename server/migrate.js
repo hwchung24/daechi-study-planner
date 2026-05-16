@@ -629,6 +629,25 @@ async function main() {
   } catch {
     // ignore
   }
+
+  try {
+    const coachLogSql = fs.readFileSync(
+      path.join(__dirname, "migrations", "create_coach_response_log.sql"),
+      "utf8"
+    );
+    await pool.query(coachLogSql);
+  } catch (e) {
+    console.warn("coach_response_log migration:", e?.message || e);
+  }
+  try {
+    const fewshotAdminSql = fs.readFileSync(
+      path.join(__dirname, "migrations", "add_coach_fewshot_admin.sql"),
+      "utf8"
+    );
+    await pool.query(fewshotAdminSql);
+  } catch (e) {
+    console.warn("coach fewshot admin migration:", e?.message || e);
+  }
 }
 
 main()

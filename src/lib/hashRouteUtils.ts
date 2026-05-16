@@ -1,6 +1,6 @@
 import { getAppPath } from "./appNavigation";
 
-type AppRoute = "student" | "parent" | "auth";
+type AppRoute = "student" | "parent" | "auth" | "super-admin";
 
 const DEVICE_SERIAL_STORAGE_KEY = "daechi_device_serial";
 const TOKEN_STORAGE_KEY = "daechi_planner_token";
@@ -69,6 +69,7 @@ export function parseCoachParentTabFromHash(path = getAppPath()) {
 
 export function parseRouteFromHash(path = getAppPath()): AppRoute {
   const h = path;
+  if (h.startsWith("#/super-admin")) return "super-admin";
   if (h.startsWith("#/parent")) return "parent";
   if (h === "#/auth") return "auth";
   return "student";
@@ -89,6 +90,7 @@ export function getInitialRoute(): AppRoute {
   }
   if (!token) return "auth";
   const h = getAppPath();
+  if (h.startsWith("#/super-admin")) return "super-admin";
   if (h.startsWith("#/parent")) return "parent";
   if (h === "#/auth") return "student";
   return parseRouteFromHash(h);

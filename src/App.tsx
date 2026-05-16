@@ -122,6 +122,12 @@ const StudentLegacyView = React.lazy(() =>
     default: module.StudentLegacyView
   }))
 );
+const SuperAdminPage = React.lazy(() =>
+  import("./superAdmin/SuperAdminPage").then(module => ({
+    default: module.SuperAdminPage
+  }))
+);
+
 const StudentProfilePage = React.lazy(() =>
   import("./components/student/StudentProfilePage").then(module => ({
     default: module.StudentProfilePage
@@ -633,6 +639,7 @@ const App: React.FC = () => {
   const [meRole, setMeRole] = useState<string | null>(
     () => readCachedMeState()?.role ?? null
   );
+  const [isSuperAdmin, setIsSuperAdmin] = useState(false);
   /** /api/me 1회 이상 끝났는지(실패 포함). false면 헤더에 무한 «불러오는 중» */
   const [meRoleResolved, setMeRoleResolved] = useState(true);
   const [profileLoadError, setProfileLoadError] = useState<string | null>(
@@ -1167,6 +1174,7 @@ const App: React.FC = () => {
   useEffect(() => {
     if (!authToken) {
       setMeRole(null);
+      setIsSuperAdmin(false);
       setMeRoleResolved(true);
       setProfileLoadError(null);
       setStudentInitialProfileCompleted(true);
@@ -1209,6 +1217,7 @@ const App: React.FC = () => {
           setAuthToken(null);
           setUserEmail(null);
           setMeRole(null);
+          setIsSuperAdmin(false);
           setAppPath("#/auth");
           done();
           return;
@@ -1233,6 +1242,7 @@ const App: React.FC = () => {
             ? String(data.role).toLowerCase()
             : null;
         setMeRole(nextRole);
+        setIsSuperAdmin(Boolean(data.isSuperAdmin));
         if (data.email != null && String(data.email).trim() !== "") {
           const em = String(data.email).trim();
           setUserEmail(em);
@@ -2751,6 +2761,7 @@ const App: React.FC = () => {
     setAuthToken(null);
     setUserEmail(null);
     setMeRole(null);
+    setIsSuperAdmin(false);
     setStudentInitialProfileCompleted(true);
     setStudentSetupOpen(false);
     setStudentSetupGrade("");
@@ -3265,6 +3276,31 @@ const App: React.FC = () => {
     replaceAppPath("#/parent/profile");
   }, [hapticWarning]);
 
+  const exitSuperAdmin = useCallback(() => {
+    if (meRole === "parent") {
+      setRoute("parent");
+      setCoachParentTab("home");
+      replaceAppPath("#/parent/home");
+      return;
+    }
+    setRoute("student");
+    setCoachStudentTab("home");
+    replaceAppPath("#/student/home");
+  }, [meRole]);
+
+  const openSuperAdmin = useCallback(() => {
+    hapticSelection();
+    setRoute("super-admin");
+    replaceAppPath("#/super-admin");
+  }, [hapticSelection]);
+
+  useEffect(() => {
+    if (route === "super-admin" && !authToken) {
+      setRoute("auth");
+      replaceAppPath("#/auth");
+    }
+  }, [route, authToken]);
+
   useEffect(() => {
     if (meRole !== "parent" || !parentStudentsLoaded || parentStudents.length > 0) {
       return;
@@ -3755,7 +3791,32 @@ const App: React.FC = () => {
           />
         </>
       )}
-      {splashReady && route === "auth" ? (
+      {splashReady && route === "super-admin" && authToken ? (
+        !meRoleResolved ? (
+          <div className="super-admin-gate">
+            <p>권한 확인 중…</p>
+          </div>
+        ) : !isSuperAdmin ? (
+          <div className="super-admin-gate super-admin-gate--denied">
+            <p>총괄 관리자 권한이 없습니다.</p>
+            <p className="super-admin-gate__hint">
+              서버에 SUPER_ADMIN_EMAILS에 등록된 계정으로 로그인해 주세요.
+            </p>
+            <button type="button" onClick={exitSuperAdmin}>
+              돌아가기
+            </button>
+          </div>
+        ) : (
+          <React.Suspense fallback={<AppRouteSuspenseFallback />}>
+            <SuperAdminPage
+              apiBase={API_BASE}
+              authToken={authToken}
+              userEmail={userEmail || ""}
+              onExit={exitSuperAdmin}
+            />
+          </React.Suspense>
+        )
+      ) : splashReady && route === "auth" ? (
         <AuthScreen
           authChannel={Capacitor.isNativePlatform() ? "student" : "parent"}
           authLeaving={authLeaving}
@@ -5500,6 +5561,16 @@ const App: React.FC = () => {
           </div>
         )}
 
+        {authToken && isSuperAdmin && route !== "super-admin" ? (
+          <button
+            type="button"
+            className="super-admin-fab"
+            onClick={openSuperAdmin}
+            aria-label="총괄 관리자 페이지"
+          >
+            총괄 관리
+          </button>
+        ) : null}
       </div>
     ) : null}
       <NativeKeyboardInputManager />

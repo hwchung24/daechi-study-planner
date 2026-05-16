@@ -2022,6 +2022,83 @@ async function upsertParentAiReport(
   );
 }
 
+async function listAllUsersForSuperAdmin() {
+  const res = await query(
+    `SELECT u.id,
+            u.email,
+            u.role,
+            u.created_at,
+            scp.name AS student_name,
+            par.phone AS parent_phone
+     FROM users u
+     LEFT JOIN student_coach_profiles scp ON scp.user_id = u.id
+     LEFT JOIN parents par ON par.user_id = u.id
+     ORDER BY u.created_at DESC`
+  );
+  return res.rows.map(row => ({
+    id: Number(row.id),
+    email: String(row.email || ""),
+    role: String(row.role || ""),
+    createdAt: row.created_at ? new Date(row.created_at).toISOString() : null,
+    studentName: row.student_name != null ? String(row.student_name) : null,
+    parentPhone: row.parent_phone != null ? String(row.parent_phone) : null
+  }));
+}
+
+async function listAllParentStudentLinksForSuperAdmin() {
+  const res = await query(
+    `SELECT pu.id AS parent_user_id,
+            pu.email AS parent_email,
+            su.id AS student_user_id,
+            su.email AS student_email,
+            scp.name AS student_name
+     FROM parents_students ps
+     JOIN parents p ON p.id = ps.parent_id
+     JOIN users pu ON pu.id = p.user_id
+     JOIN users su ON su.id = ps.student_id
+     LEFT JOIN student_coach_profiles scp ON scp.user_id = su.id
+     ORDER BY pu.email ASC, su.email ASC`
+  );
+  return res.rows.map(row => ({
+    parentUserId: Number(row.parent_user_id),
+    parentEmail: String(row.parent_email || ""),
+    studentUserId: Number(row.student_user_id),
+    studentEmail: String(row.student_email || ""),
+    studentName: row.student_name != null ? String(row.student_name) : null
+  }));
+}
+
+async function listPendingParentStudentLinkRequestsForSuperAdmin() {
+  const res = await query(
+    `SELECT lr.id,
+            lr.parent_user_id,
+            pu.email AS parent_email,
+            lr.student_user_id,
+            su.email AS student_email,
+            scp.name AS student_name,
+            lr.initiated_by,
+            lr.status,
+            lr.created_at
+     FROM parent_student_link_requests lr
+     JOIN users pu ON pu.id = lr.parent_user_id
+     JOIN users su ON su.id = lr.student_user_id
+     LEFT JOIN student_coach_profiles scp ON scp.user_id = su.id
+     WHERE lr.status = 'pending'
+     ORDER BY lr.created_at DESC`
+  );
+  return res.rows.map(row => ({
+    id: Number(row.id),
+    parentUserId: Number(row.parent_user_id),
+    parentEmail: String(row.parent_email || ""),
+    studentUserId: Number(row.student_user_id),
+    studentEmail: String(row.student_email || ""),
+    studentName: row.student_name != null ? String(row.student_name) : null,
+    initiatedBy: String(row.initiated_by || ""),
+    status: String(row.status || ""),
+    createdAt: row.created_at ? new Date(row.created_at).toISOString() : null
+  }));
+}
+
 async function getLatestParentAiReport(parentUserId, studentUserId) {
   const res = await query(
     `SELECT id, parent_user_id, student_user_id, report_date, summary_text, model, created_at
@@ -4247,6 +4324,9 @@ module.exports = {
   upsertParentAiReport,
   getLatestParentAiReport,
   getParentAiReportForDate,
+  listAllUsersForSuperAdmin,
+  listAllParentStudentLinksForSuperAdmin,
+  listPendingParentStudentLinkRequestsForSuperAdmin,
   createWebclipSession,
   consumeWebclipSession,
   linkDeviceToUserBySerial,

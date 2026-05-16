@@ -7,6 +7,7 @@ import { persistApiBaseOverride } from "./lib/apiBase";
 import { installNativeClientFetchHeader } from "./lib/installNativeClientFetchHeader";
 import { AppShell } from "./lib/nativeAppShell";
 import "./styles.css";
+import "./styles/superAdmin.css";
 
 /** 네이티브(Capacitor)와 웹 브라우저에서 레이아웃·밀도를 구분 (styles.css `.web-app`) */
 if (typeof document !== "undefined") {
