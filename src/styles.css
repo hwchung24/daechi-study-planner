@@ -1002,11 +1002,15 @@ html.parent-session .app-main {
   font-weight: var(--font-weight-semibold);
 }
 
-.app-root--parent .parent-home__live-quick-actions {
+.app-root--parent .parent-home__live-quick-actions,
+.app-root--parent .parent-home__records-panel .parent-home__records-week-tray {
   border-top: 1px solid rgba(var(--accent-rgb), 0.12);
   background: rgba(var(--accent-rgb), 0.05);
   border-radius: var(--radius-md);
   padding: calc(8px * var(--parent-ui-scale, 1));
+}
+
+.app-root--parent .parent-home__live-quick-actions {
   gap: calc(6px * var(--parent-ui-scale, 1));
 }
 
@@ -1946,11 +1950,15 @@ html.parent-session .app-main {
 
 .parent-home__records-panel .parent-home__records-row {
   padding: calc(12px * var(--parent-ui-scale, 1)) 0;
-  border-bottom: none;
+  border-bottom: 1px solid rgba(var(--neutral-rgb), 0.1);
 }
 
 .parent-home__records-panel .parent-home__records-row:first-child {
   padding-top: 0;
+}
+
+.parent-home__records-panel .parent-home__records-row:last-child {
+  border-bottom: 0;
 }
 
 .parent-home__records-row-main {
@@ -1978,10 +1986,10 @@ html.parent-session .app-main {
 .parent-home__records-row-status {
   margin: 0;
   font-size: var(--font-size-medium);
-  font-weight: var(--font-weight-medium);
+  font-weight: var(--font-weight-semibold);
   line-height: 1.48;
   letter-spacing: -0.01em;
-  color: var(--text-main);
+  color: var(--accent);
   word-break: keep-all;
   overflow-wrap: break-word;
 }
@@ -1995,7 +2003,7 @@ html.parent-session .app-main {
 
 .parent-home__records-week-scroll {
   padding: 0;
-  margin-top: calc(14px * var(--parent-ui-scale, 1));
+  margin-top: 0;
 }
 
 .parent-home__records-section-head {
@@ -6978,10 +6986,21 @@ body.app-keyboard-open .app-main {
 }
 
 /*
- * 학부모 홈 > 학생 기록: 상태 카드와 동일한 플랫 리스트 (트레이·점선·미니카드 제거)
+ * 학부모 홈 > 학생 기록: 학생 상태 카드와 동일 (리스트 행 + 하단 회색 트레이 + 블록 강조)
  */
-.parent-home__records-panel .parent-home__records-week-scroll {
+.parent-home__records-panel .parent-home__records-week-tray {
+  display: flex;
+  flex-direction: column;
+  gap: calc(8px * var(--parent-ui-scale, 1));
   margin-top: calc(14px * var(--parent-ui-scale, 1));
+  padding: calc(8px * var(--parent-ui-scale, 1));
+  border: none;
+  border-radius: var(--radius-md);
+  background: rgba(var(--accent-rgb), 0.05);
+}
+
+.parent-home__records-panel .parent-home__records-week-scroll {
+  margin-top: 0;
   padding: 0;
   background: transparent;
 }
@@ -6992,24 +7011,40 @@ body.app-keyboard-open .app-main {
 
 .parent-home__records-panel .coach-records-unified-week .coach-records-unified-day-body,
 .parent-home__records-panel .coach-records-unified-week .progress-day-card-body.coach-records-unified-day-body {
+  display: flex;
+  flex-direction: column;
+  gap: calc(8px * var(--parent-ui-scale, 1));
   max-height: none;
   overflow-y: visible;
+  padding: 0;
 }
 
 .parent-home__records-panel .parent-home__records-day-head {
-  padding: calc(12px * var(--parent-ui-scale, 1)) 0 calc(10px * var(--parent-ui-scale, 1));
-  margin: 0;
-  border-bottom: 1px solid rgba(var(--neutral-rgb), 0.1);
+  margin: 0 0 calc(4px * var(--parent-ui-scale, 1));
+  padding: 0;
+  border: none;
+  font-size: var(--font-size-small);
+  font-weight: var(--font-weight-semibold);
+  letter-spacing: 0.02em;
+  color: var(--text-sub);
 }
 
+.parent-home__records-panel .parent-home__records-day-sheet--today .parent-home__records-day-head {
+  color: var(--accent);
+}
+
+/* 상태 카드 .live-row--warn 과 동일한 블록 */
 .parent-home__records-panel .coach-records-unified-block {
-  padding: calc(12px * var(--parent-ui-scale, 1)) 0;
-  border-top: 1px solid rgba(var(--neutral-rgb), 0.1);
+  padding: calc(10px * var(--parent-ui-scale, 1));
+  border: none;
+  border-radius: var(--radius-sm);
+  background: rgba(var(--accent-rgb), 0.08);
 }
 
-.parent-home__records-panel .coach-records-unified-block:first-of-type {
+.parent-home__records-panel .coach-records-unified-block + .coach-records-unified-block {
+  margin-top: 0;
+  padding-top: calc(10px * var(--parent-ui-scale, 1));
   border-top: none;
-  padding-top: 0;
 }
 
 .parent-home__records-panel .record-life-group-title,
@@ -7019,25 +7054,40 @@ body.app-keyboard-open .app-main {
   font-size: var(--font-size-small);
   font-weight: var(--font-weight-semibold);
   letter-spacing: 0.02em;
+  line-height: 1.2;
   color: var(--text-sub);
 }
 
+.parent-home__records-panel .record-life-group-title--with-icon {
+  display: grid;
+  grid-template-columns: calc(28px * var(--parent-ui-scale, 1)) minmax(0, 1fr);
+  align-items: center;
+  gap: calc(10px * var(--parent-ui-scale, 1)) calc(12px * var(--parent-ui-scale, 1));
+}
+
 .parent-home__records-panel .record-life-group-title__glyph {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: calc(28px * var(--parent-ui-scale, 1));
+  height: calc(28px * var(--parent-ui-scale, 1));
+  border-radius: var(--radius-pill);
+  background: var(--accent-soft);
   color: var(--accent);
   opacity: 1;
 }
 
 .parent-home__records-panel .record-readonly-empty {
   margin: 0;
-  padding: 0 0 calc(4px * var(--parent-ui-scale, 1));
+  padding: 0;
   border: none;
   border-radius: 0;
   background: transparent;
   box-shadow: none;
   font-size: var(--font-size-medium);
-  font-weight: var(--font-weight-medium);
+  font-weight: var(--font-weight-semibold);
   line-height: 1.48;
-  color: var(--text-main);
+  color: var(--accent);
 }
 
 .parent-home__records-panel .record-readonly-value {
@@ -7047,65 +7097,60 @@ body.app-keyboard-open .app-main {
   border-radius: 0;
   background: transparent;
   box-shadow: none;
+  font-size: var(--font-size-medium);
+  line-height: 1.48;
+  color: var(--text-main);
 }
 
 .parent-home__records-panel .timeline-list {
-  gap: 0;
+  display: flex;
+  flex-direction: column;
+  gap: calc(8px * var(--parent-ui-scale, 1));
 }
 
 .parent-home__records-panel .timeline-item {
-  padding: calc(10px * var(--parent-ui-scale, 1)) 0;
+  padding: 0;
   margin: 0;
   border: none;
   border-radius: 0;
   background: transparent;
   box-shadow: none;
-  border-bottom: 1px solid rgba(var(--neutral-rgb), 0.1);
   cursor: default;
   transform: none;
   will-change: auto;
 }
 
-.parent-home__records-panel .timeline-item:last-child {
-  border-bottom: none;
-}
-
-.parent-home__records-panel .timeline-item:active {
-  transform: none;
-}
-
-.parent-home__records-panel .timeline-item-done {
-  background: transparent;
-  border-bottom-color: rgba(var(--neutral-rgb), 0.1);
-  opacity: 1;
-}
-
-.parent-home__records-panel .timeline-item .time-main,
-.parent-home__records-panel .timeline-item .timeline-book-name {
-  color: var(--accent);
+.parent-home__records-panel .timeline-item .time-main {
+  display: block;
+  margin-bottom: 3px;
+  font-size: var(--font-size-small);
   font-weight: var(--font-weight-semibold);
+  color: var(--text-sub);
+}
+
+.parent-home__records-panel .timeline-item .timeline-book-name {
+  font-size: var(--font-size-medium);
+  font-weight: var(--font-weight-semibold);
+  color: var(--accent);
 }
 
 .parent-home__records-panel .timeline-item .timeline-plan-range {
-  color: var(--text-sub);
+  margin-top: 4px;
   font-size: var(--font-size-small);
+  color: var(--text-sub);
 }
 
 .parent-home__records-panel .progress-day-book {
   margin: 0;
-  padding: calc(10px * var(--parent-ui-scale, 1)) 0;
+  padding: 0;
   border: none;
   border-radius: 0;
   background: transparent;
   box-shadow: none;
-  border-bottom: 1px solid rgba(var(--neutral-rgb), 0.1);
-}
-
-.parent-home__records-panel .progress-day-book:last-child {
-  border-bottom: none;
 }
 
 .parent-home__records-panel .progress-day-book-name {
+  display: block;
   margin-bottom: 3px;
   font-size: var(--font-size-small);
   font-weight: var(--font-weight-semibold);
@@ -7115,24 +7160,28 @@ body.app-keyboard-open .app-main {
 .parent-home__records-panel .progress-day-book-plan {
   font-size: var(--font-size-medium);
   font-weight: var(--font-weight-semibold);
+  line-height: 1.48;
   color: var(--accent);
 }
 
 .parent-home__records-panel .parent-study-room-item__visit-list {
-  gap: 0;
+  display: flex;
+  flex-direction: column;
+  gap: calc(8px * var(--parent-ui-scale, 1));
 }
 
 .parent-home__records-panel .parent-study-room-item__visit-item {
-  padding: calc(10px * var(--parent-ui-scale, 1)) 0;
+  padding: 0;
   border: none;
   border-radius: 0;
   background: transparent;
   box-shadow: none;
-  border-bottom: 1px solid rgba(var(--neutral-rgb), 0.1);
 }
 
-.parent-home__records-panel .parent-study-room-item__visit-item:last-child {
-  border-bottom: none;
+.parent-home__records-panel .parent-study-room-item__visit-name {
+  font-size: var(--font-size-medium);
+  font-weight: var(--font-weight-semibold);
+  color: var(--accent);
 }
 
 .parent-home__records-panel .parent-study-room-item__visit-meta {
@@ -7142,8 +7191,9 @@ body.app-keyboard-open .app-main {
 }
 
 .parent-home__records-panel .record-life-group + .record-life-group {
-  padding-top: 10px;
-  border-top: 1px solid rgba(var(--neutral-rgb), 0.1);
+  margin-top: calc(8px * var(--parent-ui-scale, 1));
+  padding-top: calc(8px * var(--parent-ui-scale, 1));
+  border-top: 1px solid rgba(var(--accent-rgb), 0.14);
 }
 
 /* 오늘 계획 열과 동일 너비: 태블릿 이상에서 주간 카드만 1열에 배치 */

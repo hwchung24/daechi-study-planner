@@ -725,6 +725,7 @@ export function ParentRecordsWeekSection(props: ParentRecordsWeekSectionProps) {
                     </div>
                   </div>
                 ) : (
+                <div className="parent-home__records-week-tray">
                 <div className="parent-home__records-week-scroll">
                 <div className="week-frame coach-records-week-frame">
                   <div className="progress-cards-scroll">
@@ -775,6 +776,7 @@ export function ParentRecordsWeekSection(props: ParentRecordsWeekSectionProps) {
                       })}
                     </div>
                   </div>
+                </div>
                 </div>
                 </div>
                 )}
