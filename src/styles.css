@@ -951,6 +951,7 @@ html.parent-session .app-main {
 }
 
 .app-root--parent .parent-home__live-panel-title,
+.app-root--parent .parent-home__records-panel-title,
 .app-root--parent .parent-home__records-section-title {
   color: var(--accent);
 }
@@ -1861,7 +1862,6 @@ html.parent-session .app-main {
   font-weight: var(--font-weight-bold);
   letter-spacing: -0.02em;
   line-height: 1.3;
-  color: var(--text-strong);
 }
 
 .parent-home__records-week-picker {
@@ -2148,7 +2148,6 @@ html.parent-session .app-main {
   font-weight: var(--font-weight-bold);
   letter-spacing: -0.02em;
   line-height: 1.3;
-  color: var(--text-strong);
 }
 
 .parent-home__live-clock {
@@ -2747,9 +2746,20 @@ html.parent-session .app-main {
 }
 
 .parent-home__live > .coach-card,
+.parent-home__live > .parent-home__live-panel,
 .parent-home__live > .parent-home__records-week {
   margin-top: 0 !important;
   margin-bottom: 0;
+}
+
+.parent-home__live-panel,
+.parent-home__records-panel {
+  padding: 0;
+  border: none;
+  background: transparent;
+  box-shadow: none;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
 }
 
 .parent-home__live .coach-records-page-grid {

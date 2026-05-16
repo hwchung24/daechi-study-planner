@@ -668,8 +668,8 @@ export function ParentRecordsWeekSection(props: ParentRecordsWeekSectionProps) {
       ) : (
         <>
           <div className="coach-records-page-grid coach-records-page-grid--unified">
-            <article
-              className="coach-card coach-card--padded parent-home__records-panel"
+            <section
+              className="parent-home__records-panel"
               aria-label={recordsFb.recordsPanelTitle}
             >
               <header className="parent-home__records-panel-head">
@@ -777,7 +777,7 @@ export function ParentRecordsWeekSection(props: ParentRecordsWeekSectionProps) {
                 )}
                 </div>
               </section>
-            </article>
+            </section>
           </div>
         </>
       )}
