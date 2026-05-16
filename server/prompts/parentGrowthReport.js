@@ -147,60 +147,132 @@ const efficiency = {
   }
 };
 
+function formatMinutesAsHoursLabel(minutes) {
+  const m = Number(minutes);
+  if (!Number.isFinite(m) || m <= 0) return "0시간";
+  const h = m / 60;
+  return h >= 1 ? `${roundOrNull(h, 1)}시간` : `${Math.round(m)}분`;
+}
+
+function buildLearningPatternLines(input = {}) {
+  const lines = [];
+  if (input.studentGoal) lines.push(`- 학습 목표: ${input.studentGoal}`);
+  if (input.targetGrade) lines.push(`- 목표 성적·등급: ${input.targetGrade}`);
+  if (input.topSubjectsLine) lines.push(`- 과목별 학습 시간(많은 순): ${input.topSubjectsLine}`);
+  if (input.planProgressLine) lines.push(`- 계획 실행: ${input.planProgressLine}`);
+  if (input.completedHighlights) lines.push(`- 이번 주 잘 끝낸 계획: ${input.completedHighlights}`);
+  if (input.carryOverPlans) lines.push(`- 다음 주로 넘길·이어갈 계획: ${input.carryOverPlans}`);
+  if (input.studyPeakDay) lines.push(`- 학습량이 가장 많았던 요일: ${input.studyPeakDay}`);
+  if (input.focusEfficiencyPercent != null && input.focusEfficiencyPercent !== "데이터 없음") {
+    lines.push(`- 집중 효율(집중/학습): ${input.focusEfficiencyPercent}%`);
+  }
+  if (input.achievementRate != null && input.achievementRate !== "데이터 없음") {
+    lines.push(`- 이번 주 계획 달성률: ${input.achievementRate}%`);
+  }
+  if (input.achievementDelta != null && input.achievementDelta !== "데이터 없음") {
+    const deltaNum = Number(input.achievementDelta);
+    const deltaLabel =
+      Number.isFinite(deltaNum) && deltaNum > 0 ? "전주 대비 상승" : "전주 대비 하락·유지";
+    lines.push(`- 전주 대비 달성률 변화: ${input.achievementDelta}%p (${deltaLabel})`);
+  }
+  if (input.bestFocusDay && input.bestFocusDay !== "데이터 없음") {
+    lines.push(`- 집중이 잘 됐던 요일: ${input.bestFocusDay}`);
+  }
+  if (input.highStressDay && input.highStressDay !== "데이터 없음") {
+    lines.push(
+      `- 스트레스가 높았던 요일(학습 조절 참고): ${input.highStressDay} (지수 ${input.highStressScore10}/10)`
+    );
+  }
+  return lines.length ? lines.join("\n") : "- 이번 주 학습·계획 기록이 아직 적어 패턴 추정이 제한됩니다.";
+}
+
+function isGenericWellnessSuggestion(text) {
+  const t = String(text || "").trim();
+  if (!t) return true;
+  const wellness =
+    /스트레칭|산책|명상|물\s*마시|기분\s*한\s*줄|휴식\s*루틴|가볍게\s*물러|산책|걷기|스트레칭/.test(t);
+  const learningLinked = /계획|교재|학습|공부|집중|과목|블록|달성|이행|복습|문제|범위/.test(t);
+  return wellness && !learningLinked;
+}
+
+function buildNextWeekSuggestionsFallback(input = {}) {
+  const studentName = String(input.studentName || "학생").trim() || "학생";
+  const carry = String(input.carryOverPlans || "").trim();
+  const completed = String(input.completedHighlights || "").trim();
+  const bestDay = String(input.bestFocusDay || "").trim();
+  const topSubjects = String(input.topSubjectsLine || "").trim();
+  const achievementDelta = Number(input.achievementDelta);
+
+  let studentSuggestion = "";
+  if (carry && carry !== "없음") {
+    const firstBook = carry.split(",")[0]?.trim() || carry;
+    studentSuggestion = bestDay && bestDay !== "데이터 없음"
+      ? `${bestDay}에 '${firstBook}'만 25분 먼저 시작해 보는 건 어떨까요? 완료보다 시작 한 칸만 목표로 잡아 보세요.`
+      : `다음 주는 '${firstBook}'부터 25분만 먼저 시작해 보는 건 어떨까요? 완료보다 '시작' 한 칸만 목표로 잡아 보세요.`;
+  } else if (topSubjects) {
+    const top = topSubjects.split(",")[0]?.trim() || topSubjects;
+    studentSuggestion = `${top} 비중이 컸어요. 다음 주도 같은 과목을 하루 한 블록(30분)만 고정해 두면 리듬이 이어질 거예요.`;
+  } else if (Number.isFinite(achievementDelta) && achievementDelta < 0) {
+    studentSuggestion =
+      "다음 주는 하루 계획을 2개만 적고, 하나만 끝내도 성공으로 인정해 보세요. 달성률을 조금씩 올리는 데 집중해 보세요.";
+  } else {
+    studentSuggestion =
+      "이번 주처럼 기록을 이어 가면서, 다음 주 계획표에 가장 먼저 할 교재 1권만 적어 두고 그날 첫 블록에 넣어 보세요.";
+  }
+
+  let parentSuggestion = "";
+  if (carry && carry !== "없음") {
+    parentSuggestion = `이번 주 미완료 계획(${carry})이 있어요. 주말에 ${studentName}님과 '다음 주 첫 블록에 넣을 교재 1권'만 5분 같이 정해 보시면 부담이 줄어요.`;
+  } else if (completed && completed !== "없음") {
+    parentSuggestion = `이번 주 ${completed}을(를) 끝냈어요. 다음 주 계획을 세울 때 그 성공을 한 번 짚어 주시면 ${studentName}이 스스로 리듬을 잡기 쉬워요.`;
+  } else if (input.highStressDay && input.highStressDay !== "데이터 없음") {
+    parentSuggestion = `${input.highStressDay} 스트레스가 높았어요. 그날 저녁에는 성적 대신 '내일 첫 공부 25분만 무엇으로 할지'만 가볍게 맞춰 보세요.`;
+  } else {
+    parentSuggestion = `이번 주 학습 기록을 바탕으로, ${studentName}과 다음 주 '가장 먼저 할 교재·시간대' 한 가지만 짧게 맞춰 보시면 계획 실행에 도움이 돼요.`;
+  }
+
+  return { studentSuggestion, parentSuggestion };
+}
+
 const suggestion = {
-  temperature: 0.5,
+  temperature: 0.35,
   jsonObject: true,
   system: [
     GROWTH_REPORT_PERSONA,
     "",
     "[이번 섹션 규칙 — 다음 주 제안]",
-    '- 학생 제안: 잔소리·지시가 아니라 학생 스스로 시도해보고 싶어지는 문장. "~해야 한다"가 아니라 "~해보는 건 어떨까요?"',
-    "- 부모 제안: 공부·성적 이야기가 아니라 관계와 감정에 관한 구체적 행동(언제, 어떻게)을 제안한다",
-    "- 부모 제안에 이번 주 데이터의 구체적 사실(요일·상황)을 반드시 1개 이상 녹여넣는다",
-    "- 각 1-2문장"
+    "- 반드시 아래 '이번 주 학습 패턴'에 나온 사실(교재·과목·요일·달성률·미완료 계획)만 근거로 쓴다.",
+    "- 학생 제안: 다음 주 계획·학습 습관에 대한 구체적 1가지(교재명·요일·시간·분량 중 2개 이상 명시). '~해보는 건 어떨까요?' 톤.",
+    "- 부모 제안: 학습 실행을 돕는 구체적 행동 1가지(언제·무엇을 함께 정할지). 성적 잔소리·훈계 금지.",
+    "- 스트레칭·산책·명상·수면 루틴·기분만 묻기 등 학습·계획과 무관한 일반 웰니스 조언은 쓰지 않는다.",
+    "- 수면·스트레스는 '학습량·계획 조절'과 직접 연결될 때만 짧게 언급할 수 있다.",
+    "- 데이터에 없는 교재명·요일을 지어내지 않는다. 없으면 '기록된 교재'·'집중이 잘 됐던 요일' 등으로만 표현.",
+    "- 각 1-2문장, JSON만 출력"
   ].join("\n"),
   buildUser(input) {
-    const {
-      studentName,
-      highStressDay,
-      highStressScore10,
-      shortestSleepDay,
-      shortestSleepHours,
-      bestFocusDay,
-      unfinishedPlans,
-      achievementDelta
-    } = input;
-    const deltaNum = Number(achievementDelta);
-    const deltaLabel =
-      Number.isFinite(deltaNum) && deltaNum > 0 ? "증가" : "감소";
+    const learningPatterns = buildLearningPatternLines(input);
     return [
-      `학생 이름: ${studentName}`,
+      `학생 이름: ${input.studentName}`,
       "",
-      "이번 주 요약:",
-      `- 스트레스 피크: ${highStressDay} (지수 ${highStressScore10}/10)`,
-      `- 수면이 가장 짧았던 날: ${shortestSleepDay} (${shortestSleepHours}시간)`,
-      `- 집중이 가장 잘 됐던 날: ${bestFocusDay}`,
-      `- 달성 못 한 계획: ${unfinishedPlans || "없음"}`,
-      `- 지난 주 대비 달성률 변화: ${achievementDelta}% (${deltaLabel})`,
+      "이번 주 학습 패턴 (다음 주 제안의 유일한 근거):",
+      learningPatterns,
       "",
-      "두 가지를 각각 작성해줘:",
+      "보조 맥락 (학습 제안에 필요할 때만 참고):",
+      `- 달성 못 한·이어갈 계획 요약: ${input.unfinishedPlans || "없음"}`,
       "",
-      "1. 학생에게 (변수명: studentSuggestion)",
-      "다음 주에 한 가지만 바꿔본다면 무엇이 좋을지, 부드럽고 실현 가능한 제안 1-2문장.",
+      "작성:",
+      "1. studentSuggestion — 다음 주 학습·계획 실행 제안 1-2문장",
+      "2. parentSuggestion — 위 패턴을 바탕으로 학습 실행을 돕는 부모 행동 1-2문장",
       "",
-      "2. 부모에게 (변수명: parentSuggestion)",
-      "이번 주 데이터에서 읽히는 학생의 감정 상태를 언급하고, 부모가 취할 수 있는 구체적 행동 1가지를 1-2문장으로.",
-      "",
-      "출력 형식 (JSON):",
-      "{",
-      '  "studentSuggestion": "...",',
-      '  "parentSuggestion": "..."',
-      "}"
+      '{"studentSuggestion":"...","parentSuggestion":"..."}'
     ].join("\n");
   }
 };
 
 module.exports = {
   /** 섹션별 system / user 빌더 / temperature / json 여부 */
-  sections: { summary, energy, efficiency, suggestion }
+  sections: { summary, energy, efficiency, suggestion },
+  buildLearningPatternLines,
+  buildNextWeekSuggestionsFallback,
+  isGenericWellnessSuggestion
 };

@@ -87,11 +87,27 @@ export function ParentNotificationsPending(props: {
 
   if (!props.authToken) return null;
 
+  const showSkeleton = loading && requests.length === 0;
+
   return (
     <div className="coach-card coach-card--padded parent-notifications-pending">
       <h2 className="coach-section-title">{N.pendingTitle}</h2>
-      {loading ? (
-        <div className="parent-skeleton parent-skeleton--phrase-short" aria-busy="true" />
+      {showSkeleton ? (
+        <div
+          className="notifications-page__skeleton-list"
+          role="status"
+          aria-live="polite"
+          aria-label="요청 목록 불러오는 중"
+        >
+          <span className="sr-only">요청 목록 불러오는 중</span>
+          {[0, 1].map(key => (
+            <div key={key} className="notifications-page__skeleton-item" aria-hidden>
+              <div className="notifications-page__skeleton-title" />
+              <div className="notifications-page__skeleton-body" />
+              <div className="notifications-page__skeleton-time" />
+            </div>
+          ))}
+        </div>
       ) : error ? (
         <p className="parent-type-caption">{error}</p>
       ) : requests.length === 0 ? (

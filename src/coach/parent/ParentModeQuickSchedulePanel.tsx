@@ -6,7 +6,7 @@ import ko from "../fallbacks/ko.json";
 const H = ko.parentHomeTab;
 
 const MODE_LABEL: Record<ModeScheduleModeKey, string> = {
-  utility: H.modeUtilityOfficial,
+  utility: H.modeMoveOfficial,
   free: H.modeFreeOfficial,
   block: H.modeBlockOfficial
 };

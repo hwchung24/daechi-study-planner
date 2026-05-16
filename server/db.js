@@ -82,7 +82,6 @@ async function getMe(userId) {
                  COALESCE(scp.alarm_parent_link_alerts, true) AS "parentLinkAlerts",
                  COALESCE(scp.alarm_study_room_alerts, true) AS "studyRoomAlerts",
                  COALESCE(scp.alarm_message_alerts, true) AS "messageAlerts",
-                 COALESCE(scp.alarm_homework_alerts, true) AS "homeworkAlerts",
                  COALESCE(scp.wake_alarm_enabled, false) AS "wakeAlarmEnabled",
                  COALESCE(scp.wake_alarm_time, '06:30') AS "wakeAlarmTime",
             COALESCE(scp.initial_profile_completed, false) AS initial_profile_completed,
@@ -102,7 +101,6 @@ async function getStudentAlarmSettings(userId) {
             COALESCE(alarm_parent_link_alerts, true) AS "parentLinkAlerts",
             COALESCE(alarm_study_room_alerts, true) AS "studyRoomAlerts",
           COALESCE(alarm_message_alerts, true) AS "messageAlerts",
-          COALESCE(alarm_homework_alerts, true) AS "homeworkAlerts",
             COALESCE(wake_alarm_enabled, false) AS "wakeAlarmEnabled",
             COALESCE(wake_alarm_time, '06:30') AS "wakeAlarmTime"
      FROM student_coach_profiles
@@ -116,7 +114,6 @@ async function getStudentAlarmSettings(userId) {
       parentLinkAlerts: true,
       studyRoomAlerts: true,
       messageAlerts: true,
-      homeworkAlerts: true,
       wakeAlarmEnabled: false,
       wakeAlarmTime: "06:30"
     }
@@ -177,8 +174,6 @@ async function getParentAlarmSettings(userId) {
       raw.studyRoomAlerts == null ? true : Boolean(raw.studyRoomAlerts),
     messageAlerts:
       raw.messageAlerts == null ? true : Boolean(raw.messageAlerts),
-    homeworkAlerts:
-      raw.homeworkAlerts == null ? true : Boolean(raw.homeworkAlerts),
     requestAlerts:
       raw.requestAlerts == null ? true : Boolean(raw.requestAlerts)
   };
@@ -194,8 +189,6 @@ async function upsertParentAlarmSettings(userId, input = {}) {
       input.studyRoomAlerts == null ? true : Boolean(input.studyRoomAlerts),
     messageAlerts:
       input.messageAlerts == null ? true : Boolean(input.messageAlerts),
-    homeworkAlerts:
-      input.homeworkAlerts == null ? true : Boolean(input.homeworkAlerts),
     requestAlerts:
       input.requestAlerts == null ? true : Boolean(input.requestAlerts)
   };
@@ -224,10 +217,6 @@ async function upsertParentAlarmSettings(userId, input = {}) {
       res.rows[0]?.notification_prefs?.messageAlerts == null
         ? true
         : Boolean(res.rows[0].notification_prefs.messageAlerts),
-    homeworkAlerts:
-      res.rows[0]?.notification_prefs?.homeworkAlerts == null
-        ? true
-        : Boolean(res.rows[0].notification_prefs.homeworkAlerts),
     requestAlerts:
       res.rows[0]?.notification_prefs?.requestAlerts == null
         ? true
@@ -3208,8 +3197,8 @@ async function listStudentIdsForWeeklyAppAllowanceEnforcement() {
 async function upsertStudentCoachProfile(userId, input = {}) {
   const res = await query(
     `INSERT INTO student_coach_profiles
-      (user_id, name, school_level, grade, goal, goal_university, target_grade, current_concern, weakness, target_subjects, weak_subjects, sleep_time, wake_time, alarm_schedule_reminders, alarm_parent_link_alerts, alarm_study_room_alerts, alarm_message_alerts, alarm_homework_alerts, wake_alarm_enabled, wake_alarm_time, mdm_applied, initial_profile_completed, updated_at)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10::text[], $11::text[], $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, now())
+      (user_id, name, school_level, grade, goal, goal_university, target_grade, current_concern, weakness, target_subjects, weak_subjects, sleep_time, wake_time, alarm_schedule_reminders, alarm_parent_link_alerts, alarm_study_room_alerts, alarm_message_alerts, wake_alarm_enabled, wake_alarm_time, mdm_applied, initial_profile_completed, updated_at)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10::text[], $11::text[], $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, now())
      ON CONFLICT (user_id)
      DO UPDATE SET
        name = COALESCE(EXCLUDED.name, student_coach_profiles.name),
@@ -3228,7 +3217,6 @@ async function upsertStudentCoachProfile(userId, input = {}) {
        alarm_parent_link_alerts = COALESCE(EXCLUDED.alarm_parent_link_alerts, student_coach_profiles.alarm_parent_link_alerts),
        alarm_study_room_alerts = COALESCE(EXCLUDED.alarm_study_room_alerts, student_coach_profiles.alarm_study_room_alerts),
       alarm_message_alerts = COALESCE(EXCLUDED.alarm_message_alerts, student_coach_profiles.alarm_message_alerts),
-      alarm_homework_alerts = COALESCE(EXCLUDED.alarm_homework_alerts, student_coach_profiles.alarm_homework_alerts),
        wake_alarm_enabled = COALESCE(EXCLUDED.wake_alarm_enabled, student_coach_profiles.wake_alarm_enabled),
        wake_alarm_time = COALESCE(EXCLUDED.wake_alarm_time, student_coach_profiles.wake_alarm_time),
       mdm_applied = COALESCE(EXCLUDED.mdm_applied, student_coach_profiles.mdm_applied),
@@ -3263,9 +3251,6 @@ async function upsertStudentCoachProfile(userId, input = {}) {
         : null,
       Object.prototype.hasOwnProperty.call(input, "messageAlerts")
         ? Boolean(input.messageAlerts)
-        : null,
-      Object.prototype.hasOwnProperty.call(input, "homeworkAlerts")
-        ? Boolean(input.homeworkAlerts)
         : null,
       Object.prototype.hasOwnProperty.call(input, "wakeAlarmEnabled")
         ? Boolean(input.wakeAlarmEnabled)
@@ -3614,147 +3599,6 @@ async function listStudentParentChatMessages(
     [studentUserId, parentUserId, Math.max(1, Number(limit) || 60)]
   );
   return res.rows.map(serializeStudentParentChatMessage).reverse();
-}
-
-function serializeHomeworkSubmission(row) {
-  if (!row) return null;
-  return {
-    id: Number(row.id),
-    studentUserId: Number(row.student_user_id),
-    parentUserId: Number(row.parent_user_id),
-    originalName: String(row.original_name || ""),
-    storedName: String(row.stored_name || ""),
-    fileUrl: String(row.file_url || ""),
-    mimeType: row.mime_type != null ? String(row.mime_type) : null,
-    fileSize:
-      row.file_size != null && Number.isFinite(Number(row.file_size))
-        ? Number(row.file_size)
-        : null,
-    note: row.note != null ? String(row.note) : "",
-    reviewStatus:
-      row.review_status === "approved"
-        ? "approved"
-        : row.review_status === "needs_revision"
-          ? "needs_revision"
-          : "pending",
-    reviewComment: row.review_comment != null ? String(row.review_comment) : "",
-    createdAt: row.created_at
-      ? new Date(row.created_at).toISOString()
-      : new Date().toISOString(),
-    reviewedAt: row.reviewed_at ? new Date(row.reviewed_at).toISOString() : null
-  };
-}
-
-async function createStudentHomeworkSubmission(studentUserId, parentUserId, input = {}) {
-  const res = await query(
-    `INSERT INTO student_homework_submissions
-      (student_user_id, parent_user_id, original_name, stored_name, file_url, mime_type, file_size, note)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-     RETURNING *`,
-    [
-      studentUserId,
-      parentUserId,
-      String(input.originalName || "").trim(),
-      String(input.storedName || "").trim(),
-      String(input.fileUrl || "").trim(),
-      input.mimeType != null ? String(input.mimeType).trim() : null,
-      Number.isFinite(Number(input.fileSize)) ? Number(input.fileSize) : null,
-      input.note != null ? String(input.note).trim() : null
-    ]
-  );
-  return serializeHomeworkSubmission(res.rows[0]);
-}
-
-async function updateStudentHomeworkSubmission(
-  studentUserId,
-  parentUserId,
-  submissionId,
-  input = {}
-) {
-  const currentRes = await query(
-    `SELECT *
-     FROM student_homework_submissions
-     WHERE id = $1 AND student_user_id = $2 AND parent_user_id = $3`,
-    [submissionId, studentUserId, parentUserId]
-  );
-  const current = currentRes.rows[0];
-  if (!current) return null;
-
-  const res = await query(
-    `UPDATE student_homework_submissions
-     SET original_name = $4,
-         stored_name = $5,
-         file_url = $6,
-         mime_type = $7,
-         file_size = $8,
-         note = $9,
-         review_status = 'pending',
-         review_comment = '',
-         reviewed_at = NULL
-     WHERE id = $1 AND student_user_id = $2 AND parent_user_id = $3
-     RETURNING *`,
-    [
-      submissionId,
-      studentUserId,
-      parentUserId,
-      input.originalName != null ? String(input.originalName).trim() : String(current.original_name || ""),
-      input.storedName != null ? String(input.storedName).trim() : String(current.stored_name || ""),
-      input.fileUrl != null ? String(input.fileUrl).trim() : String(current.file_url || ""),
-      input.mimeType != null ? String(input.mimeType).trim() : current.mime_type,
-      Number.isFinite(Number(input.fileSize)) ? Number(input.fileSize) : current.file_size,
-      input.note != null ? String(input.note).trim() : current.note
-    ]
-  );
-
-  return {
-    previous: serializeHomeworkSubmission(current),
-    submission: serializeHomeworkSubmission(res.rows[0])
-  };
-}
-
-async function listStudentHomeworkSubmissions(
-  studentUserId,
-  parentUserId,
-  limit = 20
-) {
-  const res = await query(
-    `SELECT *
-     FROM student_homework_submissions
-     WHERE student_user_id = $1 AND parent_user_id = $2
-     ORDER BY created_at DESC
-     LIMIT $3`,
-    [studentUserId, parentUserId, Math.max(1, Number(limit) || 20)]
-  );
-  return res.rows.map(serializeHomeworkSubmission);
-}
-
-async function deleteStudentHomeworkSubmission(studentUserId, parentUserId, submissionId) {
-  const res = await query(
-    `DELETE FROM student_homework_submissions
-     WHERE id = $1 AND student_user_id = $2 AND parent_user_id = $3
-     RETURNING *`,
-    [submissionId, studentUserId, parentUserId]
-  );
-  return serializeHomeworkSubmission(res.rows[0]);
-}
-
-async function reviewStudentHomeworkSubmission(
-  studentUserId,
-  parentUserId,
-  submissionId,
-  reviewStatus,
-  reviewComment
-) {
-  const res = await query(
-    `UPDATE student_homework_submissions
-     SET review_status = $4,
-         review_comment = $5,
-         reviewed_at = now()
-     WHERE id = $1 AND student_user_id = $2 AND parent_user_id = $3
-     RETURNING *`,
-    [submissionId, studentUserId, parentUserId, reviewStatus, reviewComment || null]
-  );
-  return serializeHomeworkSubmission(res.rows[0]);
 }
 
 function hhmmFromDb(t) {
@@ -4375,11 +4219,6 @@ module.exports = {
   listRecentStudentCoachMessages,
   insertStudentParentChatMessage,
   listStudentParentChatMessages,
-  createStudentHomeworkSubmission,
-  updateStudentHomeworkSubmission,
-  listStudentHomeworkSubmissions,
-  deleteStudentHomeworkSubmission,
-  reviewStudentHomeworkSubmission,
   countUnreadStudentNotifications,
   listStudentNotifications,
   markStudentNotificationsReadAll,

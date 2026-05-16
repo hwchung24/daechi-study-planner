@@ -6,34 +6,18 @@ import React, {
   useRef,
   useState
 } from "react";
-import { Download, Paperclip, SendHorizontal, User } from "lucide-react";
+import { SendHorizontal, User } from "lucide-react";
 import { Card, EmptyState } from "../ui/components";
 import { API_BASE } from "../../lib/apiBase";
-import { useModalReveal } from "../../lib/useModalReveal";
-import { AppShell, canUseNativeAppShell } from "../../lib/nativeAppShell";
 import { isDocumentVisible, trackAsync } from "../../lib/perfMetrics";
 import { stableStringify } from "../../lib/stableUiUpdate";
+import { getDateKeySeoul, seoulDateKeyFromApiValue } from "../../lib/weekDates";
 
 type AdminChatMessage = {
   id: number;
   senderRole: "student" | "parent";
   content: string;
   createdAt: string;
-};
-
-type HomeworkReviewStatus = "pending" | "approved" | "needs_revision";
-
-type HomeworkSubmission = {
-  id: number;
-  originalName: string;
-  fileUrl: string;
-  mimeType: string | null;
-  fileSize: number | null;
-  note: string;
-  reviewStatus: HomeworkReviewStatus;
-  reviewComment: string;
-  createdAt: string;
-  reviewedAt: string | null;
 };
 
 type StudentAdminChannelResponse = {
@@ -43,7 +27,6 @@ type StudentAdminChannelResponse = {
     email: string;
   } | null;
   messages?: AdminChatMessage[];
-  submissions?: HomeworkSubmission[];
 };
 
 type ParentAdminChannelResponse = {
@@ -52,10 +35,8 @@ type ParentAdminChannelResponse = {
     email: string;
   } | null;
   messages?: AdminChatMessage[];
-  submissions?: HomeworkSubmission[];
 };
 
-type HomeworkReviewFilter = "pending" | "needs_revision" | "approved";
 const MAX_RENDERED_CHAT_MESSAGES = 60;
 
 const ADMIN_CH_SESSION_PREFIX = "daechi:adminChannel:v1:";
@@ -130,46 +111,90 @@ function DefaultChatAvatar(props: { label: string }) {
   );
 }
 
-function formatChatTimestamp(value: string) {
+function formatChatPeerDisplayName(opts: {
+  name?: string | null;
+  email?: string | null;
+  fallback: string;
+}) {
+  const name = String(opts.name || "").trim();
+  if (name) return name;
+  const email = String(opts.email || "").trim();
+  if (email) {
+    const local = email.split("@")[0]?.trim();
+    return local || email;
+  }
+  return opts.fallback;
+}
+
+function AdminChatPeerHeader(props: { displayName: string; roleLabel: string }) {
+  return (
+    <header
+      className="coach-admin-chat__peer-header"
+      aria-label={`${props.roleLabel} ${props.displayName}와 채팅`}
+    >
+      <DefaultChatAvatar label={props.displayName} />
+      <div className="coach-admin-chat__peer-header-text">
+        <span className="coach-admin-chat__peer-name">{props.displayName}</span>
+        <span className="coach-admin-chat__peer-role">{props.roleLabel}</span>
+      </div>
+    </header>
+  );
+}
+
+const SEOUL_TZ = "Asia/Seoul";
+
+function formatChatMessageTime(value: string) {
   const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "방금";
+  if (Number.isNaN(date.getTime())) return "";
   return new Intl.DateTimeFormat("ko-KR", {
-    month: "numeric",
-    day: "numeric",
     hour: "numeric",
-    minute: "2-digit"
+    minute: "2-digit",
+    hour12: true,
+    timeZone: SEOUL_TZ
   }).format(date);
 }
 
-function formatFileSize(size: number | null) {
-  if (!size || size <= 0) return "크기 정보 없음";
-  if (size < 1024 * 1024) return `${Math.max(1, Math.round(size / 102.4) / 10)}KB`;
-  return `${Math.round((size / (1024 * 1024)) * 10) / 10}MB`;
+function formatChatDateDividerLabel(dateKey: string) {
+  const today = getDateKeySeoul(0);
+  const yesterday = getDateKeySeoul(-1);
+  if (dateKey === today) return "오늘";
+  if (dateKey === yesterday) return "어제";
+  const match = dateKey.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!match) return dateKey;
+  const anchor = new Date(Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3]), 12));
+  const dateLabel = new Intl.DateTimeFormat("ko-KR", {
+    year: "numeric",
+    month: "long",
+    day: "numeric",
+    timeZone: SEOUL_TZ
+  }).format(anchor);
+  const weekday = new Intl.DateTimeFormat("ko-KR", {
+    weekday: "short",
+    timeZone: SEOUL_TZ
+  }).format(anchor);
+  return `${dateLabel} ${weekday}`;
 }
 
-function resolveApiAssetUrl(fileUrl: string) {
-  const raw = String(fileUrl || "").trim();
-  if (!raw) return "#";
-  if (/^https?:\/\//i.test(raw)) return raw;
-  return `${API_BASE}${raw.startsWith("/") ? raw : `/${raw}`}`;
-}
+type ChatTimelineItem =
+  | { kind: "date"; key: string; label: string }
+  | { kind: "message"; key: string; message: AdminChatMessage };
 
-async function openSubmissionAsset(fileUrl: string) {
-  const resolvedUrl = resolveApiAssetUrl(fileUrl);
-  if (!resolvedUrl || resolvedUrl === "#") return;
-
-  if (canUseNativeAppShell()) {
-    try {
-      await AppShell.openExternalUrl({ url: resolvedUrl });
-      return;
-    } catch {
-      // Fall through to browser open.
+function buildChatTimelineItems(messages: AdminChatMessage[]): ChatTimelineItem[] {
+  const items: ChatTimelineItem[] = [];
+  let lastDateKey = "";
+  for (const message of messages) {
+    const dateKey = seoulDateKeyFromApiValue(message.createdAt);
+    if (dateKey && dateKey !== lastDateKey) {
+      items.push({
+        kind: "date",
+        key: `date-${dateKey}`,
+        label: formatChatDateDividerLabel(dateKey)
+      });
+      lastDateKey = dateKey;
     }
+    items.push({ kind: "message", key: `msg-${message.id}`, message });
   }
-
-  if (typeof window !== "undefined") {
-    window.open(resolvedUrl, "_blank", "noopener,noreferrer");
-  }
+  return items;
 }
 
 function ChatMessages(props: {
@@ -188,16 +213,22 @@ function ChatMessages(props: {
     [props.messages]
   );
 
+  const timelineItems = useMemo(() => buildChatTimelineItems(messages), [messages]);
+
   const scrollLayoutSig = useMemo(
     () =>
       stableStringify(
-        messages.map(m => ({
-          id: m.id,
-          c: m.content,
-          t: m.createdAt
-        }))
+        timelineItems.map(item =>
+          item.kind === "date"
+            ? { d: item.key, l: item.label }
+            : {
+                id: item.message.id,
+                c: item.message.content,
+                t: item.message.createdAt
+              }
+        )
       ) + (props.trailingContent ? "\u0001t" : ""),
-    [messages, props.trailingContent]
+    [timelineItems, props.trailingContent]
   );
 
   useLayoutEffect(() => {
@@ -218,26 +249,51 @@ function ChatMessages(props: {
           <div className="coach-admin-chat__empty">아직 대화가 없습니다. 첫 메시지를 보내 보세요.</div>
         )
       ) : (
-        messages.map(message => {
+        timelineItems.map(item => {
+          if (item.kind === "date") {
+            return (
+              <div
+                key={item.key}
+                className="coach-admin-chat__date-divider"
+                role="separator"
+                aria-label={item.label}
+              >
+                <span className="coach-admin-chat__date-divider-label">{item.label}</span>
+              </div>
+            );
+          }
+
+          const message = item.message;
           const mine = message.senderRole === props.currentUserRole;
           const lines = String(message.content || "").split("\n");
+          const timeLabel = formatChatMessageTime(message.createdAt);
           return (
             <div
-              key={message.id}
+              key={item.key}
               className={"coach-bubble-row " + (mine ? "is-user" : "is-coach")}
             >
               {!mine && <DefaultChatAvatar label={props.peerLabel} />}
-              <div
-                className={
-                  "coach-bubble " +
-                  (mine ? "coach-bubble--user" : "coach-bubble--coach")
-                }
-              >
-                {lines.map((line, index) => (
-                  <div key={index} className="coach-bubble__line">
-                    {line || "\u00A0"}
-                  </div>
-                ))}
+              <div className="coach-admin-chat__bubble-col">
+                <div
+                  className={
+                    "coach-bubble " +
+                    (mine ? "coach-bubble--user" : "coach-bubble--coach")
+                  }
+                >
+                  {lines.map((line, index) => (
+                    <div key={index} className="coach-bubble__line">
+                      {line || "\u00A0"}
+                    </div>
+                  ))}
+                </div>
+                {timeLabel ? (
+                  <time
+                    className="coach-admin-chat__message-time"
+                    dateTime={message.createdAt}
+                  >
+                    {timeLabel}
+                  </time>
+                ) : null}
               </div>
             </div>
           );
@@ -252,6 +308,10 @@ function AdminChatShell(props: {
   messages: AdminChatMessage[];
   currentUserRole: "student" | "parent";
   peerLabel: string;
+  /** 채팅 상단에 표시할 상대 이름 */
+  peerDisplayName?: string;
+  /** 채팅 상단 부제(예: 학부모, 학생) */
+  peerRoleLabel?: string;
   draft: string;
   setDraft: (value: string) => void;
   sending: boolean;
@@ -346,58 +406,27 @@ function AdminChatShell(props: {
     </>
   );
 
+  const peerHeader = props.peerDisplayName ? (
+    <AdminChatPeerHeader
+      displayName={props.peerDisplayName}
+      roleLabel={props.peerRoleLabel || props.peerLabel}
+    />
+  ) : null;
+
   if (props.showFrame === false) {
-    return <div className="coach-admin-chat-shell coach-admin-chat-shell--plain">{content}</div>;
-  }
-
-  return <Card className="coach-card coach-card--padded coach-admin-chat-card">{content}</Card>;
-}
-
-function SubmissionList(props: {
-  submissions: HomeworkSubmission[];
-  emptyText: string;
-  renderActions?: (submission: HomeworkSubmission) => React.ReactNode;
-  hideDefaultDownload?: boolean;
-}) {
-  if (!props.submissions.length) {
-    return <div className="coach-admin-homework__empty">{props.emptyText}</div>;
+    return (
+      <div className="coach-admin-chat-shell coach-admin-chat-shell--plain">
+        {peerHeader}
+        {content}
+      </div>
+    );
   }
 
   return (
-    <div className="coach-admin-homework__list">
-      {props.submissions.map(submission => (
-        <div key={submission.id} className="coach-admin-homework__item">
-          <div className="coach-admin-homework__top">
-            <div>
-              <div className="coach-admin-homework__name">{submission.originalName}</div>
-              <div className="coach-admin-homework__meta">
-                {formatChatTimestamp(submission.createdAt)} · {formatFileSize(submission.fileSize)}
-              </div>
-            </div>
-          </div>
-          {submission.note && (
-            <div className="coach-admin-homework__note">메모: {submission.note}</div>
-          )}
-          {submission.reviewComment && (
-            <div className="coach-admin-homework__review">검토 메모: {submission.reviewComment}</div>
-          )}
-          <div className="coach-admin-homework__actions">
-            {props.hideDefaultDownload ? null : (
-              <button
-                type="button"
-                className="coach-ghost-btn coach-admin-homework__download"
-                onClick={() => {
-                  void openSubmissionAsset(submission.fileUrl);
-                }}
-              >
-                <Download size={15} strokeWidth={2.1} /> 파일 보기
-              </button>
-            )}
-            {props.renderActions?.(submission)}
-          </div>
-        </div>
-      ))}
-    </div>
+    <Card className="coach-card coach-card--padded coach-admin-chat-card">
+      {peerHeader}
+      {content}
+    </Card>
   );
 }
 
@@ -418,20 +447,12 @@ export function StudentAdminChannelPanel(props: {
   );
   const [error, setError] = useState("");
   const [draft, setDraft] = useState("");
-  const [note, setNote] = useState("");
-  const [file, setFile] = useState<File | null>(null);
-  const [editingSubmission, setEditingSubmission] = useState<HomeworkSubmission | null>(null);
-  const [showHomeworkComposer, setShowHomeworkComposer] = useState(false);
   const [sending, setSending] = useState(false);
-  const [uploading, setUploading] = useState(false);
-  const [deletingSubmissionId, setDeletingSubmissionId] = useState<number | null>(null);
-  const [submissionFilter, setSubmissionFilter] = useState<HomeworkReviewFilter>("pending");
-  const homeworkModalReveal = useModalReveal(showHomeworkComposer);
 
   const refresh = useCallback(async () => {
     try {
       const res = await trackAsync("panel.studentAdmin.refresh", () =>
-        fetch(`${API_BASE}/api/student/admin-channel?messageLimit=40&submissionLimit=12`, {
+        fetch(`${API_BASE}/api/student/admin-channel?messageLimit=40`, {
           headers: { Authorization: `Bearer ${props.authToken}` },
           cache: "no-store"
         })
@@ -520,107 +541,6 @@ export function StudentAdminChannelPanel(props: {
     }
   };
 
-  const submitHomework = async () => {
-    if ((!file && !editingSubmission) || uploading) return;
-    setUploading(true);
-    try {
-      const form = new FormData();
-      if (file) {
-        form.append("file", file);
-      }
-      if (note.trim()) form.append("note", note.trim());
-      const res = await fetch(
-        editingSubmission
-          ? `${API_BASE}/api/student/homework-submissions/${editingSubmission.id}`
-          : `${API_BASE}/api/student/homework-submissions`,
-        {
-        method: editingSubmission ? "PATCH" : "POST",
-        headers: {
-          Authorization: `Bearer ${props.authToken}`
-        },
-        body: form
-      });
-      const data = (await res.json().catch(() => ({}))) as { error?: string };
-      if (!res.ok) {
-        throw new Error(String(data.error || (editingSubmission ? "숙제 수정에 실패했습니다." : "숙제 제출에 실패했습니다.")));
-      }
-      setFile(null);
-      setNote("");
-      setEditingSubmission(null);
-      if (editingSubmission) {
-        setSubmissionFilter("pending");
-      } else {
-        homeworkModalReveal.beginClose(() => setShowHomeworkComposer(false));
-      }
-      await refresh();
-    } catch (submitError) {
-      setError(
-        submitError instanceof Error && submitError.message
-          ? submitError.message
-          : editingSubmission
-            ? "숙제 수정에 실패했습니다."
-            : "숙제 제출에 실패했습니다."
-      );
-    } finally {
-      setUploading(false);
-    }
-  };
-
-  const startEditingSubmission = (submission: HomeworkSubmission) => {
-    setEditingSubmission(submission);
-    setFile(null);
-    setNote(submission.note || "");
-    setSubmissionFilter("pending");
-  };
-
-  const deleteSubmission = async (submission: HomeworkSubmission) => {
-    if (deletingSubmissionId != null || uploading) return;
-    if (typeof window !== "undefined") {
-      const confirmed = window.confirm("이 제출 내역을 삭제할까요?");
-      if (!confirmed) return;
-    }
-    setDeletingSubmissionId(submission.id);
-    try {
-      const res = await fetch(`${API_BASE}/api/student/homework-submissions/${submission.id}`, {
-        method: "DELETE",
-        headers: {
-          Authorization: `Bearer ${props.authToken}`
-        }
-      });
-      const data = (await res.json().catch(() => ({}))) as { error?: string };
-      if (!res.ok) throw new Error(String(data.error || "숙제 삭제에 실패했습니다."));
-      if (editingSubmission?.id === submission.id) {
-        setEditingSubmission(null);
-        setFile(null);
-        setNote("");
-      }
-      await refresh();
-    } catch (deleteError) {
-      setError(
-        deleteError instanceof Error && deleteError.message
-          ? deleteError.message
-          : "숙제 삭제에 실패했습니다."
-      );
-    } finally {
-      setDeletingSubmissionId(null);
-    }
-  };
-
-  const openHomeworkComposer = () => {
-    setEditingSubmission(null);
-    setFile(null);
-    setNote("");
-    setSubmissionFilter("pending");
-    setShowHomeworkComposer(true);
-  };
-
-  const closeHomeworkComposer = () => {
-    setEditingSubmission(null);
-    setFile(null);
-    setNote("");
-    homeworkModalReveal.beginClose(() => setShowHomeworkComposer(false));
-  };
-
   if (initialSyncDone && error && !channel) {
     return <EmptyState title="학원 메시지를 열 수 없어요" body={error} />;
   }
@@ -633,24 +553,20 @@ export function StudentAdminChannelPanel(props: {
     return (
       <EmptyState
         title="연결된 학부모가 아직 없어요"
-        body="내 정보에서 학부모 연결을 마치면 1:1 채팅과 숙제 제출을 쓸 수 있어요."
+        body="내 정보에서 학부모 연결을 마치면 1:1 채팅을 쓸 수 있어요."
       />
     );
   }
 
   const awaitingFirstPayload = !initialSyncDone && !channel;
 
-  const submissionList = channel?.submissions || [];
-  const submissionCounts = {
-    pending: submissionList.filter(submission => submission.reviewStatus === "pending").length,
-    needs_revision: submissionList.filter(
-      submission => submission.reviewStatus === "needs_revision"
-    ).length,
-    approved: submissionList.filter(submission => submission.reviewStatus === "approved").length
-  };
-
-  const filteredSubmissions = submissionList.filter(
-    submission => submission.reviewStatus === submissionFilter
+  const parentDisplayName = useMemo(
+    () =>
+      formatChatPeerDisplayName({
+        email: channel?.parent?.email,
+        fallback: "학부모"
+      }),
+    [channel?.parent?.email]
   );
 
   return (
@@ -665,6 +581,8 @@ export function StudentAdminChannelPanel(props: {
           messages={channel?.messages || []}
           currentUserRole="student"
           peerLabel="학부모"
+          peerDisplayName={parentDisplayName}
+          peerRoleLabel="학부모"
           draft={draft}
           setDraft={setDraft}
           sending={sending}
@@ -674,172 +592,8 @@ export function StudentAdminChannelPanel(props: {
           showFrame={false}
           showHeader={false}
           composerDisabled={awaitingFirstPayload}
-          starterContent={
-            awaitingFirstPayload ? null : (
-              <button
-                type="button"
-                className="coach-starter coach-admin-chat__starter-button"
-                onClick={openHomeworkComposer}
-              >
-                숙제 제출하기
-              </button>
-            )
-          }
         />
       </div>
-
-      {showHomeworkComposer && channel && (
-        <div
-          className={"dday-modal" + (homeworkModalReveal.revealed ? " dday-modal--open" : "")}
-          onClick={closeHomeworkComposer}
-        >
-          <div
-            className="dday-modal-inner coach-admin-review-modal"
-            onClick={event => event.stopPropagation()}
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="coach-admin-homework-modal-title"
-          >
-            <div className="dday-modal-header">
-              <span id="coach-admin-homework-modal-title" className="dday-modal-title">
-                {editingSubmission ? "숙제 수정" : "숙제 제출"}
-              </span>
-            </div>
-            <div className="dday-modal-body">
-              <div className="coach-admin-upload-box">
-                <label className="coach-admin-upload-box__picker">
-                  <Paperclip size={15} strokeWidth={2.1} />
-                  <span>
-                    {file
-                      ? file.name
-                      : editingSubmission
-                        ? `새 파일 선택 (현재: ${editingSubmission.originalName})`
-                        : "사진 또는 파일 선택"}
-                  </span>
-                  <input
-                    type="file"
-                    className="coach-admin-upload-box__input"
-                    onChange={event => setFile(event.target.files?.[0] || null)}
-                  />
-                </label>
-                <textarea
-                  className="coach-textarea coach-admin-upload-box__note"
-                  value={note}
-                  placeholder="학부모에게 남길 메모가 있으면 적으세요"
-                  onChange={event => setNote(event.target.value)}
-                />
-                <div className="coach-admin-upload-box__actions">
-                  <button
-                    type="button"
-                    className="modal-primary coach-admin-upload-box__submit"
-                    disabled={editingSubmission ? uploading : !file || uploading}
-                    onClick={() => void submitHomework()}
-                  >
-                    {uploading ? (editingSubmission ? "수정 중..." : "제출 중...") : editingSubmission ? "숙제 수정하기" : "숙제 제출하기"}
-                  </button>
-                </div>
-              </div>
-              <div className="coach-admin-homework-inline coach-admin-chat__review-section">
-                <div className="coach-section-header coach-admin-chat__review-header">
-                  <h3 className="coach-section-title coach-admin-chat__review-title">이전 제출</h3>
-                </div>
-                <div className="coach-admin-review-tabs" role="tablist" aria-label="이전 제출 상태">
-                  <button
-                    type="button"
-                    role="tab"
-                    aria-selected={submissionFilter === "pending"}
-                    className={
-                      "coach-admin-review-tabs__tab" +
-                      (submissionFilter === "pending" ? " coach-admin-review-tabs__tab--active" : "")
-                    }
-                    onClick={() => setSubmissionFilter("pending")}
-                  >
-                    검토 대기
-                    <span className="coach-admin-review-tabs__count">{submissionCounts.pending}</span>
-                  </button>
-                  <button
-                    type="button"
-                    role="tab"
-                    aria-selected={submissionFilter === "needs_revision"}
-                    className={
-                      "coach-admin-review-tabs__tab" +
-                      (submissionFilter === "needs_revision"
-                        ? " coach-admin-review-tabs__tab--active"
-                        : "")
-                    }
-                    onClick={() => setSubmissionFilter("needs_revision")}
-                  >
-                    수정 요청
-                    <span className="coach-admin-review-tabs__count">{submissionCounts.needs_revision}</span>
-                  </button>
-                  <button
-                    type="button"
-                    role="tab"
-                    aria-selected={submissionFilter === "approved"}
-                    className={
-                      "coach-admin-review-tabs__tab" +
-                      (submissionFilter === "approved" ? " coach-admin-review-tabs__tab--active" : "")
-                    }
-                    onClick={() => setSubmissionFilter("approved")}
-                  >
-                    승인
-                    <span className="coach-admin-review-tabs__count">{submissionCounts.approved}</span>
-                  </button>
-                </div>
-                <SubmissionList
-                  submissions={filteredSubmissions}
-                  emptyText={
-                    submissionFilter === "pending"
-                      ? "검토 대기 중인 숙제가 없습니다."
-                      : submissionFilter === "needs_revision"
-                        ? "수정 요청된 숙제가 없습니다."
-                        : "승인된 숙제가 없습니다."
-                  }
-                  hideDefaultDownload
-                  renderActions={submission => (
-                    <div className="coach-admin-review-actions">
-                      <div className="coach-admin-review-actions__buttons">
-                        <button
-                          type="button"
-                          className="coach-ghost-btn"
-                          disabled={uploading || deletingSubmissionId === submission.id}
-                          onClick={() => startEditingSubmission(submission)}
-                        >
-                          수정
-                        </button>
-                        <button
-                          type="button"
-                          className="coach-ghost-btn"
-                          disabled={uploading || deletingSubmissionId === submission.id}
-                          onClick={() => {
-                            void deleteSubmission(submission);
-                          }}
-                        >
-                          {deletingSubmissionId === submission.id ? "삭제 중..." : "삭제"}
-                        </button>
-                        <button
-                          type="button"
-                          className="coach-ghost-btn coach-admin-homework__download"
-                          onClick={() => {
-                            void openSubmissionAsset(submission.fileUrl);
-                          }}
-                        >
-                          <Download size={15} strokeWidth={2.1} /> 파일 보기
-                        </button>
-                      </div>
-                    </div>
-                  )}
-                />
-              </div>
-            </div>
-            <div className="dday-modal-footer">
-              <button type="button" className="modal-secondary" onClick={closeHomeworkComposer}>
-                닫기
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }
@@ -848,6 +602,8 @@ export function ParentAdminChannelPanel(props: {
   authToken: string | null;
   studentId: number | null;
   studentLabel: string;
+  /** 프로필 이름 등 — 없으면 이메일에서 표시 */
+  studentDisplayName?: string | null;
 }) {
   const parentChannelSigRef = useRef<string | null>(null);
   const [channel, setChannel] = useState<ParentAdminChannelResponse | null>(() => {
@@ -863,10 +619,6 @@ export function ParentAdminChannelPanel(props: {
   const [error, setError] = useState("");
   const [draft, setDraft] = useState("");
   const [sending, setSending] = useState(false);
-  const [reviewingId, setReviewingId] = useState<number | null>(null);
-  const [reviewModalOpen, setReviewModalOpen] = useState(false);
-  const [reviewFilter, setReviewFilter] = useState<HomeworkReviewFilter>("pending");
-  const reviewModalReveal = useModalReveal(reviewModalOpen);
 
   const refresh = useCallback(async () => {
     if (!props.authToken || !props.studentId) {
@@ -879,7 +631,7 @@ export function ParentAdminChannelPanel(props: {
     try {
       const res = await trackAsync("panel.parentAdmin.refresh", () =>
         fetch(
-          `${API_BASE}/api/parent/admin-channel?studentId=${encodeURIComponent(String(props.studentId))}&messageLimit=40&submissionLimit=12`,
+          `${API_BASE}/api/parent/admin-channel?studentId=${encodeURIComponent(String(props.studentId))}&messageLimit=40`,
           {
             headers: { Authorization: `Bearer ${props.authToken}` },
             cache: "no-store"
@@ -980,75 +732,21 @@ export function ParentAdminChannelPanel(props: {
     }
   };
 
-  const reviewSubmission = async (
-    submission: HomeworkSubmission,
-    reviewStatus: HomeworkReviewStatus
-  ) => {
-    if (!props.authToken || !props.studentId || reviewingId != null) return;
-    setReviewingId(submission.id);
-    try {
-      const res = await fetch(
-        `${API_BASE}/api/parent/homework-submissions/${submission.id}/review`,
-        {
-          method: "PATCH",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${props.authToken}`
-          },
-          body: JSON.stringify({
-            studentId: props.studentId,
-            reviewStatus,
-            reviewComment: ""
-          })
-        }
-      );
-      const data = (await res.json().catch(() => ({}))) as { error?: string };
-      if (!res.ok) throw new Error(String(data.error || "검토 저장에 실패했습니다."));
-      await refresh();
-    } catch (reviewError) {
-      setError(
-        reviewError instanceof Error && reviewError.message
-          ? reviewError.message
-          : "검토 저장에 실패했습니다."
-      );
-    } finally {
-      setReviewingId(null);
-    }
-  };
-
-  const studentName = useMemo(() => {
-    const email = channel?.student?.email || props.studentLabel;
-    return String(email || "학생");
-  }, [channel?.student?.email, props.studentLabel]);
-
-  const reviewCounts = useMemo(() => {
-    const submissions = channel?.submissions || [];
-    return {
-      pending: submissions.filter(submission => submission.reviewStatus === "pending").length,
-      needs_revision: submissions.filter(submission => submission.reviewStatus === "needs_revision")
-        .length,
-      approved: submissions.filter(submission => submission.reviewStatus === "approved").length
-    };
-  }, [channel?.submissions]);
-
-  const filteredReviewSubmissions = useMemo(() => {
-    return (channel?.submissions || []).filter(submission => submission.reviewStatus === reviewFilter);
-  }, [channel?.submissions, reviewFilter]);
-
-  const openReviewModal = () => {
-    setReviewFilter("pending");
-    setReviewModalOpen(true);
-  };
-
-  const closeReviewModal = () => {
-    reviewModalReveal.beginClose(() => setReviewModalOpen(false));
-  };
+  const studentDisplayName = useMemo(
+    () =>
+      formatChatPeerDisplayName({
+        name: props.studentDisplayName,
+        email: channel?.student?.email || props.studentLabel,
+        fallback: "학생"
+      }),
+    [props.studentDisplayName, channel?.student?.email, props.studentLabel]
+  );
 
   if (!props.studentId) {
     return (
       <EmptyState
         title="학생을 먼저 선택해 주세요"
-        body="연결된 학생을 선택하면 1:1 채팅과 숙제 제출 현황을 볼 수 있습니다."
+        body="연결된 학생을 선택하면 1:1 채팅을 볼 수 있습니다."
       />
     );
   }
@@ -1062,6 +760,7 @@ export function ParentAdminChannelPanel(props: {
       <div className="coach-admin-layout coach-admin-layout--single coach-admin-layout--student-chat">
         {showChatSkeleton ? (
           <div className="coach-admin-chat-shell coach-admin-chat-shell--plain">
+            <AdminChatPeerHeader displayName={studentDisplayName} roleLabel="학생" />
             <div className="coach-chat-embedded keyboard-dock-root coach-admin-chat-shell coach-admin-chat-shell--composer-disabled">
               <div className="coach-admin-chat-scroll">
                 <div
@@ -1080,9 +779,6 @@ export function ParentAdminChannelPanel(props: {
                 </div>
               </div>
               <div className="coach-chat-bottom-rail keyboard-dock coach-admin-chat-shell__rail coach-admin-hydrate-shell__rail">
-                <div className="coach-chat-starters" aria-hidden>
-                  <div className="coach-admin-hydrate-shell__shimmer parent-admin-chat-skeleton__starter" />
-                </div>
                 <div className="coach-admin-hydrate-shell__composer-fake" aria-hidden>
                   <div
                     className="coach-admin-hydrate-shell__shimmer coach-admin-hydrate-shell__shimmer--short"
@@ -1096,7 +792,9 @@ export function ParentAdminChannelPanel(props: {
           <AdminChatShell
             messages={channel?.messages || []}
             currentUserRole="parent"
-            peerLabel={studentName}
+            peerLabel="학생"
+            peerDisplayName={studentDisplayName}
+            peerRoleLabel="학생"
             draft={draft}
             setDraft={setDraft}
             sending={sending}
@@ -1104,131 +802,9 @@ export function ParentAdminChannelPanel(props: {
             triggerPlaceholder="학생에게 메시지를 입력해 보세요"
             showFrame={false}
             showHeader={false}
-            starterContent={
-              <button
-                type="button"
-                className="coach-starter coach-admin-chat__starter-button"
-                onClick={openReviewModal}
-              >
-                숙제 검수하기
-              </button>
-            }
           />
         )}
       </div>
-
-      {reviewModalOpen && (
-        <div
-          className={"dday-modal" + (reviewModalReveal.revealed ? " dday-modal--open" : "")}
-          onClick={closeReviewModal}
-        >
-          <div
-            className="dday-modal-inner coach-admin-review-modal"
-            onClick={event => event.stopPropagation()}
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="coach-admin-review-modal-title"
-          >
-            <div className="dday-modal-header coach-admin-chat__review-header">
-              <span id="coach-admin-review-modal-title" className="dday-modal-title">
-                숙제 검수
-              </span>
-            </div>
-            <div className="dday-modal-body coach-admin-review-section">
-              <div className="coach-admin-review-tabs" role="tablist" aria-label="숙제 검수 상태">
-                <button
-                  type="button"
-                  role="tab"
-                  aria-selected={reviewFilter === "pending"}
-                  className={
-                    "coach-admin-review-tabs__tab" +
-                    (reviewFilter === "pending" ? " coach-admin-review-tabs__tab--active" : "")
-                  }
-                  onClick={() => setReviewFilter("pending")}
-                >
-                  검토 대기
-                  <span className="coach-admin-review-tabs__count">{reviewCounts.pending}</span>
-                </button>
-                <button
-                  type="button"
-                  role="tab"
-                  aria-selected={reviewFilter === "needs_revision"}
-                  className={
-                    "coach-admin-review-tabs__tab" +
-                    (reviewFilter === "needs_revision"
-                      ? " coach-admin-review-tabs__tab--active"
-                      : "")
-                  }
-                  onClick={() => setReviewFilter("needs_revision")}
-                >
-                  수정 요청
-                  <span className="coach-admin-review-tabs__count">{reviewCounts.needs_revision}</span>
-                </button>
-                <button
-                  type="button"
-                  role="tab"
-                  aria-selected={reviewFilter === "approved"}
-                  className={
-                    "coach-admin-review-tabs__tab" +
-                    (reviewFilter === "approved" ? " coach-admin-review-tabs__tab--active" : "")
-                  }
-                  onClick={() => setReviewFilter("approved")}
-                >
-                  승인
-                  <span className="coach-admin-review-tabs__count">{reviewCounts.approved}</span>
-                </button>
-              </div>
-              <SubmissionList
-                submissions={filteredReviewSubmissions}
-                emptyText={
-                  reviewFilter === "pending"
-                    ? "검토 대기 중인 숙제가 없습니다."
-                    : reviewFilter === "needs_revision"
-                      ? "수정 요청한 숙제가 없습니다."
-                      : "승인된 숙제가 없습니다."
-                }
-                hideDefaultDownload
-                renderActions={submission => (
-                  <div className="coach-admin-review-actions">
-                    <div className="coach-admin-review-actions__buttons">
-                      <button
-                        type="button"
-                        className="coach-primary-btn coach-primary-btn--sm"
-                        disabled={reviewingId === submission.id}
-                        onClick={() => void reviewSubmission(submission, "approved")}
-                      >
-                        승인
-                      </button>
-                      <button
-                        type="button"
-                        className="coach-ghost-btn"
-                        disabled={reviewingId === submission.id}
-                        onClick={() => void reviewSubmission(submission, "needs_revision")}
-                      >
-                        수정 요청
-                      </button>
-                      <button
-                        type="button"
-                        className="coach-ghost-btn coach-admin-homework__download"
-                        onClick={() => {
-                          void openSubmissionAsset(submission.fileUrl);
-                        }}
-                      >
-                        <Download size={15} strokeWidth={2.1} /> 파일 보기
-                      </button>
-                    </div>
-                  </div>
-                )}
-              />
-            </div>
-            <div className="dday-modal-footer">
-              <button type="button" className="modal-secondary" onClick={closeReviewModal}>
-                닫기
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }

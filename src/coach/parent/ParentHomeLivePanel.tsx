@@ -11,13 +11,17 @@ import {
   WifiOff
 } from "lucide-react";
 import type { ParentStudentRow } from "../../types/parent";
-import type { ParentMdmSurfaceMode } from "./parentDeviceModeDisplay";
+import {
+  PARENT_MDM_SURFACE_LABEL,
+  type ParentMdmSurfaceMode
+} from "./parentDeviceModeDisplay";
 import {
   elapsedMinutesFromIso,
   formatElapsedMinutesKo,
   formatSeoulClockNow,
   todayVisitContext
 } from "./parentHomeMetrics";
+import type { ParentStudyRoomLiveStatus } from "./useParentStudyRoomLive";
 import type { StudyRoomVisitSession } from "../../types/studyRoomTracking";
 import { getDateKeySeoul } from "../../lib/weekDates";
 import ko from "../fallbacks/ko.json";
@@ -36,6 +40,13 @@ import {
   type StudyRoomSetting
 } from "../../components/parent/StudyRoomPickerModal";
 import type { ModeScheduleModeKey } from "./ModeScheduleGrid";
+import { ParentHomeLocationCheckMap } from "./ParentHomeLocationCheckMap";
+import {
+  ParentHomeTodayPlanModalBody,
+  getTodayPlanViewState,
+  type ParentTodayPlanBlock
+} from "./ParentHomeTodayPlanModal";
+import { sendParentAdminChannelMessage } from "../../lib/parentAdminChannelMessage";
 
 const H = ko.parentHomeTab;
 const ME = ko.parentModeExplain;
@@ -54,7 +65,7 @@ const SCHEDULE_MODE_META: Record<
   ModeScheduleModeKey,
   { eyebrow: string; subtitle: string }
 > = {
-  utility: { eyebrow: H.modeUtilityOfficial, subtitle: ME.utility },
+  utility: { eyebrow: H.modeMoveOfficial, subtitle: ME.utility },
   free: { eyebrow: H.modeFreeOfficial, subtitle: ME.free },
   block: { eyebrow: H.modeBlockOfficial, subtitle: ME.block }
 };
@@ -69,6 +80,30 @@ const STUDY_ROOM_SHEET_META = {
   subtitle: H.studyRoomQuickSubtitle,
   title: H.studyRoomQuickTitle
 };
+
+function formatSeoulDateTime(iso: string | null) {
+  if (!iso) return "—";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "—";
+  return new Intl.DateTimeFormat("ko-KR", {
+    timeZone: "Asia/Seoul",
+    month: "numeric",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+    hour12: true
+  }).format(d);
+}
+
+function formatDistanceMeters(m: number | null | undefined) {
+  if (m == null || !Number.isFinite(m)) return "—";
+  const n = Math.round(m);
+  if (n >= 1000) {
+    const km = n / 1000;
+    return km >= 10 ? `${Math.round(km)}km` : `${km.toFixed(1)}km`;
+  }
+  return `${n}m`;
+}
 
 type CurrentStudyDisplay =
   | { kind: "loading" }
@@ -105,14 +140,22 @@ export function ParentHomeLivePanel(props: {
   authToken: string | null;
   netConnected: boolean | null;
   netLoading?: boolean;
+  mdmVerifyLoading?: boolean;
   onRecheckNet: () => void;
   hasStudyRoomConfig: boolean;
   studyRoomVisitsLoading: boolean;
+  locationRefreshLoading?: boolean;
   studyRoomName: string | null;
   studyRoomWithinRadius: boolean | undefined;
+  studyRoomLive: ParentStudyRoomLiveStatus;
+  onRefreshLocation?: (options?: { silent?: boolean }) => void;
   todayVisits: StudyRoomVisitSession[];
   displaySurfaceMode: ParentMdmSurfaceMode | null;
+  plannerKioskModeActive?: boolean;
   currentStudyDisplay: CurrentStudyDisplay;
+  parentReportLoaded?: boolean;
+  todayPlanBlocks: ParentTodayPlanBlock[];
+  hasAnyWeekPlanBlocks: boolean;
   selectedStudent: ParentStudentRow;
   plannerLoading: boolean;
   plannerScheduleEnabled: boolean;
@@ -147,11 +190,67 @@ export function ParentHomeLivePanel(props: {
   const [scheduleBusy, setScheduleBusy] = useState({ saving: false, loading: false });
   const [plannerBusy, setPlannerBusy] = useState({ saving: false, loading: false });
   const [studyRoomCanSave, setStudyRoomCanSave] = useState(false);
+  const [locationCheckOpen, setLocationCheckOpen] = useState(false);
+  const locationCheckReveal = useModalReveal(locationCheckOpen);
+  const [todayPlanOpen, setTodayPlanOpen] = useState(false);
+  const [todayPlanRequestSending, setTodayPlanRequestSending] = useState(false);
+  const [todayPlanRequestError, setTodayPlanRequestError] = useState<string | null>(null);
+  const todayPlanReveal = useModalReveal(todayPlanOpen);
   const quickModalReveal = useModalReveal(quickModalId != null);
   const quickModalTitle = QUICK_MODALS.find(m => m.id === quickModalId)?.label ?? "";
 
   const closeQuickModal = () => {
     quickModalReveal.beginClose(() => setQuickModalId(null));
+  };
+
+  const closeLocationCheckModal = () => {
+    locationCheckReveal.beginClose(() => setLocationCheckOpen(false));
+  };
+
+  const openLocationCheckModal = () => {
+    props.hapticSelection();
+    props.onRefreshLocation?.({ silent: true });
+    setLocationCheckOpen(true);
+  };
+
+  const closeTodayPlanModal = () => {
+    todayPlanReveal.beginClose(() => {
+      setTodayPlanOpen(false);
+      setTodayPlanRequestError(null);
+    });
+  };
+
+  const openTodayPlanModal = () => {
+    props.hapticSelection();
+    setTodayPlanRequestError(null);
+    setTodayPlanOpen(true);
+  };
+
+  const todayPlanViewState = getTodayPlanViewState({
+    blocks: props.todayPlanBlocks,
+    reportLoaded: Boolean(props.parentReportLoaded),
+    hasAnyWeekBlocks: props.hasAnyWeekPlanBlocks
+  });
+  const showTodayPlanRequestButton = todayPlanViewState === "no_planner";
+
+  const requestTodayPlanViaChat = async () => {
+    if (!props.authToken || todayPlanRequestSending) return;
+    props.hapticSelection();
+    setTodayPlanRequestError(null);
+    setTodayPlanRequestSending(true);
+    try {
+      await sendParentAdminChannelMessage(
+        props.apiBase,
+        props.authToken,
+        props.selectedStudent.id,
+        H.todayPlanRequestChatMessage
+      );
+      closeTodayPlanModal();
+    } catch {
+      setTodayPlanRequestError(H.todayPlanRequestError);
+    } finally {
+      setTodayPlanRequestSending(false);
+    }
   };
 
   const scheduleModeKey: ModeScheduleModeKey | null =
@@ -204,8 +303,24 @@ export function ParentHomeLivePanel(props: {
 
   const modeLine = useMemo(() => {
     if (!props.displaySurfaceMode) return H.statusHeroModeUnknown;
+    if (props.plannerKioskModeActive) {
+      const modeShort =
+        props.displaySurfaceMode === "block"
+          ? H.modeBlock
+          : props.displaySurfaceMode === "utility"
+            ? H.modeMove
+            : props.displaySurfaceMode === "free"
+              ? H.modeFree
+              : props.displaySurfaceMode === "schedule"
+                ? PARENT_MDM_SURFACE_LABEL.schedule
+                : H.modeDefault;
+      return tpl(H.settingsBannerTpl, {
+        mode: modeShort,
+        planner: H.settingsPlannerOn
+      });
+    }
     return ME[props.displaySurfaceMode as keyof typeof ME] || ME.default;
-  }, [props.displaySurfaceMode]);
+  }, [props.displaySurfaceMode, props.plannerKioskModeActive]);
 
   const studyLine = useMemo(() => {
     if (props.currentStudyDisplay.kind === "loading") return H.loadingStudySchedule;
@@ -213,7 +328,7 @@ export function ParentHomeLivePanel(props: {
       return tpl(H.statusHeroStudyingNow, { subject: props.currentStudyDisplay.text });
     }
     const text = props.currentStudyDisplay.text;
-    if (text === H.noStudySchedule) return H.statusHeroStudyNoSchedule;
+    if (text === H.noStudySchedule) return H.statusHeroStudyNoPlanner;
     if (text === H.noStudyToday) return H.statusHeroStudyNoToday;
     if (text === H.notInStudyWindow) return H.statusHeroStudyNotNow;
     return text;
@@ -260,11 +375,16 @@ export function ParentHomeLivePanel(props: {
             netOk === false && !props.netLoading ? (
               <button
                 type="button"
-                className="parent-home__chip-btn parent-home__chip-btn--sm"
+                className={
+                  "parent-home__chip-btn parent-home__chip-btn--sm" +
+                  (props.mdmVerifyLoading ? " parent-home__chip-btn--loading" : "")
+                }
+                disabled={props.mdmVerifyLoading}
+                aria-busy={props.mdmVerifyLoading || undefined}
                 onClick={props.onRecheckNet}
               >
-                <RefreshCw size={14} aria-hidden />
-                {H.statusHeroRecheckNet}
+                <RefreshCw size={14} aria-hidden className={props.mdmVerifyLoading ? "parent-home__chip-btn-spin" : undefined} />
+                {props.mdmVerifyLoading ? H.statusHeroRecheckNetVerifying : H.statusHeroRecheckNet}
               </button>
             ) : null
           }
@@ -279,9 +399,37 @@ export function ParentHomeLivePanel(props: {
           icon={<MapPin size={16} strokeWidth={2} />}
           title={H.liveLocationTitle}
           status={locationLine}
+          trailing={
+            props.hasStudyRoomConfig && !props.studyRoomVisitsLoading ? (
+              <button
+                type="button"
+                className="parent-home__chip-btn parent-home__chip-btn--sm parent-home__live-location-check-btn"
+                aria-haspopup="dialog"
+                onClick={openLocationCheckModal}
+              >
+                {H.liveLocationCheckButton}
+              </button>
+            ) : null
+          }
           below={locationBelow}
         />
-        <LiveRow icon={<BookOpen size={16} strokeWidth={2} />} title={H.plannerTitle} status={studyLine} />
+        <LiveRow
+          icon={<BookOpen size={16} strokeWidth={2} />}
+          title={H.plannerTitle}
+          status={studyLine}
+          trailing={
+            props.parentReportLoaded ? (
+              <button
+                type="button"
+                className="parent-home__chip-btn parent-home__chip-btn--sm parent-home__live-today-plan-btn"
+                aria-haspopup="dialog"
+                onClick={openTodayPlanModal}
+              >
+                {H.todayPlanCheckButton}
+              </button>
+            ) : null
+          }
+        />
       </div>
 
       <div className="parent-home__live-quick-actions" role="group" aria-label={H.statusQuickActionsAria}>
@@ -554,6 +702,199 @@ export function ParentHomeLivePanel(props: {
                     {H.cancel}
                   </button>
                 )}
+              </div>
+            </div>
+          </div>,
+          document.body
+        )
+      : null}
+
+    {locationCheckOpen
+      ? createPortal(
+          <div
+            className={
+              "dday-modal" + (locationCheckReveal.revealed ? " dday-modal--open" : "")
+            }
+            role="presentation"
+            onClick={closeLocationCheckModal}
+          >
+            <div
+              className="dday-modal-inner parent-home__location-modal"
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="parent-home-location-modal-title"
+              onClick={e => e.stopPropagation()}
+            >
+              <div className="dday-modal-header parent-home__location-modal-head">
+                <h2 id="parent-home-location-modal-title" className="dday-modal-title">
+                  {H.liveLocationCheckModalTitle}
+                </h2>
+                <span
+                  className={
+                    "parent-home__net-badge" +
+                    (props.studyRoomLive.currentWithinRadius === true
+                      ? " parent-home__net-badge--on"
+                      : props.studyRoomLive.currentWithinRadius === false
+                        ? " parent-home__net-badge--off"
+                        : "")
+                  }
+                >
+                  {props.studyRoomLive.currentWithinRadius === true
+                    ? H.liveLocationCheckWithin
+                    : props.studyRoomLive.currentWithinRadius === false
+                      ? H.liveLocationCheckOutside
+                      : H.liveLocationCheckUnknown}
+                </span>
+              </div>
+              <div className="dday-modal-body parent-home__location-modal-body">
+                <>
+                  <ParentHomeLocationCheckMap
+                      live={props.studyRoomLive}
+                      active={locationCheckReveal.revealed}
+                    />
+                    <div className="parent-home__location-modal-stats">
+                      <div className="parent-home__location-stat">
+                        <span className="parent-home__location-stat-label">
+                          {H.liveLocationCheckDistanceLabel}
+                        </span>
+                        <span className="parent-home__location-stat-value">
+                          {formatDistanceMeters(props.studyRoomLive.currentDistanceMeters)}
+                        </span>
+                      </div>
+                      {props.studyRoomLive.currentRadiusMeters != null ? (
+                        <div className="parent-home__location-stat">
+                          <span className="parent-home__location-stat-label">
+                            {H.liveLocationCheckRadiusLabel}
+                          </span>
+                          <span className="parent-home__location-stat-value">
+                            {formatDistanceMeters(props.studyRoomLive.currentRadiusMeters)}
+                          </span>
+                        </div>
+                      ) : null}
+                      {props.studyRoomLive.currentAccuracyMeters != null ? (
+                        <div className="parent-home__location-stat">
+                          <span className="parent-home__location-stat-label">
+                            {H.liveLocationCheckAccuracyLabel}
+                          </span>
+                          <span className="parent-home__location-stat-value">
+                            {formatDistanceMeters(props.studyRoomLive.currentAccuracyMeters)}
+                          </span>
+                        </div>
+                      ) : null}
+                      <div className="parent-home__location-stat">
+                        <span className="parent-home__location-stat-label">
+                          {H.liveLocationCheckHeartbeatLabel}
+                        </span>
+                        <span className="parent-home__location-stat-value">
+                          {formatSeoulDateTime(props.studyRoomLive.currentHeartbeatAt)}
+                        </span>
+                      </div>
+                    </div>
+                    {props.studyRoomLive.currentLatitude == null ||
+                    props.studyRoomLive.currentLongitude == null ? (
+                      <p className="parent-home__location-modal-note">
+                        {H.liveLocationCheckNoStudentPosition}
+                      </p>
+                    ) : null}
+                </>
+              </div>
+              <div className="dday-modal-footer parent-home__location-modal-footer">
+                <button
+                  type="button"
+                  className={
+                    "modal-secondary parent-home__location-modal-btn" +
+                    (props.locationRefreshLoading ? " parent-home__location-modal-btn--loading" : "")
+                  }
+                  disabled={props.locationRefreshLoading}
+                  aria-busy={props.locationRefreshLoading || undefined}
+                  onClick={() => {
+                    props.hapticSelection();
+                    props.onRefreshLocation?.({ silent: false });
+                  }}
+                >
+                  {props.locationRefreshLoading
+                    ? H.liveLocationCheckModalRefreshing
+                    : H.liveLocationCheckModalRefresh}
+                </button>
+                <button
+                  type="button"
+                  className="modal-primary parent-home__location-modal-btn"
+                  onClick={closeLocationCheckModal}
+                >
+                  {H.liveLocationCheckModalClose}
+                </button>
+              </div>
+            </div>
+          </div>,
+          document.body
+        )
+      : null}
+
+    {todayPlanOpen
+      ? createPortal(
+          <div
+            className={"dday-modal" + (todayPlanReveal.revealed ? " dday-modal--open" : "")}
+            role="presentation"
+            onClick={closeTodayPlanModal}
+          >
+            <div
+              className="dday-modal-inner parent-home__today-plan-modal"
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="parent-home-today-plan-modal-title"
+              onClick={e => e.stopPropagation()}
+            >
+              <div className="dday-modal-header">
+                <h2 id="parent-home-today-plan-modal-title" className="dday-modal-title">
+                  {H.todayPlanModalTitle}
+                </h2>
+              </div>
+              <div className="dday-modal-body parent-home__today-plan-modal-body">
+                <ParentHomeTodayPlanModalBody
+                  blocks={props.todayPlanBlocks}
+                  reportLoaded={Boolean(props.parentReportLoaded)}
+                  hasAnyWeekBlocks={props.hasAnyWeekPlanBlocks}
+                />
+              </div>
+              <div
+                className={
+                  "dday-modal-footer parent-home__today-plan-modal-footer" +
+                  (showTodayPlanRequestButton
+                    ? " parent-home__today-plan-modal-footer--dual"
+                    : "")
+                }
+              >
+                {todayPlanRequestError ? (
+                  <p className="parent-home__today-plan-modal-error" role="alert">
+                    {todayPlanRequestError}
+                  </p>
+                ) : null}
+                {showTodayPlanRequestButton ? (
+                  <button
+                    type="button"
+                    className={
+                      "modal-primary parent-home__today-plan-modal-btn" +
+                      (todayPlanRequestSending ? " parent-home__today-plan-modal-btn--loading" : "")
+                    }
+                    disabled={!props.authToken || todayPlanRequestSending}
+                    aria-busy={todayPlanRequestSending || undefined}
+                    onClick={() => {
+                      void requestTodayPlanViaChat();
+                    }}
+                  >
+                    {todayPlanRequestSending ? H.todayPlanRequestSending : H.todayPlanRequestButton}
+                  </button>
+                ) : null}
+                <button
+                  type="button"
+                  className={
+                    (showTodayPlanRequestButton ? "modal-secondary" : "modal-primary") +
+                    " parent-home__today-plan-modal-btn"
+                  }
+                  onClick={closeTodayPlanModal}
+                >
+                  {H.todayPlanModalClose}
+                </button>
               </div>
             </div>
           </div>,

@@ -61,6 +61,21 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
         NativePushNotificationsManager.shared.didFailToRegister(error: error)
     }
 
+    func application(
+        _ application: UIApplication,
+        didReceiveRemoteNotification userInfo: [AnyHashable: Any],
+        fetchCompletionHandler completionHandler: @escaping (UIBackgroundFetchResult) -> Void
+    ) {
+        let refreshType = userInfo["type"] as? String
+        if refreshType == "location_refresh" {
+            StudyRoomTrackingManager.shared.reportLocationNow {
+                completionHandler(.newData)
+            }
+            return
+        }
+        completionHandler(.noData)
+    }
+
     func applicationWillTerminate(_ application: UIApplication) {
         // Called when the application is about to terminate. Save data if appropriate. See also applicationDidEnterBackground:.
     }

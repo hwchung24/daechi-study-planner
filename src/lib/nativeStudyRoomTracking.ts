@@ -24,6 +24,7 @@ type NativeStudyRoomTrackingPlugin = {
   requestPermissions(): Promise<NativeTrackingStatus>;
   startTracking(options: StartTrackingOptions): Promise<NativeTrackingStatus>;
   stopTracking(options?: StopTrackingOptions): Promise<NativeTrackingStatus>;
+  reportLocationNow(): Promise<NativeTrackingStatus>;
 };
 
 const NativeStudyRoomTracking = registerPlugin<NativeStudyRoomTrackingPlugin>(
@@ -230,6 +231,32 @@ export async function stopNativeStudyRoomTracking(options?: StopTrackingOptions)
     return NativeStudyRoomTracking.stopTracking(options);
   }
   return stopWebTracking(options);
+}
+
+async function reportWebLocationNow(): Promise<NativeTrackingStatus> {
+  if (typeof navigator === "undefined" || !("geolocation" in navigator) || !webApiBase || !webAuthToken) {
+    return getWebStatus();
+  }
+
+  await new Promise<void>((resolve, reject) => {
+    navigator.geolocation.getCurrentPosition(
+      position => {
+        webLastSentAt = 0;
+        void sendWebHeartbeat(position).finally(() => resolve());
+      },
+      error => reject(error),
+      { enableHighAccuracy: true, maximumAge: 0, timeout: 20_000 }
+    );
+  }).catch(() => undefined);
+
+  return getWebStatus();
+}
+
+export async function reportNativeStudyRoomLocationNow() {
+  if (isNativeIos()) {
+    return NativeStudyRoomTracking.reportLocationNow();
+  }
+  return reportWebLocationNow();
 }
 
 export type { NativeTrackingStatus };

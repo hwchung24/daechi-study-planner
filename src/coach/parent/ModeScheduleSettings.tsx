@@ -4,7 +4,7 @@ import ModeScheduleGrid, { type ModeScheduleSlot } from "./ModeScheduleGrid";
 import { ParentModeNowToggle } from "./ParentModeNowToggle";
 
 const MODES = [
-  { key: "utility", label: "유틸리티 모드", color: "#ffcc00" },
+  { key: "utility", label: "이동 모드", color: "#ffcc00" },
   { key: "free", label: "자유시간 모드", color: "#ff3b30" }
 ] as const;
 

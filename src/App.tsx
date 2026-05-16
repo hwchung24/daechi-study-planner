@@ -1262,7 +1262,6 @@ const App: React.FC = () => {
             parentLinkAlerts: Boolean(data.parentLinkAlerts),
             studyRoomAlerts: Boolean(data.studyRoomAlerts),
             messageAlerts: Boolean(data.messageAlerts),
-            homeworkAlerts: Boolean(data.homeworkAlerts),
             wakeAlarmEnabled: Boolean(data.wakeAlarmEnabled),
             wakeAlarmTime:
               /^\d{2}:\d{2}$/.test(String(data.wakeAlarmTime || ""))
@@ -2560,11 +2559,13 @@ const App: React.FC = () => {
 
   useEffect(() => {
     if (!authToken || meRole !== "parent" || !parentStudentId) {
+      setParentReport(null);
       setParentReportLoaded(false);
       setParentAiDailyLoaded(false);
       setParentPlannerLoaded(false);
       return;
     }
+    setParentReport(null);
     setParentReportLoaded(false);
     setParentAiDailyLoaded(false);
     setParentPlannerLoaded(false);
@@ -4158,6 +4159,7 @@ const App: React.FC = () => {
                   parentStudentId={parentStudentId}
                   setParentStudentId={setParentStudentId}
                   parentReport={parentReport}
+                  parentReportLoaded={parentReportLoaded}
                   parentAiDaily={parentAiDaily}
                   parentAiDailyRefreshing={parentAiDailyRefreshing}
                   parentLockStatus={parentLockStatus}

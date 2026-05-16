@@ -302,7 +302,6 @@ export function StudentProfilePage(props: {
     if (alarmSettings.parentLinkAlerts) count += 1;
     if (alarmSettings.studyRoomAlerts) count += 1;
     if (alarmSettings.messageAlerts) count += 1;
-    if (alarmSettings.homeworkAlerts) count += 1;
     if (alarmSettings.wakeAlarmEnabled) count += 1;
     return count;
   }, [alarmSettings]);
@@ -466,7 +465,6 @@ export function StudentProfilePage(props: {
     | "parentLinkAlerts"
     | "studyRoomAlerts"
     | "messageAlerts"
-    | "homeworkAlerts"
     | "wakeAlarmEnabled";
 
   const toggleAlarmSetting = useCallback(
@@ -2330,27 +2328,6 @@ export function StudentProfilePage(props: {
                         aria-pressed={alarmSettings.messageAlerts}
                       >
                         {alarmSettings.messageAlerts ? "켜짐" : "꺼짐"}
-                      </button>
-                    </div>
-                    <div className="settings-item settings-item--stack student-profile-alarm-item">
-                      <span className="student-profile-alarm-item__body">
-                        <span className="student-profile-alarm-item__label">숙제 결과 알림</span>
-                        <span className="student-profile-alarm-item__copy">
-                          숙제 승인이나 수정 요청이 오면 알려줘요.
-                        </span>
-                      </span>
-                      <button
-                        type="button"
-                        className={
-                          "student-profile-alarm-item__toggle student-profile-alarm-item__toggle-button" +
-                          (alarmSettings.homeworkAlerts
-                            ? " student-profile-alarm-item__toggle--on"
-                            : " student-profile-alarm-item__toggle--off")
-                        }
-                        onClick={() => toggleAlarmSetting("homeworkAlerts")}
-                        aria-pressed={alarmSettings.homeworkAlerts}
-                      >
-                        {alarmSettings.homeworkAlerts ? "켜짐" : "꺼짐"}
                       </button>
                     </div>
                     <div className="settings-item settings-item--stack student-profile-alarm-item student-profile-alarm-item--detail">

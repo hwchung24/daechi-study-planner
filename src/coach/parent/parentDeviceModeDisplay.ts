@@ -8,7 +8,7 @@ export type ParentMdmSurfaceMode =
 export const PARENT_MDM_SURFACE_LABEL: Record<ParentMdmSurfaceMode, string> = {
   block: "일괄잠금",
   schedule: "계획표",
-  utility: "유틸리티",
+  utility: "이동",
   free: "자유시간",
   default: "기본"
 };

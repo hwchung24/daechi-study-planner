@@ -1,5 +1,5 @@
 import React, { useMemo } from "react";
-import { Clock, Target } from "lucide-react";
+import { Clock, Sparkles, Target } from "lucide-react";
 import { MetricCard } from "../ui/components";
 import { setAppPath } from "../../lib/appNavigation";
 import type { ParentWeeklyRecordsReport } from "./ParentRecordsWeekSection";
@@ -50,13 +50,24 @@ export function ParentHomeInsight(props: {
     >
       {props.loading ? (
         <div className="parent-home__insight-head" aria-label={H.loadingCoachPhrase}>
-          <div className="parent-skeleton parent-skeleton--phrase" />
-          <div className="parent-skeleton parent-skeleton--phrase-short" />
+          <div className="parent-home__insight-head-row">
+            <div className="parent-home__insight-head-main">
+              <div className="parent-skeleton parent-skeleton--phrase" />
+              <div className="parent-skeleton parent-skeleton--phrase-short" />
+            </div>
+            <div className="parent-skeleton parent-skeleton--insight-ai-label" aria-hidden />
+          </div>
         </div>
       ) : (
         <>
           <header className="parent-home__insight-head">
-            <h2 className="parent-home__insight-greeting">{headline}</h2>
+            <div className="parent-home__insight-head-row">
+              <h2 className="parent-home__insight-greeting">{headline}</h2>
+              <span className="parent-home__insight-ai-label">
+                <Sparkles className="parent-home__insight-ai-label-icon" size={13} strokeWidth={2.25} aria-hidden />
+                <span>{H.insightAiLabel}</span>
+              </span>
+            </div>
           </header>
           {body ? <p className="parent-home__insight-body">{body}</p> : null}
         </>

@@ -47,6 +47,7 @@ export function useParentStudyRoomLive(args: UseArgs) {
   const { apiBase, authToken, studentId, hasStudyRoomSettingHint } = args;
   const [studyRoomVisits, setStudyRoomVisits] = useState<StudyRoomVisitSession[]>([]);
   const [studyRoomVisitsLoading, setStudyRoomVisitsLoading] = useState(false);
+  const [locationRefreshLoading, setLocationRefreshLoading] = useState(false);
   const [studyRoomLiveStatus, setStudyRoomLiveStatus] =
     useState<ParentStudyRoomLiveStatus>(emptyLive);
   const studyRoomVisitsHasDataRef = useRef(studyRoomVisits.length > 0);
@@ -81,6 +82,75 @@ export function useParentStudyRoomLive(args: UseArgs) {
     return grouped;
   }, [studyRoomVisits]);
 
+  const applyStudyRoomVisitsPayload = useCallback(
+    (data: {
+      visits?: StudyRoomVisitSession[];
+      currentDistanceMeters?: number | null;
+      currentWithinRadius?: boolean | null;
+      currentHeartbeatAt?: string | null;
+      currentAccuracyMeters?: number | null;
+      currentRadiusMeters?: number | null;
+      studyRoomName?: string | null;
+      currentLatitude?: number | null;
+      currentLongitude?: number | null;
+      studyRoomAddress?: string | null;
+      studyRoomLatitude?: number | null;
+      studyRoomLongitude?: number | null;
+    }) => {
+      const nextVisits = Array.isArray(data.visits) ? data.visits : [];
+      const nextLive: ParentStudyRoomLiveStatus = {
+        currentDistanceMeters:
+          data.currentDistanceMeters != null && Number.isFinite(Number(data.currentDistanceMeters))
+            ? Number(data.currentDistanceMeters)
+            : null,
+        currentWithinRadius:
+          typeof data.currentWithinRadius === "boolean" ? data.currentWithinRadius : null,
+        currentHeartbeatAt:
+          data.currentHeartbeatAt != null ? String(data.currentHeartbeatAt) : null,
+        currentAccuracyMeters:
+          data.currentAccuracyMeters != null && Number.isFinite(Number(data.currentAccuracyMeters))
+            ? Number(data.currentAccuracyMeters)
+            : null,
+        currentRadiusMeters:
+          data.currentRadiusMeters != null && Number.isFinite(Number(data.currentRadiusMeters))
+            ? Number(data.currentRadiusMeters)
+            : null,
+        studyRoomName: data.studyRoomName != null ? String(data.studyRoomName) : null,
+        currentLatitude:
+          data.currentLatitude != null && Number.isFinite(Number(data.currentLatitude))
+            ? Number(data.currentLatitude)
+            : null,
+        currentLongitude:
+          data.currentLongitude != null && Number.isFinite(Number(data.currentLongitude))
+            ? Number(data.currentLongitude)
+            : null,
+        studyRoomAddress:
+          data.studyRoomAddress != null && String(data.studyRoomAddress).trim() !== ""
+            ? String(data.studyRoomAddress).trim()
+            : null,
+        studyRoomLatitude:
+          data.studyRoomLatitude != null && Number.isFinite(Number(data.studyRoomLatitude))
+            ? Number(data.studyRoomLatitude)
+            : null,
+        studyRoomLongitude:
+          data.studyRoomLongitude != null && Number.isFinite(Number(data.studyRoomLongitude))
+            ? Number(data.studyRoomLongitude)
+            : null
+      };
+      const bundleSig = stableStringify({ visits: nextVisits, live: nextLive });
+      if (studyRoomPollSigRef.current === bundleSig) {
+        return false;
+      }
+      studyRoomPollSigRef.current = bundleSig;
+      scheduleBackgroundUiUpdate(() => {
+        setStudyRoomVisits(nextVisits);
+        setStudyRoomLiveStatus(nextLive);
+      });
+      return true;
+    },
+    []
+  );
+
   const refreshStudyRoomVisits = useCallback(
     async (options?: { silent?: boolean }) => {
       if (!authToken || !studentId) {
@@ -105,69 +175,10 @@ export function useParentStudyRoomLive(args: UseArgs) {
             }
           }
         );
-        const data = (await res.json().catch(() => ({}))) as {
-          visits?: StudyRoomVisitSession[];
-          currentDistanceMeters?: number | null;
-          currentWithinRadius?: boolean | null;
-          currentHeartbeatAt?: string | null;
-          currentAccuracyMeters?: number | null;
-          currentRadiusMeters?: number | null;
-          studyRoomName?: string | null;
-          currentLatitude?: number | null;
-          currentLongitude?: number | null;
-          studyRoomAddress?: string | null;
-          studyRoomLatitude?: number | null;
-          studyRoomLongitude?: number | null;
-        };
-        const nextVisits = Array.isArray(data.visits) ? data.visits : [];
-        const nextLive: ParentStudyRoomLiveStatus = {
-          currentDistanceMeters:
-            data.currentDistanceMeters != null && Number.isFinite(Number(data.currentDistanceMeters))
-              ? Number(data.currentDistanceMeters)
-              : null,
-          currentWithinRadius:
-            typeof data.currentWithinRadius === "boolean" ? data.currentWithinRadius : null,
-          currentHeartbeatAt:
-            data.currentHeartbeatAt != null ? String(data.currentHeartbeatAt) : null,
-          currentAccuracyMeters:
-            data.currentAccuracyMeters != null && Number.isFinite(Number(data.currentAccuracyMeters))
-              ? Number(data.currentAccuracyMeters)
-              : null,
-          currentRadiusMeters:
-            data.currentRadiusMeters != null && Number.isFinite(Number(data.currentRadiusMeters))
-              ? Number(data.currentRadiusMeters)
-              : null,
-          studyRoomName: data.studyRoomName != null ? String(data.studyRoomName) : null,
-          currentLatitude:
-            data.currentLatitude != null && Number.isFinite(Number(data.currentLatitude))
-              ? Number(data.currentLatitude)
-              : null,
-          currentLongitude:
-            data.currentLongitude != null && Number.isFinite(Number(data.currentLongitude))
-              ? Number(data.currentLongitude)
-              : null,
-          studyRoomAddress:
-            data.studyRoomAddress != null && String(data.studyRoomAddress).trim() !== ""
-              ? String(data.studyRoomAddress).trim()
-              : null,
-          studyRoomLatitude:
-            data.studyRoomLatitude != null && Number.isFinite(Number(data.studyRoomLatitude))
-              ? Number(data.studyRoomLatitude)
-              : null,
-          studyRoomLongitude:
-            data.studyRoomLongitude != null && Number.isFinite(Number(data.studyRoomLongitude))
-              ? Number(data.studyRoomLongitude)
-              : null
-        };
-        const bundleSig = stableStringify({ visits: nextVisits, live: nextLive });
-        if (studyRoomPollSigRef.current === bundleSig) {
-          return;
-        }
-        studyRoomPollSigRef.current = bundleSig;
-        scheduleBackgroundUiUpdate(() => {
-          setStudyRoomVisits(nextVisits);
-          setStudyRoomLiveStatus(nextLive);
-        });
+        const data = (await res.json().catch(() => ({}))) as Parameters<
+          typeof applyStudyRoomVisitsPayload
+        >[0];
+        applyStudyRoomVisitsPayload(data);
       } catch {
         studyRoomPollSigRef.current = null;
         setStudyRoomVisits([]);
@@ -178,7 +189,53 @@ export function useParentStudyRoomLive(args: UseArgs) {
         }
       }
     },
-    [apiBase, authToken, studentId]
+    [apiBase, authToken, studentId, applyStudyRoomVisitsPayload]
+  );
+
+  const refreshStudentLocation = useCallback(
+    async (options?: { silent?: boolean }) => {
+      if (!authToken || !studentId) {
+        studyRoomPollSigRef.current = null;
+        setStudyRoomVisits([]);
+        setStudyRoomVisitsLoading(false);
+        setStudyRoomLiveStatus(emptyLive());
+        return;
+      }
+
+      if (!options?.silent) {
+        setLocationRefreshLoading(true);
+      }
+
+      try {
+        const res = await fetch(
+          `${apiBase}/api/parent/students/${encodeURIComponent(String(studentId))}/location/refresh?limit=6`,
+          {
+            method: "POST",
+            cache: "no-store",
+            headers: {
+              Authorization: `Bearer ${authToken}`
+            }
+          }
+        );
+        const data = (await res.json().catch(() => ({}))) as Parameters<
+          typeof applyStudyRoomVisitsPayload
+        >[0];
+        if (!res.ok) {
+          throw new Error("location_refresh_failed");
+        }
+        applyStudyRoomVisitsPayload(data);
+        window.setTimeout(() => {
+          void refreshStudyRoomVisits({ silent: true });
+        }, 2500);
+      } catch {
+        await refreshStudyRoomVisits({ silent: true });
+      } finally {
+        if (!options?.silent) {
+          setLocationRefreshLoading(false);
+        }
+      }
+    },
+    [apiBase, authToken, studentId, applyStudyRoomVisitsPayload, refreshStudyRoomVisits]
   );
 
   useEffect(() => {
@@ -224,6 +281,8 @@ export function useParentStudyRoomLive(args: UseArgs) {
     hasStudyRoomConfig,
     displayDistanceMeters,
     studyRoomVisitsByDate,
-    refreshStudyRoomVisits
+    refreshStudyRoomVisits,
+    refreshStudentLocation,
+    locationRefreshLoading
   };
 }

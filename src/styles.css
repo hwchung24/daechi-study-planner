@@ -835,10 +835,25 @@ html.parent-session.parent-dark .parent-header-nav__btn--theme-on {
   box-shadow: var(--surface-hairline);
 }
 
-html.parent-session.parent-dark .app-root--parent .parent-home__insight-actions .parent-home__chip-btn--grow {
-  background: #f5f5f7;
-  border-color: #f5f5f7;
-  color: #111111;
+html.parent-session.parent-dark
+  .app-root--parent
+  .parent-home
+  .parent-home__insight-actions
+  .parent-home__chip-btn--grow {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+
+html.parent-session.parent-dark .app-root--parent .parent-home__insight-ai-label {
+  border-color: rgba(255, 255, 255, 0.14);
+  background: linear-gradient(
+    135deg,
+    rgba(255, 255, 255, 0.1) 0%,
+    rgba(255, 255, 255, 0.04) 100%
+  );
+  box-shadow: none;
+  color: #c8d4ef;
 }
 
 html.parent-session.parent-dark body,
@@ -873,7 +888,6 @@ html.parent-session.parent-dark .app-shell--parent-hydrating {
 
 /* 학부모 다크 모드 — 채팅 말풍선·입력 */
 html.parent-session.parent-dark .app-root--parent .coach-admin-chat__messages .coach-bubble--coach,
-html.parent-session.parent-dark .app-root--parent .coach-admin-chat__submission-bubble.coach-bubble,
 html.parent-session.parent-dark .app-root--parent .coach-admin-chat__offer.coach-tomorrow-collab__coach-offer.coach-bubble {
   background: rgba(255, 255, 255, 0.1);
   border-color: rgba(255, 255, 255, 0.14);
@@ -885,12 +899,6 @@ html.parent-session.parent-dark .app-root--parent .coach-admin-chat__messages .c
   background: rgba(var(--accent-rgb), 0.55);
   border-color: rgba(var(--accent-rgb), 0.65);
   color: #f5f5f7;
-}
-
-html.parent-session.parent-dark .app-root--parent .coach-admin-chat__submission-name,
-html.parent-session.parent-dark .app-root--parent .coach-admin-chat__submission-meta,
-html.parent-session.parent-dark .app-root--parent .coach-admin-chat__submission-note {
-  color: var(--text-main);
 }
 
 html.parent-session.parent-dark .app-root--parent .coach-starter {
@@ -1040,16 +1048,20 @@ html.parent-session.parent-dark .app-root--parent .coach-admin-chat__avatar.coac
 }
 
 /* 학부모 홈: 무채색 타이포·플랫 아이콘 (남색 포인트 제거) */
-.app-root--parent .parent-home .coach-card {
-  border-color: var(--border-neutral);
+/* 상단 3장 카드(인사이트·학생 상태·기록): 외곽 테두리·인셋 헤어라인 제거 */
+.app-root--parent .parent-home__insight-card.coach-card,
+.app-root--parent .parent-home__live-panel.coach-card,
+.app-root--parent .parent-home__records-panel.coach-card {
+  border: none;
+  box-shadow: none;
 }
 
 .app-root--parent .parent-home__insight-card.coach-card {
   background: var(--surface-glass);
-  box-shadow: var(--surface-hairline);
 }
 
 .app-root--parent .parent-home__insight-greeting,
+.app-root--parent .parent-home__insight-ai-label,
 .app-root--parent .parent-home__live-panel-title,
 .app-root--parent .parent-home__records-panel-title,
 .app-root--parent .parent-home__records-section-title {
@@ -1074,9 +1086,9 @@ html.parent-session.parent-dark .app-root--parent .coach-admin-chat__avatar.coac
   border-top-color: rgba(var(--neutral-rgb), 0.12);
 }
 
-.app-root--parent .parent-home__insight-actions .parent-home__chip-btn--grow {
-  background: var(--text-strong);
-  border-color: var(--text-strong);
+.app-root--parent .parent-home .parent-home__insight-actions .parent-home__chip-btn--grow {
+  background: var(--accent);
+  border-color: var(--accent);
   color: #fff;
 }
 
@@ -1155,7 +1167,8 @@ html.parent-session.parent-dark .app-root--parent .coach-admin-chat__avatar.coac
 }
 
 .app-root--parent .parent-header-bar {
-  border-color: var(--border-neutral);
+  border: none;
+  box-shadow: none;
   background: var(--surface-glass);
 }
 
@@ -1166,12 +1179,12 @@ html.parent-session.parent-dark .app-root--parent .coach-admin-chat__avatar.coac
 .app-root--parent .parent-header-nav__btn--active {
   background: rgba(var(--neutral-rgb), 0.12);
   color: var(--text-strong);
-  box-shadow: inset 0 0 0 1px rgba(var(--neutral-rgb), 0.14);
+  box-shadow: none;
 }
 
 .app-root--parent .parent-header-student__trigger {
-  border: 1px solid var(--border-neutral);
-  background: var(--surface-base);
+  border: none;
+  background: transparent;
   color: var(--text-strong);
 }
 
@@ -1423,6 +1436,12 @@ html.parent-session .dday-modal .dday-modal-title {
   .app-root--parent .student-profile-page.section .coach-card:hover {
     transform: translateY(-1px);
     box-shadow: 0 10px 20px rgba(15, 23, 42, 0.06);
+  }
+
+  .app-root--parent .coach-shell__tab-panel--parent .parent-home__insight-card.coach-card:hover,
+  .app-root--parent .coach-shell__tab-panel--parent .parent-home__live-panel.coach-card:hover,
+  .app-root--parent .coach-shell__tab-panel--parent .parent-home__records-panel.coach-card:hover {
+    box-shadow: none;
   }
 
   .app-root--parent .notifications-page__item:hover,
@@ -2371,11 +2390,61 @@ html.parent-session .dday-modal .dday-modal-title {
   margin: 0;
 }
 
+.parent-home__insight-head-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.parent-home__insight-head-main {
+  flex: 1;
+  min-width: 0;
+}
+
 .parent-home__insight-head .parent-skeleton--phrase-short {
   margin-top: 10px;
 }
 
+.parent-home__insight-ai-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  flex-shrink: 0;
+  padding: 5px 10px;
+  border-radius: 999px;
+  border: 1px solid rgba(var(--accent-rgb), 0.16);
+  background: linear-gradient(
+    135deg,
+    rgba(var(--accent-rgb), 0.1) 0%,
+    rgba(var(--accent-rgb), 0.04) 100%
+  );
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.55) inset;
+  font-size: 11px;
+  font-weight: var(--font-weight-semibold);
+  letter-spacing: 0.04em;
+  line-height: 1.2;
+  color: var(--accent);
+  white-space: nowrap;
+}
+
+.parent-home__insight-ai-label-icon {
+  width: 13px;
+  height: 13px;
+  flex-shrink: 0;
+  color: currentColor;
+}
+
+.parent-skeleton--insight-ai-label {
+  width: 108px;
+  height: 32px;
+  border-radius: 999px;
+  flex-shrink: 0;
+}
+
 .parent-home__insight-greeting {
+  flex: 1;
+  min-width: 0;
   margin: 0;
   font-size: calc(20px * var(--parent-ui-scale, 1));
   font-weight: var(--font-weight-bold);
@@ -2397,8 +2466,8 @@ html.parent-session .dday-modal .dday-modal-title {
 
 .parent-home__insight-card.coach-card {
   background: var(--surface-glass);
-  border: var(--border-width) solid var(--border-neutral);
-  box-shadow: var(--surface-hairline);
+  border: none;
+  box-shadow: none;
   backdrop-filter: blur(var(--glass-blur));
   -webkit-backdrop-filter: blur(var(--glass-blur));
 }
@@ -2539,6 +2608,10 @@ html.parent-session .dday-modal .dday-modal-title {
 
 .parent-home__live-row-trail:empty {
   display: none;
+}
+
+.parent-home__live-location-check-btn {
+  white-space: nowrap;
 }
 
 .parent-home__live-row-below {
@@ -3307,6 +3380,24 @@ html.parent-session .dday-modal .dday-modal-title {
   cursor: not-allowed;
 }
 
+.parent-home__chip-btn--loading {
+  opacity: 0.78;
+  cursor: wait;
+}
+
+.parent-home__chip-btn-spin {
+  animation: parent-home-chip-spin 0.85s linear infinite;
+}
+
+@keyframes parent-home-chip-spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
 .parent-home__time-chip {
   min-width: calc(72px * var(--parent-ui-scale, 1));
   min-height: calc(36px * var(--parent-ui-scale, 1));
@@ -3465,6 +3556,30 @@ html.parent-session .dday-modal .dday-modal-title {
   gap: 8px;
 }
 
+.parent-notifications-page__type-filters {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+  padding-bottom: 2px;
+}
+
+.parent-notifications-page__type-filters::-webkit-scrollbar {
+  display: none;
+}
+
+.parent-notifications-page__type-tab {
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
+.app-root--parent .parent-notifications-page__type-filters .coach-analysis-trend-tab--active {
+  background: rgba(var(--neutral-rgb), 0.08);
+  border-color: var(--border-neutral);
+  color: var(--text-strong);
+}
+
 .parent-notifications-pending__list {
   list-style: none;
   margin: 10px 0 0;
@@ -3515,6 +3630,326 @@ html.parent-session .dday-modal .dday-modal-title {
 
 .parent-home__net-modal-detail {
   margin-top: calc(12px * var(--parent-ui-scale));
+}
+
+.parent-home__location-modal.dday-modal-inner {
+  max-width: min(420px, calc(100vw - 32px));
+}
+
+.parent-home__location-modal-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.parent-home__location-modal-head .dday-modal-title {
+  margin: 0;
+  flex: 1;
+  min-width: 0;
+}
+
+.parent-home__location-modal-head .parent-home__net-badge {
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+
+.parent-home__location-modal-body {
+  display: flex;
+  flex-direction: column;
+  gap: calc(12px * var(--parent-ui-scale));
+}
+
+.parent-location-map {
+  position: relative;
+}
+
+.parent-location-map__surface {
+  position: relative;
+  height: 220px;
+  overflow: hidden;
+  border-radius: var(--radius-xxl);
+  background:
+    linear-gradient(135deg, rgba(224, 231, 255, 0.48), rgba(191, 219, 254, 0.28)),
+    #f8fafc;
+  border: 1px solid rgba(148, 163, 184, 0.22);
+}
+
+.parent-location-map__surface .leaflet-control-container {
+  display: none;
+}
+
+.parent-location-map__empty {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  margin: 0;
+  text-align: center;
+  font-size: var(--font-size-small);
+  line-height: 1.45;
+  color: var(--text-sub);
+  pointer-events: none;
+}
+
+.parent-location-map__legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+  margin-top: 8px;
+}
+
+.parent-location-map__legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--text-sub);
+}
+
+.parent-location-map__legend-item--muted {
+  color: var(--text-muted);
+}
+
+.parent-location-map__legend-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.parent-location-map__legend-dot--student {
+  background: #ef4444;
+  box-shadow: 0 0 0 2px rgba(239, 68, 68, 0.22);
+}
+
+.parent-location-map__legend-dot--room {
+  background: #2563eb;
+  box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.18);
+}
+
+.parent-location-map__marker-wrap {
+  background: transparent;
+  border: none;
+}
+
+.parent-location-map__marker {
+  display: block;
+}
+
+.parent-location-map__marker--student {
+  width: 18px;
+  height: 18px;
+  margin: 1px;
+  border-radius: 50%;
+  background: #ef4444;
+  border: 3px solid #fff;
+  box-shadow: 0 2px 10px rgba(239, 68, 68, 0.45);
+}
+
+.parent-location-map__marker--room {
+  width: 14px;
+  height: 14px;
+  margin-left: 5px;
+  border-radius: 50% 50% 50% 0;
+  transform: rotate(-45deg);
+  background: #2563eb;
+  border: 2px solid #fff;
+  box-shadow: 0 2px 10px rgba(37, 99, 235, 0.35);
+}
+
+.parent-home__location-modal-room {
+  padding: calc(12px * var(--parent-ui-scale)) calc(14px * var(--parent-ui-scale));
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--border-neutral);
+  background: var(--surface-glass);
+}
+
+.parent-home__location-modal-room-label {
+  margin: 0 0 4px;
+  font-size: 11px;
+  font-weight: var(--font-weight-semibold);
+  color: var(--text-sub);
+}
+
+.parent-home__location-modal-room-name {
+  margin: 0;
+  font-size: var(--font-size-medium);
+  font-weight: var(--font-weight-semibold);
+  color: var(--text-main);
+  line-height: 1.4;
+}
+
+.parent-home__location-modal-room-address {
+  margin: 6px 0 0;
+  font-size: var(--font-size-small);
+  line-height: 1.45;
+  color: var(--text-sub);
+  word-break: keep-all;
+}
+
+.parent-home__location-modal-stats {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.parent-home__location-stat {
+  padding: 10px 12px;
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--border-neutral);
+  background: rgba(255, 255, 255, 0.72);
+}
+
+.parent-home__location-stat-label {
+  display: block;
+  margin-bottom: 4px;
+  font-size: 11px;
+  font-weight: var(--font-weight-semibold);
+  color: var(--text-sub);
+}
+
+.parent-home__location-stat-value {
+  display: block;
+  font-size: var(--font-size-medium);
+  font-weight: var(--font-weight-semibold);
+  color: var(--text-main);
+  line-height: 1.35;
+  word-break: keep-all;
+}
+
+.parent-home__location-modal-note {
+  margin: 0;
+  padding: 10px 12px;
+  border-radius: var(--radius-lg);
+  background: rgba(254, 243, 199, 0.55);
+  border: 1px solid rgba(251, 191, 36, 0.35);
+  font-size: var(--font-size-small);
+  line-height: 1.45;
+  color: var(--text-main);
+}
+
+.parent-home__location-modal-external {
+  align-self: center;
+  font-size: var(--font-size-small);
+  font-weight: var(--font-weight-semibold);
+  color: var(--text-main);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.parent-home__location-modal-footer {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.parent-home__location-modal-btn {
+  width: 100%;
+  min-height: 44px;
+  white-space: nowrap;
+}
+
+.parent-home__location-modal-btn--loading {
+  opacity: 0.72;
+  cursor: wait;
+}
+
+.parent-home__today-plan-modal.dday-modal-inner {
+  max-width: min(420px, calc(100vw - 32px));
+}
+
+.parent-home__today-plan-modal-body {
+  max-height: min(52vh, 420px);
+  overflow-y: auto;
+}
+
+.parent-home__today-plan-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 4px 12px;
+  text-align: center;
+}
+
+.parent-home__today-plan-empty--loading {
+  padding: 20px 4px 24px;
+}
+
+.parent-home__today-plan-empty-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 52px;
+  height: 52px;
+  border-radius: 16px;
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  color: var(--accent);
+}
+
+.parent-home__today-plan-empty-icon--muted {
+  background: var(--surface-muted, color-mix(in srgb, var(--text-sub) 10%, transparent));
+  color: var(--text-sub);
+}
+
+.parent-home__today-plan-empty-spinner {
+  animation: parent-home-chip-spin 0.85s linear infinite;
+  color: var(--text-sub);
+}
+
+.parent-home__today-plan-empty-title {
+  margin: 4px 0 0;
+  font-size: 1.05rem;
+  font-weight: 700;
+  line-height: 1.35;
+  color: var(--text-strong, var(--text-main));
+}
+
+.parent-home__today-plan-empty-body {
+  margin: 0;
+  max-width: 28ch;
+  line-height: 1.5;
+  font-size: 0.92rem;
+  color: var(--text-sub);
+}
+
+.parent-home__today-plan-list {
+  margin: 0;
+}
+
+.parent-home__today-plan-modal-footer {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.parent-home__today-plan-modal-footer--dual {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.parent-home__today-plan-modal-error {
+  grid-column: 1 / -1;
+  margin: 0;
+  font-size: 0.85rem;
+  line-height: 1.4;
+  text-align: center;
+  color: var(--danger, #c0392b);
+}
+
+.parent-home__today-plan-modal-btn {
+  width: 100%;
+  min-height: 44px;
+  white-space: nowrap;
+}
+
+.parent-home__today-plan-modal-btn--loading {
+  opacity: 0.72;
+  cursor: wait;
 }
 
 .parent-student-settings__banner {
@@ -3604,6 +4039,13 @@ html.parent-session .dday-modal .dday-modal-title {
 .app-root--parent .coach-shell__tab-panel--parent .coach-card + .coach-card,
 .app-root--parent .student-profile-page.section .coach-card + .coach-card {
   margin-top: calc(10px * var(--parent-ui-scale));
+}
+
+.app-root--parent .coach-shell__tab-panel--parent .parent-home__insight-card.coach-card,
+.app-root--parent .coach-shell__tab-panel--parent .parent-home__live-panel.coach-card,
+.app-root--parent .coach-shell__tab-panel--parent .parent-home__records-panel.coach-card {
+  border: none;
+  box-shadow: none;
 }
 
 .app-root--parent .parent-home__live .coach-card + .coach-card {
@@ -4225,9 +4667,9 @@ body.app-keyboard-open .app-main {
   padding: calc(6px * var(--parent-ui-scale, 1))
     calc(var(--parent-page-inline-padding, 6px) * var(--parent-ui-scale, 1));
   border-radius: var(--radius-lg);
-  border: var(--border-width) solid var(--border-neutral);
+  border: none;
   background: var(--surface-glass);
-  box-shadow: var(--surface-hairline);
+  box-shadow: none;
   backdrop-filter: blur(var(--glass-blur));
   -webkit-backdrop-filter: blur(var(--glass-blur));
 }
@@ -11183,7 +11625,7 @@ button:active:not(:disabled),
   color: var(--text-strong);
 }
 
-/** 상태 카드: 일괄잠금·유틸리티·자유시간·계획표·기본 — 남색 + 볼드 */
+/** 상태 카드: 일괄잠금·이동·자유시간·계획표·기본 — 남색 + 볼드 */
 .coach-settings-banner__mode {
   color: var(--accent);
   font-weight: var(--font-weight-strong);
@@ -11673,8 +12115,7 @@ button:active:not(:disabled),
   min-height: 0;
 }
 
-.coach-admin-chat-card,
-.coach-admin-homework-card {
+.coach-admin-chat-card {
   display: flex;
   flex-direction: column;
   gap: 12px;
@@ -11692,7 +12133,52 @@ button:active:not(:disabled),
 }
 
 .coach-admin-chat-shell--plain {
+  display: flex;
+  flex-direction: column;
   flex: 1 1 auto;
+  min-height: 0;
+}
+
+.coach-admin-chat-shell--plain > .coach-chat-embedded {
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.coach-admin-chat__peer-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-shrink: 0;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--border-neutral);
+  background: var(--surface-elevated, #fff);
+}
+
+.coach-admin-chat__peer-header-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.coach-admin-chat__peer-name {
+  font-size: var(--font-size-medium);
+  font-weight: var(--font-weight-strong);
+  letter-spacing: -0.02em;
+  color: var(--text-strong);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.coach-admin-chat__peer-role {
+  font-size: var(--font-size-small);
+  color: var(--text-sub);
+}
+
+html.parent-session.parent-dark .app-root--parent .coach-admin-chat__peer-header {
+  background: var(--parent-surface, #1a1f2e);
+  border-bottom-color: var(--parent-line);
 }
 
 .coach-admin-chat-scroll {
@@ -11731,6 +12217,61 @@ button:active:not(:disabled),
 
 .coach-admin-chat__messages--stable {
   contain: layout style;
+}
+
+.coach-admin-chat__date-divider {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 14px 0 10px;
+  color: var(--text-sub);
+}
+
+.coach-admin-chat__date-divider::before,
+.coach-admin-chat__date-divider::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: rgba(var(--neutral-rgb), 0.14);
+}
+
+.coach-admin-chat__date-divider-label {
+  flex-shrink: 0;
+  padding: 3px 10px;
+  border-radius: 999px;
+  background: rgba(var(--neutral-rgb), 0.06);
+  font-size: 11px;
+  font-weight: var(--font-weight-semibold);
+  letter-spacing: -0.01em;
+  line-height: 1.3;
+}
+
+.coach-admin-chat__bubble-col {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-width: 82%;
+  min-width: 0;
+}
+
+.coach-bubble-row.is-user .coach-admin-chat__bubble-col {
+  align-items: flex-end;
+}
+
+.coach-admin-chat__bubble-col .coach-bubble {
+  max-width: 100%;
+}
+
+.coach-admin-chat__message-time {
+  display: block;
+  font-size: 11px;
+  line-height: 1.25;
+  color: var(--text-sub);
+  letter-spacing: -0.01em;
+}
+
+.coach-bubble-row.is-user .coach-admin-chat__message-time {
+  text-align: right;
 }
 
 /* 관리자 채널: 첫 로드 시 문구만 바뀌는 깜빡임 방지 — 채팅 셸과 동일한 뼈대 */
@@ -11840,7 +12381,6 @@ button:active:not(:disabled),
 }
 
 .coach-admin-chat__empty,
-.coach-admin-homework__empty,
 .coach-admin-loading {
   padding: 18px 8px;
   text-align: center;
@@ -11855,273 +12395,6 @@ button:active:not(:disabled),
   text-align: right;
 }
 
-.coach-admin-chat__submission-row {
-  align-items: flex-start;
-}
-
-.coach-admin-chat__submission-bubble.coach-bubble {
-  max-width: min(82%, 300px);
-  padding: 9px 11px;
-}
-
-.coach-admin-chat__submission-top {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 8px;
-}
-
-.coach-admin-chat__submission-name {
-  font-size: var(--font-size-medium);
-  font-weight: var(--font-weight-strong);
-  color: var(--text-strong);
-  line-height: 1.4;
-}
-
-.coach-admin-chat__submission-meta,
-.coach-admin-chat__submission-note {
-  margin-top: 5px;
-  font-size: var(--font-size-small);
-  line-height: 1.45;
-  color: var(--text-main);
-}
-
-.coach-admin-chat__submission-link {
-  margin-top: 8px;
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  color: var(--text-accent);
-  text-decoration: none;
-  font-size: var(--font-size-small);
-  font-weight: var(--font-weight-strong);
-}
-
-.coach-admin-chat__starter-button {
-  flex: 0 0 auto;
-}
-
-.coach-admin-chat__offer.coach-tomorrow-collab__coach-offer.coach-bubble {
-  max-width: min(82%, 300px);
-  padding: 10px 12px;
-}
-
-.coach-admin-chat__offer .coach-tomorrow-collab__coach-picks {
-  margin-top: 0;
-}
-
-.coach-admin-chat__offer .coach-tomorrow-collab__coach-pick {
-  padding: 8px 12px;
-}
-
-.coach-admin-chat__upload-row .coach-admin-chat__offer.coach-bubble {
-  padding: 10px 12px;
-}
-
-.coach-admin-chat__review-row .coach-admin-chat__offer.coach-bubble {
-  max-width: min(82%, 320px);
-  padding: 10px 12px;
-}
-
-.coach-admin-upload-box {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  padding: 12px;
-  border-radius: var(--radius-lg-xl-mid);
-  border: var(--border-width) solid var(--border-neutral);
-  background: rgba(248, 250, 252, 0.7);
-}
-
-.coach-admin-upload-box--inline {
-  padding: 0;
-  border: 0;
-  border-radius: 0;
-  background: transparent;
-}
-
-.coach-admin-upload-box__picker {
-  position: relative;
-  min-height: 48px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
-  border-radius: var(--radius-button);
-  border: var(--border-width) solid var(--border-neutral);
-  background: var(--surface-base);
-  color: var(--text-strong);
-  font-weight: var(--font-weight-semibold);
-  padding: 12px 14px;
-  text-align: center;
-  cursor: pointer;
-}
-
-.coach-admin-upload-box__input {
-  position: absolute;
-  inset: 0;
-  opacity: 0;
-  cursor: pointer;
-}
-
-.coach-admin-upload-box__note {
-  min-height: 88px;
-  border-radius: var(--radius-lg);
-}
-
-.coach-admin-upload-box__actions {
-  display: flex;
-  width: 100%;
-  margin-top: 12px;
-}
-
-.coach-admin-upload-box__submit {
-  width: 100%;
-  justify-content: center;
-  border-radius: var(--radius-button);
-  background-color: #183a72;
-  background-image: var(--navy-fill-mid-image);
-  background-size: var(--navy-fill-mid-size);
-  background-repeat: var(--navy-fill-mid-repeat);
-  color: #ffffff;
-  opacity: 1;
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.12);
-}
-
-.coach-admin-upload-box__submit:disabled {
-  background-color: #183a72;
-  background-image: var(--navy-fill-mid-image);
-  background-size: var(--navy-fill-mid-size);
-  background-repeat: var(--navy-fill-mid-repeat);
-  color: #ffffff;
-  opacity: 1;
-  cursor: default;
-}
-
-.coach-admin-homework__list {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-
-.coach-admin-homework-inline {
-  margin-top: 12px;
-}
-
-.coach-admin-homework-inline .coach-section-header {
-  margin-bottom: 10px;
-}
-
-.coach-admin-chat__review-section {
-  width: 100%;
-}
-
-.coach-admin-review-tabs {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  margin-bottom: 12px;
-}
-
-.coach-admin-review-tabs__tab {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  padding: 8px 12px;
-  border-radius: var(--radius-pill);
-  border: var(--border-width) solid var(--border-neutral);
-  background: var(--surface-base);
-  color: var(--text-sub);
-  font-size: var(--font-size-small);
-  font-weight: var(--font-weight-strong);
-}
-
-.coach-admin-review-tabs__tab--active {
-  background-color: #183a72;
-  background-image: var(--navy-fill-mid-image);
-  background-size: var(--navy-fill-mid-size);
-  background-repeat: var(--navy-fill-mid-repeat);
-  border-color: rgba(24, 58, 114, 0.98);
-  color: #ffffff;
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.1);
-}
-
-.coach-admin-review-tabs__count {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-width: 22px;
-  height: 22px;
-  padding: 0 6px;
-  border-radius: var(--radius-pill);
-  background: rgba(148, 163, 184, 0.14);
-  color: inherit;
-  font-size: 11px;
-  line-height: 1;
-}
-
-.coach-admin-review-tabs__tab--active .coach-admin-review-tabs__count {
-  background: rgba(255, 255, 255, 0.18);
-}
-
-.coach-admin-chat__review-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-  margin-bottom: 10px;
-}
-
-.coach-admin-chat__review-title {
-  font-size: var(--font-size-medium);
-  font-weight: var(--font-weight-strong);
-  color: var(--text-strong);
-}
-
-.coach-admin-homework__item {
-  border: var(--border-width) solid var(--border-neutral);
-  border-radius: var(--radius-lg);
-  background: var(--surface-base);
-  padding: 12px;
-  box-shadow: var(--shadow-soft);
-}
-
-.coach-admin-homework__top {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 12px;
-}
-
-.coach-admin-homework__name {
-  font-size: var(--font-size-medium);
-  font-weight: var(--font-weight-strong);
-  color: var(--text-strong);
-}
-
-.coach-admin-homework__meta,
-.coach-admin-homework__note,
-.coach-admin-homework__review {
-  margin-top: 6px;
-  font-size: var(--font-size-small);
-  line-height: 1.5;
-  color: var(--text-main);
-}
-
-.coach-admin-homework__actions {
-  margin-top: 10px;
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-}
-
-.coach-admin-homework__download {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  text-decoration: none;
-}
-
 .coach-admin-error {
   border-radius: var(--radius-button);
   background: rgba(220, 38, 38, 0.08);
@@ -12129,19 +12402,6 @@ button:active:not(:disabled),
   padding: 10px 12px;
   font-size: var(--font-size-small);
   line-height: 1.45;
-}
-
-.coach-admin-review-actions {
-  display: flex;
-  flex: 1 1 100%;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.coach-admin-review-actions__buttons {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
 }
 
 @media (max-width: 899px) {
@@ -12163,9 +12423,7 @@ button:active:not(:disabled),
     width: 100%;
   }
 
-  .coach-admin-homework__top,
-  .coach-admin-chat__header,
-  .coach-admin-homework__header {
+  .coach-admin-chat__header {
     align-items: flex-start;
     flex-direction: column;
   }
@@ -12203,10 +12461,6 @@ button:active:not(:disabled),
   min-height: 96px;
   resize: none;
   line-height: 1.45;
-}
-
-.coach-textarea.coach-admin-upload-box__note {
-  border-radius: var(--radius-lg);
 }
 
 .coach-chat-header {

@@ -3,7 +3,6 @@ export type StudentAlarmSettings = {
   parentLinkAlerts: boolean;
   studyRoomAlerts: boolean;
   messageAlerts: boolean;
-  homeworkAlerts: boolean;
   wakeAlarmEnabled: boolean;
   wakeAlarmTime: string;
 };
@@ -18,7 +17,6 @@ export const DEFAULT_STUDENT_ALARM_SETTINGS: StudentAlarmSettings = {
   parentLinkAlerts: true,
   studyRoomAlerts: true,
   messageAlerts: true,
-  homeworkAlerts: true,
   wakeAlarmEnabled: false,
   wakeAlarmTime: "06:30"
 };
@@ -61,10 +59,6 @@ export function normalizeStudentAlarmSettings(
       raw?.messageAlerts == null
         ? DEFAULT_STUDENT_ALARM_SETTINGS.messageAlerts
         : Boolean(raw.messageAlerts),
-    homeworkAlerts:
-      raw?.homeworkAlerts == null
-        ? DEFAULT_STUDENT_ALARM_SETTINGS.homeworkAlerts
-        : Boolean(raw.homeworkAlerts),
     wakeAlarmEnabled:
       raw?.wakeAlarmEnabled == null
         ? DEFAULT_STUDENT_ALARM_SETTINGS.wakeAlarmEnabled

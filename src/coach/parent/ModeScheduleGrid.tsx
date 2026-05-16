@@ -7,7 +7,7 @@ const DAY_LABELS = ["월", "화", "수", "목", "금", "토", "일"] as const;
 const MODE_OPTIONS = [
   {
     key: "utility" as const,
-    label: "유틸리티",
+    label: "이동",
     color: "#ffcc00",
     defaultDays: [true, true, true, true, true, false, false],
     defaultStart: "09:00",

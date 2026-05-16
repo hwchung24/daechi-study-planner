@@ -1,6 +1,10 @@
 "use strict";
 
 const { getKoFallbacks, tpl } = require("./koFallbackLoader");
+const {
+  buildNextWeekSuggestionsFallback,
+  isGenericWellnessSuggestion
+} = require("./parentGrowthReport");
 
 function narr() {
   return getKoFallbacks().parentGrowthReportNarrative;
@@ -42,11 +46,19 @@ function fillParentGrowthReportNarrativeGaps(narrative, ctx) {
     nar.planExecutionSummary =
       (ctx?.planLists?.completedCount || 0) > 0 ? n.planExecutionWhenCompleted : n.planExecutionWhenEmpty;
   }
-  if (!nar.nextWeekForStudent) {
-    nar.nextWeekForStudent = n.nextWeekForStudentDefault;
+  const patternFallback = ctx?.patternFallback;
+  const suggestionPattern = ctx?.suggestionPattern || {};
+  if (!nar.nextWeekForStudent || isGenericWellnessSuggestion(nar.nextWeekForStudent)) {
+    nar.nextWeekForStudent =
+      patternFallback?.studentSuggestion ||
+      buildNextWeekSuggestionsFallback(suggestionPattern).studentSuggestion ||
+      n.nextWeekForStudentDefault;
   }
-  if (!nar.nextWeekForParent) {
-    nar.nextWeekForParent = n.nextWeekForParentDefault;
+  if (!nar.nextWeekForParent || isGenericWellnessSuggestion(nar.nextWeekForParent)) {
+    nar.nextWeekForParent =
+      patternFallback?.parentSuggestion ||
+      buildNextWeekSuggestionsFallback(suggestionPattern).parentSuggestion ||
+      n.nextWeekForParentDefault;
   }
 }
 

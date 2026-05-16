@@ -51,7 +51,35 @@ function getProviderToken() {
   return cachedProviderToken;
 }
 
-function sendApnsRequest(deviceToken, payload) {
+function buildAlertPayload(input = {}) {
+  const title = String(input.title || "").trim();
+  const body = String(input.body || "").trim();
+  const data = input.data && typeof input.data === "object" ? input.data : {};
+  return {
+    aps: {
+      alert: {
+        title,
+        body
+      },
+      sound: "default",
+      badge: 1
+    },
+    data
+  };
+}
+
+function buildBackgroundPayload(data = {}) {
+  const custom =
+    data && typeof data === "object" && !Array.isArray(data) ? { ...data } : {};
+  return {
+    aps: {
+      "content-available": 1
+    },
+    ...custom
+  };
+}
+
+function sendApnsRequestWithOptions(deviceToken, payload, options = {}) {
   return new Promise((resolve, reject) => {
     const client = http2.connect(currentApnsOrigin());
 
@@ -60,13 +88,16 @@ function sendApnsRequest(deviceToken, payload) {
       reject(error);
     });
 
+    const pushType = String(options.pushType || "alert");
+    const priority = String(options.priority || (pushType === "background" ? "5" : "10"));
+
     const request = client.request({
       ":method": "POST",
       ":path": `/3/device/${deviceToken}`,
       authorization: `bearer ${getProviderToken()}`,
       "apns-topic": APNS_BUNDLE_ID,
-      "apns-push-type": "alert",
-      "apns-priority": "10",
+      "apns-push-type": pushType,
+      "apns-priority": priority,
       "content-type": "application/json"
     });
 
@@ -93,23 +124,6 @@ function sendApnsRequest(deviceToken, payload) {
   });
 }
 
-function buildAlertPayload(input = {}) {
-  const title = String(input.title || "").trim();
-  const body = String(input.body || "").trim();
-  const data = input.data && typeof input.data === "object" ? input.data : {};
-  return {
-    aps: {
-      alert: {
-        title,
-        body
-      },
-      sound: "default",
-      badge: 1
-    },
-    data
-  };
-}
-
 async function sendPushToUser(userId, input = {}) {
   if (!isApnsConfigured()) {
     return { ok: false, skipped: true, reason: "apns_not_configured" };
@@ -126,7 +140,63 @@ async function sendPushToUser(userId, input = {}) {
 
   for (const token of tokens) {
     try {
-      const response = await sendApnsRequest(String(token.device_token || ""), payload);
+      const response = await sendApnsRequestWithOptions(String(token.device_token || ""), payload, {
+        pushType: "alert",
+        priority: "10"
+      });
+      if (response.statusCode >= 200 && response.statusCode < 300) {
+        ok += 1;
+        await markUserPushTokenSent(Number(token.id));
+        continue;
+      }
+
+      fail += 1;
+      let reason = `apns_${response.statusCode}`;
+      try {
+        const parsed = JSON.parse(String(response.body || "{}"));
+        if (parsed?.reason) {
+          reason = String(parsed.reason);
+        }
+      } catch {
+        // ignore malformed APNs body
+      }
+      await markUserPushTokenError(
+        Number(token.id),
+        reason,
+        reason === "BadDeviceToken" || reason === "Unregistered" || response.statusCode === 410
+      );
+    } catch (error) {
+      fail += 1;
+      await markUserPushTokenError(
+        Number(token.id),
+        error instanceof Error && error.message ? error.message : "apns_send_failed"
+      );
+    }
+  }
+
+  return { ok: ok > 0, sent: ok, failed: fail };
+}
+
+async function sendBackgroundPushToUser(userId, data = {}) {
+  if (!isApnsConfigured()) {
+    return { ok: false, skipped: true, reason: "apns_not_configured" };
+  }
+
+  const tokens = await listActiveUserPushTokens(userId, "ios");
+  if (!tokens.length) {
+    return { ok: false, skipped: true, reason: "no_active_tokens" };
+  }
+
+  const payload = buildBackgroundPayload(data);
+  let ok = 0;
+  let fail = 0;
+
+  for (const token of tokens) {
+    try {
+      const response = await sendApnsRequestWithOptions(String(token.device_token || ""), payload, {
+        pushType: "background",
+        priority: "5"
+      });
       if (response.statusCode >= 200 && response.statusCode < 300) {
         ok += 1;
         await markUserPushTokenSent(Number(token.id));
@@ -174,5 +244,6 @@ async function sendPushToUsers(userIds, input = {}) {
 module.exports = {
   isApnsConfigured,
   sendPushToUser,
-  sendPushToUsers
+  sendPushToUsers,
+  sendBackgroundPushToUser
 };

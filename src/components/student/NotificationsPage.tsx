@@ -1,8 +1,15 @@
 import React, { useEffect, useRef, useState } from "react";
+import ko from "../../coach/fallbacks/ko.json";
+import {
+  matchesParentNotificationCategory,
+  type ParentNotificationCategoryFilter
+} from "../../lib/parentNotificationCategory";
 import {
   scheduleBackgroundUiUpdate,
   stableStringify
 } from "../../lib/stableUiUpdate";
+
+const parentNotifFb = ko.parentNotificationsHub;
 
 type NotificationItem = {
   id: number | string;
@@ -187,6 +194,8 @@ export function NotificationsPage(props: {
   meRole: string | null;
   parentStudentEmail?: string | null;
   unreadOnly?: boolean;
+  /** 학부모 알림 유형 필터 */
+  parentCategoryFilter?: ParentNotificationCategoryFilter;
   onReadAll?: () => void;
   onNotificationAction?: (action: ParentNotificationAction) => void;
 }) {
@@ -301,9 +310,13 @@ export function NotificationsPage(props: {
     };
   }, [props.apiBase, props.authToken, props.meRole, props.onReadAll, props.parentStudentEmail, role, token]);
 
-  const visibleItems = props.unreadOnly
-    ? items.filter(item => !item.read_at)
-    : items;
+  const visibleItems = items
+    .filter(item => (props.unreadOnly ? !item.read_at : true))
+    .filter(item =>
+      role === "parent"
+        ? matchesParentNotificationCategory(item, props.parentCategoryFilter || "all")
+        : true
+    );
 
   function notificationSectionLabel(title: string): string | null {
     const t = String(title || "");
@@ -348,7 +361,11 @@ export function NotificationsPage(props: {
         </p>
       ) : !visibleItems.length ? (
         <p className="notifications-page__empty notifications-page__empty--modal">
-          알림이 없습니다.
+          {role === "parent" &&
+          props.parentCategoryFilter &&
+          props.parentCategoryFilter !== "all"
+            ? parentNotifFb.emptyCategory
+            : "알림이 없습니다."}
         </p>
       ) : (
         <div className="notifications-page__list">

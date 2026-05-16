@@ -27,7 +27,6 @@ type ParentAlarmSettings = {
   studentLinkAlerts: boolean;
   studyRoomAlerts: boolean;
   messageAlerts: boolean;
-  homeworkAlerts: boolean;
   requestAlerts: boolean;
 };
 
@@ -38,7 +37,6 @@ const DEFAULT_PARENT_ALARM_SETTINGS: ParentAlarmSettings = {
   studentLinkAlerts: true,
   studyRoomAlerts: true,
   messageAlerts: true,
-  homeworkAlerts: true,
   requestAlerts: true
 };
 const DEFAULT_PARENT_COACH_CUSTOMIZATION: ParentCoachCustomization = {
@@ -188,7 +186,6 @@ export function ParentProfilePage(props: {
     if (alarmSettings.studentLinkAlerts) count += 1;
     if (alarmSettings.studyRoomAlerts) count += 1;
     if (alarmSettings.messageAlerts) count += 1;
-    if (alarmSettings.homeworkAlerts) count += 1;
     if (alarmSettings.requestAlerts) count += 1;
     return count;
   }, [alarmSettings]);
@@ -275,10 +272,6 @@ export function ParentProfilePage(props: {
             data.settings.messageAlerts == null
               ? DEFAULT_PARENT_ALARM_SETTINGS.messageAlerts
               : Boolean(data.settings.messageAlerts),
-          homeworkAlerts:
-            data.settings.homeworkAlerts == null
-              ? DEFAULT_PARENT_ALARM_SETTINGS.homeworkAlerts
-              : Boolean(data.settings.homeworkAlerts),
           requestAlerts:
             data.settings.requestAlerts == null
               ? DEFAULT_PARENT_ALARM_SETTINGS.requestAlerts
@@ -1113,27 +1106,6 @@ export function ParentProfilePage(props: {
                   aria-pressed={alarmSettings.messageAlerts}
                 >
                   {alarmSettings.messageAlerts ? "켜짐" : "꺼짐"}
-                </button>
-              </div>
-              <div className="settings-item settings-item--stack student-profile-alarm-item">
-                <span className="student-profile-alarm-item__body">
-                  <span className="student-profile-alarm-item__label">숙제 제출 알림</span>
-                  <span className="student-profile-alarm-item__copy">
-                    학생이 숙제를 보내면 알려줘요.
-                  </span>
-                </span>
-                <button
-                  type="button"
-                  className={
-                    "student-profile-alarm-item__toggle student-profile-alarm-item__toggle-button" +
-                    (alarmSettings.homeworkAlerts
-                      ? " student-profile-alarm-item__toggle--on"
-                      : " student-profile-alarm-item__toggle--off")
-                  }
-                  onClick={() => toggleAlarmSetting("homeworkAlerts")}
-                  aria-pressed={alarmSettings.homeworkAlerts}
-                >
-                  {alarmSettings.homeworkAlerts ? "켜짐" : "꺼짐"}
                 </button>
               </div>
               <div className="settings-item settings-item--stack student-profile-alarm-item">

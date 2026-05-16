@@ -5,7 +5,6 @@ const jwt = require("jsonwebtoken");
 const crypto = require("crypto");
 const fs = require("fs");
 const path = require("path");
-const multer = require("multer");
 const rateLimit = require("express-rate-limit");
 const helmet = require("helmet");
 const compression = require("compression");
@@ -107,11 +106,6 @@ const {
   listRecentStudentCoachMessages,
   insertStudentParentChatMessage,
   listStudentParentChatMessages,
-  createStudentHomeworkSubmission,
-  updateStudentHomeworkSubmission,
-  listStudentHomeworkSubmissions,
-  deleteStudentHomeworkSubmission,
-  reviewStudentHomeworkSubmission,
   listStudentProfileSchedules,
   createStudentProfileSchedule,
   updateStudentProfileSchedule,
@@ -166,7 +160,7 @@ const {
 } = require("./aiReportService");
 const { isSuperAdminEmail } = require("./superAdminAuth");
 const { ensureCoachFewshotAdminSchema } = require("./feedback/coachFewshotAdmin");
-const { sendPushToUser, sendPushToUsers } = require("./pushService");
+const { sendPushToUser, sendPushToUsers, sendBackgroundPushToUser } = require("./pushService");
 const {
   isSolapiConfigured,
   isSolapiSmsConfigured,
@@ -240,6 +234,8 @@ let dbConnected = false;
 let cronStarted = false;
 let schemaApplied = false;
 const SIMPLEMDM_LOCATION_REFRESH_COOLDOWN_MS = 5 * 60 * 1000;
+const PARENT_LOCATION_REFRESH_COOLDOWN_MS = 20 * 1000;
+const SIMPLEMDM_FORCE_REFRESH_WAIT_MS = 1800;
 const PATTERN_INSIGHTS_CACHE_TTL_MS = 5 * 60 * 1000;
 const PATTERN_INSIGHTS_CACHE_MAX_ENTRIES = 200;
 const LOCK_STATUS_CACHE_TTL_MS = 8 * 1000;
@@ -247,683 +243,6 @@ const LOCK_STATUS_CACHE_MAX_ENTRIES = 300;
 const RESPONSE_CACHE_TTL_MS = 15 * 1000;
 const RESPONSE_CACHE_MAX_ENTRIES = 500;
 const UPLOADS_ROOT = path.join(__dirname, "uploads");
-const HOMEWORK_UPLOADS_DIR = path.join(UPLOADS_ROOT, "homework");
-const simpleMdmLocationRefreshAtByDeviceId = new Map();
-const patternInsightsCache = new Map();
-/** 직전 코치 응답 로그 id — 다음 사용자 메시지에서 signal 반영 (express-session 미사용, userId 키). */
-const lastCoachResponseLogIdByUserId = new Map();
-const lockStatusCache = new Map();
-const responseCache = new Map();
-const DAECHI_ROOT_BUNDLE_ID = "com.daechiroot.ios";
-const APP_ALLOWANCE_MODE_TO_PROFILE_NAME = Object.freeze({
-  default: String(process.env.SIMPLEMDM_APP_ALLOWANCE_DEFAULT_PROFILE || "default").trim(),
-  utility: String(process.env.SIMPLEMDM_APP_ALLOWANCE_UTILITY_PROFILE || "utility").trim(),
-  free: String(process.env.SIMPLEMDM_APP_ALLOWANCE_FREE_PROFILE || "free").trim(),
-  block: String(process.env.SIMPLEMDM_APP_ALLOWANCE_BLOCK_PROFILE || "block").trim()
-});
-
-function coachResponseLogSessionId(req, extra = "") {
-  const fromBody =
-    req.body && req.body.sessionId != null ? String(req.body.sessionId).trim() : "";
-  if (fromBody) return fromBody.slice(0, 200);
-  const uid = Number(req.userId);
-  if (Number.isFinite(uid)) return `user:${uid}${extra ? `:${extra}` : ""}`;
-  return "anonymous";
-}
-
-async function applyCoachSignalFromPreviousTurn(userId, userType, message) {
-  const uid = Number(userId);
-  if (!Number.isFinite(uid)) return;
-  const lastLogId = lastCoachResponseLogIdByUserId.get(uid);
-  if (!lastLogId) return;
-  const ut = userType === "parent" ? "parent" : "student";
-  const { signal, reason } = detectSignal(String(message || ""), ut);
-  if (signal !== "neutral") {
-    try {
-      await dbQuery(
-        `UPDATE coach_response_log SET signal = $1, signal_reason = $2 WHERE id = $3`,
-        [signal, reason, lastLogId]
-      );
-    } catch (err) {
-      console.error("[coach_response_log] signal 업데이트 실패:", err);
-    }
-  }
-  lastCoachResponseLogIdByUserId.delete(uid);
-}
-
-async function insertCoachResponseLogRow({
-  sessionId,
-  userType,
-  coachMode,
-  userMessage,
-  aiResponse,
-  contextSnapshot,
-  userIdForSignalLink
-}) {
-  try {
-    const logResult = await dbQuery(
-      `INSERT INTO coach_response_log
-       (session_id, user_type, coach_mode, user_message, ai_response, context_snapshot)
-       VALUES ($1, $2, $3, $4, $5, $6)
-       RETURNING id`,
-      [
-        sessionId,
-        userType,
-        coachMode,
-        String(userMessage ?? "").slice(0, 12000),
-        String(aiResponse ?? "").slice(0, 12000),
-        contextSnapshot && typeof contextSnapshot === "object" ? contextSnapshot : null
-      ]
-    );
-    const id = logResult.rows[0]?.id;
-    if (
-      userIdForSignalLink != null &&
-      Number.isFinite(Number(userIdForSignalLink)) &&
-      Number.isFinite(Number(id))
-    ) {
-      lastCoachResponseLogIdByUserId.set(Number(userIdForSignalLink), Number(id));
-    }
-    return Number(id);
-  } catch (err) {
-    console.error("[coach_response_log] 저장 실패:", err);
-    return null;
-  }
-}
-
-function coachContextSnapshotFromStudentSnapshot(snapshot) {
-  if (!snapshot || !snapshot.metrics) return null;
-  const m = snapshot.metrics;
-  const stress = m.stress != null ? Number(m.stress) : null;
-  const conc = m.concentration != null ? Number(m.concentration) : null;
-  return {
-    sleepHours: m.sleepHours != null ? Number(m.sleepHours) : null,
-    stressScore: Number.isFinite(stress) ? stress : null,
-    concentrationPercent: Number.isFinite(conc) ? conc : null,
-    planCompletionRate:
-      m.planCompletionRate != null ? Number(m.planCompletionRate) : null
-  };
-}
-
-function coachContextSnapshotFromTomorrowContext(context) {
-  if (!context || typeof context !== "object") return null;
-  return {
-    collabFocus: context.collabFocus ?? null,
-    todayProgressPercent: context.todayProgressPercent ?? null
-  };
-}
-
-function resolveAppAllowanceModeFromProfileName(profileNameRaw) {
-  const profileName = normalizeSimpleMdmProfileName(profileNameRaw);
-  if (!profileName) return "default";
-  for (const [mode, configuredProfileName] of Object.entries(APP_ALLOWANCE_MODE_TO_PROFILE_NAME)) {
-    if (normalizeSimpleMdmProfileName(configuredProfileName) === profileName) {
-      return mode;
-    }
-  }
-  return "default";
-}
-
-/** jsonb / 직렬화 이슈로 배열이 아닌 형태로 올 수 있음 */
-function coerceOverrideBundleIdsArray(raw) {
-  if (raw == null) return [];
-  if (Array.isArray(raw)) return raw;
-  if (typeof raw === "string") {
-    try {
-      const p = JSON.parse(raw);
-      return Array.isArray(p) ? p : [];
-    } catch {
-      return [];
-    }
-  }
-  if (typeof Buffer !== "undefined" && Buffer.isBuffer(raw)) {
-    try {
-      const p = JSON.parse(raw.toString("utf8"));
-      return Array.isArray(p) ? p : [];
-    } catch {
-      return [];
-    }
-  }
-  if (typeof raw === "object") {
-    const vals = Object.values(raw);
-    if (vals.length > 0 && vals.every(v => typeof v === "string")) {
-      return vals;
-    }
-  }
-  return [];
-}
-
-/** 대치루트만 허용하는 일괄잠금(override) 여부 */
-function isDaechiRootBulkLockOverride(overrideBundleIds) {
-  const ids = Array.from(
-    new Set(
-      coerceOverrideBundleIdsArray(overrideBundleIds)
-        .map(value => String(value || "").trim().toLowerCase())
-        .filter(Boolean)
-    )
-  ).sort();
-  return ids.length === 1 && ids[0] === DAECHI_ROOT_BUNDLE_ID.toLowerCase();
-}
-
-/** UI용: block(일괄잠금) / 계획표(주간 슬롯) / 유틸리티 / 자유시간 / 기본 */
-function resolveMdmSurfaceMode(appAllowanceModeKey, weeklySlotCount) {
-  const mode = String(appAllowanceModeKey || "default").trim().toLowerCase();
-  if (mode === "utility") return "utility";
-  if (mode === "free") return "free";
-  if (mode === "block") return "block";
-  if (mode === "default") {
-    return Number(weeklySlotCount) > 0 ? "schedule" : "default";
-  }
-  return "default";
-}
-
-function resolveMdmSurfaceModeForParent(appAllowanceState, appAllowanceModeKey, weeklySlotCount) {
-  const mode = String(appAllowanceModeKey || "default").trim().toLowerCase();
-  if (mode === "block") return "block";
-  if (isDaechiRootBulkLockOverride(appAllowanceState?.override_bundle_ids)) {
-    return "block";
-  }
-  return resolveMdmSurfaceMode(appAllowanceModeKey, weeklySlotCount);
-}
-
-fs.mkdirSync(HOMEWORK_UPLOADS_DIR, { recursive: true });
-
-function normalizeModeKey(value) {
-  return String(value || "")
-    .trim()
-    .toLowerCase();
-}
-
-function normalizeSimpleMdmProfileName(value) {
-  return String(value || "")
-    .trim()
-    .toLowerCase()
-    .replace(/\s+/g, " ");
-}
-
-function getPatternInsightsCache(key) {
-  const cached = patternInsightsCache.get(key);
-  if (!cached) return null;
-  if (Date.now() - Number(cached.at || 0) > PATTERN_INSIGHTS_CACHE_TTL_MS) {
-    patternInsightsCache.delete(key);
-    return null;
-  }
-  // LRU touch
-  patternInsightsCache.delete(key);
-  patternInsightsCache.set(key, cached);
-  return cached.value;
-}
-
-function setPatternInsightsCache(key, value) {
-  if (patternInsightsCache.size >= PATTERN_INSIGHTS_CACHE_MAX_ENTRIES) {
-    const oldestKey = patternInsightsCache.keys().next().value;
-    if (oldestKey) patternInsightsCache.delete(oldestKey);
-  }
-  patternInsightsCache.set(key, { at: Date.now(), value });
-}
-
-function normalizeWeekStartForCache(weekStartRaw) {
-  const weekStart = String(weekStartRaw || "").trim();
-  if (!weekStart) return "recent";
-  return isIsoDate(weekStart) ? weekStart : "recent";
-}
-
-function buildPatternCacheKey(scope, userId, studentId, weekStartRaw) {
-  const week = normalizeWeekStartForCache(weekStartRaw);
-  if (scope === "parent") {
-    return `parent:${Number(userId) || 0}:${Number(studentId) || 0}:${week}`;
-  }
-  return `student:${Number(userId) || 0}:${week}`;
-}
-
-function invalidatePatternInsightsCacheForStudent(studentUserId) {
-  const sid = Number(studentUserId) || 0;
-  if (!sid) return;
-  const prefixes = [`student:${sid}:`, `parent:`];
-  for (const key of patternInsightsCache.keys()) {
-    if (String(key).startsWith(prefixes[0])) {
-      patternInsightsCache.delete(key);
-      continue;
-    }
-    if (String(key).startsWith(prefixes[1]) && String(key).includes(`:${sid}:`)) {
-      patternInsightsCache.delete(key);
-    }
-  }
-}
-
-function getResponseCache(key) {
-  const cached = responseCache.get(key);
-  if (!cached) return null;
-  if (Date.now() - Number(cached.at || 0) > RESPONSE_CACHE_TTL_MS) {
-    responseCache.delete(key);
-    return null;
-  }
-  // LRU touch
-  responseCache.delete(key);
-  responseCache.set(key, cached);
-  return cached.value;
-}
-
-function setResponseCache(key, value) {
-  if (responseCache.size >= RESPONSE_CACHE_MAX_ENTRIES) {
-    const oldestKey = responseCache.keys().next().value;
-    if (oldestKey) responseCache.delete(oldestKey);
-  }
-  responseCache.set(key, { at: Date.now(), value });
-}
-
-function invalidateResponseCacheByPrefix(prefix) {
-  const normalized = String(prefix || "");
-  if (!normalized) return;
-  for (const key of responseCache.keys()) {
-    if (String(key).startsWith(normalized)) {
-      responseCache.delete(key);
-    }
-  }
-}
-
-function buildParentStudyRoomVisitsCacheKey(parentUserId, studentId, limit) {
-  return `parent-study-room-visits:${Number(parentUserId) || 0}:${Number(studentId) || 0}:${Number(limit) || 6}`;
-}
-
-function getLockStatusCache(key) {
-  const cached = lockStatusCache.get(key);
-  if (!cached) return null;
-  if (Date.now() - Number(cached.at || 0) > LOCK_STATUS_CACHE_TTL_MS) {
-    lockStatusCache.delete(key);
-    return null;
-  }
-  // LRU touch
-  lockStatusCache.delete(key);
-  lockStatusCache.set(key, cached);
-  return cached.value;
-}
-
-function setLockStatusCache(key, value) {
-  if (lockStatusCache.size >= LOCK_STATUS_CACHE_MAX_ENTRIES) {
-    const oldestKey = lockStatusCache.keys().next().value;
-    if (oldestKey) lockStatusCache.delete(oldestKey);
-  }
-  lockStatusCache.set(key, { at: Date.now(), value });
-}
-
-function invalidateLockStatusCacheForStudent(studentUserId) {
-  const sid = Number(studentUserId) || 0;
-  if (!sid) return;
-  for (const key of lockStatusCache.keys()) {
-    const text = String(key);
-    if (text === `student-lock:${sid}` || text.includes(`:${sid}`)) {
-      lockStatusCache.delete(key);
-    }
-  }
-}
-
-async function asyncMapWithConcurrency(items, mapper, concurrency = 4) {
-  const list = Array.isArray(items) ? items : [];
-  const limit = Math.max(1, Math.min(8, Number(concurrency) || 4));
-  const results = new Array(list.length);
-  let index = 0;
-
-  async function worker() {
-    while (index < list.length) {
-      const current = index;
-      index += 1;
-      results[current] = await mapper(list[current], current);
-    }
-  }
-
-  await Promise.all(Array.from({ length: Math.min(limit, list.length) }, worker));
-  return results;
-}
-
-async function ensureStudentAssignmentGroupForProfile(userId, deviceId) {
-  let group = await getStudentMdmGroup(userId);
-  if (!group) {
-    const created = await createAssignmentGroup(`student-${userId}`);
-    if (!created?.id) {
-      throw new Error("학생용 SimpleMDM assignment group 생성에 실패했습니다.");
-    }
-    group = await upsertStudentMdmGroup(
-      userId,
-      Number(created.id),
-      created.attributes?.name || `student-${userId}`
-    );
-  }
-  await assignDeviceToGroup(Number(group.assignment_group_id), Number(deviceId));
-  return {
-    id: Number(group.assignment_group_id),
-    name: String(group.assignment_group_name || `student-${userId}`)
-  };
-}
-
-async function applyNamedAppAllowanceProfileForStudent(userId, modeKey) {
-  if (!isSimpleMdmConfigured()) {
-    throw new Error("SimpleMDM 연동이 설정되지 않았습니다.");
-  }
-  const normalizedMode = normalizeModeKey(modeKey);
-  const profileName = APP_ALLOWANCE_MODE_TO_PROFILE_NAME[normalizedMode];
-  if (!profileName) {
-    throw new Error("지원하지 않는 허용앱 모드입니다.");
-  }
-
-  const serial = await getActiveDeviceSerialForUser(userId);
-  if (!serial) {
-    throw new Error("학생 기기 시리얼이 등록되지 않았습니다.");
-  }
-  const device = await findDeviceBySerial(serial);
-  if (!device?.id) {
-    throw new Error("SimpleMDM에서 학생 기기를 찾을 수 없습니다.");
-  }
-
-  const group = await ensureStudentAssignmentGroupForProfile(userId, Number(device.id));
-  const targetProfile = await findProfileByName(profileName);
-  if (!targetProfile?.id) {
-    throw new Error(`SimpleMDM 프로파일 '${profileName}'을 찾지 못했습니다.`);
-  }
-
-  const managedProfileNameSet = new Set(
-    Object.values(APP_ALLOWANCE_MODE_TO_PROFILE_NAME)
-      .map(normalizeSimpleMdmProfileName)
-      .filter(Boolean)
-  );
-  const targetProfileId = Number(targetProfile.id);
-
-  // 목표 이름 프로파일을 먼저 붙인 뒤 나머지를 뗀다. (기존에 block 등만 있을 때
-  // 주간 sync가 utility/free/block 없는 순간으로 보고 default·주간 프로파일을 끼워 넣는 레이스 방지)
-  await assignProfileToGroup(group.id, targetProfileId);
-  const removedProfileIds = await unassignCompetingAppAllowanceProfilesFromGroup(group.id, {
-    targetProfileId,
-    managedNameKeys: managedProfileNameSet,
-    syncAfter: false
-  });
-
-  await clearStudentMdmAppAllowanceOverride(userId).catch(() => {});
-  await removeStudentWeeklyAppAllowanceRestriction(userId, {
-    syncAfterUnassign: false
-  }).catch(() => {});
-
-  await syncProfiles(group.id).catch(() => {});
-
-  const persistedName = String(targetProfile?.attributes?.name || profileName).trim();
-  const persistedIdentifier =
-    targetProfile?.attributes?.profile_identifier != null
-      ? String(targetProfile.attributes.profile_identifier).trim()
-      : null;
-  await upsertStudentMdmAppAllowanceProfileState(userId, {
-    profileId: targetProfileId,
-    profileName: persistedName,
-    profileIdentifier: persistedIdentifier || null,
-    lastPayloadHash: null,
-    lastSyncedAt: new Date().toISOString(),
-    lastError: null
-  });
-
-  await upsertStudentCoachProfile(userId, { mdmApplied: true }).catch(() => {});
-
-  return {
-    mode: normalizedMode,
-    profileId: targetProfileId,
-    profileName: persistedName,
-    removedProfileIds,
-    groupId: group.id
-  };
-}
-
-/**
- * 네 가지 축 중 "기본"(계획표 주간 프로파일 또는 이름 기반 default)이 비지 않도록 맞춘다.
- * 일괄잠금(override)·유틸·자유가 아닐 때는 슬롯이 있으면 주간 동기화, 없으면 default 이름 프로파일을 올린다.
- */
-async function ensureBaselineAppAllowanceForStudent(userId, options = {}) {
-  if (!isSimpleMdmConfigured()) {
-    return { ok: false, skipped: true, reason: "simplemdm_not_configured" };
-  }
-  const allowanceState = await getStudentMdmAppAllowanceProfileState(userId);
-  const namedMode = resolveAppAllowanceModeFromProfileName(allowanceState?.profile_name);
-  if (namedMode === "block" && !options.afterParentAppModeScheduleSlot) {
-    return { ok: true, skipped: true, reason: "block_named_profile" };
-  }
-  if (isDaechiRootBulkLockOverride(allowanceState?.override_bundle_ids)) {
-    await clearStudentMdmAppAllowanceOverride(userId).catch(() => {});
-    await applyNamedAppAllowanceProfileForStudent(userId, "block");
-    return { ok: true, applied: "block_named", legacyOverrideMigrated: true };
-  }
-  const slots = await listStudentWeeklyAppAllowanceSlots(userId);
-  if (slots.length > 0) {
-    return syncStudentWeeklyAppAllowance(userId, {
-      force: true,
-      reason: options.reason || "ensure_baseline"
-    });
-  }
-  await applyNamedAppAllowanceProfileForStudent(userId, "default");
-  return { ok: true, applied: "default_named" };
-}
-
-async function buildParentTimedFreeRestoreSnapshot(userId) {
-  const allowanceState = await getStudentMdmAppAllowanceProfileState(userId);
-  const namedMode = resolveAppAllowanceModeFromProfileName(allowanceState?.profile_name);
-  const bulkDaechiLock = isDaechiRootBulkLockOverride(allowanceState?.override_bundle_ids);
-  const slots = await listStudentWeeklyAppAllowanceSlots(userId);
-  return {
-    version: 1,
-    namedMode: namedMode === "free" ? "default" : namedMode,
-    weeklySlotCount: slots.length,
-    bulkDaechiLock
-  };
-}
-
-/** 자유시간 종료(수동 default 또는 만료) 시 MDM 허용앱 상태를 진입 직전으로 복구합니다. */
-async function restoreParentAppAllowanceAfterParentFree(userId, restoreSnapshot) {
-  if (!isSimpleMdmConfigured()) {
-    return { ok: false, skipped: true, reason: "simplemdm_not_configured" };
-  }
-  const snap =
-    restoreSnapshot && typeof restoreSnapshot === "object" && !Array.isArray(restoreSnapshot)
-      ? restoreSnapshot
-      : {};
-  if (!snap || Object.keys(snap).length === 0) {
-    return ensureBaselineAppAllowanceForStudent(userId, {
-      reason: "parent_free_restore_empty_snapshot",
-      afterParentAppModeScheduleSlot: true
-    });
-  }
-  const namedMode = normalizeModeKey(snap.namedMode || "default");
-  const weeklySlotCount = Math.max(0, Math.floor(Number(snap.weeklySlotCount) || 0));
-  const bulkDaechiLock = Boolean(snap.bulkDaechiLock);
-
-  if (bulkDaechiLock) {
-    await clearStudentMdmAppAllowanceOverride(userId).catch(() => {});
-    await applyNamedAppAllowanceProfileForStudent(userId, "block");
-    return { ok: true, applied: "bulk_block", reason: "parent_free_restore" };
-  }
-
-  await clearStudentMdmAppAllowanceOverride(userId).catch(() => {});
-
-  if (namedMode === "default" && weeklySlotCount > 0) {
-    const sync = await syncStudentWeeklyAppAllowance(userId, {
-      force: true,
-      reason: "parent_free_restore_weekly"
-    });
-    return { ok: Boolean(sync?.ok !== false), applied: "weekly", sync };
-  }
-
-  if (namedMode === "utility" || namedMode === "block") {
-    const applied = await applyNamedAppAllowanceProfileForStudent(userId, namedMode);
-    return { ok: true, applied: namedMode, profileApply: applied };
-  }
-
-  const applied = await applyNamedAppAllowanceProfileForStudent(userId, "default");
-  return { ok: true, applied: "default_named", profileApply: applied };
-}
-
-function resolveHomeworkUploadPath(fileUrl) {
-  const raw = String(fileUrl || "").trim();
-  if (!raw.startsWith("/uploads/homework/")) return null;
-  const fileName = path.basename(raw);
-  if (!fileName) return null;
-  return path.join(HOMEWORK_UPLOADS_DIR, fileName);
-}
-
-function haversineMeters(lat1, lng1, lat2, lng2) {
-  const toRad = value => (Number(value) * Math.PI) / 180;
-  const earthRadiusMeters = 6371000;
-  const dLat = toRad(Number(lat2) - Number(lat1));
-  const dLng = toRad(Number(lng2) - Number(lng1));
-  const a =
-    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-    Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLng / 2) * Math.sin(dLng / 2);
-  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-  return earthRadiusMeters * c;
-}
-
-function parseIsoMs(value) {
-  if (!value) return null;
-  const ms = new Date(String(value)).getTime();
-  return Number.isFinite(ms) ? ms : null;
-}
-
-function coerceFiniteNumber(value) {
-  const parsed = Number(value);
-  return Number.isFinite(parsed) ? parsed : null;
-}
-
-function applyLocationToStudyRoomSummary(liveSummary, location) {
-  return {
-    ...liveSummary,
-    currentLatitude:
-      location.latitude != null && Number.isFinite(Number(location.latitude))
-        ? Number(location.latitude)
-        : liveSummary.currentLatitude ?? null,
-    currentLongitude:
-      location.longitude != null && Number.isFinite(Number(location.longitude))
-        ? Number(location.longitude)
-        : liveSummary.currentLongitude ?? null,
-    currentHeartbeatAt: location.updatedAt,
-    currentAccuracyMeters: location.accuracy,
-    rooms: (Array.isArray(liveSummary.rooms) ? liveSummary.rooms : []).map(room => {
-      const currentDistanceMeters = haversineMeters(
-        location.latitude,
-        location.longitude,
-        room.latitude,
-        room.longitude
-      );
-      return {
-        ...room,
-        currentDistanceMeters,
-        isWithinRadius: currentDistanceMeters <= Number(room.radiusMeters || 0)
-      };
-    })
-  };
-}
-
-async function getMergedStudyRoomTrackingSummary(studentUserId) {
-  const liveSummary = await listCurrentStudyRoomDistancesForStudent(studentUserId);
-  if (!isSimpleMdmConfigured()) {
-    return liveSummary;
-  }
-
-  const linkedSerial = await getActiveDeviceSerialForUser(studentUserId);
-  if (!linkedSerial) {
-    return liveSummary;
-  }
-
-  const device = await findDeviceBySerial(linkedSerial).catch(() => null);
-  const attrs = device?.attributes || null;
-  const latitude = coerceFiniteNumber(attrs?.location_latitude);
-  const longitude = coerceFiniteNumber(attrs?.location_longitude);
-  const updatedAt = attrs?.location_updated_at ? new Date(String(attrs.location_updated_at)).toISOString() : null;
-  const accuracy = coerceFiniteNumber(attrs?.location_accuracy);
-
-  const appLocationMs = parseIsoMs(liveSummary.currentHeartbeatAt);
-  const mdmLocationMs = parseIsoMs(updatedAt);
-  const shouldUseSimpleMdmLocation =
-    latitude != null &&
-    longitude != null &&
-    mdmLocationMs != null &&
-    (appLocationMs == null || mdmLocationMs > appLocationMs);
-
-  const appLocationIsStale = appLocationMs == null || Date.now() - appLocationMs > SIMPLEMDM_LOCATION_REFRESH_COOLDOWN_MS;
-  const deviceId = Number(device?.id || 0);
-  if (deviceId > 0 && appLocationIsStale) {
-    const lastRefreshAt = simpleMdmLocationRefreshAtByDeviceId.get(deviceId) || 0;
-    if (Date.now() - lastRefreshAt > SIMPLEMDM_LOCATION_REFRESH_COOLDOWN_MS) {
-      simpleMdmLocationRefreshAtByDeviceId.set(deviceId, Date.now());
-      void refreshDevice(deviceId).catch(() => {
-        // ignore best-effort SimpleMDM refresh failures
-      });
-    }
-  }
-
-  if (!shouldUseSimpleMdmLocation) {
-    return liveSummary;
-  }
-
-  return applyLocationToStudyRoomSummary(liveSummary, {
-    latitude,
-    longitude,
-    accuracy,
-    updatedAt
-  });
-}
-
-async function removeHomeworkUpload(fileUrl) {
-  const filePath = resolveHomeworkUploadPath(fileUrl);
-  if (!filePath) return;
-  try {
-    await fs.promises.unlink(filePath);
-  } catch (error) {
-    if (error && error.code !== "ENOENT") {
-      console.error("homework upload cleanup error", error);
-    }
-  }
-}
-
-function sanitizeUploadExtension(originalName) {
-  const ext = path.extname(String(originalName || "")).toLowerCase();
-  return /^\.[a-z0-9]{1,12}$/.test(ext) ? ext : "";
-}
-
-/** 숙제 업로드 허용 MIME (확장자만 믿지 않음) */
-const HOMEWORK_ALLOWED_MIMES = new Set([
-  "image/jpeg",
-  "image/png",
-  "image/gif",
-  "image/webp",
-  "image/heic",
-  "application/pdf",
-  "application/zip",
-  "application/x-zip-compressed",
-  "application/msword",
-  "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-  "application/vnd.ms-excel",
-  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-  "application/vnd.ms-powerpoint",
-  "application/vnd.openxmlformats-officedocument.presentationml.presentation",
-  "text/plain"
-]);
-
-const homeworkUpload = multer({
-  storage: multer.diskStorage({
-    destination(_req, _file, cb) {
-      cb(null, HOMEWORK_UPLOADS_DIR);
-    },
-    filename(_req, file, cb) {
-      const ext = sanitizeUploadExtension(file.originalname);
-      cb(null, `${Date.now()}-${crypto.randomBytes(6).toString("hex")}${ext}`);
-    }
-  }),
-  limits: {
-    fileSize: 15 * 1024 * 1024
-  },
-  fileFilter(_req, file, cb) {
-    const mime = String(file.mimetype || "").toLowerCase().trim();
-    if (HOMEWORK_ALLOWED_MIMES.has(mime)) {
-      return cb(null, true);
-    }
-    const err = new Error("지원하지 않는 파일 형식입니다.");
-    err.code = "INVALID_HOMEWORK_MIME";
-    cb(err);
-  }
-});
-
 function assertRuntimeConfig() {
   const isProd = process.env.NODE_ENV === "production";
   if (isProd && JWT_SECRET.length < 24) {
@@ -1856,12 +1175,71 @@ async function buildParentGrowthReportPayload(studentId, weekMondayIso, parentUs
   const unfinishedPlans = planLists.carryOver.length
     ? planLists.carryOver.map(item => item.title).slice(0, 5).join(", ")
     : "없음";
+  const carryOverPlans = unfinishedPlans;
+  const topSubjectsLine =
+    (stats.subjectTimes || []).length > 0
+      ? stats.subjectTimes
+          .slice(0, 3)
+          .map(row => {
+            const mins = Number(row.minutes) || 0;
+            const h = mins / 60;
+            const label = h >= 1 ? `${roundOrNull(h, 1)}시간` : `${Math.round(mins)}분`;
+            return `${row.subject} ${label}`;
+          })
+          .join(", ")
+      : null;
+  const planProgressLine =
+    planLists.totalTracked > 0
+      ? `${planLists.completedCount}/${planLists.totalTracked}개 완료`
+      : "기록된 계획 없음";
+  const completedHighlights =
+    planLists.bestCompleted.length > 0
+      ? planLists.bestCompleted
+          .map(item => `${item.title}(${item.completedDayLabel})`)
+          .join(", ")
+      : "없음";
+  const studyPeakRow = [...daily]
+    .filter(d => d.studyMinutesFromLog != null)
+    .sort((a, b) => Number(b.studyMinutesFromLog || 0) - Number(a.studyMinutesFromLog || 0))[0];
+  const studyPeakDay =
+    studyPeakRow != null
+      ? pickWeekdayLabelFromIndex(weekKeys.indexOf(studyPeakRow.dateKey))
+      : null;
+  const suggestionPatternInput = {
+    studentName,
+    studentGoal: String(profile?.goal || "").trim() || null,
+    targetGrade: String(profile?.target_grade || "").trim() || null,
+    topSubjectsLine,
+    planProgressLine,
+    completedHighlights,
+    carryOverPlans,
+    studyPeakDay,
+    unfinishedPlans,
+    achievementRate,
+    achievementDelta: roundOrNull(vsPrevWeekAchievementDeltaPct, 1) ?? 0,
+    focusEfficiencyPercent: focusEfficiencyThis ?? "데이터 없음",
+    bestFocusDay:
+      bestFocusRow != null
+        ? pickWeekdayLabelFromIndex(weekKeys.indexOf(bestFocusRow.dateKey))
+        : "데이터 없음",
+    highStressDay:
+      highestStressRow != null
+        ? pickWeekdayLabelFromIndex(weekKeys.indexOf(highestStressRow.dateKey))
+        : "데이터 없음",
+    highStressScore10:
+      highestStressRow?.stressScore != null
+        ? roundOrNull(Number(highestStressRow.stressScore) * 2, 1)
+        : "데이터 없음"
+  };
+  const patternFallback =
+    prompts.parentGrowthReport.buildNextWeekSuggestionsFallback(suggestionPatternInput);
 
   if (openai) {
     try {
       const parsed = await openAiParentGrowthReportSections({
         studentName,
         weekLabel: headerBadgeWeek || `${weekMondayIso} ~ ${weekEnd}`,
+        ...suggestionPatternInput,
         avgSleep: avgSleepRounded ?? "데이터 없음",
         avgStress10: avgStress10 ?? "데이터 없음",
         totalStudyHours: roundOrNull(actualStudyHours, 1) ?? "데이터 없음",
@@ -1873,21 +1251,11 @@ async function buildParentGrowthReportPayload(studentId, weekMondayIso, parentUs
           bestFocusRow != null
             ? pickWeekdayLabelFromIndex(weekKeys.indexOf(bestFocusRow.dateKey))
             : "데이터 없음",
-        highStressDay:
-          highestStressRow != null
-            ? pickWeekdayLabelFromIndex(weekKeys.indexOf(highestStressRow.dateKey))
-            : "데이터 없음",
-        highStressScore10:
-          highestStressRow?.stressScore != null
-            ? roundOrNull(Number(highestStressRow.stressScore) * 2, 1)
-            : "데이터 없음",
         shortestSleepDay:
           shortestSleepRow != null
             ? pickWeekdayLabelFromIndex(weekKeys.indexOf(shortestSleepRow.dateKey))
             : "데이터 없음",
         shortestSleepHours: shortestSleepRow?.sleepHours ?? "데이터 없음",
-        unfinishedPlans,
-        achievementDelta: roundOrNull(vsPrevWeekAchievementDeltaPct, 1) ?? 0,
         focusEfficiencyPercent: focusEfficiencyThis ?? "데이터 없음",
         lastWeekFocusEfficiencyPercent: focusEfficiencyPrev ?? "데이터 없음",
         maxFocusStreak: maxFocusBlock?.duration ?? "데이터 없음",
@@ -1914,6 +1282,19 @@ async function buildParentGrowthReportPayload(studentId, weekMondayIso, parentUs
       });
       if (parsed && parsed.weeklySummary) {
         narrative = { ...narrative, ...parsed };
+        const isGenericWellness = prompts.parentGrowthReport.isGenericWellnessSuggestion;
+        if (
+          !String(narrative.nextWeekForStudent || "").trim() ||
+          isGenericWellness(narrative.nextWeekForStudent)
+        ) {
+          narrative.nextWeekForStudent = patternFallback.studentSuggestion;
+        }
+        if (
+          !String(narrative.nextWeekForParent || "").trim() ||
+          isGenericWellness(narrative.nextWeekForParent)
+        ) {
+          narrative.nextWeekForParent = patternFallback.parentSuggestion;
+        }
         usedOpenAi = true;
         if (parentUserIdForLog) {
           try {
@@ -1942,7 +1323,9 @@ async function buildParentGrowthReportPayload(studentId, weekMondayIso, parentUs
     lines,
     studyRoomHours,
     actualStudyHours,
-    planLists
+    planLists,
+    suggestionPattern: suggestionPatternInput,
+    patternFallback
   });
 
   const lifeDataSparse =
@@ -2024,8 +1407,6 @@ function normalizeStudentAlarmSettingsInput(input = {}) {
       input.studyRoomAlerts == null ? true : Boolean(input.studyRoomAlerts),
     messageAlerts:
       input.messageAlerts == null ? true : Boolean(input.messageAlerts),
-    homeworkAlerts:
-      input.homeworkAlerts == null ? true : Boolean(input.homeworkAlerts),
     wakeAlarmEnabled:
       input.wakeAlarmEnabled == null ? false : Boolean(input.wakeAlarmEnabled),
     wakeAlarmTime
@@ -2042,8 +1423,6 @@ function normalizeParentAlarmSettingsInput(input = {}) {
       input.studyRoomAlerts == null ? true : Boolean(input.studyRoomAlerts),
     messageAlerts:
       input.messageAlerts == null ? true : Boolean(input.messageAlerts),
-    homeworkAlerts:
-      input.homeworkAlerts == null ? true : Boolean(input.homeworkAlerts),
     requestAlerts:
       input.requestAlerts == null ? true : Boolean(input.requestAlerts)
   };
@@ -3969,16 +3348,6 @@ async function resolvePrimaryParentForStudent(studentUserId) {
   };
 }
 
-function normalizeReviewStatus(raw) {
-  return raw === "approved"
-    ? "approved"
-    : raw === "needs_revision"
-      ? "needs_revision"
-      : raw === "pending"
-        ? "pending"
-        : null;
-}
-
 function isNaverLocalSearchConfigured() {
   return Boolean(NAVER_SEARCH_CLIENT_ID && NAVER_SEARCH_CLIENT_SECRET);
 }
@@ -4416,10 +3785,6 @@ app.post("/api/student/alarm-settings", authMiddleware, async (req, res) => {
           saved?.alarm_message_alerts == null
             ? settingsInput.messageAlerts
             : Boolean(saved.alarm_message_alerts),
-        homeworkAlerts:
-          saved?.alarm_homework_alerts == null
-            ? settingsInput.homeworkAlerts
-            : Boolean(saved.alarm_homework_alerts),
         wakeAlarmEnabled:
           saved?.wake_alarm_enabled == null
             ? settingsInput.wakeAlarmEnabled
@@ -5206,6 +4571,116 @@ app.get("/api/parent/students/:studentId/device-control-state", authMiddleware, 
   }
 });
 
+async function verifyParentStudentMdmLink(studentId) {
+  const baseNetwork = {
+    available: false,
+    status: "skipped",
+    skippedReason: "simplemdm_not_configured"
+  };
+  if (!isSimpleMdmConfigured()) {
+    return {
+      ok: true,
+      linkStatus: "mdm_not_configured",
+      serial: null,
+      deviceId: null,
+      refreshRequested: false,
+      simpleMdmNetwork: baseNetwork
+    };
+  }
+
+  const serialRaw = await getActiveDeviceSerialForUser(studentId);
+  const serial = serialRaw != null ? String(serialRaw).trim() : "";
+  if (!serial) {
+    return {
+      ok: true,
+      linkStatus: "no_serial",
+      serial: null,
+      deviceId: null,
+      refreshRequested: false,
+      simpleMdmNetwork: {
+        available: false,
+        status: "skipped",
+        skippedReason: "no_active_device_serial"
+      }
+    };
+  }
+
+  let device = await resolveSimpleMdmDeviceRowForParentNetwork(serial);
+  if (!device?.id) {
+    return {
+      ok: true,
+      linkStatus: "not_in_mdm",
+      serial,
+      deviceId: null,
+      refreshRequested: false,
+      simpleMdmNetwork: {
+        available: false,
+        status: "skipped",
+        skippedReason: "device_not_in_simplemdm"
+      }
+    };
+  }
+
+  const deviceId = Number(device.id);
+  let refreshRequested = false;
+  let refreshError = null;
+  try {
+    await refreshDevice(deviceId);
+    refreshRequested = true;
+    await sleepMs(SIMPLEMDM_FORCE_REFRESH_WAIT_MS);
+    const freshPayload = await getDeviceById(deviceId).catch(() => null);
+    if (freshPayload?.data) {
+      device = freshPayload.data;
+    }
+  } catch (err) {
+    refreshError = err instanceof Error ? err.message : "refresh_failed";
+  }
+
+  const simpleMdmNetwork = buildSimpleMdmParentNetworkStatusFromDevice(device);
+  let linkStatus = "unknown";
+  if (refreshError) {
+    linkStatus = "error";
+  } else if (simpleMdmNetwork.status === "recent") {
+    linkStatus = "connected";
+  } else if (simpleMdmNetwork.status === "stale") {
+    linkStatus = "stale";
+  } else if (simpleMdmNetwork.status === "skipped") {
+    linkStatus = "not_in_mdm";
+  }
+
+  return {
+    ok: !refreshError,
+    linkStatus,
+    serial,
+    deviceId,
+    refreshRequested,
+    refreshError,
+    simpleMdmNetwork
+  };
+}
+
+app.post("/api/parent/students/:studentId/mdm-link/verify", authMiddleware, async (req, res) => {
+  try {
+    const me = await getMe(req.userId);
+    if (!me || me.role !== "parent") {
+      return res.status(403).json({ error: "권한이 없습니다." });
+    }
+    const studentId = Number(req.params.studentId || 0);
+    if (!studentId) {
+      return res.status(400).json({ error: "studentId가 필요합니다." });
+    }
+    const has = await parentHasStudent(req.userId, studentId);
+    if (!has) {
+      return res.status(403).json({ error: "연결된 학생만 확인할 수 있습니다." });
+    }
+    const verify = await verifyParentStudentMdmLink(studentId);
+    return res.json(verify);
+  } catch (e) {
+    console.error("/api/parent/students/:studentId/mdm-link/verify POST error", e);
+    return res.status(500).json({ error: "Simple MDM 연결 확인에 실패했습니다." });
+  }
+});
+
 function normalizeSimpleMdmProfileRowForParent(row) {
   const attrs = row?.attributes || {};
   const id = row?.id != null ? Number(row.id) : null;
@@ -5652,30 +5127,66 @@ app.get("/api/parent/students/:studentId/study-room-visits", authMiddleware, asy
     if (cached) {
       return res.json(cached);
     }
-    const [visits, liveSummary] = await Promise.all([
-      listRecentStudyRoomVisitSessionsForParent(req.userId, studentId, limit),
-      getMergedStudyRoomTrackingSummary(studentId)
-    ]);
-    const currentRoom = liveSummary.rooms.find(room => room.parentUserId === req.userId) || null;
-    const response = {
-      visits,
-      currentDistanceMeters: currentRoom?.currentDistanceMeters ?? null,
-      currentWithinRadius: currentRoom?.isWithinRadius ?? null,
-      currentHeartbeatAt: liveSummary.currentHeartbeatAt,
-      currentAccuracyMeters: liveSummary.currentAccuracyMeters,
-      currentLatitude: liveSummary.currentLatitude ?? null,
-      currentLongitude: liveSummary.currentLongitude ?? null,
-      currentRadiusMeters: currentRoom?.radiusMeters ?? null,
-      studyRoomName: currentRoom?.name || null,
-      studyRoomAddress: currentRoom?.address ?? null,
-      studyRoomLatitude: currentRoom?.latitude ?? null,
-      studyRoomLongitude: currentRoom?.longitude ?? null
-    };
+    const response = await buildParentStudyRoomVisitsResponse(req.userId, studentId, limit);
     setResponseCache(cacheKey, response);
     res.json(response);
   } catch (e) {
     console.error("/api/parent/students/:studentId/study-room-visits GET error", e);
     res.status(500).json({ error: "체류 기록을 불러오지 못했습니다." });
+  }
+});
+
+app.post("/api/parent/students/:studentId/location/refresh", authMiddleware, async (req, res) => {
+  try {
+    const me = await getMe(req.userId);
+    if (!me || me.role !== "parent") {
+      return res.status(403).json({ error: "권한이 없습니다." });
+    }
+    const studentId = Number(req.params.studentId || 0);
+    const limit = Math.min(20, Math.max(1, Number(req.query.limit || 6)));
+    if (!studentId) {
+      return res.status(400).json({ error: "studentId가 필요합니다." });
+    }
+    const has = await parentHasStudent(req.userId, studentId);
+    if (!has) {
+      return res.status(403).json({ error: "연결된 학생만 조회할 수 있습니다." });
+    }
+
+    const lastRefreshAt = parentLocationRefreshAtByStudentId.get(studentId) || 0;
+    const throttled = Date.now() - lastRefreshAt < PARENT_LOCATION_REFRESH_COOLDOWN_MS;
+    if (!throttled) {
+      parentLocationRefreshAtByStudentId.set(studentId, Date.now());
+    }
+    invalidateResponseCacheByPrefix(`parent-study-room-visits:${req.userId}:${studentId}:`);
+
+    const studentPush = await requestStudentAppLocationRefresh(studentId);
+    if (throttled) {
+      const cacheKey = buildParentStudyRoomVisitsCacheKey(req.userId, studentId, limit);
+      const response = await buildParentStudyRoomVisitsResponse(req.userId, studentId, limit, {
+        forceRefresh: false
+      });
+      setResponseCache(cacheKey, response);
+      return res.json({
+        ...response,
+        refresh: { throttled: true, studentPush, mdmRefresh: false }
+      });
+    }
+    const response = await buildParentStudyRoomVisitsResponse(req.userId, studentId, limit, {
+      forceRefresh: true
+    });
+    const cacheKey = buildParentStudyRoomVisitsCacheKey(req.userId, studentId, limit);
+    setResponseCache(cacheKey, response);
+    res.json({
+      ...response,
+      refresh: {
+        throttled: false,
+        studentPush,
+        mdmRefresh: isSimpleMdmConfigured()
+      }
+    });
+  } catch (e) {
+    console.error("/api/parent/students/:studentId/location/refresh POST error", e);
+    res.status(500).json({ error: "위치를 새로고침하지 못했습니다." });
   }
 });
 
@@ -5927,25 +5438,19 @@ app.get("/api/student/parents", authMiddleware, async (req, res) => {
 app.get("/api/student/admin-channel", authMiddleware, async (req, res) => {
   try {
     const messageLimit = Math.max(1, Math.min(120, Number(req.query.messageLimit) || 40));
-    const submissionLimit = Math.max(1, Math.min(60, Number(req.query.submissionLimit) || 12));
     const parent = await resolvePrimaryParentForStudent(req.userId);
     if (!parent) {
       return res.json({
         channelAvailable: false,
         parent: null,
-        messages: [],
-        submissions: []
+        messages: []
       });
     }
-    const [messages, submissions] = await Promise.all([
-      listStudentParentChatMessages(req.userId, parent.id, messageLimit),
-      listStudentHomeworkSubmissions(req.userId, parent.id, submissionLimit)
-    ]);
+    const messages = await listStudentParentChatMessages(req.userId, parent.id, messageLimit);
     res.json({
       channelAvailable: true,
       parent,
-      messages,
-      submissions
+      messages
     });
   } catch (e) {
     console.error("/api/student/admin-channel error", e);
@@ -5984,128 +5489,10 @@ app.post("/api/student/admin-channel/messages", authMiddleware, async (req, res)
   }
 });
 
-app.post(
-  "/api/student/homework-submissions",
-  authMiddleware,
-  homeworkUpload.single("file"),
-  async (req, res) => {
-    try {
-      const me = await getMe(req.userId);
-      const studentLabel = formatStudentDisplayNameForParentNotify(me);
-      const parent = await resolvePrimaryParentForStudent(req.userId);
-      if (!parent) {
-        return res.status(400).json({ error: "연결된 학부모가 없습니다." });
-      }
-      if (!req.file) {
-        return res.status(400).json({ error: "업로드할 파일이 필요합니다." });
-      }
-      const note = String((req.body || {}).note || "").trim().slice(0, 1000);
-      const created = await createStudentHomeworkSubmission(req.userId, parent.id, {
-        originalName: req.file.originalname,
-        storedName: req.file.filename,
-        fileUrl: `/uploads/homework/${req.file.filename}`,
-        mimeType: req.file.mimetype,
-        fileSize: req.file.size,
-        note
-      });
-      try {
-        await insertStudentParentChatMessage(
-          req.userId,
-          parent.id,
-          "student",
-          "숙제 제출했습니다"
-        );
-      } catch (messageError) {
-        console.error("student homework submission chat mirror error", messageError);
-      }
-      await createParentNotificationForLinkedParentsAlarmWithPush(
-        req.userId,
-        "homeworkAlerts",
-        "새 숙제 제출",
-        `${studentLabel} 학생이 새 숙제를 제출했습니다. 코치 탭에서 검토할 수 있어요.`
-      ).catch(() => {});
-      res.json({ ok: true, submission: created });
-    } catch (e) {
-      console.error("/api/student/homework-submissions error", e);
-      res.status(500).json({ error: "숙제 제출에 실패했습니다." });
-    }
-  }
-);
-
-app.patch(
-  "/api/student/homework-submissions/:submissionId",
-  authMiddleware,
-  homeworkUpload.single("file"),
-  async (req, res) => {
-    try {
-      const submissionId = Number(req.params.submissionId);
-      const parent = await resolvePrimaryParentForStudent(req.userId);
-      if (!parent) {
-        return res.status(400).json({ error: "연결된 학부모가 없습니다." });
-      }
-      if (!Number.isFinite(submissionId)) {
-        return res.status(400).json({ error: "submissionId가 필요합니다." });
-      }
-      const note = String((req.body || {}).note || "").trim().slice(0, 1000);
-      const updated = await updateStudentHomeworkSubmission(req.userId, parent.id, submissionId, {
-        originalName: req.file ? req.file.originalname : undefined,
-        storedName: req.file ? req.file.filename : undefined,
-        fileUrl: req.file ? `/uploads/homework/${req.file.filename}` : undefined,
-        mimeType: req.file ? req.file.mimetype : undefined,
-        fileSize: req.file ? req.file.size : undefined,
-        note
-      });
-      if (!updated) {
-        if (req.file) {
-          await removeHomeworkUpload(`/uploads/homework/${req.file.filename}`);
-        }
-        return res.status(404).json({ error: "제출 내역을 찾을 수 없습니다." });
-      }
-      if (req.file && updated.previous?.fileUrl && updated.previous.fileUrl !== updated.submission.fileUrl) {
-        await removeHomeworkUpload(updated.previous.fileUrl);
-      }
-      res.json({ ok: true, submission: updated.submission });
-    } catch (e) {
-      if (req.file) {
-        await removeHomeworkUpload(`/uploads/homework/${req.file.filename}`);
-      }
-      console.error("/api/student/homework-submissions/:submissionId error", e);
-      res.status(500).json({ error: "숙제 수정에 실패했습니다." });
-    }
-  }
-);
-
-app.delete(
-  "/api/student/homework-submissions/:submissionId",
-  authMiddleware,
-  async (req, res) => {
-    try {
-      const submissionId = Number(req.params.submissionId);
-      const parent = await resolvePrimaryParentForStudent(req.userId);
-      if (!parent) {
-        return res.status(400).json({ error: "연결된 학부모가 없습니다." });
-      }
-      if (!Number.isFinite(submissionId)) {
-        return res.status(400).json({ error: "submissionId가 필요합니다." });
-      }
-      const deleted = await deleteStudentHomeworkSubmission(req.userId, parent.id, submissionId);
-      if (!deleted) {
-        return res.status(404).json({ error: "제출 내역을 찾을 수 없습니다." });
-      }
-      await removeHomeworkUpload(deleted.fileUrl);
-      res.json({ ok: true, submission: deleted });
-    } catch (e) {
-      console.error("/api/student/homework-submissions/:submissionId delete error", e);
-      res.status(500).json({ error: "숙제 삭제에 실패했습니다." });
-    }
-  }
-);
-
 app.get("/api/parent/admin-channel", authMiddleware, async (req, res) => {
   try {
     const studentId = Number(req.query.studentId);
     const messageLimit = Math.max(1, Math.min(120, Number(req.query.messageLimit) || 40));
-    const submissionLimit = Math.max(1, Math.min(60, Number(req.query.submissionLimit) || 12));
     if (!Number.isFinite(studentId)) {
       return res.status(400).json({ error: "studentId가 필요합니다." });
     }
@@ -6115,10 +5502,11 @@ app.get("/api/parent/admin-channel", authMiddleware, async (req, res) => {
     }
     const students = await listParentStudents(req.userId);
     const student = students.find(row => Number(row.id) === studentId) || null;
-    const [messages, submissions] = await Promise.all([
-      listStudentParentChatMessages(studentId, req.userId, messageLimit),
-      listStudentHomeworkSubmissions(studentId, req.userId, submissionLimit)
-    ]);
+    const messages = await listStudentParentChatMessages(
+      studentId,
+      req.userId,
+      messageLimit
+    );
     res.json({
       ok: true,
       student: student
@@ -6127,8 +5515,7 @@ app.get("/api/parent/admin-channel", authMiddleware, async (req, res) => {
             email: String(student.email || "")
           }
         : null,
-      messages,
-      submissions
+      messages
     });
   } catch (e) {
     console.error("/api/parent/admin-channel error", e);
@@ -6168,55 +5555,6 @@ app.post("/api/parent/admin-channel/messages", authMiddleware, async (req, res) 
     res.status(500).json({ error: "메시지 전송에 실패했습니다." });
   }
 });
-
-app.patch(
-  "/api/parent/homework-submissions/:submissionId/review",
-  authMiddleware,
-  async (req, res) => {
-    try {
-      const submissionId = Number(req.params.submissionId);
-      const studentId = Number((req.body || {}).studentId);
-      const reviewStatus = normalizeReviewStatus((req.body || {}).reviewStatus);
-      const reviewComment = String((req.body || {}).reviewComment || "")
-        .trim()
-        .slice(0, 1000);
-      if (!Number.isFinite(submissionId) || !Number.isFinite(studentId)) {
-        return res.status(400).json({ error: "submissionId와 studentId가 필요합니다." });
-      }
-      if (!reviewStatus) {
-        return res.status(400).json({ error: "reviewStatus가 올바르지 않습니다." });
-      }
-      const allowed = await parentHasStudent(req.userId, studentId);
-      if (!allowed) {
-        return res.status(403).json({ error: "연결되지 않은 학생입니다." });
-      }
-      const updated = await reviewStudentHomeworkSubmission(
-        studentId,
-        req.userId,
-        submissionId,
-        reviewStatus,
-        reviewComment
-      );
-      if (!updated) {
-        return res.status(404).json({ error: "제출 내역을 찾을 수 없습니다." });
-      }
-      await createStudentNotificationForAlarm(
-        studentId,
-        "homeworkAlerts",
-        "숙제 검토 완료",
-        reviewStatus === "approved"
-          ? "제출한 숙제가 승인되었습니다."
-          : reviewStatus === "needs_revision"
-            ? "숙제에 수정 요청이 도착했습니다."
-            : "숙제 검토 상태가 갱신되었습니다."
-      ).catch(() => {});
-      res.json({ ok: true, submission: updated });
-    } catch (e) {
-      console.error("/api/parent/homework-submissions/:submissionId/review error", e);
-      res.status(500).json({ error: "숙제 검토 저장에 실패했습니다." });
-    }
-  }
-);
 
 app.get("/api/student/study-room-tracking", authMiddleware, async (req, res) => {
   try {
@@ -9580,11 +8918,6 @@ app.use((err, req, res, next) => {
   if (!err) return next();
   if (err.message === "CORS origin not allowed") {
     return res.status(403).json({ error: "허용되지 않은 출처입니다." });
-  }
-  if (err.code === "INVALID_HOMEWORK_MIME") {
-    return res.status(400).json({
-      error: err.message || "지원하지 않는 파일 형식입니다."
-    });
   }
   if (err.name === "MulterError") {
     if (err.code === "LIMIT_FILE_SIZE") {

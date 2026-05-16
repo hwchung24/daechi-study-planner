@@ -18,6 +18,8 @@ private struct StudyRoomTrackingConfig: Codable {
     private let lastHeartbeatAtKey = "daechi.studyRoomTracking.lastHeartbeatAt"
     private let lastErrorKey = "daechi.studyRoomTracking.lastError"
     private var pendingPermissionCall: CAPPluginCall?
+    private var pendingLocationRefreshCompletion: (() -> Void)?
+    private var forceNextHeartbeat = false
     private var lastSentAt: Date?
     private var lastSentLocation: CLLocation?
 
@@ -89,6 +91,26 @@ private struct StudyRoomTrackingConfig: Codable {
         return status()
     }
 
+    func reportLocationNow(completion: (() -> Void)? = nil) {
+        guard UserDefaults.standard.bool(forKey: enabledKey), loadConfig() != nil else {
+            completion?()
+            return
+        }
+
+        let authStatus = currentAuthorizationStatus()
+        guard authStatus == .authorizedAlways || authStatus == .authorizedWhenInUse else {
+            completion?()
+            return
+        }
+
+        pendingLocationRefreshCompletion = completion
+        forceNextHeartbeat = true
+        DispatchQueue.main.async {
+            self.locationManager.requestLocation()
+            self.locationManager.startUpdatingLocation()
+        }
+    }
+
     func resumeIfNeeded() {
         let defaults = UserDefaults.standard
         guard defaults.bool(forKey: enabledKey), loadConfig() != nil else {
@@ -122,6 +144,10 @@ private struct StudyRoomTrackingConfig: Codable {
 
     func locationManager(_ manager: CLLocationManager, didFailWithError error: Error) {
         UserDefaults.standard.set(error.localizedDescription, forKey: lastErrorKey)
+        if let completion = pendingLocationRefreshCompletion {
+            pendingLocationRefreshCompletion = nil
+            completion()
+        }
     }
 
     func locationManager(_ manager: CLLocationManager, didUpdateLocations locations: [CLLocation]) {
@@ -132,17 +158,26 @@ private struct StudyRoomTrackingConfig: Codable {
             return
         }
         let now = Date()
+        let forceSend = forceNextHeartbeat
         let intervalOk =
-            lastSentAt == nil || now.timeIntervalSince(lastSentAt!) >= heartbeatIntervalSeconds
+            forceSend
+            || lastSentAt == nil
+            || now.timeIntervalSince(lastSentAt!) >= heartbeatIntervalSeconds
         let movedOk =
-            lastSentLocation == nil
+            forceSend
+            || lastSentLocation == nil
             || location.distance(from: lastSentLocation!) >= minimumDistanceDeltaMeters
         if !intervalOk && !movedOk {
             return
         }
+        forceNextHeartbeat = false
         lastSentAt = now
         lastSentLocation = location
         sendHeartbeat(location: location, config: config)
+        if let completion = pendingLocationRefreshCompletion {
+            pendingLocationRefreshCompletion = nil
+            completion()
+        }
     }
 
     private func authorizationStatusString() -> String {
@@ -236,7 +271,8 @@ public class NativeStudyRoomTrackingPlugin: CAPPlugin, CAPBridgedPlugin {
         CAPPluginMethod(name: "getStatus", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "requestPermissions", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "startTracking", returnType: CAPPluginReturnPromise),
-        CAPPluginMethod(name: "stopTracking", returnType: CAPPluginReturnPromise)
+        CAPPluginMethod(name: "stopTracking", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "reportLocationNow", returnType: CAPPluginReturnPromise)
     ]
 
     @objc public func getStatus(_ call: CAPPluginCall) {
@@ -260,5 +296,11 @@ public class NativeStudyRoomTrackingPlugin: CAPPlugin, CAPBridgedPlugin {
     @objc public func stopTracking(_ call: CAPPluginCall) {
         let clearConfig = call.getBool("clearConfig") ?? false
         call.resolve(StudyRoomTrackingManager.shared.stopTracking(clearConfig: clearConfig))
+    }
+
+    @objc public func reportLocationNow(_ call: CAPPluginCall) {
+        StudyRoomTrackingManager.shared.reportLocationNow {
+            call.resolve(StudyRoomTrackingManager.shared.status())
+        }
     }
 }

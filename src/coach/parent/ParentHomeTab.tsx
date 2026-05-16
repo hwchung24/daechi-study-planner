@@ -6,7 +6,6 @@ import { DAECHI_LINKS_UPDATED_EVENT } from "../../lib/linkEvents";
 import { getDateKeySeoul, seoulDateKeyFromApiValue } from "../../lib/weekDates";
 import { ParentStudentSelector } from "./ParentStudentSelector";
 import {
-  type ParentSimpleMdmNetworkStatus,
   computeParentDeviceControlSnapshot,
   patchParentDeviceSnapshotForAllowanceMode,
   useParentDeviceControlState
@@ -34,6 +33,7 @@ type ParentHomeTabProps = {
   setParentStudentId: (id: number | null) => void;
   selectedStudent: ParentStudentRow | null;
   parentReport: ParentHomeReport | null;
+  parentReportLoaded?: boolean;
   suggestedPhrase?: string | null;
   suggestedPhraseLoading?: boolean;
   parentLockStatus: ParentLockStatus | null;
@@ -79,74 +79,6 @@ function formatSeoulTimeLabel(iso: string) {
   }).format(dt);
 }
 
-function formatSimpleMdmAgePhraseKo(ageMinutes: number) {
-  const a = H.mdmAge;
-  if (!Number.isFinite(ageMinutes) || ageMinutes < 0) return "";
-  if (ageMinutes <= 1) return a.within1Min;
-  if (ageMinutes < 60) return tpl(a.aboutMinutes, { n: String(Math.floor(ageMinutes)) });
-  if (ageMinutes < 1440) return tpl(a.aboutHours, { n: String(Math.floor(ageMinutes / 60)) });
-  return tpl(a.aboutDays, { n: String(Math.floor(ageMinutes / 1440)) });
-}
-
-/** MDM last_seen 기준 경과(문장에 그대로 넣기 좋은 짧은 구) */
-function formatSimpleMdmLastContactDetail(net: ParentSimpleMdmNetworkStatus) {
-  const a = H.mdmAge;
-  const sec = net.lastSeenAgeSeconds;
-  if (sec != null && Number.isFinite(sec) && sec >= 0) {
-    if (sec < 20) return a.within20Sec;
-    if (sec < 60) return tpl(a.aboutSeconds, { n: String(Math.floor(sec)) });
-    if (sec < 120) return a.about1Min;
-  }
-  const m = net.ageMinutes;
-  if (m != null && Number.isFinite(m)) {
-    return formatSimpleMdmAgePhraseKo(m);
-  }
-  return "";
-}
-
-function simpleMdmNetworkDescription(opts: {
-  net: ParentSimpleMdmNetworkStatus;
-}): string | null {
-  const { net } = opts;
-  const M = H.mdmNet;
-  if (!net.available) {
-    if (net.status !== "skipped") return null;
-    const r = net.skippedReason || "";
-    if (r === "simplemdm_not_configured") {
-      return M.notConfigured;
-    }
-    if (r === "no_active_device_serial") {
-      return M.noSerial;
-    }
-    if (r === "device_not_in_simplemdm") {
-      return M.deviceMissing;
-    }
-    if (r === "simplemdm_rate_limited") {
-      return M.rateLimited;
-    }
-    if (r === "simplemdm_error") {
-      return M.queryFailed;
-    }
-    return null;
-  }
-  if (net.status === "recent") {
-    const detail = formatSimpleMdmLastContactDetail(net);
-    const carrier = net.carrierNetwork ? tpl(M.carrierSuffix, { carrier: net.carrierNetwork }) : "";
-    const head = detail
-      ? tpl(M.recentWithDetail, { detail, carrier })
-      : tpl(M.recentRecent, { carrier });
-    return tpl(M.recentTail, { head });
-  }
-  if (net.status === "stale") {
-    const detail = formatSimpleMdmLastContactDetail(net);
-    return detail ? tpl(M.staleWithDetail, { detail }) : M.staleOld;
-  }
-  if (net.status === "unknown") {
-    return M.unknownLastSeen;
-  }
-  return null;
-}
-
 export function ParentHomeTab(props: ParentHomeTabProps) {
   const {
     apiBase,
@@ -156,6 +88,7 @@ export function ParentHomeTab(props: ParentHomeTabProps) {
     setParentStudentId,
     selectedStudent,
     parentReport,
+    parentReportLoaded = false,
     suggestedPhrase,
     suggestedPhraseLoading = false,
     parentLockStatus,
@@ -182,9 +115,7 @@ export function ParentHomeTab(props: ParentHomeTabProps) {
   const [activatingAppMode, setActivatingAppMode] = useState<"utility" | "free" | null>(null);
   const [delayedNetConnected, setDelayedNetConnected] = useState<boolean | null>(null);
   const [showNoLinkedHint, setShowNoLinkedHint] = useState(false);
-  const [netDetailModalOpen, setNetDetailModalOpen] = useState(false);
   const freeMinutesModalReveal = useModalReveal(freeMinutesModalOpen);
-  const netDetailModalReveal = useModalReveal(netDetailModalOpen);
 
   const {
     studyRoomVisits,
@@ -192,7 +123,9 @@ export function ParentHomeTab(props: ParentHomeTabProps) {
     studyRoomVisitsLoading,
     studyRoomLiveStatus,
     hasStudyRoomConfig,
-    refreshStudyRoomVisits
+    refreshStudyRoomVisits,
+    refreshStudentLocation,
+    locationRefreshLoading
   } = useParentStudyRoomLive({
       apiBase,
       authToken,
@@ -204,7 +137,9 @@ export function ParentHomeTab(props: ParentHomeTabProps) {
     loading: deviceLoading,
     snapshot: deviceSnapshot,
     refresh: refreshDeviceSnapshot,
-    patchSnapshot: patchDeviceSnapshot
+    patchSnapshot: patchDeviceSnapshot,
+    verifyMdmLink,
+    mdmVerifyLoading
   } = useParentDeviceControlState({
     apiBase,
     authToken,
@@ -493,7 +428,7 @@ export function ParentHomeTab(props: ParentHomeTabProps) {
       : deviceSnapshot.activeAppAllowanceMode === "free"
         ? H.modeFree
         : deviceSnapshot.activeAppAllowanceMode === "utility"
-          ? H.modeUtility
+          ? H.modeMove
           : H.modeDefault
     : null;
 
@@ -534,18 +469,6 @@ export function ParentHomeTab(props: ParentHomeTabProps) {
     setDelayedNetConnected(false);
   }, [deviceLoading, deviceSnapshot, netConnected, selectedStudent?.id]);
 
-  const reportReady = parentReport !== null;
-
-  const netStatusDetail = useMemo(() => {
-    if (delayedNetConnected == null) return null;
-    const net = deviceSnapshot?.simpleMdmNetwork;
-    const described = net ? simpleMdmNetworkDescription({ net }) : null;
-    if (delayedNetConnected) {
-      return described || H.netConnectedDetail;
-    }
-    return described || H.netDisconnectedDetail;
-  }, [delayedNetConnected, deviceSnapshot]);
-
   const currentTimelineStudy = useMemo(() => {
     const days = Array.isArray(parentReport?.days) ? parentReport.days : [];
     const blocks = Array.isArray(parentReport?.blocks) ? parentReport.blocks : [];
@@ -576,10 +499,10 @@ export function ParentHomeTab(props: ParentHomeTabProps) {
   }, [parentReport]);
 
   const currentStudyDisplay = useMemo(() => {
-    if (!reportReady) return { kind: "loading" as const };
+    if (!parentReportLoaded) return { kind: "loading" as const };
     const days = Array.isArray(parentReport?.days) ? parentReport.days : [];
     const blocks = Array.isArray(parentReport?.blocks) ? parentReport.blocks : [];
-    if (blocks.length === 0) {
+    if (!parentReport || blocks.length === 0) {
       return { kind: "message" as const, text: H.noStudySchedule };
     }
     const todayKey = getDateKeySeoul(0);
@@ -597,7 +520,7 @@ export function ParentHomeTab(props: ParentHomeTabProps) {
       return { kind: "active" as const, text: currentTimelineStudy };
     }
     return { kind: "message" as const, text: H.notInStudyWindow };
-  }, [currentTimelineStudy, parentReport, reportReady]);
+  }, [currentTimelineStudy, parentReport, parentReportLoaded]);
 
   const todayKey = getDateKeySeoul(0);
   const todayVisits = useMemo(
@@ -742,18 +665,29 @@ export function ParentHomeTab(props: ParentHomeTabProps) {
                 authToken={authToken}
                 netConnected={delayedNetConnected}
                 netLoading={delayedNetConnected == null && Boolean(selectedStudent)}
+                mdmVerifyLoading={mdmVerifyLoading}
                 onRecheckNet={() => {
                   hapticSelection();
-                  void refreshDeviceSnapshot({ silent: false });
-                  setNetDetailModalOpen(true);
+                  void verifyMdmLink();
                 }}
                 hasStudyRoomConfig={hasStudyRoomConfig}
                 studyRoomVisitsLoading={studyRoomVisitsLoading}
+                locationRefreshLoading={locationRefreshLoading}
                 studyRoomName={studyRoomLiveStatus.studyRoomName}
                 studyRoomWithinRadius={studyRoomLiveStatus.currentWithinRadius}
+                studyRoomLive={studyRoomLiveStatus}
+                onRefreshLocation={options => {
+                  void refreshStudentLocation(options);
+                }}
                 todayVisits={todayVisits}
                 displaySurfaceMode={deviceSnapshot?.displaySurfaceMode ?? null}
+                plannerKioskModeActive={plannerKioskModeActive}
                 currentStudyDisplay={currentStudyDisplay}
+                parentReportLoaded={parentReportLoaded}
+                todayPlanBlocks={todayDayAndBlocks.todayBlocks}
+                hasAnyWeekPlanBlocks={
+                  (Array.isArray(parentReport?.blocks) ? parentReport.blocks : []).length > 0
+                }
                 selectedStudent={selectedStudent}
                 plannerLoading={plannerLoading}
                 plannerScheduleEnabled={plannerEnabled}
@@ -821,51 +755,6 @@ export function ParentHomeTab(props: ParentHomeTabProps) {
           )}
         </section>
       )}
-      {netDetailModalOpen ? (
-        <div
-          className={"dday-modal" + (netDetailModalReveal.revealed ? " dday-modal--open" : "")}
-          role="presentation"
-          onClick={() => netDetailModalReveal.beginClose(() => setNetDetailModalOpen(false))}
-        >
-          <div
-            className="dday-modal-inner parent-home__net-modal"
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="parent-home-net-modal-title"
-            onClick={e => e.stopPropagation()}
-          >
-            <div className="dday-modal-header">
-              <h2 id="parent-home-net-modal-title" className="dday-modal-title">
-                {H.netDetailModalTitle}
-              </h2>
-            </div>
-            <div className="dday-modal-body">
-              <span
-                className={
-                  "parent-home__net-badge" +
-                  (delayedNetConnected
-                    ? " parent-home__net-badge--on"
-                    : " parent-home__net-badge--off")
-                }
-              >
-                {delayedNetConnected ? H.netConnected : H.netDisconnected}
-              </span>
-              {netStatusDetail ? (
-                <p className="parent-type-body parent-home__net-modal-detail">{netStatusDetail}</p>
-              ) : null}
-            </div>
-            <div className="dday-modal-footer">
-              <button
-                type="button"
-                className="timeline-save-button study-room-editor__save-button"
-                onClick={() => netDetailModalReveal.beginClose(() => setNetDetailModalOpen(false))}
-              >
-                {H.netModalClose}
-              </button>
-            </div>
-          </div>
-        </div>
-      ) : null}
       {freeMinutesModalOpen ? (
         <div
           className={"dday-modal" + (freeMinutesModalReveal.revealed ? " dday-modal--open" : "")}

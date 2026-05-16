@@ -45,6 +45,10 @@ import { ParentAdminChannelPanel } from "../admin/AdminChannelPanels";
 import { ParentGrowthReportTab } from "./ParentGrowthReportTab";
 import { Card, EmptyState, GradientHeroCard, MetricCard, RiskBadge, SectionHeader } from "../ui/components";
 import { NotificationsPage, type ParentNotificationAction } from "../../components/student/NotificationsPage";
+import {
+  PARENT_NOTIFICATION_CATEGORY_ORDER,
+  type ParentNotificationCategoryFilter
+} from "../../lib/parentNotificationCategory";
 import { formatMinutes } from "../utils/format";
 import type { ParentStudentRow } from "../../types/parent";
 import type { StudyRoomVisitSession } from "../../types/studyRoomTracking";
@@ -1772,6 +1776,7 @@ function ManageTab(props: {
             authToken={props.authToken}
             studentId={props.parentStudentId ?? props.selectedStudent.id}
             studentLabel={props.selectedStudent.email || "학생"}
+            studentDisplayName={formatStudentLabel(props.selectedStudent)}
           />
         </Card>
       )}
@@ -1814,7 +1819,19 @@ function ParentNotificationsTab(props: {
   onNotificationAction?: (action: ParentNotificationAction) => void;
 }) {
   const [notifFilter, setNotifFilter] = useState<"unread" | "all">("unread");
+  const [categoryFilter, setCategoryFilter] =
+    useState<ParentNotificationCategoryFilter>("all");
   const N = ko.parentNotificationsHub;
+
+  const categoryLabels: Record<ParentNotificationCategoryFilter, string> = {
+    all: N.filterTypeAll,
+    study_room: N.filterTypeStudyRoom,
+    request: N.filterTypeRequest,
+    connection: N.filterTypeConnection,
+    message: N.filterTypeMessage,
+    report: N.filterTypeReport,
+    homework: N.filterTypeHomework
+  };
 
   return (
     <div className="coach-page parent-notifications-page">
@@ -1846,6 +1863,27 @@ function ParentNotificationsTab(props: {
           {N.filterAll}
         </button>
       </div>
+      <div
+        className="parent-notifications-page__type-filters"
+        role="tablist"
+        aria-label={N.filterTypeAria}
+      >
+        {PARENT_NOTIFICATION_CATEGORY_ORDER.map(category => (
+          <button
+            key={category}
+            type="button"
+            role="tab"
+            aria-selected={categoryFilter === category}
+            className={
+              "coach-analysis-trend-tab parent-notifications-page__type-tab" +
+              (categoryFilter === category ? " coach-analysis-trend-tab--active" : "")
+            }
+            onClick={() => setCategoryFilter(category)}
+          >
+            {categoryLabels[category]}
+          </button>
+        ))}
+      </div>
       <Card className="coach-card coach-card--padded">
         <NotificationsPage
           apiBase={props.apiBase}
@@ -1853,6 +1891,7 @@ function ParentNotificationsTab(props: {
           meRole="parent"
           parentStudentEmail={props.selectedStudentEmail}
           unreadOnly={notifFilter === "unread"}
+          parentCategoryFilter={categoryFilter}
           onReadAll={props.onReadAll}
           onNotificationAction={props.onNotificationAction}
         />
@@ -1873,6 +1912,7 @@ export function ParentCoachApp(props: {
   parentStudentId: number | null;
   setParentStudentId: (id: number | null) => void;
   parentReport: ParentWeeklyReport | null;
+  parentReportLoaded?: boolean;
   parentAiDaily: ParentAiDaily | null;
   parentAiDailyRefreshing?: boolean;
   parentLockStatus: ParentLockStatus | null;
@@ -1909,6 +1949,7 @@ export function ParentCoachApp(props: {
         setParentStudentId={props.setParentStudentId}
         selectedStudent={selectedStudent}
         parentReport={props.parentReport}
+        parentReportLoaded={props.parentReportLoaded}
         suggestedPhrase={parentSuggestedPhrase}
         suggestedPhraseLoading={parentSuggestedPhraseLoading}
         parentLockStatus={props.parentLockStatus}

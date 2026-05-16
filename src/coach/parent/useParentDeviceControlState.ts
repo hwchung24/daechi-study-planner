@@ -143,6 +143,7 @@ export function useParentDeviceControlState(args: UseArgs) {
   const { apiBase, authToken, studentId } = args;
   const bearer = useEffectiveBearer(authToken);
   const [loading, setLoading] = useState(false);
+  const [mdmVerifyLoading, setMdmVerifyLoading] = useState(false);
   const [snapshot, setSnapshot] = useState<ParentDeviceControlSnapshot | null>(null);
   const lastSigRef = useRef<string | null>(null);
 
@@ -228,6 +229,46 @@ export function useParentDeviceControlState(args: UseArgs) {
     []
   );
 
+  const verifyMdmLink = useCallback(async () => {
+    if (!bearer || !studentId) {
+      return null;
+    }
+    setMdmVerifyLoading(true);
+    try {
+      const res = await fetch(
+        `${apiBase}/api/parent/students/${encodeURIComponent(String(studentId))}/mdm-link/verify`,
+        {
+          method: "POST",
+          cache: "no-store",
+          headers: { Authorization: `Bearer ${bearer}` }
+        }
+      );
+      const data = (await res.json().catch(() => ({}))) as {
+        simpleMdmNetwork?: unknown;
+      };
+      if (res.ok && data.simpleMdmNetwork) {
+        const network = normalizeSimpleMdmNetwork(data.simpleMdmNetwork);
+        if (network) {
+          patchSnapshot(prev =>
+            prev
+              ? {
+                  ...prev,
+                  simpleMdmNetwork: network
+                }
+              : prev
+          );
+        }
+      }
+      void refresh({ silent: true });
+      return data;
+    } catch {
+      void refresh({ silent: true });
+      return null;
+    } finally {
+      setMdmVerifyLoading(false);
+    }
+  }, [apiBase, bearer, studentId, patchSnapshot, refresh]);
+
   useEffect(() => {
     void refresh();
   }, [refresh]);
@@ -254,5 +295,5 @@ export function useParentDeviceControlState(args: UseArgs) {
     };
   }, [bearer, studentId, refresh]);
 
-  return { loading, snapshot, refresh, patchSnapshot };
+  return { loading, snapshot, refresh, patchSnapshot, verifyMdmLink, mdmVerifyLoading };
 }

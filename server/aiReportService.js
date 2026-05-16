@@ -77,7 +77,27 @@ async function generateAiReportText(studentUserId, weekStart, weekEnd, meta = {}
     weekStart,
     weekEnd
   );
-  const stats = computeWeeklyStats({ days, blocks, plans });
+  const reportDate = String(meta.reportDate || weekEnd || "").trim();
+  const enrichment = parentDailyAiReport.buildDailyReportEnrichment({
+    days,
+    blocks,
+    plans,
+    reportDate
+  });
+
+  let prevWeekTotalStudyMinutes = null;
+  if (weekStart) {
+    const prevWeekEnd = parentDailyAiReport.shiftYmd(weekStart, -1);
+    const prevWeekStart = parentDailyAiReport.shiftYmd(weekStart, -7);
+    const prevData = await getWeekData(studentUserId, prevWeekStart, prevWeekEnd);
+    prevWeekTotalStudyMinutes = computeWeeklyStats(prevData).totalStudyMinutes;
+  }
+
+  const stats = {
+    ...computeWeeklyStats({ days, blocks, plans }),
+    ...enrichment,
+    prevWeekTotalStudyMinutes
+  };
   const summaryLines = parentDailyAiReport.buildWeeklySummaryLines(stats);
   const statsPrompt = parentDailyAiReport.buildWeeklyReportPrompt(stats);
 
