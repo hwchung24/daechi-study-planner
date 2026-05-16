@@ -12,12 +12,19 @@ import {
   Sparkles,
   User
 } from "lucide-react";
-import { getSeoulWeekRangeCompactLabel, getWeekStartKeySeoul } from "../../lib/weekDates";
+import { getWeekStartKeySeoul } from "../../lib/weekDates";
 import { exportElementToPdf } from "../../lib/exportElementToPdf";
 import type { ParentStudentRow } from "../../types/parent";
 import ko from "../fallbacks/ko.json";
+import { tpl } from "../fallbacks/tpl";
 
 const growthFb = ko.gptOutputFallbacks.parentGrowthReport;
+const growthNarrativeFb = ko.parentGrowthReportNarrative;
+
+function isLifeDataSparse(daily: ParentGrowthReportPayload["daily"] | undefined) {
+  if (!daily?.length) return true;
+  return !daily.some(row => row.sleepHours != null || row.stressBand != null);
+}
 
 type StressBand = "high" | "mid" | "low" | null;
 
@@ -197,6 +204,25 @@ export function ParentGrowthReportTab(props: {
   }, [props.apiBase, props.authToken, props.selectedStudent.id, weekStart]);
 
   const n = data?.narrative;
+  const lifeDataSparse = useMemo(() => isLifeDataSparse(data?.daily), [data?.daily]);
+  const energyTipText = useMemo(() => {
+    if (!n) return "";
+    if (lifeDataSparse) return growthNarrativeFb.energyTipWhenSparseData;
+    return n.energyParentTip;
+  }, [lifeDataSparse, n]);
+  const focusEfficiencyContext = useMemo(() => {
+    if (!data) return null;
+    const pct = data.studyEfficiency.focusEfficiencyPct;
+    const studyH = data.studyEfficiency.actualStudyHours;
+    const focusH = data.studyEfficiency.focusBandHours;
+    if (pct != null && pct <= 0 && studyH > 0 && focusH <= 0) {
+      return tpl(growthFb.focusZeroWithStudyTpl, { hours: studyH.toFixed(1) });
+    }
+    if ((pct == null || pct <= 0) && studyH <= 0 && focusH <= 0) {
+      return growthFb.focusNoStudyYet;
+    }
+    return null;
+  }, [data]);
   const sleepBadgeText = useMemo(() => {
     if (!data?.daily?.length) return "수면 데이터 수집 중";
     const validSleep = data.daily
@@ -276,13 +302,12 @@ export function ParentGrowthReportTab(props: {
             </div>
           </div>
         </div>
-        <h1 className="parent-growth-report__title">
-          {data ? `${data.studentName} 학생 성장 리포트` : "성장 리포트"}
+        <h1 className="parent-growth-report__title parent-type-kpi">
+          {growthFb.reportTitle || "성장 리포트"}
         </h1>
-        <p className="parent-growth-report__subtitle">
-          {data?.gradeLine ? `${data.gradeLine} · ` : ""}
-          {getSeoulWeekRangeCompactLabel(props.parentWeekOffset)}
-        </p>
+        {data?.gradeLine ? (
+          <p className="parent-growth-report__grade-line parent-type-caption">{data.gradeLine}</p>
+        ) : null}
         <div className="parent-growth-report__badges">
           {data?.badgePlanDeltaPct != null ? (
             <span className="parent-growth-report__badge parent-growth-report__badge--plan">
@@ -292,7 +317,7 @@ export function ParentGrowthReportTab(props: {
             </span>
           ) : (
             <span className="parent-growth-report__badge parent-growth-report__badge--muted">
-              계획 추이 비교용 지난주 데이터 없음
+              {growthFb.badgeNoPrevWeek}
             </span>
           )}
           {data?.badgeSleepRecovery ? (
@@ -318,27 +343,58 @@ export function ParentGrowthReportTab(props: {
 
       {n ? (
         <>
-          <section className="parent-growth-report__section parent-growth-report__section--summary">
-            <div className="parent-growth-report__summary-card">
-              <Sparkles className="parent-growth-report__section-icon" aria-hidden />
-              <p className="parent-growth-report__summary-text">{n.weeklySummary}</p>
-              {!data?.usedOpenAi ? (
-                <p className="parent-growth-report__ai-note">
-                  {growthFb.openAiKeyNotice}
-                </p>
-              ) : null}
-            </div>
+          <section className="parent-growth-report__insight parent-growth-report__section--summary coach-card coach-card--padded coach-home-insight-card">
+            <Sparkles className="parent-growth-report__section-icon" aria-hidden />
+            <p className="parent-growth-report__summary-text parent-type-body">{n.weeklySummary}</p>
+            {lifeDataSparse ? (
+              <p className="parent-growth-report__insight-caption parent-type-caption">
+                {growthFb.sparseLifeDataNotice}
+              </p>
+            ) : null}
+            {!data?.usedOpenAi ? (
+              <p className="parent-growth-report__ai-note parent-type-caption">
+                {growthFb.openAiKeyNotice}
+              </p>
+            ) : null}
           </section>
 
+          <div className="parent-growth-report__kpi-row" role="list">
+            <div className="parent-growth-report__kpi-chip" role="listitem">
+              <span className="parent-type-caption">학습</span>
+              <strong className="parent-type-kpi">
+                {(data?.studyEfficiency.actualStudyHours ?? 0).toFixed(1)}h
+              </strong>
+            </div>
+            <div className="parent-growth-report__kpi-chip" role="listitem">
+              <span className="parent-type-caption">집중</span>
+              <strong className="parent-type-kpi">
+                {data?.studyEfficiency.focusEfficiencyPct != null
+                  ? `${Math.round(data.studyEfficiency.focusEfficiencyPct)}%`
+                  : "—"}
+              </strong>
+            </div>
+            <div className="parent-growth-report__kpi-chip" role="listitem">
+              <span className="parent-type-caption">계획</span>
+              <strong className="parent-type-kpi">
+                {data?.planExecution.achievementPct != null
+                  ? `${Math.round(data.planExecution.achievementPct)}%`
+                  : "—"}
+              </strong>
+            </div>
+          </div>
+
           <section className="parent-growth-report__section">
-            <h2 className="parent-growth-report__h2">
+            <h2 className="parent-growth-report__h2 parent-type-section">
               <Moon className="parent-growth-report__h2-icon" aria-hidden />
               에너지 &amp; 회복
             </h2>
-            <p className="parent-growth-report__hint">
-              뇌 회복 지표(수면 기준) · 스트레스는 주간 흐름으로 표현했어요
-            </p>
 
+            {lifeDataSparse ? (
+              <p className="parent-growth-report__chart-empty parent-type-body">
+                {growthFb.chartEmptyBlock}
+              </p>
+            ) : (
+            <>
             <div className="parent-growth-report__subblock">
               <div className="parent-growth-report__subhead">
                 일별 수면 · 뇌 회복 지표
@@ -369,8 +425,13 @@ export function ParentGrowthReportTab(props: {
                           style={{ width: `${pct}%` }}
                         />
                       </div>
-                      <span className="parent-growth-report__sleep-val">
-                        {h != null ? `${h.toFixed(1)}h` : "—"}
+                      <span
+                        className={
+                          "parent-growth-report__sleep-val" +
+                          (h == null ? " parent-growth-report__sleep-val--empty" : "")
+                        }
+                      >
+                        {h != null ? `${h.toFixed(1)}h` : growthFb.chartNoSleepYet}
                       </span>
                     </div>
                   );
@@ -421,14 +482,26 @@ export function ParentGrowthReportTab(props: {
                   );
                 })}
               </div>
-              <div className="parent-growth-report__callout parent-growth-report__callout--warm">
-                {n.energyParentTip}
-              </div>
             </div>
+            </>
+            )}
+
           </section>
 
+          <details className="parent-growth-report__coach-comments">
+            <summary className="parent-type-section">{growthFb.coachCommentsTitle}</summary>
+            {energyTipText ? (
+              <p className="parent-type-body parent-growth-report__coach-comment">{energyTipText}</p>
+            ) : null}
+            {n.studyEfficiencyInsight ? (
+              <p className="parent-type-body parent-growth-report__coach-comment">
+                {n.studyEfficiencyInsight}
+              </p>
+            ) : null}
+          </details>
+
           <section className="parent-growth-report__section">
-            <h2 className="parent-growth-report__h2">
+            <h2 className="parent-growth-report__h2 parent-type-section">
               <Building2 className="parent-growth-report__h2-icon" aria-hidden />
               학습 효율
             </h2>
@@ -483,6 +556,9 @@ export function ParentGrowthReportTab(props: {
                       : "—"}
                   </strong>
                   <span>집중 효율</span>
+                  {focusEfficiencyContext ? (
+                    <span className="parent-growth-report__donut-context">{focusEfficiencyContext}</span>
+                  ) : null}
                   {data?.studyEfficiency.vsPrevWeekEfficiencyDeltaPct != null ? (
                     <span className="parent-growth-report__delta">
                       전주 대비{" "}
@@ -495,13 +571,10 @@ export function ParentGrowthReportTab(props: {
                 </div>
               </div>
             </div>
-            <div className="parent-growth-report__callout parent-growth-report__callout--cool">
-              {n.studyEfficiencyInsight}
-            </div>
           </section>
 
           <section className="parent-growth-report__section">
-            <h2 className="parent-growth-report__h2">
+            <h2 className="parent-growth-report__h2 parent-type-section">
               <CheckCircle2 className="parent-growth-report__h2-icon" aria-hidden />
               계획 실행력
             </h2>
@@ -534,6 +607,9 @@ export function ParentGrowthReportTab(props: {
               </p>
             </div>
             <p className="parent-growth-report__plan-narr">{n.planExecutionSummary}</p>
+            {data?.planExecution.totalTracked === 0 ? (
+              <p className="parent-growth-report__plan-empty-hint">{growthFb.planEmptyHint}</p>
+            ) : null}
             <div className="parent-growth-report__plan-grid">
               {data?.planExecution.bestCompleted.map((t, i) => (
                 <div
@@ -562,11 +638,11 @@ export function ParentGrowthReportTab(props: {
             </div>
           </section>
 
-          <section className="parent-growth-report__section parent-growth-report__section--last">
-            <h2 className="parent-growth-report__h2">
+          <details className="parent-growth-report__section parent-growth-report__section--last parent-growth-report__next-week">
+            <summary className="parent-growth-report__h2 parent-type-section">
               <Lightbulb className="parent-growth-report__h2-icon" aria-hidden />
               다음 주 제안
-            </h2>
+            </summary>
             <div className="parent-growth-report__suggest-grid">
               <div className="parent-growth-report__suggest-card">
                 <div className="parent-growth-report__suggest-head">
@@ -583,7 +659,7 @@ export function ParentGrowthReportTab(props: {
                 <p>{n.nextWeekForParent}</p>
               </div>
             </div>
-          </section>
+          </details>
         </>
       ) : !loading && !error ? (
         <p className="coach-muted">표시할 데이터가 없습니다.</p>

@@ -8,7 +8,7 @@ import React, {
 import { Capacitor } from "@capacitor/core";
 import { AppConfig } from "@capacitor-community/mdm-appconfig";
 import { LocalNotifications } from "@capacitor/local-notifications";
-import { Bell, BellDot, ChevronLeft } from "lucide-react";
+import { Bell, BellDot, ChevronLeft, Home, MessageCircle, Settings } from "lucide-react";
 import SplashScreen from "./SplashScreen";
 import { AuthScreen } from "./components/AuthScreen";
 import { StudentNativeOnlyGate } from "./components/student/StudentNativeOnlyGate";
@@ -101,6 +101,7 @@ import {
 } from "./lib/stableUiUpdate";
 import { storeIconAssetList } from "./lib/storeIconAssets";
 import { preloadImageAssets } from "./lib/preloadAssets";
+import { AppRouteSuspenseFallback } from "./app/AppRouteSuspenseFallback";
 import type { ParentLockStatus, StudentLockStatus } from "./types/lockStatus";
 import type { ProgressBook, ProgressPlan, StudyBlock } from "./types/planner";
 
@@ -134,15 +135,6 @@ const ParentCoachApp = React.lazy(() =>
     default: module.ParentCoachApp
   }))
 );
-
-/** lazy 라우트 청크 로딩 시 큰 텍스트 플래시 대신 얇은 스켈레톤만 표시 */
-function AppRouteSuspenseFallback() {
-  return (
-    <div className="app-route-suspense-fallback" aria-hidden>
-      <div className="app-route-suspense-fallback__pulse" />
-    </div>
-  );
-}
 
 type StudyStoreApp = {
   id: string;
@@ -3180,9 +3172,7 @@ const App: React.FC = () => {
 
     const path = getAppPath();
     const requiresLinkedStudent =
-      path === "#/parent/manage" ||
-      path === "#/parent/analysis" ||
-      path === "#/parent/student-settings";
+      path === "#/parent/manage" || path === "#/parent/analysis";
 
     if (!requiresLinkedStudent) return;
 
@@ -3213,7 +3203,7 @@ const App: React.FC = () => {
                     ? "분석"
                     : coachParentTab === "notifications"
                       ? "알림"
-                      : "자녀 설정"
+                      : "홈"
           : parentTab === "profile"
             ? "내 정보"
             : "학부모"
@@ -3612,10 +3602,10 @@ const App: React.FC = () => {
   };
 
   const parentHeaderPath = getAppPath();
-  const isParentQuickActive = (key: "chat" | "notify" | "manage" | "settings") => {
+  const isParentQuickActive = (key: "home" | "chat" | "notify" | "settings") => {
+    if (key === "home") return coachParentMode && coachParentTab === "home";
     if (key === "chat") return coachParentMode && coachParentTab === "manage";
     if (key === "notify") return parentHeaderPath === "#/parent/notifications";
-    if (key === "manage") return coachParentMode && coachParentTab === "home";
     return parentHeaderPath === "#/parent/profile";
   };
 
@@ -3737,72 +3727,121 @@ const App: React.FC = () => {
         >
           {parentView ? (
             <div className="header-top header-top--parent-filled">
-              <div className="parent-global-top-row parent-global-top-row--header">
+              <div className="parent-header-bar">
                 {parentHydrationReady ? (
-                  <>
-                    <button
-                      type="button"
-                      className="parent-header-logo parent-header-logo--btn"
-                      aria-label="관리 홈으로 이동"
-                      onClick={() => {
-                        hapticSelection();
-                        setCoachParentTab("home");
-                        setAppPath("#/parent/home");
-                      }}
-                    >
-                      <img src="/parent-header-logo.png" alt="" className="parent-header-logo__img" />
-                    </button>
-                    <div className="parent-global-top-row__student">
-                      <ParentStudentSelector
-                        parentStudents={parentStudents}
-                        parentStudentId={parentStudentId}
-                        setParentStudentId={setParentStudentId}
-                      />
+                    <>
+                      <div className="parent-header-bar__start">
+                        {isParentAnalysisPage ? (
+                          <button
+                            type="button"
+                            className="header-icon-btn header-icon-btn--back parent-header-back"
+                            aria-label="홈으로"
+                            onClick={() => {
+                              hapticSelection();
+                              setCoachParentTab("home");
+                              setAppPath("#/parent/home");
+                            }}
+                          >
+                            <ChevronLeft size={20} strokeWidth={2.4} aria-hidden />
+                          </button>
+                        ) : (
+                          <button
+                            type="button"
+                            className="parent-header-logo parent-header-logo--btn"
+                            aria-label="관리 홈으로 이동"
+                            onClick={() => {
+                              hapticSelection();
+                              setCoachParentTab("home");
+                              setAppPath("#/parent/home");
+                            }}
+                          >
+                            <img src="/parent-header-logo.png" alt="" className="parent-header-logo__img" />
+                          </button>
+                        )}
+                      </div>
+                      <div className="parent-header-bar__center">
+                        <ParentStudentSelector
+                          parentStudents={parentStudents}
+                          parentStudentId={parentStudentId}
+                          setParentStudentId={setParentStudentId}
+                        />
+                      </div>
+                      <nav className="parent-header-nav" aria-label="학부모 빠른 이동">
+                        <button
+                          type="button"
+                          className={
+                            "parent-header-nav__btn" +
+                            (isParentQuickActive("home") ? " parent-header-nav__btn--active" : "")
+                          }
+                          aria-label="홈"
+                          onClick={() => {
+                            hapticSelection();
+                            setCoachParentTab("home");
+                            setAppPath("#/parent/home");
+                          }}
+                        >
+                          <Home size={20} strokeWidth={2} aria-hidden />
+                        </button>
+                        <button
+                          type="button"
+                          className={
+                            "parent-header-nav__btn" +
+                            (isParentQuickActive("chat") ? " parent-header-nav__btn--active" : "")
+                          }
+                          aria-label="채팅"
+                          onClick={() => {
+                            hapticSelection();
+                            setCoachParentTab("manage");
+                            setAppPath("#/parent/manage");
+                          }}
+                        >
+                          <MessageCircle size={20} strokeWidth={2} aria-hidden />
+                        </button>
+                        <button
+                          type="button"
+                          className={
+                            "parent-header-nav__btn" +
+                            (isParentQuickActive("notify") ? " parent-header-nav__btn--active" : "")
+                          }
+                          aria-label="알림"
+                          onClick={() => {
+                            hapticSelection();
+                            setCoachParentTab("notifications");
+                            setAppPath("#/parent/notifications");
+                          }}
+                        >
+                          <Bell size={20} strokeWidth={2} aria-hidden />
+                        </button>
+                        <button
+                          type="button"
+                          className={
+                            "parent-header-nav__btn" +
+                            (isParentQuickActive("settings") ? " parent-header-nav__btn--active" : "")
+                          }
+                          aria-label="설정"
+                          onClick={() => {
+                            hapticSelection();
+                            setCoachParentTab(null);
+                            setParentTab("profile");
+                            setAppPath("#/parent/profile");
+                          }}
+                        >
+                          <Settings size={20} strokeWidth={2} aria-hidden />
+                        </button>
+                      </nav>
+                    </>
+                  ) : (
+                    <div className="parent-header-loading parent-header-loading--bar" aria-hidden>
+                      <div className="parent-header-loading__logo" />
+                      <div className="parent-header-loading__pill parent-header-loading__pill--student" />
+                      <div className="parent-header-loading__nav">
+                        <div className="parent-header-loading__icon" />
+                        <div className="parent-header-loading__icon" />
+                        <div className="parent-header-loading__icon" />
+                        <div className="parent-header-loading__icon" />
+                      </div>
                     </div>
-                    <div className="parent-quick-nav" aria-label="학부모 빠른 이동">
-                      <button
-                        type="button"
-                        className={"parent-quick-nav__btn" + (isParentQuickActive("chat") ? " parent-quick-nav__btn--active" : "")}
-                        onClick={() => {
-                          hapticSelection();
-                          setCoachParentTab("manage");
-                          setAppPath("#/parent/manage");
-                        }}
-                      >
-                        채팅
-                      </button>
-                      <button
-                        type="button"
-                        className={"parent-quick-nav__btn" + (isParentQuickActive("notify") ? " parent-quick-nav__btn--active" : "")}
-                        onClick={() => {
-                          hapticSelection();
-                          setCoachParentTab("notifications");
-                          setAppPath("#/parent/notifications");
-                        }}
-                      >
-                        알림
-                      </button>
-                      <button
-                        type="button"
-                        className={"parent-quick-nav__btn" + (isParentQuickActive("settings") ? " parent-quick-nav__btn--active" : "")}
-                        onClick={() => {
-                          hapticSelection();
-                          setCoachParentTab(null);
-                          setParentTab("profile");
-                          setAppPath("#/parent/profile");
-                        }}
-                      >
-                        설정
-                      </button>
-                    </div>
-                  </>
-                ) : (
-                  <div className="parent-header-loading" aria-hidden>
-                    <div className="parent-header-loading__logo" />
-                    <div className="parent-header-loading__pill" />
-                    <div className="parent-header-loading__pill parent-header-loading__pill--short" />
-                  </div>
-                )}
+                  )}
               </div>
             </div>
           ) : (
@@ -3939,14 +3978,6 @@ const App: React.FC = () => {
                   setParentStudentId={setParentStudentId}
                   parentReport={parentReport}
                   parentAiDaily={parentAiDaily}
-                  parentPlannerEnabled={parentPlannerEnabled}
-                  setParentPlannerEnabled={setParentPlannerEnabled}
-                  parentPlannerTime={parentPlannerTime}
-                  setParentPlannerTime={setParentPlannerTime}
-                  parentPlannerSaving={parentPlannerSaving}
-                  setParentPlannerSaving={setParentPlannerSaving}
-                  parentPlannerMessage={parentPlannerMessage}
-                  setParentPlannerMessage={setParentPlannerMessage}
                   parentLockStatus={parentLockStatus}
                   setParentLockStatus={setParentLockStatus}
                   hapticWarning={hapticWarning}
@@ -4176,9 +4207,7 @@ const App: React.FC = () => {
                     ? "#/parent/manage"
                     : nextTab === "analysis"
                       ? "#/parent/analysis"
-                      : nextTab === "notifications"
-                          ? "#/parent/notifications"
-                          : "#/parent/student-settings"
+                      : "#/parent/notifications"
               );
             }}
           />

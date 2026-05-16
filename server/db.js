@@ -4,7 +4,10 @@ const { Pool } = require("pg");
 require("dotenv").config({ path: path.join(__dirname, ".env") });
 
 const pool = new Pool({
-  connectionString: process.env.DATABASE_URL
+  connectionString: process.env.DATABASE_URL,
+  max: Math.min(Math.max(Number(process.env.PG_POOL_MAX) || 20, 1), 100),
+  idleTimeoutMillis: 30_000,
+  connectionTimeoutMillis: 15_000
 });
 
 /** 마이그레이션 전 DB는 book_id/planned_range 컬럼이 없을 수 있음. true만 캐시(마이그레이션 후 재시작 없이 감지). */
@@ -3755,6 +3758,27 @@ async function getActiveStudyBookForStudent(userId, bookId) {
   return res.rows[0] || null;
 }
 
+async function findPendingPlanAddRequestForSlot({
+  studentUserId,
+  targetDate,
+  startTime,
+  endTime
+}) {
+  const hm = v => {
+    const t = String(v ?? "").trim();
+    return t.length >= 5 ? t.slice(0, 5) : t;
+  };
+  const res = await query(
+    `SELECT * FROM parent_plan_add_requests
+     WHERE student_user_id = $1 AND target_date = $2 AND status = 'pending'
+       AND start_time = $3 AND end_time = $4
+     ORDER BY created_at DESC
+     LIMIT 1`,
+    [studentUserId, String(targetDate).slice(0, 10), hm(startTime), hm(endTime)]
+  );
+  return res.rows[0] || null;
+}
+
 async function createParentPlanAddRequest({
   studentUserId,
   targetDate,
@@ -3764,6 +3788,14 @@ async function createParentPlanAddRequest({
   endTime,
   subjectSnapshot
 }) {
+  const existing = await findPendingPlanAddRequestForSlot({
+    studentUserId,
+    targetDate,
+    startTime,
+    endTime
+  });
+  if (existing) return existing;
+
   const hm = v => {
     const t = String(v ?? "").trim();
     return t.length >= 5 ? t.slice(0, 5) : t;
@@ -3805,7 +3837,7 @@ async function listPendingPlanAddRequestsForParent(parentUserId, limit = 100) {
   return res.rows;
 }
 
-async function approvePlanAddRequestByParent(requestId, parentUserId) {
+async function approvePlanAddRequestByParent(requestId, parentUserId, parentNote) {
   const reqRow = await query(
     `SELECT * FROM parent_plan_add_requests WHERE id = $1 AND status = 'pending'`,
     [requestId]
@@ -3863,16 +3895,21 @@ async function approvePlanAddRequestByParent(requestId, parentUserId) {
   );
   const merged = sortReplaceBlocks([...withoutOverlapping, newBlock]);
   await replaceStudyBlocks(studentId, row.target_date, merged);
+  const note =
+    parentNote != null && String(parentNote).trim() !== ""
+      ? String(parentNote).trim().slice(0, 500)
+      : null;
   await query(
     `UPDATE parent_plan_add_requests
-     SET status = 'approved', resolved_at = now(), resolved_by_parent_user_id = $2
+     SET status = 'approved', resolved_at = now(), resolved_by_parent_user_id = $2,
+         parent_note = COALESCE($3, parent_note)
      WHERE id = $1`,
-    [requestId, parentUserId]
+    [requestId, parentUserId, note]
   );
   return { ok: true };
 }
 
-async function rejectPlanAddRequestByParent(requestId, parentUserId) {
+async function rejectPlanAddRequestByParent(requestId, parentUserId, parentNote) {
   const reqRow = await query(
     `SELECT * FROM parent_plan_add_requests WHERE id = $1 AND status = 'pending'`,
     [requestId]
@@ -3888,11 +3925,16 @@ async function rejectPlanAddRequestByParent(requestId, parentUserId) {
   if (!has) {
     return { ok: false, error: "연결된 자녀의 요청만 처리할 수 있습니다." };
   }
+  const note =
+    parentNote != null && String(parentNote).trim() !== ""
+      ? String(parentNote).trim().slice(0, 500)
+      : null;
   await query(
     `UPDATE parent_plan_add_requests
-     SET status = 'rejected', resolved_at = now(), resolved_by_parent_user_id = $2
+     SET status = 'rejected', resolved_at = now(), resolved_by_parent_user_id = $2,
+         parent_note = COALESCE($3, parent_note)
      WHERE id = $1`,
-    [requestId, parentUserId]
+    [requestId, parentUserId, note]
   );
   return { ok: true };
 }

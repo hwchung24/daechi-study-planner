@@ -42,7 +42,7 @@ export function ParentStudentSelector(props: {
       <div className="parent-student-dropdown">
         <button
           type="button"
-          className="parent-quick-nav__btn parent-student-dropdown__trigger"
+          className="parent-header-student__trigger parent-student-dropdown__trigger"
           aria-haspopup="listbox"
           aria-expanded={open}
           onClick={() => setOpen(prev => !prev)}

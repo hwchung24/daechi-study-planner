@@ -1,11 +1,15 @@
-import React, { useEffect, useRef, useState } from "react";
+import React, { forwardRef, useEffect, useImperativeHandle, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { MODAL_TRANSITION_MS } from "../../lib/uiTiming";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 import { API_BASE } from "../../lib/apiBase";
 import type { ParentStudyRoomSetting } from "../../types/parent";
+import ko from "../../coach/fallbacks/ko.json";
 
 export type StudyRoomSetting = ParentStudyRoomSetting;
+
+const H = ko.parentHomeTab;
 
 type SearchResult = {
   id: string;
@@ -32,15 +36,37 @@ const selectedMarkerIcon = L.divIcon({
   iconAnchor: [11, 22]
 });
 
-export function StudyRoomPickerEditor(props: {
-  student: { id: number; email: string } | null;
-  initialValue?: StudyRoomSetting;
-  authToken?: string | null;
-  saving?: boolean;
-  onCancel?: () => void;
-  onSave: (value: StudyRoomSetting) => void;
-}) {
-  const { student, initialValue, authToken = null, saving = false, onCancel, onSave } = props;
+export type StudyRoomPickerEditorHandle = {
+  save: () => void;
+  canSave: boolean;
+};
+
+export const StudyRoomPickerEditor = forwardRef<
+  StudyRoomPickerEditorHandle,
+  {
+    student: { id: number; email: string } | null;
+    initialValue?: StudyRoomSetting;
+    authToken?: string | null;
+    saving?: boolean;
+    variant?: "default" | "sheet";
+    hideFooter?: boolean;
+    onCancel?: () => void;
+    onSave: (value: StudyRoomSetting) => void;
+    onCanSaveChange?: (canSave: boolean) => void;
+  }
+>(function StudyRoomPickerEditor(props, ref) {
+  const {
+    student,
+    initialValue,
+    authToken = null,
+    saving = false,
+    variant = "default",
+    hideFooter = false,
+    onCancel,
+    onSave,
+    onCanSaveChange
+  } = props;
+
   const mapHostRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<L.Map | null>(null);
   const markerRef = useRef<L.Marker | null>(null);
@@ -53,6 +79,34 @@ export function StudyRoomPickerEditor(props: {
   const [selected, setSelected] = useState<LatLng | null>(null);
   const [radiusMeters, setRadiusMeters] = useState(120);
   const [mapZoom, setMapZoom] = useState(DEFAULT_ZOOM);
+
+  const buildSaveValue = (): StudyRoomSetting | null => {
+    if (!student || !selected || !studyRoomName.trim()) return null;
+    return {
+      studentId: student.id,
+      studentEmail: student.email,
+      name: studyRoomName.trim(),
+      address: studyRoomAddress.trim() || undefined,
+      latitude: selected.lat,
+      longitude: selected.lng,
+      radiusMeters,
+      updatedAt: new Date().toISOString()
+    };
+  };
+
+  const canSave = Boolean(student && selected && studyRoomName.trim() && !saving);
+
+  useEffect(() => {
+    onCanSaveChange?.(canSave);
+  }, [canSave, onCanSaveChange]);
+
+  useImperativeHandle(ref, () => ({
+    save: () => {
+      const value = buildSaveValue();
+      if (value) onSave(value);
+    },
+    canSave
+  }));
 
   useEffect(() => {
     if (!student) return;
@@ -163,7 +217,7 @@ export function StudyRoomPickerEditor(props: {
   const runSearch = async () => {
     const raw = searchQuery.trim();
     if (!raw) {
-      setSearchError("독서실 이름이나 주소를 입력해 주세요.");
+      setSearchError(H.studyRoomQuickSearchRequired);
       setSearchResults([]);
       return;
     }
@@ -171,7 +225,7 @@ export function StudyRoomPickerEditor(props: {
     setSearchError("");
     try {
       if (!authToken) {
-        throw new Error("로그인 정보가 없어 검색할 수 없습니다.");
+        throw new Error(H.studyRoomQuickSearchNoAuth);
       }
       const res = await fetch(
         `${API_BASE}/api/location/naver/local-search?query=${encodeURIComponent(raw)}&limit=5`,
@@ -184,7 +238,7 @@ export function StudyRoomPickerEditor(props: {
       );
       if (!res.ok) {
         const errorPayload = (await res.json().catch(() => ({}))) as { error?: string };
-        throw new Error(String(errorPayload.error || `검색에 실패했습니다. (${res.status})`));
+        throw new Error(String(errorPayload.error || H.studyRoomQuickSearchFailed));
       }
       const data = (await res.json()) as {
         results?: Array<{
@@ -202,7 +256,7 @@ export function StudyRoomPickerEditor(props: {
           if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) return null;
           return {
             id: String(row.id || `${latitude},${longitude}`),
-            name: String(row.name || "").trim() || "검색 결과",
+            name: String(row.name || "").trim() || H.studyRoomQuickSearchFallbackName,
             address: String(row.address || "").trim(),
             latitude,
             longitude
@@ -211,12 +265,12 @@ export function StudyRoomPickerEditor(props: {
         .filter((row): row is SearchResult => Boolean(row));
       setSearchResults(nextResults);
       if (nextResults.length === 0) {
-        setSearchError("검색 결과가 없어요. 지도를 직접 눌러 위치를 설정할 수 있습니다.");
+        setSearchError(H.studyRoomQuickSearchEmpty);
       }
     } catch (error) {
       setSearchResults([]);
       setSearchError(
-        error instanceof Error && error.message ? error.message : "위치 검색 중 오류가 발생했습니다."
+        error instanceof Error && error.message ? error.message : H.studyRoomQuickSearchError
       );
     } finally {
       setSearching(false);
@@ -244,27 +298,32 @@ export function StudyRoomPickerEditor(props: {
 
   if (!student) return null;
 
-  return (
-    <div className="study-room-editor">
+  const searchBlock = (
+    <>
       <div className="study-room-modal__search-row">
         <input
           className="field-input"
           value={searchQuery}
           onChange={event => setSearchQuery(event.target.value)}
-          placeholder="예: 대치동 스터디카페"
+          placeholder={H.studyRoomQuickSearchPlaceholder}
+          disabled={saving}
+          onKeyDown={event => {
+            if (event.key === "Enter") {
+              event.preventDefault();
+              void runSearch();
+            }
+          }}
         />
         <button
           type="button"
-          className="modal-secondary study-room-modal__search-btn"
+          className="study-room-modal__search-btn"
           onClick={() => void runSearch()}
           disabled={searching || saving}
         >
-          {searching ? "검색 중…" : "검색"}
+          {searching ? H.studyRoomQuickSearching : H.studyRoomQuickSearchAction}
         </button>
       </div>
-
       {searchError ? <p className="study-room-modal__status">{searchError}</p> : null}
-
       {searchResults.length > 0 ? (
         <div className="study-room-modal__results">
           {searchResults.map(result => (
@@ -281,68 +340,74 @@ export function StudyRoomPickerEditor(props: {
           ))}
         </div>
       ) : null}
+    </>
+  );
 
-      <div className="study-room-map">
-        <div className="study-room-map__frame">
-          <div ref={mapHostRef} className="study-room-map__surface" />
-          <div className="study-room-map__overlay">
-            <button
-              type="button"
-              className="study-room-map__focus-btn"
-              onClick={focusSelected}
-              disabled={!selected || saving}
-            >
-              선택 위치 보기
-            </button>
-          </div>
+  const mapBlock = (
+    <div className="study-room-map study-room-sheet__map">
+      <div className="study-room-map__frame">
+        <div ref={mapHostRef} className="study-room-map__surface study-room-sheet__map-surface" />
+        <div className="study-room-map__overlay">
+          <button
+            type="button"
+            className="study-room-map__focus-btn"
+            onClick={focusSelected}
+            disabled={!selected || saving}
+          >
+            {H.studyRoomQuickFocusMap}
+          </button>
         </div>
       </div>
+    </div>
+  );
 
-      <div className="study-room-modal__field-grid">
-        <div className="field">
-          <label className="field-label">독서실 이름</label>
-          <input
-            className="field-input"
-            value={studyRoomName}
-            onChange={event => setStudyRoomName(event.target.value)}
-            disabled={saving}
-            placeholder="예: 대치 에이스 독서실"
-          />
-        </div>
-        <div className="field">
-          <label className="field-label">주소 메모</label>
-          <input
-            className="field-input"
-            value={studyRoomAddress}
-            onChange={event => setStudyRoomAddress(event.target.value)}
-            disabled={saving}
-            placeholder="검색 결과나 직접 선택한 위치 주소"
-          />
-        </div>
-        <div className="field">
-          <label className="field-label">근방 판정 반경</label>
-          <div className="record-slider-row study-room-modal__radius-row">
-            <div className="record-slider-pill">
-              <div className="record-slider-pill__fill" style={{ width: radiusFillWidth }} />
-              <input
-                className="record-slider-pill__input"
-                type="range"
-                min={30}
-                max={500}
-                step={10}
-                value={radiusMeters}
-                onChange={event => setRadiusMeters(Number(event.target.value) || 120)}
-                disabled={saving}
-                aria-valuetext={`${radiusMeters}m`}
-              />
-            </div>
-            <span className="record-slider-value study-room-modal__radius-value">
-              {radiusMeters}m
-            </span>
+  const fieldsBlock = (
+    <div className="study-room-modal__field-grid study-room-sheet__field-grid">
+      <div className="field">
+        <label className="field-label">{H.studyRoomQuickNameLabel}</label>
+        <input
+          className="field-input"
+          value={studyRoomName}
+          onChange={event => setStudyRoomName(event.target.value)}
+          disabled={saving}
+          placeholder={H.studyRoomQuickNamePlaceholder}
+        />
+      </div>
+      <div className="field">
+        <label className="field-label">{H.studyRoomQuickAddressLabel}</label>
+        <input
+          className="field-input"
+          value={studyRoomAddress}
+          onChange={event => setStudyRoomAddress(event.target.value)}
+          disabled={saving}
+          placeholder={H.studyRoomQuickAddressPlaceholder}
+        />
+      </div>
+      <div className="field study-room-modal__field--radius">
+        <label className="field-label">{H.studyRoomQuickRadiusLabel}</label>
+        <div className="record-slider-row study-room-modal__radius-row">
+          <div className="record-slider-pill">
+            <div className="record-slider-pill__fill" style={{ width: radiusFillWidth }} />
+            <input
+              className="record-slider-pill__input"
+              type="range"
+              min={30}
+              max={500}
+              step={10}
+              value={radiusMeters}
+              onChange={event => setRadiusMeters(Number(event.target.value) || 120)}
+              disabled={saving}
+              aria-valuetext={`${radiusMeters}m`}
+            />
           </div>
+          <span className="record-slider-value study-room-modal__radius-value">{radiusMeters}m</span>
         </div>
       </div>
+    </div>
+  );
 
+  const footerBlock =
+    hideFooter || !onCancel ? null : (
       <div
         className={
           "study-room-editor__footer" + (!onCancel ? " study-room-editor__footer--single" : "")
@@ -350,7 +415,7 @@ export function StudyRoomPickerEditor(props: {
       >
         {onCancel ? (
           <button type="button" className="modal-secondary" onClick={onCancel} disabled={saving}>
-            취소
+            {H.cancel}
           </button>
         ) : null}
         <button
@@ -359,26 +424,58 @@ export function StudyRoomPickerEditor(props: {
             (onCancel ? "modal-primary" : "timeline-save-button") + " study-room-editor__save-button"
           }
           onClick={() => {
-            if (!selected || !studyRoomName.trim()) return;
-            onSave({
-              studentId: student.id,
-              studentEmail: student.email,
-              name: studyRoomName.trim(),
-              address: studyRoomAddress.trim() || undefined,
-              latitude: selected.lat,
-              longitude: selected.lng,
-              radiusMeters,
-              updatedAt: new Date().toISOString()
-            });
+            const value = buildSaveValue();
+            if (value) onSave(value);
           }}
-          disabled={!selected || !studyRoomName.trim() || saving}
+          disabled={!canSave}
         >
-          {saving ? "저장 중…" : "저장"}
+          {saving ? H.studyRoomQuickSaving : H.studyRoomQuickSave}
         </button>
       </div>
+    );
+
+  if (variant === "sheet") {
+    return (
+      <div className="parent-mode-quick-sheet parent-study-room-quick-sheet">
+        <section
+          className="parent-mode-quick-sheet__section parent-mode-quick-sheet__section--now"
+          aria-label={H.modeQuickStudyRoomFindSection}
+        >
+          <h3 className="parent-mode-quick-sheet__section-title">{H.modeQuickStudyRoomFindSection}</h3>
+          <p className="parent-mode-quick-sheet__section-hint">{H.studyRoomQuickFindHint}</p>
+          <div className="parent-mode-quick-sheet__schedule-panel study-room-sheet__location-panel">
+            {searchBlock}
+            {mapBlock}
+          </div>
+        </section>
+        <section
+          className="parent-mode-quick-sheet__section parent-mode-quick-sheet__section--schedule"
+          aria-label={H.modeQuickStudyRoomDetailSection}
+        >
+          <h3 className="parent-mode-quick-sheet__section-title">{H.modeQuickStudyRoomDetailSection}</h3>
+          <p className="parent-mode-quick-sheet__section-hint">{H.studyRoomQuickDetailHint}</p>
+          <div className="parent-mode-quick-sheet__schedule-panel">{fieldsBlock}</div>
+        </section>
+        {footerBlock}
+      </div>
+    );
+  }
+
+  return (
+    <div className="study-room-editor">
+      {searchBlock}
+      {mapBlock}
+      {fieldsBlock}
+      {footerBlock}
     </div>
   );
-}
+});
+
+const STUDY_ROOM_SHEET_META = {
+  eyebrow: H.settingsListLocation,
+  subtitle: H.studyRoomQuickSubtitle,
+  title: H.studyRoomQuickTitle
+};
 
 export function StudyRoomPickerModal(props: {
   open: boolean;
@@ -395,6 +492,8 @@ export function StudyRoomPickerModal(props: {
   const show = Boolean(open && student);
   const [isRendered, setIsRendered] = useState(show);
   const [isAnimOpen, setIsAnimOpen] = useState(false);
+  const editorRef = useRef<StudyRoomPickerEditorHandle>(null);
+  const [canSave, setCanSave] = useState(false);
 
   useEffect(() => {
     if (show) {
@@ -421,26 +520,64 @@ export function StudyRoomPickerModal(props: {
 
   if (!isRendered || !student) return null;
 
-  return (
+  return createPortal(
     <div
-      className={"dday-modal study-room-modal" + (isAnimOpen ? " dday-modal--open" : "")}
+      className={"dday-modal" + (isAnimOpen ? " dday-modal--open" : "")}
+      role="presentation"
       onClick={onClose}
     >
-      <div className="dday-modal-inner" onClick={event => event.stopPropagation()}>
-        <div className="dday-modal-header">
-          <span className="dday-modal-title">독서실 위치 설정</span>
+      <div
+        className={
+          "dday-modal-inner parent-home__live-quick-modal parent-home__live-quick-modal--schedule parent-home__live-quick-modal--mode-study-room"
+        }
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="study-room-modal-title"
+        onClick={event => event.stopPropagation()}
+      >
+        <div className="dday-modal-header parent-home__live-quick-modal-header">
+          <p className="parent-home__live-quick-modal-eyebrow">
+            <span className="parent-home__live-quick-modal-eyebrow-dot" aria-hidden />
+            {STUDY_ROOM_SHEET_META.eyebrow}
+          </p>
+          <h2 id="study-room-modal-title" className="dday-modal-title">
+            {STUDY_ROOM_SHEET_META.title}
+          </h2>
+          <p className="parent-home__live-quick-modal-subtitle">{STUDY_ROOM_SHEET_META.subtitle}</p>
         </div>
-        <div className="dday-modal-body">
+        <div className="dday-modal-body parent-home__live-quick-modal-body parent-home__live-quick-modal-body--schedule">
           <StudyRoomPickerEditor
+            ref={editorRef}
+            variant="sheet"
+            hideFooter
             student={student}
             initialValue={initialValue}
             authToken={authToken}
             saving={saving}
-            onCancel={onClose}
+            onCanSaveChange={setCanSave}
             onSave={onSave}
           />
         </div>
+        <div className="dday-modal-footer parent-home__live-quick-modal-footer">
+          <button
+            type="button"
+            className="modal-secondary parent-home__live-quick-modal-btn"
+            onClick={onClose}
+            disabled={saving}
+          >
+            {H.cancel}
+          </button>
+          <button
+            type="button"
+            className="modal-primary parent-home__live-quick-modal-btn"
+            disabled={!canSave || saving}
+            onClick={() => editorRef.current?.save()}
+          >
+            {saving ? H.studyRoomQuickSaving : H.studyRoomQuickSave}
+          </button>
+        </div>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }

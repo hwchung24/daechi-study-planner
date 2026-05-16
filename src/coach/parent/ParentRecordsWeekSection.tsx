@@ -8,8 +8,12 @@ import {
 } from "../../lib/weekDates";
 import type { ParentStudentRow } from "../../types/parent";
 import type { StudyRoomVisitSession } from "../../types/studyRoomTracking";
-import { Card, EmptyState } from "../ui/components";
+import { EmptyState } from "../ui/components";
 import { useParentStudyRoomLive } from "./useParentStudyRoomLive";
+import { ParentVisitStudyBar } from "./ParentVisitStudyBar";
+import ko from "../fallbacks/ko.json";
+
+const recordsFb = ko.parentHomeTab;
 
 type ParentWeekDay = { id: number | string; date: string };
 type ParentWeekBlock = {
@@ -138,6 +142,44 @@ function hasLifeLogContent(log: ParentCoachLog | null | undefined) {
     trimText(log.tomorrowPractice).length > 0 ||
     typeof log.tomorrowPracticeDone === "boolean"
   );
+}
+
+function dayHasVisibleRecords(
+  dayKey: string,
+  ctx: {
+    daysByDate: Map<string, { id: number | string; date: string }>;
+    blocksByDayId: Map<number, ParentWeekBlock[]>;
+    plansByDayId: Map<number, ParentWeekPlan[]>;
+    logsByDate: Map<string, ParentCoachLog>;
+    studyRoomVisitsByDate: Map<string, StudyRoomVisitSession[]>;
+    hasStudyRoomConfig: boolean;
+    todayKey: string;
+    tomorrowKey: string;
+    tomorrowDay: { id: number | string; date: string } | null;
+  }
+): boolean {
+  if (ctx.hasStudyRoomConfig && (ctx.studyRoomVisitsByDate.get(dayKey) || []).length > 0) {
+    return true;
+  }
+  const dayLog = ctx.logsByDate.get(dayKey) || null;
+  if (hasStudyLogContent(dayLog) || hasLifeLogContent(dayLog)) return true;
+  const prevLog = ctx.logsByDate.get(shiftDateKey(dayKey, -1)) || null;
+  if (trimText(prevLog?.tomorrowPractice).length > 0) return true;
+  const day = ctx.daysByDate.get(dayKey) || null;
+  if (day) {
+    const dayIdNum = Number(day.id);
+    if (Number.isFinite(dayIdNum)) {
+      if ((ctx.blocksByDayId.get(dayIdNum) || []).length > 0) return true;
+      if ((ctx.plansByDayId.get(dayIdNum) || []).length > 0) return true;
+    }
+  }
+  if (dayKey === ctx.todayKey && ctx.tomorrowDay) {
+    const tomorrowDayId = Number(ctx.tomorrowDay.id);
+    if (Number.isFinite(tomorrowDayId) && (ctx.plansByDayId.get(tomorrowDayId) || []).length > 0) {
+      return true;
+    }
+  }
+  return false;
 }
 
 function ReadonlySliderField(props: {
@@ -386,6 +428,41 @@ export function ParentRecordsWeekSection(props: ParentRecordsWeekSectionProps) {
   const tomorrowKey = getDateKeySeoul(1);
   const tomorrowDay = daysByDate.get(tomorrowKey) || null;
 
+  const weekDays = useMemo(
+    () => getWeekDaysIncludingTomorrowSeoul(props.parentWeekOffset),
+    [props.parentWeekOffset]
+  );
+
+  const dayVisibilityCtx = useMemo(
+    () => ({
+      daysByDate,
+      blocksByDayId,
+      plansByDayId,
+      logsByDate,
+      studyRoomVisitsByDate,
+      hasStudyRoomConfig,
+      todayKey,
+      tomorrowKey,
+      tomorrowDay
+    }),
+    [
+      daysByDate,
+      blocksByDayId,
+      plansByDayId,
+      logsByDate,
+      studyRoomVisitsByDate,
+      hasStudyRoomConfig,
+      todayKey,
+      tomorrowKey,
+      tomorrowDay
+    ]
+  );
+
+  const visibleWeekDays = useMemo(
+    () => weekDays.filter(day => dayHasVisibleRecords(day.key, dayVisibilityCtx)),
+    [weekDays, dayVisibilityCtx]
+  );
+
   const renderStudyCard = (dayKey: string) => {
     const day = daysByDate.get(dayKey) || null;
     const dayLog = logsByDate.get(dayKey) || null;
@@ -539,7 +616,11 @@ export function ParentRecordsWeekSection(props: ParentRecordsWeekSectionProps) {
     );
   };
 
-  const renderStudyRoomVisitOverviewCard = (dayKey: string) => {
+  const renderStudyRoomVisitOverviewCard = (
+    dayKey: string,
+    dayBlocks: ParentWeekBlock[] = [],
+    dayId: number | null = null
+  ) => {
     const dayVisits = studyRoomVisitsByDate.get(dayKey) || [];
     if (!hasStudyRoomConfig) {
       return <div className="record-readonly-empty">등록된 독서실이 없습니다.</div>;
@@ -551,7 +632,16 @@ export function ParentRecordsWeekSection(props: ParentRecordsWeekSectionProps) {
       return <div className="record-readonly-empty">해당 날짜 체크인 기록이 없습니다.</div>;
     }
     return (
-      <div className="parent-study-room-item__visit-list">
+      <>
+        {dayKey === todayKey && (dayVisits.length > 0 || dayBlocks.length > 0) ? (
+          <ParentVisitStudyBar
+            compact
+            visits={dayVisits}
+            todayBlocks={dayBlocks}
+            todayDayId={dayId}
+          />
+        ) : null}
+        <div className="parent-study-room-item__visit-list">
         {dayVisits.map(visit => (
           <div key={visit.id} className="parent-study-room-item__visit-item">
             <div className="parent-study-room-item__visit-row">
@@ -566,7 +656,8 @@ export function ParentRecordsWeekSection(props: ParentRecordsWeekSectionProps) {
             </div>
           </div>
         ))}
-      </div>
+        </div>
+      </>
     );
   };
 
@@ -577,42 +668,72 @@ export function ParentRecordsWeekSection(props: ParentRecordsWeekSectionProps) {
       ) : (
         <>
           <div className="coach-records-page-grid coach-records-page-grid--unified">
-            <Card className="coach-card coach-card--padded coach-records-overview-card parent-home__status-card parent-home__status-card--records">
-              <div className="parent-home__status-card-head parent-home__status-card-head--records">
-                <span className="parent-home__status-card-head-left">
-                  <CalendarRange size={18} strokeWidth={2} aria-hidden />
-                  <span className="parent-home__status-card-title">날짜별 기록</span>
-                </span>
-                <div className="parent-growth-report__week-nav" aria-label="날짜별 기록 주차 이동">
+            <article
+              className="coach-card coach-card--padded parent-home__records-panel"
+              aria-label={recordsFb.recordsPanelTitle}
+            >
+              <header className="parent-home__records-panel-head">
+                <h2 className="parent-home__records-panel-title">{recordsFb.recordsPanelTitle}</h2>
+                <div
+                  className="parent-home__records-week-picker"
+                  role="group"
+                  aria-label="날짜별 기록 주차 이동"
+                >
                   <button
                     type="button"
-                    className="parent-growth-report__week-btn"
+                    className="parent-home__records-week-picker-btn"
                     aria-label="이전 주"
                     onClick={() => props.setParentWeekOffset(offset => offset + 1)}
                   >
-                    <ChevronLeft size={18} />
+                    <ChevronLeft size={16} aria-hidden />
                   </button>
+                  <span className="parent-home__records-week-picker-label">
+                    {getSeoulWeekRangeCompactLabel(props.parentWeekOffset)}
+                  </span>
                   <button
                     type="button"
-                    className="parent-growth-report__week-btn"
+                    className="parent-home__records-week-picker-btn"
                     aria-label="다음 주"
                     disabled={props.parentWeekOffset <= 0}
                     onClick={() =>
                       props.setParentWeekOffset(offset => (offset > 0 ? offset - 1 : 0))
                     }
                   >
-                    <ChevronRight size={18} />
+                    <ChevronRight size={16} aria-hidden />
                   </button>
                 </div>
-              </div>
-              <p className="parent-home__records-week-label">
-                {getSeoulWeekRangeCompactLabel(props.parentWeekOffset)}
-              </p>
+              </header>
               <section className="coach-records-unified-week" aria-label="날짜별 공부·독서실·생활 기록">
+                <div className="parent-home__records-list">
+                {visibleWeekDays.length === 0 ? (
+                  <div className="parent-home__records-row parent-home__records-row--empty">
+                    <div className="parent-home__records-row-main">
+                      <span className="parent-home__records-row-icon" aria-hidden>
+                        <CalendarRange size={16} strokeWidth={2} />
+                      </span>
+                      <div className="parent-home__records-row-body">
+                        <p className="parent-home__records-row-status">
+                          {recordsFb.recordsWeekEmptyTitle}
+                        </p>
+                        <p className="parent-home__records-row-caption">
+                          {recordsFb.recordsWeekEmptyBody}
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                ) : (
+                <div className="parent-home__records-week-scroll">
                 <div className="week-frame coach-records-week-frame">
                   <div className="progress-cards-scroll">
                     <div className="progress-cards-container">
-                      {getWeekDaysIncludingTomorrowSeoul(props.parentWeekOffset).map(day => (
+                      {visibleWeekDays.map(day => {
+                        const dayRow = daysByDate.get(day.key) || null;
+                        const dayIdNum = dayRow != null ? Number(dayRow.id) : NaN;
+                        const dayBlocksForVisit =
+                          dayRow && Number.isFinite(dayIdNum)
+                            ? sortBlocks(blocksByDayId.get(dayIdNum) || [])
+                            : [];
+                        return (
                         <div
                           key={`parent-records-unified-${day.key}`}
                           className={
@@ -629,7 +750,11 @@ export function ParentRecordsWeekSection(props: ParentRecordsWeekSectionProps) {
                                 <RecordSubgroupHeading icon={<Library aria-hidden />}>
                                   독서실 체크인
                                 </RecordSubgroupHeading>
-                                {renderStudyRoomVisitOverviewCard(day.key)}
+                                {renderStudyRoomVisitOverviewCard(
+                                  day.key,
+                                  dayBlocksForVisit,
+                                  Number.isFinite(dayIdNum) ? dayIdNum : null
+                                )}
                               </div>
                             ) : null}
                             <div className="coach-records-unified-block">
@@ -643,12 +768,16 @@ export function ParentRecordsWeekSection(props: ParentRecordsWeekSectionProps) {
                             </div>
                           </div>
                         </div>
-                      ))}
+                        );
+                      })}
                     </div>
                   </div>
                 </div>
+                </div>
+                )}
+                </div>
               </section>
-            </Card>
+            </article>
           </div>
         </>
       )}

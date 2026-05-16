@@ -1,6 +1,7 @@
 import React, { useCallback, useRef, useState } from "react";
 import { useModalReveal } from "../../lib/useModalReveal";
 import ModeScheduleGrid, { type ModeScheduleSlot } from "./ModeScheduleGrid";
+import { ParentModeNowToggle } from "./ParentModeNowToggle";
 
 const MODES = [
   { key: "utility", label: "유틸리티 모드", color: "#ffcc00" },
@@ -77,46 +78,20 @@ export default function ModeScheduleSettings(props: {
           : props.activatingMode === mode.key;
         return (
           <div key={mode.key} className="parent-settings-block">
-            <div className="settings-item settings-item--stack student-profile-alarm-item student-profile-alarm-item--detail parent-mode-schedule-item">
-              <div className="student-profile-alarm-item__row parent-mode-schedule-item__row">
-                <span className="student-profile-alarm-item__body">
-                  <span className="student-profile-alarm-item__label parent-mode-schedule-item__label">
-                    {mode.label}
-                  </span>
-                  <span className="student-profile-alarm-item__copy">
-                    {mode.label} 활성화 구간을 예약합니다.
-                  </span>
-                </span>
-              </div>
-            </div>
-            <div className="parent-settings-primary-action">
-              <button
-                type="button"
-                className={
-                  "timeline-save-button study-room-editor__save-button parent-mode-schedule-item__activate" +
-                  (isBlock && rowActive ? " student-profile-link-action-btn--danger" : "") +
-                  (rowActivating ? " parent-settings-btn--spinner-only" : "")
+            <ParentModeNowToggle
+              modeLabel={mode.label}
+              active={rowActive}
+              activating={rowActivating}
+              disabled={anyActivating}
+              dangerWhenActive={isBlock}
+              onToggle={() => {
+                if (isBlock) {
+                  props.onToggleBlockNow?.(!rowActive);
+                } else {
+                  props.onToggleModeNow?.(mode.key, props.activeMode !== mode.key);
                 }
-                disabled={anyActivating}
-                onClick={() => {
-                  if (isBlock) {
-                    props.onToggleBlockNow?.(!rowActive);
-                  } else {
-                    props.onToggleModeNow?.(mode.key, props.activeMode !== mode.key);
-                  }
-                }}
-                aria-busy={rowActivating}
-                aria-label={rowActivating ? "처리 중" : rowActive ? "지금 끄기" : "지금 켜기"}
-              >
-                {rowActivating ? (
-                  <span className="parent-settings-inline-spinner parent-settings-inline-spinner--inverse" aria-hidden />
-                ) : rowActive ? (
-                  "지금 끄기"
-                ) : (
-                  "지금 켜기"
-                )}
-              </button>
-            </div>
+              }}
+            />
           </div>
         );
       })}

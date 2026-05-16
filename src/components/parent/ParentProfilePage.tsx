@@ -3,6 +3,9 @@ import { Card, SectionHeader } from "../../coach/ui/components";
 import { useEffectiveBearer } from "../../lib/useEffectiveBearer";
 import { useModalReveal } from "../../lib/useModalReveal";
 import { DAECHI_LINKS_UPDATED_EVENT } from "../../lib/linkEvents";
+import ko from "../../coach/fallbacks/ko.json";
+
+const coachPreviewFb = ko.parentCoachPreview;
 import type {
   ParentCoachCustomization,
   ParentStudentRow
@@ -152,6 +155,7 @@ export function ParentProfilePage(props: {
   const [alarmSettingsModalOpen, setAlarmSettingsModalOpen] = useState(false);
   const [studentManagementModalOpen, setStudentManagementModalOpen] = useState(false);
   const [coachSettingsModalOpen, setCoachSettingsModalOpen] = useState(false);
+  const [coachPreviewText, setCoachPreviewText] = useState(coachPreviewFb.sampleSoft);
   const [accountEmail, setAccountEmail] = useState("");
   const [accountPhone, setAccountPhone] = useState("");
   const [accountPhoneLoading, setAccountPhoneLoading] = useState(false);
@@ -213,6 +217,26 @@ export function ParentProfilePage(props: {
   const alarmSettingsModalReveal = useModalReveal(alarmSettingsModalOpen);
   const studentManagementModalReveal = useModalReveal(studentManagementModalOpen);
   const coachSettingsModalReveal = useModalReveal(coachSettingsModalOpen);
+
+  useEffect(() => {
+    if (!coachSettingsModalOpen) return;
+    const timer = window.setTimeout(() => {
+      const intensity = clampControlIntensity(coachCustomization.controlIntensity);
+      const sample =
+        intensity <= 2
+          ? coachPreviewFb.sampleSoft
+          : intensity >= 4
+            ? coachPreviewFb.sampleFirm
+            : coachPreviewFb.sampleWarm;
+      setCoachPreviewText(sample);
+    }, 350);
+    return () => window.clearTimeout(timer);
+  }, [
+    coachSettingsModalOpen,
+    coachCustomization.controlIntensity,
+    coachCustomization.persona,
+    coachCustomization.tone
+  ]);
   const profileEditModalReveal = useModalReveal(editOpen);
 
   useEffect(() => {
@@ -1426,6 +1450,12 @@ export function ParentProfilePage(props: {
                 <span className="record-slider-value parent-profile-control-slider-value">
                   {clampControlIntensity(coachCustomization.controlIntensity)}/5
                 </span>
+              </div>
+            </div>
+            <div className="coach-card coach-card--padded parent-coach-preview" style={{ marginTop: 14 }}>
+              <p className="parent-type-caption">미리보기</p>
+              <div className="coach-bubble coach-bubble--coach parent-coach-preview__bubble">
+                {coachPreviewText}
               </div>
             </div>
             <div className="field" style={{ marginTop: 12 }}>

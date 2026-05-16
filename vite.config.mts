@@ -6,6 +6,8 @@ export default defineConfig({
   base: "./",
   plugins: [react()],
   build: {
+    // iOS 배포 16+ / 최신 Chromium — 불필요한 레거시 폴리필 축소
+    target: "es2022",
     rollupOptions: {
       output: {
         manualChunks(id) {
@@ -13,6 +15,8 @@ export default defineConfig({
           if (id.includes("framer-motion")) return "vendor-motion";
           if (id.includes("recharts")) return "vendor-charts";
           if (id.includes("lucide-react")) return "vendor-icons";
+          if (id.includes("leaflet")) return "vendor-maps";
+          if (id.includes("html2canvas") || id.includes("jspdf")) return "vendor-pdf";
         }
       }
     }

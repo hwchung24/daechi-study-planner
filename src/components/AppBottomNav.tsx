@@ -7,7 +7,6 @@ import {
   GraduationCap,
   House,
   LayoutGrid,
-  Settings,
   User
 } from "lucide-react";
 
@@ -271,18 +270,6 @@ export function AppBottomNav(props: {
               <User size={20} strokeWidth={2} />
             </NavIcon>
             <span className="nav-label">자녀</span>
-          </button>
-          <button
-            type="button"
-            className={
-              "nav-item" + (coachParentTab === "studentSettings" ? " nav-item-active" : "")
-            }
-            onClick={() => onCoachParentNavClick("studentSettings")}
-          >
-            <NavIcon>
-              <Settings size={20} strokeWidth={2} />
-            </NavIcon>
-            <span className="nav-label">자녀 설정</span>
           </button>
           <button
             type="button"

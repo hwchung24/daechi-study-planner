@@ -1,9 +1,7 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { BookOpen, CalendarDays, MapPin, Smartphone } from "lucide-react";
 import type { ParentLockStatus } from "../../types/lockStatus";
 import type { ParentStudentRow } from "../../types/parent";
-import { StudyRoomPickerModal, type StudyRoomSetting } from "../../components/parent/StudyRoomPickerModal";
-import { TimePickerSheet } from "../../components/TimePickerSheet";
+import type { StudyRoomSetting } from "../../components/parent/StudyRoomPickerModal";
 import { DAECHI_LINKS_UPDATED_EVENT } from "../../lib/linkEvents";
 import { getDateKeySeoul, seoulDateKeyFromApiValue } from "../../lib/weekDates";
 import { ParentStudentSelector } from "./ParentStudentSelector";
@@ -19,6 +17,9 @@ import {
   ParentRecordsWeekSection,
   type ParentWeeklyRecordsReport
 } from "./ParentRecordsWeekSection";
+import { ParentHomeInsight } from "./ParentHomeInsight";
+import { ParentHomeLivePanel } from "./ParentHomeLivePanel";
+import { ParentVisitStudyBar } from "./ParentVisitStudyBar";
 import ko from "../fallbacks/ko.json";
 import { tpl } from "../fallbacks/tpl";
 
@@ -165,7 +166,6 @@ export function ParentHomeTab(props: ParentHomeTabProps) {
 
   const studentId = selectedStudent?.id ?? null;
 
-  const [studyRoomModalOpen, setStudyRoomModalOpen] = useState(false);
   const [studyRoomSaving, setStudyRoomSaving] = useState(false);
   const [freeModeToggling, setFreeModeToggling] = useState(false);
   const [freeMinutesModalOpen, setFreeMinutesModalOpen] = useState(false);
@@ -178,13 +178,22 @@ export function ParentHomeTab(props: ParentHomeTabProps) {
   const [plannerSaving, setPlannerSaving] = useState(false);
   const [plannerTimeSheetOpen, setPlannerTimeSheetOpen] = useState(false);
   const [bulkKioskSaving, setBulkKioskSaving] = useState(false);
+  const [bulkDaechiRootLockSaving, setBulkDaechiRootLockSaving] = useState(false);
+  const [activatingAppMode, setActivatingAppMode] = useState<"utility" | "free" | null>(null);
   const [delayedNetConnected, setDelayedNetConnected] = useState<boolean | null>(null);
   const [showNoLinkedHint, setShowNoLinkedHint] = useState(false);
-
+  const [netDetailModalOpen, setNetDetailModalOpen] = useState(false);
   const freeMinutesModalReveal = useModalReveal(freeMinutesModalOpen);
+  const netDetailModalReveal = useModalReveal(netDetailModalOpen);
 
-  const { studyRoomVisitsLoading, studyRoomLiveStatus, hasStudyRoomConfig } =
-    useParentStudyRoomLive({
+  const {
+    studyRoomVisits,
+    studyRoomVisitsByDate,
+    studyRoomVisitsLoading,
+    studyRoomLiveStatus,
+    hasStudyRoomConfig,
+    refreshStudyRoomVisits
+  } = useParentStudyRoomLive({
       apiBase,
       authToken,
       studentId,
@@ -235,15 +244,13 @@ export function ParentHomeTab(props: ParentHomeTabProps) {
           const data = (await res.json().catch(() => ({}))) as { error?: string };
           throw new Error(String(data.error || H.studyRoomSaveFailed));
         }
-        setStudyRoomModalOpen(false);
         window.dispatchEvent(new Event(DAECHI_LINKS_UPDATED_EVENT));
       } catch (error) {
         void refreshDeviceSnapshot({ silent: true });
-        alert(
-          error instanceof Error && error.message
-            ? error.message
-            : H.studyRoomSaveError
-        );
+        const message =
+          error instanceof Error && error.message ? error.message : H.studyRoomSaveError;
+        alert(message);
+        throw error instanceof Error ? error : new Error(message);
       } finally {
         setStudyRoomSaving(false);
       }
@@ -312,11 +319,10 @@ export function ParentHomeTab(props: ParentHomeTabProps) {
       setPlannerEnabled(Boolean(data.rule?.enabled));
       setPlannerTime(String(data.rule?.lockTime || next.lockTime).slice(0, 5));
     } catch (error) {
-      alert(
-        error instanceof Error && error.message
-          ? error.message
-          : H.settingsSaveError
-      );
+      const message =
+        error instanceof Error && error.message ? error.message : H.settingsSaveError;
+      alert(message);
+      throw error instanceof Error ? error : new Error(message);
     } finally {
       setPlannerSaving(false);
     }
@@ -491,14 +497,6 @@ export function ParentHomeTab(props: ParentHomeTabProps) {
           : H.modeDefault
     : null;
 
-  const freeTimedUntilLabel = useMemo(() => {
-    if (deviceSnapshot?.activeAppAllowanceMode !== "free") return null;
-    const iso = deviceSnapshot.parentTimedFreeExpiresAt;
-    if (!iso) return null;
-    const t = formatSeoulTimeLabel(iso);
-    return t ? tpl(H.freeUntil, { time: t }) : null;
-  }, [deviceSnapshot?.activeAppAllowanceMode, deviceSnapshot?.parentTimedFreeExpiresAt]);
-
   const plannerKioskModeActive = Boolean(deviceSnapshot?.kioskEnabled);
 
   const netConnected =
@@ -538,6 +536,16 @@ export function ParentHomeTab(props: ParentHomeTabProps) {
 
   const reportReady = parentReport !== null;
 
+  const netStatusDetail = useMemo(() => {
+    if (delayedNetConnected == null) return null;
+    const net = deviceSnapshot?.simpleMdmNetwork;
+    const described = net ? simpleMdmNetworkDescription({ net }) : null;
+    if (delayedNetConnected) {
+      return described || H.netConnectedDetail;
+    }
+    return described || H.netDisconnectedDetail;
+  }, [delayedNetConnected, deviceSnapshot]);
+
   const currentTimelineStudy = useMemo(() => {
     const days = Array.isArray(parentReport?.days) ? parentReport.days : [];
     const blocks = Array.isArray(parentReport?.blocks) ? parentReport.blocks : [];
@@ -567,6 +575,147 @@ export function ParentHomeTab(props: ParentHomeTabProps) {
     return String(currentBlock.subject || "").trim() || H.subjectUnset;
   }, [parentReport]);
 
+  const currentStudyDisplay = useMemo(() => {
+    if (!reportReady) return { kind: "loading" as const };
+    const days = Array.isArray(parentReport?.days) ? parentReport.days : [];
+    const blocks = Array.isArray(parentReport?.blocks) ? parentReport.blocks : [];
+    if (blocks.length === 0) {
+      return { kind: "message" as const, text: H.noStudySchedule };
+    }
+    const todayKey = getDateKeySeoul(0);
+    const todayDay = days.find(day => seoulDateKeyFromApiValue(day.date) === todayKey);
+    if (!todayDay) {
+      return { kind: "message" as const, text: H.noStudyToday };
+    }
+    const todayBlocks = blocks.filter(
+      block => Number(block.study_day_id) === Number(todayDay.id)
+    );
+    if (todayBlocks.length === 0) {
+      return { kind: "message" as const, text: H.noStudyToday };
+    }
+    if (currentTimelineStudy) {
+      return { kind: "active" as const, text: currentTimelineStudy };
+    }
+    return { kind: "message" as const, text: H.notInStudyWindow };
+  }, [currentTimelineStudy, parentReport, reportReady]);
+
+  const todayKey = getDateKeySeoul(0);
+  const todayVisits = useMemo(
+    () => studyRoomVisitsByDate.get(todayKey) || [],
+    [studyRoomVisitsByDate, todayKey]
+  );
+  const todayDayAndBlocks = useMemo(() => {
+    const days = Array.isArray(parentReport?.days) ? parentReport.days : [];
+    const blocks = Array.isArray(parentReport?.blocks) ? parentReport.blocks : [];
+    const todayDay = days.find(day => seoulDateKeyFromApiValue(day.date) === todayKey);
+    if (!todayDay) return { todayDayId: null as number | null, todayBlocks: [] as typeof blocks };
+    const todayDayId = Number(todayDay.id);
+    const todayBlocks = blocks.filter(b => Number(b.study_day_id) === todayDayId);
+    return {
+      todayDayId: Number.isFinite(todayDayId) ? todayDayId : null,
+      todayBlocks
+    };
+  }, [parentReport, todayKey]);
+
+  const isUtilityModeActive = deviceSnapshot?.activeAppAllowanceMode === "utility";
+  const isFreeModeActive = deviceSnapshot?.activeAppAllowanceMode === "free";
+  const isBlockModeActive = deviceSnapshot?.displaySurfaceMode === "block";
+  const anyModeControlBusy =
+    freeModeToggling || activatingAppMode != null || bulkDaechiRootLockSaving;
+
+  const activateAllowanceModeDirect = (mode: "utility" | "free" | "default") => {
+    if (!authToken || !selectedStudent?.id || anyModeControlBusy) return;
+    const activating: "utility" | "free" | null =
+      mode === "utility" ? "utility" : mode === "free" ? "free" : null;
+    setActivatingAppMode(activating);
+    patchDeviceSnapshot(prev => patchParentDeviceSnapshotForAllowanceMode(prev, mode));
+    void (async () => {
+      try {
+        const res = await fetch(`${apiBase}/api/parent/app-allowance/activate-mode`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${authToken}`
+          },
+          body: JSON.stringify({ mode, studentIds: [selectedStudent.id] })
+        });
+        const data = (await res.json().catch(() => ({}))) as {
+          error?: string;
+          message?: string;
+          ok?: boolean;
+        };
+        if (!res.ok || data.ok === false) {
+          throw new Error(String(data.error || data.message || H.freeModeChangeFailed));
+        }
+        void refreshDeviceSnapshot({ silent: true });
+      } catch (error) {
+        void refreshDeviceSnapshot({ silent: true });
+        alert(error instanceof Error ? error.message : H.freeModeChangeError);
+      } finally {
+        setActivatingAppMode(null);
+      }
+    })();
+  };
+
+  const toggleUtilityModeNow = () => {
+    hapticSelection();
+    activateAllowanceModeDirect(isUtilityModeActive ? "default" : "utility");
+  };
+
+  const toggleFreeModeNow = () => {
+    hapticSelection();
+    activateAllowanceModeDirect(isFreeModeActive ? "default" : "free");
+  };
+
+  const toggleBulkDaechiRootLock = (nextLocked: boolean) => {
+    if (!authToken || !selectedStudent?.id || anyModeControlBusy) return;
+    hapticSelection();
+    setBulkDaechiRootLockSaving(true);
+    patchDeviceSnapshot(prev => {
+      const base = prev ?? computeParentDeviceControlSnapshot({});
+      if (nextLocked) {
+        return { ...base, displaySurfaceMode: "block", activeAppAllowanceMode: null };
+      }
+      return { ...base, displaySurfaceMode: "default", activeAppAllowanceMode: null };
+    });
+    void (async () => {
+      try {
+        const res = await fetch(
+          `${apiBase}/api/parent/app-allowance/${nextLocked ? "bulk-daechiroot-lock" : "bulk-daechiroot-unlock"}`,
+          {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${authToken}`
+            },
+            body: JSON.stringify({ studentIds: [selectedStudent.id] })
+          }
+        );
+        const data = (await res.json().catch(() => ({}))) as {
+          error?: string;
+          message?: string;
+          summary?: { failed?: number };
+        };
+        if (!res.ok) {
+          throw new Error(
+            String(data.error || (nextLocked ? H.bulkLockEnableFailed : H.bulkLockDisableFailed))
+          );
+        }
+        if ((data.summary?.failed || 0) > 0) {
+          alert(String(data.message || H.bulkLockPartialFailed));
+          void refreshDeviceSnapshot({ silent: true });
+          return;
+        }
+        void refreshDeviceSnapshot({ silent: true });
+      } catch (error) {
+        void refreshDeviceSnapshot({ silent: true });
+        alert(error instanceof Error ? error.message : H.bulkLockControlError);
+      } finally {
+        setBulkDaechiRootLockSaving(false);
+      }
+    })();
+  };
+
   return (
     <div className="coach-page parent-home">
       {!linked ? (
@@ -583,234 +732,139 @@ export function ParentHomeTab(props: ParentHomeTabProps) {
         <section className="section parent-home__live" aria-label={H.ariaLiveSection}>
           {selectedStudent ? (
             <>
-              <div
-                className="parent-home__coach-phrase-card parent-home__coach-phrase-card--with-title"
-                aria-busy={suggestedPhraseLoading}
-              >
-                <p className="parent-home__coach-phrase-card-title">{H.coachGuideTitle}</p>
-                {suggestedPhraseLoading ? (
-                  <div className="parent-home__skeleton-phrase-row" aria-label={H.loadingCoachPhrase}>
-                    <div className="parent-skeleton parent-skeleton--phrase" />
-                    <div className="parent-skeleton parent-skeleton--phrase parent-skeleton--phrase-row-2" />
-                  </div>
-                ) : String(suggestedPhrase || "").trim() ? (
-                  <p className="parent-home__coach-phrase parent-home__coach-phrase--fade">
-                    {String(suggestedPhrase || "").trim()}
-                  </p>
-                ) : null}
-              </div>
-              <div
-                className="parent-home__coach-phrase-card parent-home__coach-phrase-card--sub"
-                aria-busy={delayedNetConnected == null}
-              >
-                {delayedNetConnected == null ? (
-                  <div className="parent-skeleton parent-skeleton--phrase-short" aria-label={H.loadingNetStatus} />
-                ) : (
-                  <p className="parent-home__coach-phrase parent-home__coach-phrase--sub parent-home__coach-phrase--fade">
-                    {delayedNetConnected ? H.netConnected : H.netDisconnected}
-                  </p>
-                )}
-              </div>
-              <div className="parent-home__status-grid">
-                <div className="parent-home__status-card">
-                <div className="parent-home__status-card-head">
-                  <MapPin size={18} strokeWidth={2} aria-hidden />
-                  <span className="parent-home__status-card-title">{H.liveLocationTitle}</span>
-                </div>
-                <div className="parent-home__status-center">
-                  {!hasStudyRoomConfig ? (
-                    <p className="parent-home__status-body parent-home__status-body--fade">{H.studyRoomNotRegistered}</p>
-                  ) : typeof studyRoomLiveStatus.currentWithinRadius === "boolean" ? (
-                    <p className="parent-home__status-body parent-home__status-body--fade">
-                      {studyRoomLiveStatus.currentWithinRadius ? H.checkIn : H.checkOut}
-                    </p>
-                  ) : studyRoomVisitsLoading ? (
-                    <div className="parent-skeleton parent-skeleton--status-wide" aria-label={H.loadingLocationStatus} />
-                  ) : (
-                    <p className="parent-home__status-body parent-home__status-body--fade">{H.statusUnknown}</p>
-                  )}
-                </div>
-                <div className="parent-home__status-card-footer">
-                  <button
-                    type="button"
-                    className="timeline-save-button study-room-editor__save-button parent-home__status-action"
-                    onClick={() => {
-                      hapticSelection();
-                      setStudyRoomModalOpen(true);
-                    }}
-                    disabled={!selectedStudent || studyRoomSaving}
-                  >
-                    {H.studyRoomSettings}
-                  </button>
-                </div>
-              </div>
-              <div className="parent-home__status-card">
-                <div className="parent-home__status-card-head">
-                  <Smartphone size={18} strokeWidth={2} aria-hidden />
-                  <span className="parent-home__status-card-title">{H.phoneModeTitle}</span>
-                </div>
-                {deviceLoading && !deviceSnapshot ? (
-                  <div className="parent-home__status-center" aria-busy="true" aria-label={H.loadingPhoneMode}>
-                    <div className="parent-skeleton parent-skeleton--status-wide" />
-                  </div>
-                ) : deviceSnapshot ? (
-                  <div className="parent-home__status-center">
-                    <p className="parent-home__status-body parent-home__status-body--fade">
-                      {phoneModeLabel ? (
-                        <span className="parent-home__status-em">
-                          {phoneModeLabel}
-                          {plannerKioskModeActive ? H.plannerSuffix : ""}
-                        </span>
-                      ) : (
-                        H.modeLoadFailed
-                      )}
-                    </p>
-                    {freeTimedUntilLabel ? (
-                      <p className="parent-home__free-until-hint">{freeTimedUntilLabel}</p>
-                    ) : null}
-                  </div>
-                ) : (
-                  <div className="parent-home__status-center">
-                    <p className="parent-home__status-body parent-home__status-body--fade">{H.deviceStatusFailed}</p>
-                  </div>
-                )}
-                <div className="parent-home__status-card-footer">
-                  <button
-                    type="button"
-                    className="timeline-save-button study-room-editor__save-button parent-home__status-action"
-                    onClick={() => {
-                      if (deviceSnapshot?.activeAppAllowanceMode === "free") {
-                        hapticSelection();
-                        turnOffFreeMode();
-                      } else {
-                        openFreeMinutesModal();
-                      }
-                    }}
-                    disabled={!selectedStudent?.id || !authToken || freeModeToggling}
-                    aria-busy={freeModeToggling}
-                  >
-                    {deviceSnapshot?.activeAppAllowanceMode === "free" ? H.freeOff : H.freeTimeGive}
-                  </button>
-                </div>
-              </div>
-              <div className="parent-home__status-card" aria-label={H.plannerCardAria}>
-                <div className="parent-home__status-card-head">
-                  <CalendarDays size={18} strokeWidth={2} aria-hidden />
-                  <span className="parent-home__status-card-title">{H.plannerTitle}</span>
-                  {plannerLoading ? (
-                    <div
-                      className="parent-home__skeleton-toggle-pill parent-home__skeleton-shimmer"
-                      aria-hidden
+              <ParentHomeInsight
+                fullPhrase={suggestedPhrase}
+                loading={suggestedPhraseLoading}
+                parentReport={parentReport}
+              />
+              <ParentHomeLivePanel
+                apiBase={apiBase}
+                authToken={authToken}
+                netConnected={delayedNetConnected}
+                netLoading={delayedNetConnected == null && Boolean(selectedStudent)}
+                onRecheckNet={() => {
+                  hapticSelection();
+                  void refreshDeviceSnapshot({ silent: false });
+                  setNetDetailModalOpen(true);
+                }}
+                hasStudyRoomConfig={hasStudyRoomConfig}
+                studyRoomVisitsLoading={studyRoomVisitsLoading}
+                studyRoomName={studyRoomLiveStatus.studyRoomName}
+                studyRoomWithinRadius={studyRoomLiveStatus.currentWithinRadius}
+                todayVisits={todayVisits}
+                displaySurfaceMode={deviceSnapshot?.displaySurfaceMode ?? null}
+                currentStudyDisplay={currentStudyDisplay}
+                selectedStudent={selectedStudent}
+                plannerLoading={plannerLoading}
+                plannerScheduleEnabled={plannerEnabled}
+                visitBar={
+                  todayVisits.length > 0 || todayDayAndBlocks.todayBlocks.length > 0 ? (
+                    <ParentVisitStudyBar
+                      compact
+                      visits={todayVisits}
+                      todayBlocks={todayDayAndBlocks.todayBlocks}
+                      todayDayId={todayDayAndBlocks.todayDayId}
                     />
-                  ) : (
-                    <button
-                      type="button"
-                      className="parent-home__planner-now-toggle"
-                      onClick={() => {
-                        hapticSelection();
-                        void toggleBulkKioskMode(!Boolean(deviceSnapshot?.kioskEnabled));
-                      }}
-                      disabled={bulkKioskSaving || !selectedStudent?.id || !authToken}
-                      aria-pressed={Boolean(deviceSnapshot?.kioskEnabled)}
-                      aria-label={deviceSnapshot?.kioskEnabled ? H.plannerBulkOff : H.plannerBulkOn}
-                      aria-busy={bulkKioskSaving}
-                    >
-                      {bulkKioskSaving ? (
-                        <span
-                          className="parent-settings-inline-spinner parent-settings-inline-spinner--inverse"
-                          aria-hidden
-                        />
-                      ) : deviceSnapshot?.kioskEnabled ? (
-                        H.plannerBulkOff
-                      ) : (
-                        H.plannerBulkOn
-                      )}
-                    </button>
-                  )}
-                </div>
-                {plannerLoading ? (
-                  <div
-                    className="parent-home__status-center parent-home__skeleton-planner-stack"
-                    aria-busy="true"
-                    aria-label={H.loadingPlannerSettings}
-                  >
-                    <div className="parent-home__skeleton-planner-time parent-home__skeleton-shimmer" />
-                    <div className="parent-home__skeleton-planner-action parent-home__skeleton-shimmer" />
-                  </div>
-                ) : (
-                  <>
-                    <div className="parent-home__status-center">
-                      <button
-                        type="button"
-                        className="parent-home__status-time-btn"
-                        disabled={!plannerEnabled || plannerSaving}
-                        onClick={() => setPlannerTimeSheetOpen(true)}
-                        aria-label={H.plannerTimeSetAria}
-                      >
-                        {plannerTime}
-                      </button>
-                    </div>
-                    <TimePickerSheet
-                      open={plannerTimeSheetOpen}
-                      value={plannerTime}
-                      onClose={() => setPlannerTimeSheetOpen(false)}
-                      onSave={async (newTime: string) => {
-                        setPlannerTimeSheetOpen(false);
-                        setPlannerTime(newTime);
-                        await savePlannerRule({ enabled: plannerEnabled, lockTime: newTime });
-                      }}
-                      disabled={!plannerEnabled || plannerSaving}
-                    />
-                    <div className="parent-home__status-card-footer parent-home__status-card-footer--stack">
-                      <button
-                        type="button"
-                        className={
-                          "timeline-save-button study-room-editor__save-button parent-home__status-action" +
-                          (!plannerEnabled ? " parent-home__status-action--muted" : "")
-                        }
-                        onClick={() => void togglePlannerEnabled()}
-                        aria-pressed={plannerEnabled}
-                        aria-label={plannerEnabled ? H.timeSettingOff : H.timeSettingOn}
-                        disabled={plannerSaving}
-                        aria-busy={plannerSaving}
-                      >
-                        {plannerEnabled ? H.timeSettingOff : H.timeSettingOn}
-                      </button>
-                    </div>
-                  </>
-                )}
-              </div>
-              <div className="parent-home__status-card" aria-label={H.currentStudyCardAria}>
-                <div className="parent-home__status-card-head">
-                  <BookOpen size={18} strokeWidth={2} aria-hidden />
-                  <span className="parent-home__status-card-title">{H.currentStudyTitle}</span>
-                </div>
-                <div className="parent-home__status-center" aria-busy={!reportReady}>
-                  {reportReady ? (
-                    <p className="parent-home__status-body parent-home__status-body--fade">
-                      {currentTimelineStudy || H.plannerNotConfigured}
-                    </p>
-                  ) : (
-                    <div className="parent-skeleton parent-skeleton--status-wide" aria-label={H.loadingStudySchedule} />
-                  )}
-                </div>
-                </div>
-              </div>
+                  ) : undefined
+                }
+                hapticSelection={hapticSelection}
+                studyRoomQuickControls={{
+                  saving: studyRoomSaving,
+                  onSave: saveStudyRoomSetting
+                }}
+                plannerQuickControls={{
+                  loading: plannerLoading,
+                  saving: plannerSaving,
+                  enabled: plannerEnabled,
+                  lockTime: plannerTime,
+                  kioskActive: plannerKioskModeActive,
+                  kioskActivating: bulkKioskSaving,
+                  anyBusy: plannerSaving || bulkKioskSaving || plannerLoading,
+                  onToggleKioskNow: () => {
+                    hapticSelection();
+                    void toggleBulkKioskMode(!plannerKioskModeActive);
+                  },
+                  onSave: savePlannerRule
+                }}
+                modeQuickControls={{
+                  anyBusy: anyModeControlBusy,
+                  utility: {
+                    active: isUtilityModeActive,
+                    activating: activatingAppMode === "utility",
+                    onToggle: toggleUtilityModeNow
+                  },
+                  free: {
+                    active: isFreeModeActive,
+                    activating: activatingAppMode === "free" || freeModeToggling,
+                    onToggle: toggleFreeModeNow
+                  },
+                  block: {
+                    active: isBlockModeActive,
+                    activating: bulkDaechiRootLockSaving,
+                    onToggle: () => toggleBulkDaechiRootLock(!isBlockModeActive)
+                  }
+                }}
+              />
+              {linked ? (
+                <ParentRecordsWeekSection
+                  apiBase={apiBase}
+                  authToken={authToken}
+                  selectedStudent={selectedStudent}
+                  parentReport={parentReport}
+                  parentWeekOffset={props.parentWeekOffset}
+                  setParentWeekOffset={props.setParentWeekOffset}
+                />
+              ) : null}
             </>
           ) : (
             <p className="parent-home__status-hint">{H.selectStudentHint}</p>
           )}
         </section>
       )}
-      {linked ? (
-        <ParentRecordsWeekSection
-          apiBase={apiBase}
-          authToken={authToken}
-          selectedStudent={selectedStudent}
-          parentReport={parentReport}
-          parentWeekOffset={props.parentWeekOffset}
-          setParentWeekOffset={props.setParentWeekOffset}
-        />
+      {netDetailModalOpen ? (
+        <div
+          className={"dday-modal" + (netDetailModalReveal.revealed ? " dday-modal--open" : "")}
+          role="presentation"
+          onClick={() => netDetailModalReveal.beginClose(() => setNetDetailModalOpen(false))}
+        >
+          <div
+            className="dday-modal-inner parent-home__net-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="parent-home-net-modal-title"
+            onClick={e => e.stopPropagation()}
+          >
+            <div className="dday-modal-header">
+              <h2 id="parent-home-net-modal-title" className="dday-modal-title">
+                {H.netDetailModalTitle}
+              </h2>
+            </div>
+            <div className="dday-modal-body">
+              <span
+                className={
+                  "parent-home__net-badge" +
+                  (delayedNetConnected
+                    ? " parent-home__net-badge--on"
+                    : " parent-home__net-badge--off")
+                }
+              >
+                {delayedNetConnected ? H.netConnected : H.netDisconnected}
+              </span>
+              {netStatusDetail ? (
+                <p className="parent-type-body parent-home__net-modal-detail">{netStatusDetail}</p>
+              ) : null}
+            </div>
+            <div className="dday-modal-footer">
+              <button
+                type="button"
+                className="timeline-save-button study-room-editor__save-button"
+                onClick={() => netDetailModalReveal.beginClose(() => setNetDetailModalOpen(false))}
+              >
+                {H.netModalClose}
+              </button>
+            </div>
+          </div>
+        </div>
       ) : null}
       {freeMinutesModalOpen ? (
         <div
@@ -908,15 +962,6 @@ export function ParentHomeTab(props: ParentHomeTabProps) {
           </div>
         </div>
       ) : null}
-      <StudyRoomPickerModal
-        open={studyRoomModalOpen}
-        student={selectedStudent ? { id: selectedStudent.id, email: selectedStudent.email } : null}
-        initialValue={selectedStudent?.studyRoom || undefined}
-        authToken={authToken}
-        saving={studyRoomSaving}
-        onClose={() => setStudyRoomModalOpen(false)}
-        onSave={saveStudyRoomSetting}
-      />
     </div>
   );
 }

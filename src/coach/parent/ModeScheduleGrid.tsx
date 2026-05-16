@@ -52,7 +52,7 @@ function newSlotId() {
   return `slot-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
 }
 
-function createSlot(mode: ModeKey): ScheduleSlot {
+export function createModeScheduleSlot(mode: ModeKey): ScheduleSlot {
   const def = MODE_OPTIONS.find(m => m.key === mode)!;
   return {
     id: newSlotId(),
@@ -84,7 +84,10 @@ function summarizeDays(days: boolean[]): string {
 export default function ModeScheduleGrid(props: {
   initialSlots?: ModeScheduleSlot[] | null;
   onSlotsChange?: (slots: ModeScheduleSlot[]) => void;
+  /** 단일 모드 팝업: 구간 추가 시 이 모드로만 생성, 모드 선택 UI 숨김 */
+  fixedMode?: ModeScheduleModeKey;
 }) {
+  const fixedMode = props.fixedMode;
   const [slots, setSlots] = useState<ScheduleSlot[]>(() =>
     Array.isArray(props.initialSlots) ? props.initialSlots : []
   );
@@ -96,6 +99,28 @@ export default function ModeScheduleGrid(props: {
   useEffect(() => {
     onSlotsChangeRef.current?.(slots);
   }, [slots]);
+
+  useEffect(() => {
+    const next = Array.isArray(props.initialSlots) ? props.initialSlots : [];
+    setSlots(prev => {
+      if (
+        prev.length === next.length &&
+        prev.every(
+          (s, i) =>
+            s.id === next[i]?.id &&
+            s.mode === next[i]?.mode &&
+            s.start === next[i]?.start &&
+            s.end === next[i]?.end &&
+            s.days.length === next[i]?.days.length &&
+            s.days.every((d, j) => d === next[i]?.days[j])
+        )
+      ) {
+        return prev;
+      }
+      return next;
+    });
+    setModePickerOpen(false);
+  }, [props.initialSlots, fixedMode]);
 
   const updateSlot = useCallback((slotId: string, patch: Partial<ScheduleSlot>) => {
     setSlots(prev => prev.map(s => (s.id === slotId ? { ...s, ...patch } : s)));
@@ -113,7 +138,7 @@ export default function ModeScheduleGrid(props: {
   }, []);
 
   const addSlotWithMode = useCallback((mode: ModeKey) => {
-    const slot = createSlot(mode);
+    const slot = createModeScheduleSlot(mode);
     setSlots(prev => [...prev, slot]);
     setExpandedId(slot.id);
     setModePickerOpen(false);
@@ -129,8 +154,12 @@ export default function ModeScheduleGrid(props: {
   }, []);
 
   const openAddFlow = useCallback(() => {
+    if (fixedMode) {
+      addSlotWithMode(fixedMode);
+      return;
+    }
     setModePickerOpen(v => !v);
-  }, []);
+  }, [addSlotWithMode, fixedMode]);
 
   return (
     <div className="parent-mode-schedule-alarm">
@@ -139,17 +168,17 @@ export default function ModeScheduleGrid(props: {
           type="button"
           className={
             "parent-mode-schedule-alarm__header-add" +
-            (modePickerOpen ? " parent-mode-schedule-alarm__header-add--active" : "")
+            (!fixedMode && modePickerOpen ? " parent-mode-schedule-alarm__header-add--active" : "")
           }
           onClick={openAddFlow}
-          aria-expanded={modePickerOpen}
-          aria-label="구간 추가 — 모드 선택"
+          aria-expanded={fixedMode ? undefined : modePickerOpen}
+          aria-label={fixedMode ? "구간 추가" : "구간 추가 — 모드 선택"}
         >
           <Plus size={22} strokeWidth={2.25} aria-hidden />
         </button>
       </div>
 
-      {modePickerOpen ? (
+      {!fixedMode && modePickerOpen ? (
         <div className="parent-mode-schedule-alarm__mode-picker" role="group" aria-label="모드 선택">
           {MODE_OPTIONS.map(opt => (
             <button
@@ -167,7 +196,7 @@ export default function ModeScheduleGrid(props: {
 
       {slots.length === 0 && !modePickerOpen ? (
         <div className="parent-mode-schedule-alarm__empty">
-          <button type="button" className="parent-mode-schedule-alarm__empty-add" onClick={() => setModePickerOpen(true)}>
+          <button type="button" className="parent-mode-schedule-alarm__empty-add" onClick={openAddFlow}>
             <Plus size={18} strokeWidth={2.25} aria-hidden />
             구간 추가
           </button>
@@ -230,6 +259,7 @@ export default function ModeScheduleGrid(props: {
 
                   {open ? (
                     <div className="parent-mode-schedule-alarm__editor" id={`editor-${slot.id}`}>
+                      {!fixedMode ? (
                       <div className="parent-mode-schedule-alarm__editor-modes" role="group" aria-label="모드">
                         {MODE_OPTIONS.map(opt => {
                           const selected = slot.mode === opt.key;
@@ -253,6 +283,7 @@ export default function ModeScheduleGrid(props: {
                           );
                         })}
                       </div>
+                      ) : null}
 
                       <div className="parent-mode-schedule-alarm__days" role="group" aria-label="적용 요일">
                         {DAY_LABELS.map((label, dayIdx) => {

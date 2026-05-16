@@ -186,6 +186,7 @@ export function NotificationsPage(props: {
   authToken: string | null;
   meRole: string | null;
   parentStudentEmail?: string | null;
+  unreadOnly?: boolean;
   onReadAll?: () => void;
   onNotificationAction?: (action: ParentNotificationAction) => void;
 }) {
@@ -300,6 +301,28 @@ export function NotificationsPage(props: {
     };
   }, [props.apiBase, props.authToken, props.meRole, props.onReadAll, props.parentStudentEmail, role, token]);
 
+  const visibleItems = props.unreadOnly
+    ? items.filter(item => !item.read_at)
+    : items;
+
+  function notificationSectionLabel(title: string): string | null {
+    const t = String(title || "");
+    if (/계획|일정|플랜/.test(t)) return "계획";
+    if (/연결|해제|링크|MDM|기기/.test(t)) return "연결";
+    return "기타";
+  }
+
+  const grouped = visibleItems.reduce(
+    (acc, item) => {
+      const label = notificationSectionLabel(item.title) || "기타";
+      if (!acc[label]) acc[label] = [];
+      acc[label].push(item);
+      return acc;
+    },
+    {} as Record<string, NotificationItem[]>
+  );
+  const sectionOrder = ["계획", "연결", "기타"];
+
   return (
     <div className="notifications-page__modal-content">
       {loading ? (
@@ -323,48 +346,55 @@ export function NotificationsPage(props: {
         <p className="notifications-page__empty notifications-page__empty--modal">
           {error}
         </p>
-      ) : !items.length ? (
+      ) : !visibleItems.length ? (
         <p className="notifications-page__empty notifications-page__empty--modal">
           알림이 없습니다.
         </p>
       ) : (
         <div className="notifications-page__list">
-          {items.map(item => {
-            const parsed = parseNotificationAction(item.body);
-            const actionable = parsed.action != null;
-            return (
-              <div
-                key={item.id}
-                className={
-                  "notifications-page__item" +
-                  (actionable ? " notifications-page__item--actionable" : "")
-                }
-                role={actionable ? "button" : undefined}
-                tabIndex={actionable ? 0 : undefined}
-                onClick={() => {
-                  if (parsed.action) props.onNotificationAction?.(parsed.action);
-                }}
-                onKeyDown={event => {
-                  if (!parsed.action) return;
-                  if (event.key === "Enter" || event.key === " ") {
-                    event.preventDefault();
-                    props.onNotificationAction?.(parsed.action);
-                  }
-                }}
-              >
-                <div className="notifications-page__item-title">{item.title}</div>
-                {parsed.visibleBody ? (
-                  <div className="notifications-page__item-body">{parsed.visibleBody}</div>
-                ) : null}
-                {actionable ? (
-                  <div className="notifications-page__item-link">눌러서 확인</div>
-                ) : null}
-                <div className="notifications-page__item-time">
-                  {formatNotificationTime(item.created_at)}
-                </div>
+          {sectionOrder
+            .filter(section => (grouped[section] || []).length > 0)
+            .map(section => (
+              <div key={section} className="notifications-page__section">
+                <p className="parent-type-caption notifications-page__section-label">{section}</p>
+                {(grouped[section] || []).map(item => {
+                  const parsed = parseNotificationAction(item.body);
+                  const actionable = parsed.action != null;
+                  return (
+                    <div
+                      key={item.id}
+                      className={
+                        "notifications-page__item" +
+                        (actionable ? " notifications-page__item--actionable" : "")
+                      }
+                      role={actionable ? "button" : undefined}
+                      tabIndex={actionable ? 0 : undefined}
+                      onClick={() => {
+                        if (parsed.action) props.onNotificationAction?.(parsed.action);
+                      }}
+                      onKeyDown={event => {
+                        if (!parsed.action) return;
+                        if (event.key === "Enter" || event.key === " ") {
+                          event.preventDefault();
+                          props.onNotificationAction?.(parsed.action);
+                        }
+                      }}
+                    >
+                      <div className="notifications-page__item-title">{item.title}</div>
+                      {parsed.visibleBody ? (
+                        <div className="notifications-page__item-body">{parsed.visibleBody}</div>
+                      ) : null}
+                      {actionable ? (
+                        <div className="notifications-page__item-link">눌러서 확인</div>
+                      ) : null}
+                      <div className="notifications-page__item-time">
+                        {formatNotificationTime(item.created_at)}
+                      </div>
+                    </div>
+                  );
+                })}
               </div>
-            );
-          })}
+            ))}
         </div>
       )}
     </div>

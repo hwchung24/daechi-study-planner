@@ -56,6 +56,7 @@ import {
   writeLocalCache
 } from "../../lib/viewCache";
 import { ParentHomeTab } from "./ParentHomeTab";
+import { ParentNotificationsPending } from "./ParentNotificationsPending";
 import {
   PARENT_MDM_SURFACE_LABEL,
   parseParentMdmSurfaceMode,
@@ -72,7 +73,6 @@ const parentCharts = ko.studentCoachApp.charts;
 export type ParentTabKey =
   | "home"
   | "manage"
-  | "studentSettings"
   | "analysis"
   | "notifications";
 
@@ -864,10 +864,13 @@ function deriveGuide(report: ParentWeeklyReport | null, aiDaily: ParentAiDaily |
 }
 
 function pickParentSuggestedPhrase(aiDaily: ParentAiDaily | null, fallback: string) {
-  const aiPhrase = String(aiDaily?.summary_text || "")
+  const raw = String(aiDaily?.summary_text || "")
     .split(/\n+/)
     .map(line => line.trim())
     .find(Boolean);
+  const aiPhrase = raw
+    ? raw.replace(/^\d{4}-\d{2}-\d{2}\s*[~\-–]\s*[\d\-./\s]+[.:]?\s*/u, "").trim()
+    : "";
   return aiPhrase || fallback;
 }
 
@@ -1749,768 +1752,6 @@ function RecordsTab(props: {
   );
 }
 
-function StudentSettingsTab(props: {
-  apiBase: string;
-  authToken: string | null;
-  parentStudents: ParentStudentRow[];
-  setParentStudents: React.Dispatch<React.SetStateAction<ParentStudentRow[]>>;
-  selectedStudent: ParentStudentRow | null;
-  parentStudentId: number | null;
-  setParentStudentId: (id: number | null) => void;
-  parentPlannerEnabled: boolean;
-  setParentPlannerEnabled: (value: boolean) => void;
-  parentPlannerTime: string;
-  setParentPlannerTime: (value: string) => void;
-  parentPlannerSaving: boolean;
-  setParentPlannerSaving: (value: boolean) => void;
-  parentPlannerMessage: string;
-  setParentPlannerMessage: (value: string) => void;
-  parentLockStatus: ParentLockStatus | null;
-  setParentLockStatus: React.Dispatch<React.SetStateAction<ParentLockStatus | null>>;
-  hapticWarning: () => void;
-  hapticSuccess: () => void;
-}) {
-  type AppAllowanceModeKey = "utility" | "free";
-
-  const [studyRoomSaving, setStudyRoomSaving] = useState(false);
-  const [studyRoomMessage, setStudyRoomMessage] = useState("");
-  const [studyRoomModalOpen, setStudyRoomModalOpen] = useState(false);
-  const [plannerTimeSheetOpen, setPlannerTimeSheetOpen] = useState(false);
-  const [allowanceScheduleModalOpen, setAllowanceScheduleModalOpen] = useState(false);
-  const [bulkDaechiRootLockSaving, setBulkDaechiRootLockSaving] = useState(false);
-  const [bulkKioskSaving, setBulkKioskSaving] = useState(false);
-  const [isBulkKioskEnabled, setIsBulkKioskEnabled] = useState(false);
-  const [activeAppAllowanceMode, setActiveAppAllowanceMode] =
-    useState<AppAllowanceModeKey | null>(null);
-  const [mdmSurfaceMode, setMdmSurfaceMode] = useState<ParentMdmSurfaceMode | null>(null);
-  /** 서버가 직접 내려주는 일괄잠금(override) — surface 문자열과 불일치할 때 배너 보정 */
-  const [bulkLockOverrideFromApi, setBulkLockOverrideFromApi] = useState(false);
-  /** 학생 전환·Strict Mode에서 옛 요청이 상태를 덮어쓰지 않도록 세대 번호 */
-  const deviceUiLoadGenerationRef = useRef(0);
-  /** 이전에 기기 UI를 불러온 학생 id — 콜백 참조 변경만으로는 상태를 비우지 않기 위함 */
-  const deviceUiPrevStudentIdRef = useRef<number | null>(null);
-  const [activatingAppMode, setActivatingAppMode] = useState<"utility" | "free" | "default" | null>(null);
-  /** block 프로파일(일괄잠금) — 계획표 수동 잠금과 별개 */
-  const isBulkDaechiRootLockActive =
-    mdmSurfaceMode === "block" || bulkLockOverrideFromApi;
-
-  /**
-   * API가 `mdmSurfaceMode`는 default인데 `bulkLockOverride`만 true인 경우가 있어,
-   * 라벨은 일괄잠금으로 통일한다.
-   */
-  const mdmDisplaySurfaceMode = (
-    isBulkDaechiRootLockActive ? "block" : (mdmSurfaceMode ?? "default")
-  ) as ParentMdmSurfaceMode;
-
-  const allowanceScheduleBusy = bulkDaechiRootLockSaving || activatingAppMode != null;
-
-  const [modeScheduleInitialSlots, setModeScheduleInitialSlots] = useState<ModeScheduleSlot[]>([]);
-  const [modeScheduleGridKey, setModeScheduleGridKey] = useState(0);
-
-  useEffect(() => {
-    if (!allowanceScheduleModalOpen || !props.selectedStudent?.id || !props.authToken) {
-      return;
-    }
-    let cancelled = false;
-    void (async () => {
-      try {
-        const res = await fetch(
-          `${props.apiBase}/api/parent/students/${encodeURIComponent(String(props.selectedStudent!.id))}/app-mode-schedule`,
-          { headers: { Authorization: `Bearer ${props.authToken}` } }
-        );
-        const data = (await res.json().catch(() => ({}))) as { slots?: unknown };
-        if (cancelled) return;
-        const slots = Array.isArray(data.slots) ? (data.slots as ModeScheduleSlot[]) : [];
-        setModeScheduleInitialSlots(slots);
-        setModeScheduleGridKey(k => k + 1);
-      } catch {
-        if (!cancelled) {
-          setModeScheduleInitialSlots([]);
-          setModeScheduleGridKey(k => k + 1);
-        }
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [allowanceScheduleModalOpen, props.apiBase, props.authToken, props.selectedStudent?.id]);
-
-  const persistModeSchedule = useCallback(
-    async (slots: ModeScheduleSlot[]) => {
-      if (!props.selectedStudent?.id || !props.authToken) return;
-      const res = await fetch(
-        `${props.apiBase}/api/parent/students/${encodeURIComponent(String(props.selectedStudent.id))}/app-mode-schedule`,
-        {
-          method: "PUT",
-          headers: {
-            Authorization: `Bearer ${props.authToken}`,
-            "Content-Type": "application/json"
-          },
-          body: JSON.stringify({ slots })
-        }
-      );
-      const data = (await res.json().catch(() => ({}))) as { error?: string };
-      if (!res.ok) {
-        props.setParentPlannerMessage(data.error || "허용앱 시간표를 저장하지 못했습니다.");
-        throw new Error("save failed");
-      }
-      props.setParentPlannerMessage("허용앱 시간표를 저장했습니다.");
-      props.hapticSuccess();
-    },
-    [props.apiBase, props.authToken, props.hapticSuccess, props.selectedStudent?.id, props.setParentPlannerMessage]
-  );
-
-  useEffect(() => {
-    setStudyRoomMessage("");
-  }, [props.selectedStudent?.id]);
-
-  useEffect(() => {
-    if (!props.selectedStudent) setAllowanceScheduleModalOpen(false);
-  }, [props.selectedStudent]);
-
-  const refreshStudents = useCallback(
-    async (preferStudentId?: number | null) => {
-      if (!props.authToken) return;
-      const res = await fetch(`${props.apiBase}/api/parent/students`, {
-        headers: {
-          Authorization: `Bearer ${props.authToken}`
-        }
-      });
-      if (!res.ok) return;
-      const data = await res.json().catch(() => ({}));
-      const next = (Array.isArray(data.students) ? data.students : []) as ParentStudentRow[];
-      props.setParentStudents(next);
-      const want = preferStudentId ?? props.parentStudentId;
-      const preserved =
-        next.find(student => Number(student.id) === Number(want)) ||
-        next.find(student => Number(student.id) === Number(props.parentStudentId)) ||
-        next[0] ||
-        null;
-      props.setParentStudentId(preserved?.id ?? null);
-    },
-    [
-      props.apiBase,
-      props.authToken,
-      props.parentStudentId,
-      props.setParentStudentId,
-      props.setParentStudents
-    ]
-  );
-
-  const reloadStudentDeviceUi = useCallback(
-    async (options?: {
-      targetStudentId?: number | null;
-      /** effect에서만 넘김 — 마지막 요청만 UI 반영 */
-      loadGeneration?: number;
-    }) => {
-      if (!props.authToken) return;
-      const sid = options?.targetStudentId ?? props.parentStudentId;
-      if (!sid) return;
-
-      const res = await fetch(
-        `${props.apiBase}/api/parent/students/${encodeURIComponent(String(sid))}/device-control-state`,
-        {
-          headers: {
-            Authorization: `Bearer ${props.authToken}`
-          }
-        }
-      );
-
-      const data = (await res.json().catch(() => ({}))) as {
-        appAllowanceMode?: "default" | AppAllowanceModeKey;
-        mdmSurfaceMode?: string;
-        kioskEnabled?: boolean;
-        bulkLockOverride?: boolean;
-      };
-
-      if (
-        options?.loadGeneration !== undefined &&
-        options.loadGeneration !== deviceUiLoadGenerationRef.current
-      ) {
-        return;
-      }
-
-      if (!res.ok) {
-        setBulkLockOverrideFromApi(false);
-        setMdmSurfaceMode("default");
-        return;
-      }
-
-      const parsedSurface = parseParentMdmSurfaceMode(data.mdmSurfaceMode);
-      const effectiveSurface: ParentMdmSurfaceMode = parsedSurface ?? "default";
-      setMdmSurfaceMode(effectiveSurface);
-      setBulkLockOverrideFromApi(
-        effectiveSurface === "block" || Boolean(data.bulkLockOverride)
-      );
-
-      setActiveAppAllowanceMode(
-        data.appAllowanceMode === "utility" || data.appAllowanceMode === "free"
-          ? data.appAllowanceMode
-          : null
-      );
-      setIsBulkKioskEnabled(Boolean(data.kioskEnabled));
-
-      if (
-        options?.loadGeneration !== undefined &&
-        options.loadGeneration !== deviceUiLoadGenerationRef.current
-      ) {
-        return;
-      }
-      await refreshStudents(sid);
-    },
-    [props.apiBase, props.authToken, props.parentStudentId, refreshStudents]
-  );
-
-  const reloadStudentDeviceUiRef = useRef(reloadStudentDeviceUi);
-  reloadStudentDeviceUiRef.current = reloadStudentDeviceUi;
-
-  useEffect(() => {
-    if (!props.authToken || !props.parentStudentId) {
-      setActiveAppAllowanceMode(null);
-      setIsBulkKioskEnabled(false);
-      setMdmSurfaceMode(null);
-      setBulkLockOverrideFromApi(false);
-      setActivatingAppMode(null);
-      deviceUiPrevStudentIdRef.current = null;
-      return;
-    }
-    const sid = props.parentStudentId;
-    const switched =
-      deviceUiPrevStudentIdRef.current !== null && deviceUiPrevStudentIdRef.current !== sid;
-    deviceUiPrevStudentIdRef.current = sid;
-
-    const loadGeneration = ++deviceUiLoadGenerationRef.current;
-    if (switched) {
-      startTransition(() => {
-        setMdmSurfaceMode(null);
-        setBulkLockOverrideFromApi(false);
-        setIsBulkKioskEnabled(false);
-        setActiveAppAllowanceMode(null);
-      });
-    }
-
-    void (async () => {
-      try {
-        await reloadStudentDeviceUiRef.current({
-          targetStudentId: sid,
-          loadGeneration
-        });
-      } catch {
-        /* 네트워크 오류는 조용히 무시 — 다음 동작 시 재시도 */
-      }
-    })();
-  }, [props.authToken, props.parentStudentId]);
-
-  const saveStudyRoomSetting = (value: StudyRoomSetting) => {
-    if (!props.authToken) return;
-    setStudyRoomSaving(true);
-    setStudyRoomMessage("");
-    void (async () => {
-      try {
-        const res = await fetch(
-          `${props.apiBase}/api/parent/students/${encodeURIComponent(String(value.studentId))}/study-room`,
-          {
-            method: "PUT",
-            headers: {
-              "Content-Type": "application/json",
-              Authorization: `Bearer ${props.authToken}`
-            },
-            body: JSON.stringify({
-              name: value.name,
-              address: value.address || null,
-              latitude: value.latitude,
-              longitude: value.longitude,
-              radiusMeters: value.radiusMeters
-            })
-          }
-        );
-        if (!res.ok) {
-          const data = (await res.json().catch(() => ({}))) as { error?: string };
-          throw new Error(String(data.error || "독서실 위치 저장에 실패했습니다."));
-        }
-        await refreshStudents();
-        props.hapticSuccess();
-        setStudyRoomMessage("독서실 위치를 저장했습니다.");
-      } catch (error) {
-        setStudyRoomMessage(
-          error instanceof Error && error.message
-            ? error.message
-            : "독서실 위치 저장 중 오류가 발생했습니다."
-        );
-        props.hapticWarning();
-      } finally {
-        setStudyRoomSaving(false);
-      }
-    })();
-  };
-
-  // 자동 저장용 파라미터 받는 함수로 변경
-  const savePlannerRule = async ({ enabled, lockTime }: { enabled: boolean; lockTime: string }) => {
-    if (!props.authToken || !props.parentStudentId) return;
-    props.setParentPlannerSaving(true);
-    props.setParentPlannerMessage("");
-    try {
-      const res = await fetch(`${props.apiBase}/api/parent/planner-rule`, {
-        method: "PUT",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${props.authToken}`
-        },
-        body: JSON.stringify({
-          studentId: props.parentStudentId,
-          enabled,
-          lockTime
-        })
-      });
-      const data = (await res.json().catch(() => ({}))) as {
-        error?: string;
-        lockStatus?: ParentLockStatus | null;
-      };
-      if (!res.ok) {
-        props.setParentPlannerMessage(data.error || "시간 설정 저장에 실패했습니다.");
-        props.hapticWarning();
-        return;
-      }
-      props.setParentLockStatus(data.lockStatus || null);
-      props.setParentPlannerMessage("설정이 저장되었습니다.");
-      props.hapticSuccess();
-    } catch {
-      props.setParentPlannerMessage("서버와 통신 중 오류가 발생했습니다.");
-      props.hapticWarning();
-    } finally {
-      props.setParentPlannerSaving(false);
-    }
-  };
-
-  const toggleLockNow = async (nextLocked: boolean) => {
-    if (!props.authToken || !props.parentStudentId) return;
-    try {
-      const res = await fetch(
-        `${props.apiBase}/api/parent/${nextLocked ? "lock-now" : "unlock-now"}`,
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${props.authToken}`
-          },
-          body: JSON.stringify({ studentId: props.parentStudentId })
-        }
-      );
-      const data = (await res.json().catch(() => ({}))) as {
-        error?: string;
-        lockStatus?: ParentLockStatus | null;
-      };
-      if (!res.ok) {
-        props.setParentPlannerMessage(
-          data.error || (nextLocked ? "수동 잠금에 실패했습니다." : "수동 해제에 실패했습니다.")
-        );
-        props.hapticWarning();
-        return;
-      }
-      props.setParentLockStatus(data.lockStatus || null);
-      props.setParentPlannerMessage(
-        nextLocked ? "학생 기기를 잠금 상태로 전환했습니다." : "학생 기기 잠금을 해제했습니다."
-      );
-      props.hapticSuccess();
-    } catch {
-      props.setParentPlannerMessage("수동 제어 중 오류가 발생했습니다.");
-      props.hapticWarning();
-    }
-  };
-
-  // 선택된 학생에게만 적용하도록 수정
-  const toggleBulkDaechiRootLock = async (nextLocked: boolean) => {
-    if (!props.authToken || !props.parentStudentId) return;
-    setBulkDaechiRootLockSaving(true);
-    if (nextLocked) {
-      setMdmSurfaceMode("block");
-      setBulkLockOverrideFromApi(true);
-      setActiveAppAllowanceMode(null);
-    } else {
-      setBulkLockOverrideFromApi(false);
-      setMdmSurfaceMode("default");
-      setActiveAppAllowanceMode(null);
-    }
-    props.setParentPlannerMessage("");
-    try {
-      const res = await fetch(
-        `${props.apiBase}/api/parent/app-allowance/${nextLocked ? "bulk-daechiroot-lock" : "bulk-daechiroot-unlock"}`,
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${props.authToken}`
-          },
-          body: JSON.stringify({ studentIds: [props.parentStudentId] })
-        }
-      );
-      const data = (await res.json().catch(() => ({}))) as {
-        error?: string;
-        message?: string;
-        summary?: { total?: number; success?: number; failed?: number };
-      };
-      if (!res.ok) {
-        props.setParentPlannerMessage(
-          data.error || (nextLocked ? "일괄 잠금에 실패했습니다." : "일괄 해제에 실패했습니다.")
-        );
-        props.hapticWarning();
-        void reloadStudentDeviceUi();
-        return;
-      }
-      props.setParentPlannerMessage(
-        data.message ||
-          (nextLocked
-            ? "관리 학생 기기를 대치루트 전용 허용 상태로 전환했습니다."
-            : "관리 학생 기기를 주간 허용 시간표 기준으로 복원했습니다.")
-      );
-      if ((data.summary?.failed || 0) > 0) {
-        props.hapticWarning();
-        void reloadStudentDeviceUi();
-      } else {
-        props.hapticSuccess();
-        void reloadStudentDeviceUi();
-      }
-    } catch (error) {
-      const detail =
-        error instanceof Error && error.message
-          ? ` (${error.message})`
-          : "";
-      props.setParentPlannerMessage(
-        `일괄 제어 중 오류가 발생했습니다. 서버: ${props.apiBase}${detail}`
-      );
-      props.hapticWarning();
-      void reloadStudentDeviceUi();
-    } finally {
-      setBulkDaechiRootLockSaving(false);
-    }
-  };
-
-  const applyOptimisticAppAllowanceMode = (mode: "utility" | "free" | "default") => {
-    if (mode === "utility") {
-      setActiveAppAllowanceMode("utility");
-      setMdmSurfaceMode("utility");
-      setBulkLockOverrideFromApi(false);
-    } else if (mode === "free") {
-      setActiveAppAllowanceMode("free");
-      setMdmSurfaceMode("free");
-      setBulkLockOverrideFromApi(false);
-    } else {
-      setActiveAppAllowanceMode(null);
-      setBulkLockOverrideFromApi(false);
-      setMdmSurfaceMode("default");
-    }
-  };
-
-  const activateAppAllowanceMode = async (mode: "utility" | "free" | "default") => {
-    if (!props.authToken || !props.parentStudentId) return;
-    applyOptimisticAppAllowanceMode(mode);
-    props.setParentPlannerMessage("");
-    try {
-      const res = await fetch(`${props.apiBase}/api/parent/app-allowance/activate-mode`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${props.authToken}`
-        },
-        body: JSON.stringify({
-          mode,
-          studentIds: [props.parentStudentId]
-        })
-      });
-      const data = (await res.json().catch(() => ({}))) as {
-        error?: string;
-        message?: string;
-        ok?: boolean;
-        summary?: { failed?: number };
-        results?: Array<{ ok?: boolean; error?: string }>;
-      };
-      if (!res.ok) {
-        props.setParentPlannerMessage(data.error || "허용앱 프로파일 적용에 실패했습니다.");
-        props.hapticWarning();
-        void reloadStudentDeviceUi();
-        return;
-      }
-      const failed = Number(data.summary?.failed ?? 0) > 0 || data.ok === false;
-      if (failed) {
-        const rowErr = data.results?.find(r => r && r.ok === false)?.error;
-        props.setParentPlannerMessage(
-          rowErr || data.message || "허용앱 프로파일 적용에 실패했습니다."
-        );
-        props.hapticWarning();
-        void reloadStudentDeviceUi();
-        return;
-      }
-      props.setParentPlannerMessage(data.message || "허용앱 프로파일을 적용했습니다.");
-      props.hapticSuccess();
-      void reloadStudentDeviceUi();
-    } catch (error) {
-      const detail = error instanceof Error && error.message ? ` (${error.message})` : "";
-      props.setParentPlannerMessage(`허용앱 프로파일 적용 중 오류가 발생했습니다.${detail}`);
-      props.hapticWarning();
-      void reloadStudentDeviceUi();
-    }
-  };
-
-  const surfaceModeLabel =
-    PARENT_MDM_SURFACE_LABEL[mdmDisplaySurfaceMode] ?? PARENT_MDM_SURFACE_LABEL.default;
-
-  const toggleBulkKioskMode = async (nextEnabled: boolean) => {
-    if (!props.authToken || !props.parentStudentId) return;
-    setIsBulkKioskEnabled(nextEnabled);
-    setBulkKioskSaving(true);
-    props.setParentPlannerMessage("");
-    try {
-      const res = await fetch(
-        `${props.apiBase}/api/parent/kiosk-mode/${nextEnabled ? "bulk-enable" : "bulk-disable"}`,
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${props.authToken}`
-          },
-          body: JSON.stringify({ studentIds: [props.parentStudentId] })
-        }
-      );
-      const data = (await res.json().catch(() => ({}))) as {
-        error?: string;
-        message?: string;
-        summary?: { total?: number; success?: number; failed?: number };
-      };
-      if (!res.ok) {
-        props.setParentPlannerMessage(
-          data.error || (nextEnabled ? "키오스크 모드 적용에 실패했습니다." : "키오스크 모드 해제에 실패했습니다.")
-        );
-        props.hapticWarning();
-        void reloadStudentDeviceUi();
-        return;
-      }
-      props.setParentPlannerMessage(
-        data.message ||
-          (nextEnabled
-            ? "관리 학생 기기를 대치루트 키오스크 모드로 전환했습니다."
-            : "관리 학생 기기의 키오스크 모드를 해제했습니다.")
-      );
-      if ((data.summary?.failed || 0) > 0) {
-        props.hapticWarning();
-        void reloadStudentDeviceUi();
-      } else {
-        props.hapticSuccess();
-        void reloadStudentDeviceUi();
-      }
-    } catch (error) {
-      const detail =
-        error instanceof Error && error.message
-          ? ` (${error.message})`
-          : "";
-      props.setParentPlannerMessage(
-        `키오스크 모드 제어 중 오류가 발생했습니다. 서버: ${props.apiBase}${detail}`
-      );
-      props.hapticWarning();
-      void reloadStudentDeviceUi();
-    } finally {
-      setBulkKioskSaving(false);
-    }
-  };
-
-  return (
-    <div className="coach-page">
-      {props.selectedStudent ? (
-        <Card className="coach-card coach-card--padded coach-settings-status-card" style={{ marginTop: 12 }}>
-          <div className="coach-settings-banner">
-            <div className="coach-settings-banner__text-stack">
-              <p className="coach-settings-banner__body">
-                학생 휴대폰은 현재{" "}
-                <span className="coach-settings-banner__mode">{surfaceModeLabel}</span> 모드입니다.
-              </p>
-              {isBulkKioskEnabled ? (
-                <p className="coach-settings-banner__body">
-                  현재 <span className="coach-settings-banner__mode">계획표</span> 작성 시간입니다.
-                </p>
-              ) : null}
-            </div>
-          </div>
-        </Card>
-      ) : null}
-      {!props.selectedStudent ? (
-        <Card className="coach-card coach-card--padded">
-          <SectionHeader title="학생 설정" icon={<UserRound />} />
-          <EmptyState title="학생을 선택하세요" body="선택하면 설정을 바꿀 수 있어요." />
-        </Card>
-      ) : (
-        <>
-          <div className="parent-student-settings__location-planner-row">
-            <Card className="coach-card coach-card--padded">
-              <SectionHeader title="학습 위치 설정" icon={<MapPin />} />
-              <div className="parent-settings-primary-action" style={{ marginTop: 12 }}>
-                <button
-                  type="button"
-                  className="timeline-save-button study-room-editor__save-button parent-mode-schedule-item__activate"
-                  onClick={() => setStudyRoomModalOpen(true)}
-                >
-                  독서실 선택
-                </button>
-              </div>
-              {studyRoomMessage ? (
-                <p className="settings-hint" style={{ marginTop: 12 }}>
-                  {studyRoomMessage}
-                </p>
-              ) : null}
-              <StudyRoomPickerModal
-                open={studyRoomModalOpen}
-                student={props.selectedStudent}
-                initialValue={props.selectedStudent?.studyRoom || undefined}
-                authToken={props.authToken}
-                saving={studyRoomSaving}
-                onClose={() => setStudyRoomModalOpen(false)}
-                onSave={value => {
-                  setStudyRoomModalOpen(false);
-                  saveStudyRoomSetting(value);
-                }}
-              />
-            </Card>
-
-            <Card className="coach-card coach-card--padded parent-student-settings__planner-card">
-              <SectionHeader
-                title="계획표 작성 시간"
-                titleNarrow="계획표 작성"
-                titleMinimal="계획표"
-                icon={<CalendarClock />}
-                right={
-                  <div className="parent-student-settings__planner-controls parent-student-settings__planner-controls--header">
-                    <button
-                      type="button"
-                      className="student-profile-alarm-item__time-btn parent-student-settings__time-btn"
-                      style={{
-                        fontSize: "1.05em",
-                        borderRadius: "var(--radius-2xs)",
-                        border: "1px solid var(--stroke)",
-                        background: "#fff",
-                        cursor: props.parentPlannerEnabled ? "pointer" : "not-allowed",
-                        opacity: props.parentPlannerEnabled ? 1 : 0.5
-                      }}
-                      disabled={!props.parentPlannerEnabled}
-                      onClick={() => props.parentPlannerEnabled && setPlannerTimeSheetOpen(true)}
-                      aria-label="계획표 작성 강제 시각"
-                    >
-                      {props.parentPlannerTime}
-                    </button>
-                    <button
-                      type="button"
-                      className={
-                        "student-profile-alarm-item__toggle student-profile-alarm-item__toggle-button" +
-                        (props.parentPlannerEnabled
-                          ? " student-profile-alarm-item__toggle--on"
-                          : " student-profile-alarm-item__toggle--off")
-                      }
-                      onClick={async () => {
-                        const nextEnabled = !props.parentPlannerEnabled;
-                        props.setParentPlannerEnabled(nextEnabled);
-                        await savePlannerRule({
-                          enabled: nextEnabled,
-                          lockTime: props.parentPlannerTime
-                        });
-                      }}
-                      aria-pressed={props.parentPlannerEnabled}
-                      aria-label={props.parentPlannerEnabled ? "강제 잠금 켜짐" : "강제 잠금 꺼짐"}
-                    >
-                      {props.parentPlannerEnabled ? "켜짐" : "꺼짐"}
-                    </button>
-                  </div>
-                }
-              />
-              <TimePickerSheet
-                open={plannerTimeSheetOpen}
-                value={props.parentPlannerTime}
-                onClose={() => setPlannerTimeSheetOpen(false)}
-                onSave={async (newTime: string) => {
-                  setPlannerTimeSheetOpen(false);
-                  props.setParentPlannerTime(newTime);
-                  await savePlannerRule({
-                    enabled: props.parentPlannerEnabled,
-                    lockTime: newTime
-                  });
-                }}
-                disabled={!props.parentPlannerEnabled}
-              />
-              <div className="parent-settings-primary-action" style={{ marginTop: 12 }}>
-                <button
-                  type="button"
-                  className={
-                    ("timeline-save-button study-room-editor__save-button parent-mode-schedule-item__activate") +
-                    (isBulkKioskEnabled ? " student-profile-link-action-btn--danger" : "") +
-                    (bulkKioskSaving ? " parent-settings-btn--spinner-only" : "")
-                  }
-                  disabled={bulkKioskSaving}
-                  onClick={() => {
-                    void toggleBulkKioskMode(!isBulkKioskEnabled);
-                  }}
-                  aria-busy={bulkKioskSaving}
-                  aria-label={isBulkKioskEnabled ? "지금 끄기" : "지금 켜기"}
-                >
-                  {bulkKioskSaving ? (
-                    <span className="parent-settings-inline-spinner parent-settings-inline-spinner--inverse" aria-hidden />
-                  ) : isBulkKioskEnabled ? (
-                    "지금 끄기"
-                  ) : (
-                    "지금 켜기"
-                  )}
-                </button>
-              </div>
-            </Card>
-          </div>
-        </>
-      )}
-
-      {/* 모드별 시간 예약 설정 카드 */}
-      <Card className="coach-card coach-card--padded" style={{ marginTop: 12 }}>
-        <SectionHeader
-          title="허용앱 설정"
-          icon={<LayoutGrid />}
-          right={
-            props.selectedStudent ? (
-              <button
-                type="button"
-                className="parent-mode-schedule-header__schedule-btn"
-                disabled={allowanceScheduleBusy}
-                onClick={() => setAllowanceScheduleModalOpen(true)}
-              >
-                <CalendarRange aria-hidden />
-                시간표
-              </button>
-            ) : null
-          }
-        />
-        {!props.selectedStudent ? (
-          <EmptyState title="학생을 선택하세요" body="선택하면 설정을 바꿀 수 있어요." />
-        ) : (
-          <div style={{ marginTop: 12 }}>
-            <ModeScheduleSettings
-              activeMode={activeAppAllowanceMode}
-              activatingMode={activatingAppMode === "default" ? null : activatingAppMode}
-              blockActive={isBulkDaechiRootLockActive}
-              blockActivating={bulkDaechiRootLockSaving}
-              scheduleModalOpen={allowanceScheduleModalOpen}
-              onScheduleModalClose={() => setAllowanceScheduleModalOpen(false)}
-              initialScheduleSlots={modeScheduleInitialSlots}
-              scheduleGridRemountKey={modeScheduleGridKey}
-              onScheduleSave={persistModeSchedule}
-              onToggleBlockNow={nextLocked => {
-                void toggleBulkDaechiRootLock(nextLocked);
-              }}
-              onToggleModeNow={(mode, nextEnabled) => {
-                void activateAppAllowanceMode(nextEnabled ? mode : "default");
-              }}
-            />
-          </div>
-        )}
-      </Card>
-
-
-
-    </div>
-  );
-}
-
 function ManageTab(props: {
   authToken: string | null;
   parentStudents: ParentStudentRow[];
@@ -2550,11 +1791,6 @@ function ParentAnalysisTab(props: {
 }) {
   return (
     <div className="coach-page">
-      <ParentStudentSelector
-        parentStudents={props.parentStudents}
-        parentStudentId={props.parentStudentId}
-        setParentStudentId={props.setParentStudentId}
-      />
       {!props.selectedStudent ? (
         <EmptyState title="학생을 선택하세요" />
       ) : (
@@ -2577,14 +1813,46 @@ function ParentNotificationsTab(props: {
   onReadAll?: () => void;
   onNotificationAction?: (action: ParentNotificationAction) => void;
 }) {
+  const [notifFilter, setNotifFilter] = useState<"unread" | "all">("unread");
+  const N = ko.parentNotificationsHub;
+
   return (
-    <div className="coach-page">
+    <div className="coach-page parent-notifications-page">
+      <ParentNotificationsPending
+        apiBase={props.apiBase}
+        authToken={props.authToken}
+        selectedStudentEmail={props.selectedStudentEmail}
+        onQueueChanged={props.onReadAll}
+      />
+      <div className="parent-notifications-page__filters" role="tablist" aria-label={N.pendingTitle}>
+        <button
+          type="button"
+          className={
+            "coach-analysis-trend-tab" +
+            (notifFilter === "unread" ? " coach-analysis-trend-tab--active" : "")
+          }
+          onClick={() => setNotifFilter("unread")}
+        >
+          {N.filterUnread}
+        </button>
+        <button
+          type="button"
+          className={
+            "coach-analysis-trend-tab" +
+            (notifFilter === "all" ? " coach-analysis-trend-tab--active" : "")
+          }
+          onClick={() => setNotifFilter("all")}
+        >
+          {N.filterAll}
+        </button>
+      </div>
       <Card className="coach-card coach-card--padded">
         <NotificationsPage
           apiBase={props.apiBase}
           authToken={props.authToken}
           meRole="parent"
           parentStudentEmail={props.selectedStudentEmail}
+          unreadOnly={notifFilter === "unread"}
           onReadAll={props.onReadAll}
           onNotificationAction={props.onNotificationAction}
         />
@@ -2606,14 +1874,6 @@ export function ParentCoachApp(props: {
   setParentStudentId: (id: number | null) => void;
   parentReport: ParentWeeklyReport | null;
   parentAiDaily: ParentAiDaily | null;
-  parentPlannerEnabled: boolean;
-  setParentPlannerEnabled: (value: boolean) => void;
-  parentPlannerTime: string;
-  setParentPlannerTime: (value: string) => void;
-  parentPlannerSaving: boolean;
-  setParentPlannerSaving: (value: boolean) => void;
-  parentPlannerMessage: string;
-  setParentPlannerMessage: (value: string) => void;
   parentLockStatus: ParentLockStatus | null;
   setParentLockStatus: React.Dispatch<React.SetStateAction<ParentLockStatus | null>>;
   hapticWarning: () => void;
@@ -2653,30 +1913,6 @@ export function ParentCoachApp(props: {
         hapticSelection={props.hapticSelection}
         parentWeekOffset={props.parentWeekOffset}
         setParentWeekOffset={props.setParentWeekOffset}
-      />
-    );
-  } else if (props.tab === "studentSettings") {
-    view = (
-      <StudentSettingsTab
-        apiBase={props.apiBase}
-        authToken={props.authToken}
-        parentStudents={props.parentStudents}
-        setParentStudents={props.setParentStudents}
-        selectedStudent={selectedStudent}
-        parentStudentId={props.parentStudentId}
-        setParentStudentId={props.setParentStudentId}
-        parentPlannerEnabled={props.parentPlannerEnabled}
-        setParentPlannerEnabled={props.setParentPlannerEnabled}
-        parentPlannerTime={props.parentPlannerTime}
-        setParentPlannerTime={props.setParentPlannerTime}
-        parentPlannerSaving={props.parentPlannerSaving}
-        setParentPlannerSaving={props.setParentPlannerSaving}
-        parentPlannerMessage={props.parentPlannerMessage}
-        setParentPlannerMessage={props.setParentPlannerMessage}
-        parentLockStatus={props.parentLockStatus}
-        setParentLockStatus={props.setParentLockStatus}
-        hapticWarning={props.hapticWarning}
-        hapticSuccess={props.hapticSuccess}
       />
     );
   } else if (props.tab === "analysis") {
