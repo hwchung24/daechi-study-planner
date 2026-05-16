@@ -778,6 +778,69 @@ html.parent-session .app-main {
   touch-action: pan-y;
 }
 
+/* 학부모 다크 모드 — html 토큰 오버라이드(포털 모달·헤더까지 상속) */
+html.parent-session.parent-dark {
+  color-scheme: dark;
+  --neutral-rgb: 148, 163, 184;
+  --neutral-surface-rgb: 28, 28, 30;
+  --neutral-surface: #1c1c1e;
+  --surface-base: #1c1c1e;
+  --bg: #000000;
+  --bg-elevated: rgba(28, 28, 30, 0.94);
+  --surface-glass-strong: rgba(44, 44, 46, 0.9);
+  --surface-glass: rgba(36, 36, 38, 0.84);
+  --surface-glass-soft: rgba(32, 32, 34, 0.76);
+  --surface-glass-accent: rgba(48, 52, 60, 0.55);
+  --glass-border: rgba(255, 255, 255, 0.1);
+  --text-strong-rgb: 245, 245, 247;
+  --text-strong: #f5f5f7;
+  --text-main: #e8e8ed;
+  --text-accent: #f5f5f7;
+  --text-sub: #a1a1aa;
+  --text-soft: #71717a;
+  --border-neutral: rgba(255, 255, 255, 0.12);
+  --border-soft: rgba(255, 255, 255, 0.1);
+  --stroke: rgba(255, 255, 255, 0.18);
+  --separator: rgba(235, 235, 245, 0.22);
+  --separator-subtle: rgba(235, 235, 245, 0.11);
+  --separator-row: rgba(235, 235, 245, 0.09);
+  --surface-hairline: inset 0 0 0 0.5px var(--separator-subtle);
+  --surface-hairline-glass:
+    inset 0 0 0 0.5px var(--separator-subtle), inset 0 1px 0 rgba(255, 255, 255, 0.05);
+  --modal-surface-bg: #2c2c2e;
+  --modal-overlay-rgb: 0, 0, 0;
+  --modal-overlay-opacity: 0.55;
+  --accent-done-bg: rgba(255, 255, 255, 0.06);
+  --accent-soft: rgba(var(--accent-rgb), 0.2);
+  --accent-muted: rgba(var(--accent-rgb), 0.12);
+}
+
+html.parent-session.parent-dark .parent-header-logo__img,
+html.parent-session.parent-dark .coach-avatar--logo img {
+  filter: invert(1);
+}
+
+html.parent-session.parent-dark .parent-settings-header-toggle,
+html.parent-session.parent-dark .parent-settings-header-toggle--danger,
+html.parent-session.parent-dark .parent-mode-schedule-header__schedule-btn {
+  background: var(--surface-base);
+  color: var(--text-main);
+  border-color: var(--border-neutral);
+}
+
+html.parent-session.parent-dark .parent-header-nav__btn--active,
+html.parent-session.parent-dark .parent-header-nav__btn--theme-on {
+  background: rgba(255, 255, 255, 0.12);
+  color: var(--text-strong);
+  box-shadow: var(--surface-hairline);
+}
+
+html.parent-session.parent-dark .app-root--parent .parent-home__insight-actions .parent-home__chip-btn--grow {
+  background: #f5f5f7;
+  border-color: #f5f5f7;
+  color: #111111;
+}
+
 /* 학생: 운영 웹 접속 시 앱 유도 전면 화면 */
 .student-native-gate {
   min-height: 100vh;

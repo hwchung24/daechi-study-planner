@@ -8,7 +8,7 @@ import React, {
 import { Capacitor } from "@capacitor/core";
 import { AppConfig } from "@capacitor-community/mdm-appconfig";
 import { LocalNotifications } from "@capacitor/local-notifications";
-import { Bell, BellDot, ChevronLeft, Home, MessageCircle, Settings } from "lucide-react";
+import { Bell, BellDot, ChevronLeft, Home, MessageCircle, Moon, Settings, Sun } from "lucide-react";
 import SplashScreen from "./SplashScreen";
 import { AuthScreen } from "./components/AuthScreen";
 import { StudentNativeOnlyGate } from "./components/student/StudentNativeOnlyGate";
@@ -53,6 +53,12 @@ import {
   setAppPath,
   subscribeAppPathChange
 } from "./lib/appNavigation";
+import {
+  applyParentThemeClass,
+  readParentTheme,
+  writeParentTheme,
+  type ParentTheme
+} from "./lib/parentTheme";
 import {
   getDateKey,
   getDateKeySeoul,
@@ -847,6 +853,7 @@ const App: React.FC = () => {
   const [parentTab, setParentTab] = useState<ParentTabKey>(() =>
     parseParentTabFromHash()
   );
+  const [parentTheme, setParentTheme] = useState<ParentTheme>(() => readParentTheme());
 
   const openParentAppTimetableRequestFromNotification = useCallback(
     (action: ParentNotificationAction) => {
@@ -1369,6 +1376,26 @@ const App: React.FC = () => {
       document.documentElement.classList.remove("parent-session");
     };
   }, [splashDone, route, meRole]);
+
+  useEffect(() => {
+    const active =
+      (splashDone || route === "parent" || meRole === "parent") &&
+      route !== "auth" &&
+      meRole === "parent";
+    applyParentThemeClass(parentTheme, active);
+    return () => {
+      document.documentElement.classList.remove("parent-dark");
+    };
+  }, [splashDone, route, meRole, parentTheme]);
+
+  const toggleParentTheme = useCallback(() => {
+    hapticSelection();
+    setParentTheme(prev => {
+      const next: ParentTheme = prev === "dark" ? "light" : "dark";
+      writeParentTheme(next);
+      return next;
+    });
+  }, []);
 
   useEffect(() => {
     if (
@@ -3811,6 +3838,26 @@ const App: React.FC = () => {
                           }}
                         >
                           <Bell size={20} strokeWidth={2} aria-hidden />
+                        </button>
+                        <button
+                          type="button"
+                          className={
+                            "parent-header-nav__btn parent-header-nav__btn--theme" +
+                            (parentTheme === "dark" ? " parent-header-nav__btn--theme-on" : "")
+                          }
+                          aria-label={
+                            parentTheme === "dark"
+                              ? koFallbacks.ui.parentThemeLight
+                              : koFallbacks.ui.parentThemeDark
+                          }
+                          aria-pressed={parentTheme === "dark"}
+                          onClick={toggleParentTheme}
+                        >
+                          {parentTheme === "dark" ? (
+                            <Sun size={20} strokeWidth={2} aria-hidden />
+                          ) : (
+                            <Moon size={20} strokeWidth={2} aria-hidden />
+                          )}
                         </button>
                         <button
                           type="button"

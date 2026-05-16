@@ -1,7 +1,9 @@
 {
   "ui": {
     "offlineBanner": "오프라인입니다.",
-    "onlineBanner": "다시 연결되었습니다."
+    "onlineBanner": "다시 연결되었습니다.",
+    "parentThemeLight": "라이트 모드로 전환",
+    "parentThemeDark": "다크 모드로 전환"
   },
   "coachFallbackMessages": {
     "scheduleManagementLines": [
