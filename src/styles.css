@@ -725,21 +725,16 @@ body {
 }
 
 /*
- * 웹 브라우저: 모바일 세로는 :root 타이포 유지, 넓은 뷰에서만 IPA에 가깝게 조밀하게
- * (Capacitor/IPA는 .capacitor-app)
+ * 웹 브라우저: 모바일·데스크톱 동일 조밀 타이포 (핸드폰 웹만 과대해 보이던 문제)
+ * 네이티브(Capacitor)는 .capacitor-app → :root 기본(26/18/14/12) 유지
  */
 html.web-app {
   -webkit-text-size-adjust: 100%;
   text-size-adjust: 100%;
-}
-
-@media (min-width: 640px) {
-  html.web-app {
-    --font-size-xlarge: 24px;
-    --font-size-large: 17px;
-    --font-size-medium: 13px;
-    --font-size-small: 11px;
-  }
+  --font-size-xlarge: 24px;
+  --font-size-large: 17px;
+  --font-size-medium: 13px;
+  --font-size-small: 11px;
 }
 
 /* 모바일 레이아웃인데 창만 넓은 경우(브라우저 리사이즈 등): 휴대폰 폭에 가깝게 */
@@ -1049,8 +1044,14 @@ html.parent-session .app-main {
 @media (max-width: 767px) {
   html.web-app.parent-session {
     --app-shell-inline-padding: 12px;
-    -webkit-text-size-adjust: 100%;
-    text-size-adjust: 100%;
+    /* iOS Safari: 작은 본문(13px) 자동 확대 방지 */
+    -webkit-text-size-adjust: none;
+    text-size-adjust: none;
+  }
+
+  /* 학부모 홈 calc(Npx * scale) — 모바일 웹만 네이티브 밀도에 가깝게 */
+  html.web-app.parent-session .app-root--parent {
+    --parent-ui-scale: 0.94;
   }
 }
 
@@ -1929,8 +1930,15 @@ html.parent-session .app-main {
 }
 
 .parent-home__insight-metrics {
+  width: 100%;
   margin-top: calc(14px * var(--parent-ui-scale, 1));
   margin-bottom: 0;
+}
+
+.parent-home__insight-metrics .coach-metric {
+  width: 100%;
+  min-width: 0;
+  padding: calc(10px * var(--parent-ui-scale, 1));
 }
 
 .parent-home__insight-actions {
@@ -10130,6 +10138,13 @@ button:active:not(:disabled),
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 8px;
   margin-bottom: 14px;
+}
+
+/* 홈 인사이트: KPI 2개 — 3열 분석 그리드 대신 카드 너비에 맞춤 */
+.parent-home__insight-metrics.coach-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: calc(10px * var(--parent-ui-scale, 1));
+  margin-bottom: 0;
 }
 
 .coach-analysis-metric-grid .coach-metric {

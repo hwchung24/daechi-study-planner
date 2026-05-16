@@ -63,7 +63,7 @@ export function ParentHomeInsight(props: {
       )}
 
       {showMetrics ? (
-        <div className="coach-grid coach-analysis-metric-grid parent-home__insight-metrics">
+        <div className="coach-grid parent-home__insight-metrics">
           <MetricCard
             title={H.insightMetricStudy}
             value={formatStudyHours(metrics.totalStudyMinutes)}
