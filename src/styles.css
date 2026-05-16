@@ -907,63 +907,55 @@ html.parent-session .app-main {
   color: var(--text-main);
 }
 
-/* 학부모: 남색 포인트 — 카드·헤더·홈 KPI에 절제된 레이어링 */
-.app-root--parent .coach-shell__tab-panel--parent .coach-card,
-.app-root--parent .student-profile-page.section .coach-card {
-  border-color: var(--parent-accent-line);
+/* 학부모 홈: 무채색 타이포·플랫 아이콘 (남색 포인트 제거) */
+.app-root--parent .parent-home .coach-card {
+  border-color: var(--border-neutral);
 }
 
 .app-root--parent .parent-home__insight-card.coach-card {
-  border-color: rgba(var(--accent-rgb), 0.28);
-  background:
-    linear-gradient(
-      165deg,
-      rgba(var(--accent-rgb), 0.1) 0%,
-      rgba(var(--accent-rgb), 0.03) 42%,
-      var(--surface-glass) 72%
-    ),
-    var(--surface-glass);
-  box-shadow: var(--surface-hairline), inset 3px 0 0 var(--accent);
+  background: var(--surface-glass);
+  box-shadow: var(--surface-hairline);
 }
 
-.app-root--parent .parent-home__insight-greeting {
-  color: var(--accent);
-}
-
-.app-root--parent .parent-home__insight-metrics .coach-metric__value {
-  color: var(--accent);
-}
-
-.app-root--parent .parent-home__insight-metrics .coach-metric__icon {
-  background: var(--accent-soft);
-  color: var(--accent);
-  border-color: var(--accent-border);
-}
-
-.app-root--parent .parent-home__insight-actions {
-  border-top-color: rgba(var(--accent-rgb), 0.14);
-}
-
-.app-root--parent .parent-home__insight-actions .parent-home__chip-btn--grow {
-  background: var(--accent);
-  border-color: var(--accent);
-  color: #fff;
-}
-
+.app-root--parent .parent-home__insight-greeting,
 .app-root--parent .parent-home__live-panel-title,
 .app-root--parent .parent-home__records-panel-title,
 .app-root--parent .parent-home__records-section-title {
-  color: var(--accent);
+  color: var(--text-strong);
 }
 
-.app-root--parent .parent-type-section {
-  color: var(--accent);
+.app-root--parent .parent-home__insight-metrics .coach-metric__value {
+  color: var(--text-strong);
+}
+
+.app-root--parent .parent-home__insight-metrics .coach-metric__icon {
+  width: auto;
+  height: auto;
+  padding: 0;
+  border: none;
+  border-radius: 0;
+  background: transparent;
+  color: var(--text-sub);
+}
+
+.app-root--parent .parent-home__insight-actions {
+  border-top-color: rgba(var(--neutral-rgb), 0.12);
+}
+
+.app-root--parent .parent-home__insight-actions .parent-home__chip-btn--grow {
+  background: var(--text-strong);
+  border-color: var(--text-strong);
+  color: #fff;
+}
+
+.app-root--parent .parent-home .parent-type-section {
+  color: var(--text-sub);
   font-weight: var(--font-weight-semibold);
-  letter-spacing: 0.03em;
+  letter-spacing: 0.02em;
 }
 
-.app-root--parent .parent-type-kpi {
-  color: var(--accent);
+.app-root--parent .parent-home .parent-type-kpi {
+  color: var(--text-strong);
 }
 
 .app-root--parent .parent-home__live-list {
@@ -972,40 +964,30 @@ html.parent-session .app-main {
   border-radius: 0;
 }
 
-.app-root--parent .parent-home__live-row-icon {
-  width: calc(28px * var(--parent-ui-scale, 1));
-  height: calc(28px * var(--parent-ui-scale, 1));
-  border-radius: var(--radius-pill);
-  background: var(--accent-soft);
-  color: var(--accent);
+.app-root--parent .parent-home__live-row-icon,
+.app-root--parent .parent-home__records-panel .parent-home__records-row-icon,
+.app-root--parent .parent-home__records-panel .record-life-group-title__glyph {
+  width: auto;
+  height: auto;
+  border-radius: 0;
+  background: transparent;
+  color: var(--text-sub);
 }
 
-.app-root--parent .parent-home__live-row-status {
-  color: var(--accent);
-  font-weight: var(--font-weight-semibold);
+.app-root--parent .parent-home__live-row-status,
+.app-root--parent .parent-home__records-panel .parent-home__records-row-status {
+  color: var(--text-main);
+  font-weight: var(--font-weight-medium);
 }
 
 .app-root--parent .parent-home__live-panel .parent-home__live-row--warn {
-  background: rgba(var(--accent-rgb), 0.08);
-}
-
-.app-root--parent .parent-home__records-panel .parent-home__records-row-icon {
-  width: calc(28px * var(--parent-ui-scale, 1));
-  height: calc(28px * var(--parent-ui-scale, 1));
-  border-radius: var(--radius-pill);
-  background: var(--accent-soft);
-  color: var(--accent);
-}
-
-.app-root--parent .parent-home__records-panel .parent-home__records-row-status {
-  color: var(--accent);
-  font-weight: var(--font-weight-semibold);
+  background: rgba(var(--neutral-rgb), 0.06);
 }
 
 .app-root--parent .parent-home__live-quick-actions,
 .app-root--parent .parent-home__records-panel .parent-home__records-week-tray {
-  border-top: 1px solid rgba(var(--accent-rgb), 0.12);
-  background: rgba(var(--accent-rgb), 0.05);
+  border-top: none;
+  background: rgba(var(--neutral-rgb), 0.05);
   border-radius: var(--radius-md);
   padding: calc(8px * var(--parent-ui-scale, 1));
 }
@@ -1018,40 +1000,56 @@ html.parent-session .app-main {
   background: transparent;
   border: none;
   box-shadow: none;
-  color: var(--accent);
+  color: var(--text-main);
 }
 
 .app-root--parent .parent-home__live-panel .parent-home__live-quick-btn--planner.parent-home__chip-btn {
-  background: rgba(var(--accent-rgb), 0.08);
+  background: rgba(var(--neutral-rgb), 0.08);
   border-radius: var(--radius-sm);
 }
 
-.app-root--parent .parent-home__chip-btn {
-  background: rgba(var(--accent-rgb), 0.05);
-  border-color: rgba(var(--accent-rgb), 0.24);
+.app-root--parent .parent-home .parent-home__chip-btn {
+  background: var(--surface-base);
+  border-color: var(--border-neutral);
+  color: var(--text-main);
+}
+
+.app-root--parent .parent-home__live-quick-btn-meta--on {
+  color: var(--text-strong);
+}
+
+.app-root--parent .parent-home__records-week-picker-btn {
+  color: var(--text-sub);
 }
 
 .app-root--parent .parent-header-bar {
-  border-color: rgba(var(--accent-rgb), 0.26);
-  background:
-    linear-gradient(180deg, rgba(var(--accent-rgb), 0.07) 0%, var(--surface-glass) 58%),
-    var(--surface-glass);
+  border-color: var(--border-neutral);
+  background: var(--surface-glass);
 }
 
 .app-root--parent .parent-header-nav {
-  background: var(--accent-muted);
+  background: rgba(var(--neutral-rgb), 0.06);
 }
 
 .app-root--parent .parent-header-nav__btn--active {
-  background: var(--accent-soft);
-  color: var(--accent);
-  box-shadow: inset 0 0 0 1px rgba(var(--accent-rgb), 0.2);
+  background: rgba(var(--neutral-rgb), 0.12);
+  color: var(--text-strong);
+  box-shadow: inset 0 0 0 1px rgba(var(--neutral-rgb), 0.14);
 }
 
 .app-root--parent .parent-header-student__trigger {
-  border: 1px solid rgba(var(--accent-rgb), 0.22);
-  background: rgba(var(--accent-rgb), 0.05);
+  border: 1px solid var(--border-neutral);
+  background: var(--surface-base);
   color: var(--text-strong);
+}
+
+.app-root--parent .parent-home .parent-visit-bar__seg--visit {
+  background: rgba(var(--neutral-rgb), 0.42);
+  opacity: 1;
+}
+
+.app-root--parent .parent-home .parent-visit-bar__seg--plan {
+  background: rgba(var(--neutral-rgb), 0.18);
 }
 
 .app-root--parent .parent-notifications-page__filters .coach-analysis-trend-tab--active {
@@ -1911,7 +1909,7 @@ html.parent-session .app-main {
   border: none;
   border-radius: var(--radius-sm);
   background: transparent;
-  color: var(--accent);
+  color: var(--text-sub);
   cursor: pointer;
 }
 
@@ -1963,7 +1961,7 @@ html.parent-session .app-main {
 
 .parent-home__records-row-main {
   display: grid;
-  grid-template-columns: calc(28px * var(--parent-ui-scale, 1)) minmax(0, 1fr);
+  grid-template-columns: calc(20px * var(--parent-ui-scale, 1)) minmax(0, 1fr);
   align-items: center;
   gap: calc(10px * var(--parent-ui-scale, 1)) calc(12px * var(--parent-ui-scale, 1));
 }
@@ -1986,10 +1984,10 @@ html.parent-session .app-main {
 .parent-home__records-row-status {
   margin: 0;
   font-size: var(--font-size-medium);
-  font-weight: var(--font-weight-semibold);
+  font-weight: var(--font-weight-medium);
   line-height: 1.48;
   letter-spacing: -0.01em;
-  color: var(--accent);
+  color: var(--text-main);
   word-break: keep-all;
   overflow-wrap: break-word;
 }
@@ -2092,15 +2090,15 @@ html.parent-session .app-main {
 }
 
 .parent-home__kpi-chip--ok {
-  border-color: var(--accent-border);
-  background: var(--accent-muted);
-  color: var(--accent);
+  border-color: var(--border-neutral);
+  background: rgba(var(--neutral-rgb), 0.06);
+  color: var(--text-strong);
 }
 
 .parent-home__kpi-chip--warn {
-  border-color: var(--accent-border-strong);
-  background: var(--accent-tint-bg);
-  color: var(--accent);
+  border-color: rgba(var(--neutral-rgb), 0.22);
+  background: rgba(var(--neutral-rgb), 0.08);
+  color: var(--text-strong);
 }
 
 .parent-home__kpi-chip--neutral {
@@ -2165,6 +2163,16 @@ html.parent-session .app-main {
   width: 100%;
   min-width: 0;
   padding: calc(10px * var(--parent-ui-scale, 1));
+}
+
+.parent-home__insight-metrics .coach-metric__icon {
+  width: auto;
+  height: auto;
+  padding: 0;
+  border: none;
+  border-radius: 0;
+  background: transparent;
+  color: var(--text-sub);
 }
 
 .parent-home__insight-actions {
@@ -2235,9 +2243,10 @@ html.parent-session .app-main {
 }
 
 .parent-home__live-panel .parent-home__live-row--warn {
-  padding: calc(10px * var(--parent-ui-scale, 1)) 0;
+  padding: calc(10px * var(--parent-ui-scale, 1)) calc(8px * var(--parent-ui-scale, 1));
+  margin-inline: calc(-8px * var(--parent-ui-scale, 1));
   border-radius: var(--radius-sm);
-  background: rgba(var(--accent-rgb), 0.08);
+  background: rgba(var(--neutral-rgb), 0.06);
 }
 
 .parent-home__live-row-icon {
@@ -2304,7 +2313,7 @@ html.parent-session .app-main {
   padding: calc(8px * var(--parent-ui-scale, 1));
   border: none;
   border-radius: var(--radius-md);
-  background: rgba(var(--accent-rgb), 0.05);
+  background: rgba(var(--neutral-rgb), 0.05);
 }
 
 .parent-home__live-quick-btn {
@@ -2366,7 +2375,7 @@ html.parent-session .app-main {
 }
 
 .parent-home__live-quick-btn-meta--on {
-  color: var(--accent);
+  color: var(--text-strong);
 }
 
 .parent-home__live-quick-btn-meta--off {
@@ -3013,7 +3022,7 @@ html.parent-session .app-main {
   font-weight: var(--font-weight-semibold);
   letter-spacing: -0.01em;
   line-height: 1.2;
-  color: var(--accent);
+  color: var(--text-main);
   cursor: pointer;
   white-space: nowrap;
   flex-shrink: 0;
@@ -6943,7 +6952,7 @@ body.app-keyboard-open .app-main {
 }
 
 .parent-home__records-week .parent-home__records-day-sheet--today .parent-home__records-day-head {
-  color: var(--accent);
+  color: var(--text-strong);
 }
 
 .parent-home__records-week .parent-home__records-day-body {
@@ -6953,7 +6962,7 @@ body.app-keyboard-open .app-main {
 
 .parent-home__records-week .coach-records-unified-block + .coach-records-unified-block {
   padding-top: 10px;
-  border-top: 1px solid rgba(var(--accent-rgb), 0.1);
+  border-top: 1px solid rgba(var(--neutral-rgb), 0.1);
 }
 
 /* 학부모 홈 기록: 바깥 카드 안에서는 내부 미니 카드 제거 */
@@ -6972,7 +6981,7 @@ body.app-keyboard-open .app-main {
   padding: 10px 12px;
   border-radius: var(--radius-sm);
   border: none;
-  background: rgba(var(--accent-rgb), 0.04);
+  background: rgba(var(--neutral-rgb), 0.04);
 }
 
 .parent-home__records-week .record-readonly-empty {
@@ -6996,7 +7005,7 @@ body.app-keyboard-open .app-main {
   padding: calc(8px * var(--parent-ui-scale, 1));
   border: none;
   border-radius: var(--radius-md);
-  background: rgba(var(--accent-rgb), 0.05);
+  background: rgba(var(--neutral-rgb), 0.05);
 }
 
 .parent-home__records-panel .parent-home__records-week-scroll {
@@ -7030,7 +7039,7 @@ body.app-keyboard-open .app-main {
 }
 
 .parent-home__records-panel .parent-home__records-day-sheet--today .parent-home__records-day-head {
-  color: var(--accent);
+  color: var(--text-strong);
 }
 
 /* 상태 카드 .live-row--warn 과 동일한 블록 */
@@ -7038,7 +7047,7 @@ body.app-keyboard-open .app-main {
   padding: calc(10px * var(--parent-ui-scale, 1));
   border: none;
   border-radius: var(--radius-sm);
-  background: rgba(var(--accent-rgb), 0.08);
+  background: rgba(var(--neutral-rgb), 0.06);
 }
 
 .parent-home__records-panel .coach-records-unified-block + .coach-records-unified-block {
@@ -7059,21 +7068,20 @@ body.app-keyboard-open .app-main {
 }
 
 .parent-home__records-panel .record-life-group-title--with-icon {
-  display: grid;
-  grid-template-columns: calc(28px * var(--parent-ui-scale, 1)) minmax(0, 1fr);
+  display: flex;
   align-items: center;
-  gap: calc(10px * var(--parent-ui-scale, 1)) calc(12px * var(--parent-ui-scale, 1));
+  gap: calc(8px * var(--parent-ui-scale, 1));
 }
 
 .parent-home__records-panel .record-life-group-title__glyph {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: calc(28px * var(--parent-ui-scale, 1));
-  height: calc(28px * var(--parent-ui-scale, 1));
-  border-radius: var(--radius-pill);
-  background: var(--accent-soft);
-  color: var(--accent);
+  width: auto;
+  height: auto;
+  border-radius: 0;
+  background: transparent;
+  color: var(--text-sub);
   opacity: 1;
 }
 
@@ -7085,9 +7093,9 @@ body.app-keyboard-open .app-main {
   background: transparent;
   box-shadow: none;
   font-size: var(--font-size-medium);
-  font-weight: var(--font-weight-semibold);
+  font-weight: var(--font-weight-medium);
   line-height: 1.48;
-  color: var(--accent);
+  color: var(--text-main);
 }
 
 .parent-home__records-panel .record-readonly-value {
@@ -7131,7 +7139,7 @@ body.app-keyboard-open .app-main {
 .parent-home__records-panel .timeline-item .timeline-book-name {
   font-size: var(--font-size-medium);
   font-weight: var(--font-weight-semibold);
-  color: var(--accent);
+  color: var(--text-strong);
 }
 
 .parent-home__records-panel .timeline-item .timeline-plan-range {
@@ -7159,9 +7167,9 @@ body.app-keyboard-open .app-main {
 
 .parent-home__records-panel .progress-day-book-plan {
   font-size: var(--font-size-medium);
-  font-weight: var(--font-weight-semibold);
+  font-weight: var(--font-weight-medium);
   line-height: 1.48;
-  color: var(--accent);
+  color: var(--text-main);
 }
 
 .parent-home__records-panel .parent-study-room-item__visit-list {
@@ -7181,7 +7189,7 @@ body.app-keyboard-open .app-main {
 .parent-home__records-panel .parent-study-room-item__visit-name {
   font-size: var(--font-size-medium);
   font-weight: var(--font-weight-semibold);
-  color: var(--accent);
+  color: var(--text-strong);
 }
 
 .parent-home__records-panel .parent-study-room-item__visit-meta {
@@ -7193,7 +7201,7 @@ body.app-keyboard-open .app-main {
 .parent-home__records-panel .record-life-group + .record-life-group {
   margin-top: calc(8px * var(--parent-ui-scale, 1));
   padding-top: calc(8px * var(--parent-ui-scale, 1));
-  border-top: 1px solid rgba(var(--accent-rgb), 0.14);
+  border-top: 1px solid rgba(var(--neutral-rgb), 0.1);
 }
 
 /* 오늘 계획 열과 동일 너비: 태블릿 이상에서 주간 카드만 1열에 배치 */
