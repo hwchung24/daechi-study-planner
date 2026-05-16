@@ -668,8 +668,8 @@ export function ParentRecordsWeekSection(props: ParentRecordsWeekSectionProps) {
       ) : (
         <>
           <div className="coach-records-page-grid coach-records-page-grid--unified">
-            <section
-              className="parent-home__records-panel"
+            <article
+              className="coach-card coach-card--padded parent-home__records-panel"
               aria-label={recordsFb.recordsPanelTitle}
             >
               <header className="parent-home__records-panel-head">
@@ -712,6 +712,9 @@ export function ParentRecordsWeekSection(props: ParentRecordsWeekSectionProps) {
                         <CalendarRange size={16} strokeWidth={2} />
                       </span>
                       <div className="parent-home__records-row-body">
+                        <span className="parent-home__records-row-title">
+                          {getSeoulWeekRangeCompactLabel(props.parentWeekOffset)}
+                        </span>
                         <p className="parent-home__records-row-status">
                           {recordsFb.recordsWeekEmptyTitle}
                         </p>
@@ -722,6 +725,7 @@ export function ParentRecordsWeekSection(props: ParentRecordsWeekSectionProps) {
                     </div>
                   </div>
                 ) : (
+                <div className="parent-home__records-week-tray">
                 <div className="parent-home__records-week-scroll">
                 <div className="week-frame coach-records-week-frame">
                   <div className="progress-cards-scroll">
@@ -774,10 +778,11 @@ export function ParentRecordsWeekSection(props: ParentRecordsWeekSectionProps) {
                   </div>
                 </div>
                 </div>
+                </div>
                 )}
                 </div>
               </section>
-            </section>
+            </article>
           </div>
         </>
       )}

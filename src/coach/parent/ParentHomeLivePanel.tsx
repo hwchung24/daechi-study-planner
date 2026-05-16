@@ -241,7 +241,10 @@ export function ParentHomeLivePanel(props: {
 
   return (
     <>
-    <section className="parent-home__live-panel" aria-label={H.statusHeroAria}>
+    <article
+      className="coach-card coach-card--padded parent-home__live-panel"
+      aria-label={H.statusHeroAria}
+    >
       <header className="parent-home__live-panel-head">
         <h2 className="parent-home__live-panel-title">{H.statusHeroAria}</h2>
         <p className="parent-home__live-clock">{tpl(H.statusHeroClock, { time: clock })}</p>
@@ -323,7 +326,7 @@ export function ParentHomeLivePanel(props: {
           </button>
         ))}
       </div>
-    </section>
+    </article>
 
     {quickModalId != null
       ? createPortal(
