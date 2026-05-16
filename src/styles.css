@@ -841,6 +841,36 @@ html.parent-session.parent-dark .app-root--parent .parent-home__insight-actions 
   color: #111111;
 }
 
+html.parent-session.parent-dark body,
+html.parent-session.parent-dark #root,
+html.parent-session.parent-dark .app-root--parent,
+html.parent-session.parent-dark .app-root--parent .app-shell,
+html.parent-session.parent-dark .app-root--parent .app-main,
+html.parent-session.parent-dark .app-root--parent .app-header.app-header--parent {
+  background: var(--bg);
+  color: var(--text-main);
+}
+
+html.parent-session.parent-dark .app-root--parent {
+  --parent-gray-1: #f5f5f7;
+  --parent-gray-2: #d4d4d8;
+  --parent-gray-3: #a1a1aa;
+  --parent-line: rgba(255, 255, 255, 0.12);
+}
+
+html.parent-session.parent-dark .app-root--parent .notifications-page__item {
+  background: var(--surface-base);
+  border-bottom-color: var(--parent-line);
+}
+
+html.parent-session.parent-dark .parent-linking-overlay {
+  background: rgba(0, 0, 0, 0.92);
+}
+
+html.parent-session.parent-dark .app-shell--parent-hydrating {
+  background: var(--bg);
+}
+
 /* 학생: 운영 웹 접속 시 앱 유도 전면 화면 */
 .student-native-gate {
   min-height: 100vh;
@@ -3885,7 +3915,7 @@ body.app-keyboard-open .app-main {
 }
 
 .app-shell--parent-hydrating {
-  background: #ffffff;
+  background: var(--bg);
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -3980,7 +4010,7 @@ body.app-keyboard-open .app-main {
 
 .app-header.app-header--parent,
 .app-header.app-header--parent.app-header--scrolled {
-  background: #ffffff;
+  background: var(--bg);
   backdrop-filter: none;
   -webkit-backdrop-filter: none;
   border-bottom: none;
@@ -4004,7 +4034,7 @@ body.app-keyboard-open .app-main {
 
 .app-root--parent .app-shell,
 .app-root--parent .app-main {
-  background: #ffffff;
+  background: var(--bg);
 }
 
 .header-top {
