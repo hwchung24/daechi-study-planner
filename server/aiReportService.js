@@ -3,6 +3,7 @@ const {
   getWeekData,
   listAllParentStudentPairs,
   upsertParentAiReport,
+  getParentAiReportForDate,
   createParentNotificationForAlarm
 } = require("./db");
 const { sendPushToUser } = require("./pushService");
@@ -31,6 +32,25 @@ function getKstYesterdayYmd() {
   return `${y}-${m}-${day}`;
 }
 
+function formatReportDateKey(value) {
+  if (value == null) return "";
+  if (value instanceof Date) {
+    return getKstYmd(value);
+  }
+  const s = String(value);
+  return s.length >= 10 ? s.slice(0, 10) : s;
+}
+
+function getPreviousReportDateYmd(ymd) {
+  const [y, m, d] = ymd.split("-").map(Number);
+  const dt = new Date(Date.UTC(y, m - 1, d));
+  dt.setUTCDate(dt.getUTCDate() - 1);
+  const py = dt.getUTCFullYear();
+  const pm = String(dt.getUTCMonth() + 1).padStart(2, "0");
+  const pd = String(dt.getUTCDate()).padStart(2, "0");
+  return `${py}-${pm}-${pd}`;
+}
+
 /** 어제를 끝으로 하는 7일 구간 (학습 계획·진도표 기반 통계용) */
 function rolling7RangeEnding(endYmd) {
   const [y, m, d] = endYmd.split("-").map(Number);
@@ -46,7 +66,7 @@ function rolling7RangeEnding(endYmd) {
 /**
  * 학생 학습 데이터로 gpt-4o-mini 리포트 생성
  */
-async function generateAiReportText(studentUserId, weekStart, weekEnd) {
+async function generateAiReportText(studentUserId, weekStart, weekEnd, meta = {}) {
   const apiKey = process.env.OPENAI_API_KEY;
   if (!apiKey || !String(apiKey).trim()) {
     throw new Error("OPENAI_API_KEY가 설정되어 있지 않습니다.");
@@ -61,7 +81,7 @@ async function generateAiReportText(studentUserId, weekStart, weekEnd) {
   const summaryLines = parentDailyAiReport.buildWeeklySummaryLines(stats);
   const statsPrompt = parentDailyAiReport.buildWeeklyReportPrompt(stats);
 
-  const userContent = parentDailyAiReport.buildUserContent(summaryLines, statsPrompt);
+  const userContent = parentDailyAiReport.buildUserContent(summaryLines, statsPrompt, meta);
 
   const openai = new OpenAI({ apiKey });
   const completion = await openai.chat.completions.create({
@@ -86,9 +106,21 @@ async function generateAiReportText(studentUserId, weekStart, weekEnd) {
  * 한 부모–자녀 쌍에 대해 '어제' 기준 리포트 생성 후 저장
  */
 async function runOnePair(parentUserId, studentUserId, options = {}) {
-  const reportDate = getKstYesterdayYmd();
+  const reportDate = options.reportDate || getKstYesterdayYmd();
   const { weekStart, weekEnd } = rolling7RangeEnding(reportDate);
-  const summaryText = await generateAiReportText(studentUserId, weekStart, weekEnd);
+  const prevRow = await getParentAiReportForDate(
+    parentUserId,
+    studentUserId,
+    getPreviousReportDateYmd(reportDate)
+  );
+  const previousSummary = prevRow?.summary_text
+    ? String(prevRow.summary_text).slice(0, 280)
+    : "";
+  const summaryText = await generateAiReportText(studentUserId, weekStart, weekEnd, {
+    reportDate,
+    todayYmd: getKstYmd(),
+    previousSummary
+  });
   await upsertParentAiReport(
     parentUserId,
     studentUserId,
@@ -154,6 +186,7 @@ async function runDailyReportsForAllPairs() {
 module.exports = {
   getKstYmd,
   getKstYesterdayYmd,
+  formatReportDateKey,
   rolling7RangeEnding,
   generateAiReportText,
   runOnePair,

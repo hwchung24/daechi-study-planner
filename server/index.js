@@ -68,6 +68,7 @@ const {
   approvePlanAddRequestByParent,
   rejectPlanAddRequestByParent,
   getLatestParentAiReport,
+  getParentAiReportForDate,
   ensureConnected,
   createWebclipSession,
   consumeWebclipSession,
@@ -155,7 +156,11 @@ const {
   startParentAppModeScheduleTicker
 } = require("./parentAppModeScheduleCron");
 const { expireParentTimedFreeGrants, startParentTimedFreeTicker } = require("./parentTimedFreeCron");
-const { runOnePair } = require("./aiReportService");
+const {
+  runOnePair,
+  getKstYesterdayYmd,
+  formatReportDateKey
+} = require("./aiReportService");
 const { sendPushToUser, sendPushToUsers } = require("./pushService");
 const {
   isSolapiConfigured,
@@ -6671,10 +6676,22 @@ app.get("/api/parent/ai-daily-report", authMiddleware, async (req, res) => {
     if (!has) {
       return res.status(403).json({ error: "연결된 학생이 아닙니다." });
     }
-    const row = await getLatestParentAiReport(req.userId, studentId);
+    const expectedReportDate = getKstYesterdayYmd();
+    let row = await getParentAiReportForDate(
+      req.userId,
+      studentId,
+      expectedReportDate
+    );
+    if (!row) {
+      row = await getLatestParentAiReport(req.userId, studentId);
+    }
+    const rowDate = formatReportDateKey(row?.report_date);
+    const isStale = !row || rowDate < expectedReportDate;
     if (!row) {
       return res.json({
         report: null,
+        expectedReportDate,
+        isStale: true,
         message: gptFbServer().parentAiDailyReportNotYetMessage
       });
     }
@@ -6684,7 +6701,9 @@ app.get("/api/parent/ai-daily-report", authMiddleware, async (req, res) => {
         report_date: row.report_date,
         model: row.model,
         created_at: row.created_at
-      }
+      },
+      expectedReportDate,
+      isStale
     });
   } catch (e) {
     console.error("/api/parent/ai-daily-report error", e);
@@ -6903,8 +6922,24 @@ app.post("/api/parent/ai-daily-report/refresh", authMiddleware, async (req, res)
     }
     invalidatePatternInsightsCacheForStudent(studentId);
     const result = await runOnePair(req.userId, studentId, { notifyParent: false });
-    const row = await getLatestParentAiReport(req.userId, studentId);
-    res.json({ ok: true, result, report: row });
+    const row =
+      (await getParentAiReportForDate(
+        req.userId,
+        studentId,
+        result.reportDate
+      )) || (await getLatestParentAiReport(req.userId, studentId));
+    res.json({
+      ok: true,
+      result,
+      report: row
+        ? {
+            summary_text: row.summary_text,
+            report_date: row.report_date,
+            model: row.model,
+            created_at: row.created_at
+          }
+        : null
+    });
   } catch (e) {
     console.error("/api/parent/ai-daily-report/refresh error", e);
     res.status(500).json({

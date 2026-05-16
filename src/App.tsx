@@ -59,6 +59,7 @@ import {
   writeParentTheme,
   type ParentTheme
 } from "./lib/parentTheme";
+import { getKstYmd, getKstYesterdayYmd } from "./lib/parentAiReportDates";
 import {
   getDateKey,
   getDateKeySeoul,
@@ -846,6 +847,9 @@ const App: React.FC = () => {
     model: string;
     created_at: string;
   } | null>(null);
+  const [parentAiDailyRefreshing, setParentAiDailyRefreshing] = useState(false);
+  const [parentKstDayKey, setParentKstDayKey] = useState(() => getKstYmd());
+  const parentAiDailyAutoRefreshRef = useRef<string | null>(null);
   const [parentPlannerEnabled, setParentPlannerEnabled] = useState(true);
   const [parentPlannerTime, setParentPlannerTime] = useState("21:00");
   const [parentPlannerSaving, setParentPlannerSaving] = useState(false);
@@ -2396,50 +2400,119 @@ const App: React.FC = () => {
   useEffect(() => {
     if (!authToken || meRole !== "parent") return;
     if (coachParentTab !== "home") return;
+    const tickKstDay = () => {
+      const today = getKstYmd();
+      setParentKstDayKey(prev => (prev === today ? prev : today));
+    };
+    tickKstDay();
+    const intervalId = window.setInterval(tickKstDay, 60_000);
     const onVis = () => {
       if (document.visibilityState === "visible") {
+        tickKstDay();
         setParentWeekRefreshNonce(n => n + 1);
       }
     };
     document.addEventListener("visibilitychange", onVis);
-    return () => document.removeEventListener("visibilitychange", onVis);
+    return () => {
+      clearInterval(intervalId);
+      document.removeEventListener("visibilitychange", onVis);
+    };
   }, [authToken, meRole, coachParentTab]);
 
-  // 학부모: AI 일일 리포트 (자정 배치 생성본)
+  useEffect(() => {
+    parentAiDailyAutoRefreshRef.current = null;
+  }, [parentStudentId]);
+
+  // 학부모: AI 일일 리포트 (자정 배치 생성본, 오래된 리포트는 자동 갱신)
   useEffect(() => {
     let cancelled = false;
     const run = async () => {
       if (!authToken || meRole !== "parent") {
         setParentAiDaily(null);
+        setParentAiDailyRefreshing(false);
         return;
       }
       if (!parentStudentId) {
         setParentAiDaily(null);
+        setParentAiDailyRefreshing(false);
         return;
       }
+      if (coachParentTab !== "home") return;
+      setParentAiDailyRefreshing(true);
       try {
         const res = await fetch(
           `${API_BASE}/api/parent/ai-daily-report?studentId=${parentStudentId}`,
           { headers: { Authorization: `Bearer ${authToken}` } }
         );
         if (!res.ok) {
-          // 기존 값 유지: 느린 재동기화 중 화면 깜빡임 방지
           return;
         }
         const data = await res.json();
         if (cancelled) return;
-        setParentAiDaily(data.report ?? null);
+        let report = data.report ?? null;
+        const expectedDate =
+          typeof data.expectedReportDate === "string"
+            ? data.expectedReportDate
+            : getKstYesterdayYmd();
+        const refreshKey = `${parentStudentId}:${expectedDate}`;
+        const sessionOk =
+          typeof sessionStorage !== "undefined" &&
+          sessionStorage.getItem(`parent-ai-daily-ok:${refreshKey}`) === "1";
+        if (
+          data.isStale &&
+          !sessionOk &&
+          parentAiDailyAutoRefreshRef.current !== refreshKey
+        ) {
+          parentAiDailyAutoRefreshRef.current = refreshKey;
+          try {
+            const refreshRes = await fetch(
+              `${API_BASE}/api/parent/ai-daily-report/refresh`,
+              {
+                method: "POST",
+                headers: {
+                  Authorization: `Bearer ${authToken}`,
+                  "Content-Type": "application/json"
+                },
+                body: JSON.stringify({ studentId: parentStudentId })
+              }
+            );
+            if (!cancelled && refreshRes.ok) {
+              const refreshData = await refreshRes.json();
+              if (refreshData.report) {
+                report = refreshData.report;
+                try {
+                  sessionStorage.setItem(`parent-ai-daily-ok:${refreshKey}`, "1");
+                } catch {
+                  /* ignore quota */
+                }
+              }
+            }
+          } catch {
+            /* keep fetched report */
+          }
+        }
+        if (!cancelled) setParentAiDaily(report);
       } catch {
-        // 네트워크 에러 시 이전 리포트를 유지해 화면 점멸을 줄인다.
+        /* keep previous report */
       } finally {
-        if (!cancelled) setParentAiDailyLoaded(true);
+        if (!cancelled) {
+          setParentAiDailyRefreshing(false);
+          setParentAiDailyLoaded(true);
+        }
       }
     };
     void run();
     return () => {
       cancelled = true;
     };
-  }, [authToken, meRole, parentStudentId]);
+  }, [
+    authToken,
+    meRole,
+    parentStudentId,
+    coachParentTab,
+    parentKstDayKey,
+    parentWeekRefreshNonce
+  ]);
 
   // 학부모: 학생별 계획표 시간 설정 조회
   useEffect(() => {
@@ -4025,6 +4098,7 @@ const App: React.FC = () => {
                   setParentStudentId={setParentStudentId}
                   parentReport={parentReport}
                   parentAiDaily={parentAiDaily}
+                  parentAiDailyRefreshing={parentAiDailyRefreshing}
                   parentLockStatus={parentLockStatus}
                   setParentLockStatus={setParentLockStatus}
                   hapticWarning={hapticWarning}

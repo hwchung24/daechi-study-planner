@@ -1874,6 +1874,7 @@ export function ParentCoachApp(props: {
   setParentStudentId: (id: number | null) => void;
   parentReport: ParentWeeklyReport | null;
   parentAiDaily: ParentAiDaily | null;
+  parentAiDailyRefreshing?: boolean;
   parentLockStatus: ParentLockStatus | null;
   setParentLockStatus: React.Dispatch<React.SetStateAction<ParentLockStatus | null>>;
   hapticWarning: () => void;
@@ -1892,7 +1893,9 @@ export function ParentCoachApp(props: {
     deriveGuide(props.parentReport, props.parentAiDaily).suggestedPhrases[0] || ""
   );
   const parentSuggestedPhraseLoading =
-    Boolean(selectedStudent) && !props.parentAiDaily && !props.parentReport;
+    Boolean(selectedStudent) &&
+    (props.parentAiDailyRefreshing ||
+      (!props.parentAiDaily && !props.parentReport));
 
   let view: React.ReactNode;
   if (props.tab === "home") {

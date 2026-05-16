@@ -2034,6 +2034,17 @@ async function getLatestParentAiReport(parentUserId, studentUserId) {
   return res.rows[0] || null;
 }
 
+async function getParentAiReportForDate(parentUserId, studentUserId, reportDate) {
+  const res = await query(
+    `SELECT id, parent_user_id, student_user_id, report_date, summary_text, model, created_at
+     FROM parent_ai_reports
+     WHERE parent_user_id = $1 AND student_user_id = $2 AND report_date = $3::date
+     LIMIT 1`,
+    [parentUserId, studentUserId, reportDate]
+  );
+  return res.rows[0] || null;
+}
+
 async function createWebclipSession(tokenHash, serial, expiresAtIso) {
   await query(
     `INSERT INTO webclip_device_sessions (token_hash, serial_number, expires_at)
@@ -4235,6 +4246,7 @@ module.exports = {
   listAllParentStudentPairs,
   upsertParentAiReport,
   getLatestParentAiReport,
+  getParentAiReportForDate,
   createWebclipSession,
   consumeWebclipSession,
   linkDeviceToUserBySerial,

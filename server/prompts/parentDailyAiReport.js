@@ -21,25 +21,49 @@ function pdr() {
  * @param {string[]} summaryLines
  * @param {string} statsPrompt
  */
-function buildUserContent(summaryLines, statsPrompt) {
+function buildUserContent(summaryLines, statsPrompt, meta = {}) {
   const p = pdr();
   const lines = Array.isArray(summaryLines) ? summaryLines : [];
-  return [
+  const reportDate = String(meta.reportDate || "").trim();
+  const todayYmd = String(meta.todayYmd || "").trim();
+  const previousSummary = String(meta.previousSummary || "").trim();
+  const parts = [
     p.userContentRole,
-    p.userContentIntro,
+    p.userContentIntro
+  ];
+  if (reportDate) {
+    parts.push(
+      tpl(p.userContentReportDateLine, { reportDate, todayYmd: todayYmd || reportDate })
+    );
+  }
+  parts.push(
     p.userContentTask,
     "",
     p.userContentRulesHeader,
     p.userContentRule1,
     p.userContentRule2,
-    p.userContentRule3,
+    p.userContentRule3
+  );
+  if (reportDate && p.userContentRule4) {
+    parts.push(tpl(p.userContentRule4, { reportDate }));
+  }
+  if (previousSummary) {
+    parts.push(
+      "",
+      p.userContentPreviousSummaryHeader,
+      previousSummary.slice(0, 280),
+      p.userContentRuleVaryFromPrevious
+    );
+  }
+  parts.push(
     "",
     p.userContentSummaryHeader,
     ...lines.map(l => `- ${l}`),
     "",
     p.userContentStatsHeader,
     String(statsPrompt ?? "")
-  ].join("\n");
+  );
+  return parts.join("\n");
 }
 
 /** 주간 통계 → 일일 AI 리포트용 요약 줄 (GPT user에 포함) */
@@ -110,6 +134,6 @@ module.exports = {
   buildUserContent,
   buildWeeklySummaryLines,
   buildWeeklyReportPrompt,
-  temperature: 0.45,
+  temperature: 0.58,
   maxTokens: 700
 };
