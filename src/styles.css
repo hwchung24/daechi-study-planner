@@ -1185,19 +1185,137 @@ html.parent-session.parent-dark .app-root--parent .coach-admin-chat__avatar.coac
 }
 
 .app-root--parent .parent-notifications-page__filters .coach-analysis-trend-tab--active {
-  background: var(--accent-soft);
-  border-color: var(--accent-border);
-  color: var(--accent);
+  background: rgba(var(--neutral-rgb), 0.08);
+  border-color: var(--border-neutral);
+  color: var(--text-strong);
 }
 
 .app-root--parent .coach-section-header__icon-wrap {
-  background: var(--accent-soft);
-  color: var(--accent);
-  box-shadow: inset 0 0 0 0.5px rgba(var(--accent-rgb), 0.16);
+  background: transparent;
+  color: var(--text-sub);
+  box-shadow: none;
 }
 
 .app-root--parent .coach-section-title {
-  color: var(--accent);
+  color: var(--text-strong);
+}
+
+/* 학부모 알림·설정: 홈과 동일 무채색 타이포 (전역 parent accent 제목보다 우선) */
+.app-root--parent .parent-notifications-page .coach-section-title,
+.app-root--parent .parent-notifications-pending .coach-section-title,
+.app-root--parent .student-profile-page .coach-section-title,
+html.parent-session .dday-modal .coach-section-title {
+  color: var(--text-strong);
+}
+
+.app-root--parent .parent-notifications-page .coach-section-header__icon-wrap,
+.app-root--parent .student-profile-page .coach-section-header__icon-wrap,
+html.parent-session .dday-modal .coach-section-header__icon-wrap {
+  background: transparent;
+  color: var(--text-sub);
+  box-shadow: none;
+}
+
+.app-root--parent .parent-notifications-page__filters .coach-analysis-trend-tab,
+.app-root--parent .parent-notifications-page .coach-analysis-trend-tab {
+  color: var(--text-main);
+}
+
+.app-root--parent .parent-notifications-page__filters .coach-analysis-trend-tab--active,
+.app-root--parent .parent-notifications-page .coach-analysis-trend-tab--active {
+  background: rgba(var(--neutral-rgb), 0.08);
+  border-color: var(--border-neutral);
+  color: var(--text-strong);
+}
+
+.app-root--parent .parent-notifications-page .notifications-page__item-link {
+  color: var(--text-sub);
+  font-weight: var(--font-weight-semibold);
+}
+
+.app-root--parent .parent-notifications-pending .coach-ghost-btn {
+  border-color: var(--border-neutral);
+  color: var(--text-main);
+  background: var(--surface-base);
+}
+
+.app-root--parent .parent-student-settings__banner .parent-type-kpi {
+  color: var(--text-strong);
+}
+
+.app-root--parent .student-profile-page .settings-value,
+.app-root--parent .student-profile-settings-list .settings-value {
+  color: var(--text-sub);
+}
+
+html.parent-session .dday-modal .student-profile-alarm-item__time-value,
+html.parent-session .dday-modal .record-slider-value {
+  color: var(--text-main);
+}
+
+html.parent-session.parent-dark .dday-modal .student-profile-alarm-item__toggle--on {
+  background: rgba(255, 255, 255, 0.18);
+  border-color: rgba(255, 255, 255, 0.22);
+  color: var(--text-strong);
+}
+
+html.parent-session.parent-dark .dday-modal .record-slider-pill__fill {
+  background: linear-gradient(
+      180deg,
+      rgba(255, 255, 255, 0.2) 0%,
+      rgba(255, 255, 255, 0) 48%
+    ),
+    rgba(255, 255, 255, 0.28);
+}
+
+html.parent-session .dday-modal .student-profile-alarm-item__toggle--on {
+  background: rgba(var(--neutral-rgb), 0.28);
+  border-color: rgba(var(--neutral-rgb), 0.35);
+  color: var(--text-strong);
+}
+
+html.parent-session .dday-modal .record-slider-pill__fill {
+  background: linear-gradient(
+      180deg,
+      rgba(255, 255, 255, 0.22) 0%,
+      rgba(255, 255, 255, 0) 48%
+    ),
+    rgba(var(--neutral-rgb), 0.42);
+}
+
+html.parent-session .dday-modal .record-slider-pill__input:focus-visible {
+  box-shadow: 0 0 0 2px rgba(var(--neutral-rgb), 0.22);
+}
+
+html.parent-session .dday-modal .coach-ghost-btn,
+html.parent-session .dday-modal .modal-secondary {
+  border-color: var(--border-neutral);
+  color: var(--text-main);
+  background: var(--surface-base);
+}
+
+html.parent-session .dday-modal .parent-coach-preview__bubble {
+  background: var(--surface-glass-strong);
+  border-color: var(--border-neutral);
+  color: var(--text-main);
+}
+
+html.parent-session .dday-modal .settings-hint,
+html.parent-session .dday-modal .field-label {
+  color: var(--text-sub);
+}
+
+html.parent-session .dday-modal .dday-modal-title {
+  color: var(--text-strong);
+}
+
+.app-root--parent .parent-notifications-page .notifications-page__section-label,
+.app-root--parent .parent-notifications-page .parent-type-caption {
+  color: var(--text-sub);
+}
+
+.app-root--parent .student-profile-page .coach-profile-card__name {
+  color: var(--text-strong);
 }
 
 .app-root--parent .timeline-save-button.study-room-editor__save-button,
@@ -3411,7 +3529,7 @@ html.parent-session.parent-dark .app-root--parent .coach-admin-chat__avatar.coac
 }
 
 .parent-student-settings__banner .parent-type-kpi {
-  color: var(--accent);
+  color: var(--text-strong);
 }
 
 .app-root--parent .student-profile-settings-card .student-profile-settings-list {
@@ -3698,7 +3816,7 @@ html.parent-session.parent-dark .app-root--parent .coach-admin-chat__avatar.coac
 }
 
 .app-root--parent .student-profile-settings-list .settings-value {
-  color: #475569;
+  color: var(--text-sub);
   font-weight: 600;
 }
 

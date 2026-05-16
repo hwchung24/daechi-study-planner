@@ -980,7 +980,7 @@ export function ParentProfilePage(props: {
               />
             </div>
             {accountError ? (
-              <p className="settings-hint" style={{ marginTop: 10, color: "#000000" }}>
+              <p className="settings-hint" style={{ marginTop: 10 }}>
                 {accountError}
               </p>
             ) : null}
