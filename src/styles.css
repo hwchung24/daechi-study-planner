@@ -871,6 +871,45 @@ html.parent-session.parent-dark .app-shell--parent-hydrating {
   background: var(--bg);
 }
 
+/* 학부모 다크 모드 — 채팅 말풍선·입력 */
+html.parent-session.parent-dark .app-root--parent .coach-admin-chat__messages .coach-bubble--coach,
+html.parent-session.parent-dark .app-root--parent .coach-admin-chat__submission-bubble.coach-bubble,
+html.parent-session.parent-dark .app-root--parent .coach-admin-chat__offer.coach-tomorrow-collab__coach-offer.coach-bubble {
+  background: rgba(255, 255, 255, 0.1);
+  border-color: rgba(255, 255, 255, 0.14);
+  color: var(--text-main);
+  box-shadow: none;
+}
+
+html.parent-session.parent-dark .app-root--parent .coach-admin-chat__messages .coach-bubble--user {
+  background: rgba(var(--accent-rgb), 0.55);
+  border-color: rgba(var(--accent-rgb), 0.65);
+  color: #f5f5f7;
+}
+
+html.parent-session.parent-dark .app-root--parent .coach-admin-chat__submission-name,
+html.parent-session.parent-dark .app-root--parent .coach-admin-chat__submission-meta,
+html.parent-session.parent-dark .app-root--parent .coach-admin-chat__submission-note {
+  color: var(--text-main);
+}
+
+html.parent-session.parent-dark .app-root--parent .coach-starter {
+  background: var(--surface-base);
+  border-color: var(--border-neutral);
+  color: var(--text-main);
+}
+
+html.parent-session.parent-dark .app-root--parent .coach-chat-text {
+  background: var(--surface-base);
+  border-color: var(--border-neutral);
+  color: var(--text-main);
+}
+
+html.parent-session.parent-dark .app-root--parent .coach-admin-chat__avatar.coach-avatar--logo {
+  background: var(--surface-base);
+  border-color: var(--border-neutral);
+}
+
 /* 학생: 운영 웹 접속 시 앱 유도 전면 화면 */
 .student-native-gate {
   min-height: 100vh;
@@ -11676,10 +11715,10 @@ button:active:not(:disabled),
 
 /* 학부모 채팅: 학생(좌측) 말풍선 구분감 강화 */
 .app-root--parent .coach-admin-chat__messages .coach-bubble--coach {
-  background: #f8fafc;
-  border-color: rgba(148, 163, 184, 0.32);
+  background: var(--surface-glass-strong);
+  border-color: var(--border-neutral);
   color: var(--text-main);
-  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.06);
+  box-shadow: var(--surface-hairline);
 }
 
 .coach-admin-chat__empty,
