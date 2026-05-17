@@ -21,6 +21,15 @@ export function ParentStudentSelector(props: {
     props.parentStudents.find(student => student.id === props.parentStudentId) ||
     props.parentStudents[0] ||
     null;
+  const hasMultipleStudents = props.parentStudents.length > 1;
+
+  useEffect(() => {
+    if (props.parentStudents.length !== 1) return;
+    const only = props.parentStudents[0];
+    if (only && props.parentStudentId !== only.id) {
+      props.setParentStudentId(only.id);
+    }
+  }, [props.parentStudents, props.parentStudentId, props.setParentStudentId]);
 
   useEffect(() => {
     if (!open) return;
@@ -35,6 +44,20 @@ export function ParentStudentSelector(props: {
 
   if (props.parentStudents.length === 0) {
     return null;
+  }
+
+  if (!hasMultipleStudents) {
+    return (
+      <div
+        ref={rootRef}
+        className="coach-student-switcher coach-student-switcher--single"
+        aria-label="관리 학생"
+      >
+        <span className="parent-header-student__label parent-student-dropdown__single-label">
+          {formatStudentLabel(selectedStudent)}
+        </span>
+      </div>
+    );
   }
 
   return (

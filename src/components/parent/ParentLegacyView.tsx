@@ -3,6 +3,7 @@ import { TabTransitionPanel } from "../PageTransition";
 import { setAppPath } from "../../lib/appNavigation";
 import { getWeekRangeLabel } from "../../lib/weekDates";
 import type { ParentLockStatus } from "../../types/lockStatus";
+import { formatStudentLabel } from "../../coach/parent/ParentStudentSelector";
 import type { ParentStudentRow } from "../../types/parent";
 
 import { ParentProfilePage } from "./ParentProfilePage";
@@ -326,23 +327,27 @@ export function ParentLegacyView(props: {
               <div className="settings-item" style={{ cursor: "default" }}>
                 <span className="settings-label">연결된 학생</span>
                 <span className="settings-value">
-                  <select
-                    value={parentStudentId ?? ""}
-                    onChange={e => onSelectManagedStudent(Number(e.target.value))}
-                    style={{
-                      fontSize: "var(--font-size-medium)",
-                      padding: "6px 8px",
-                      borderRadius: "var(--radius-sm)",
-                      border: "1px solid var(--stroke)",
-                      background: "transparent"
-                    }}
-                  >
-                    {parentStudents.map(s => (
-                      <option key={s.id} value={s.id}>
-                        {s.email}
-                      </option>
-                    ))}
-                  </select>
+                  {parentStudents.length > 1 ? (
+                    <select
+                      value={parentStudentId ?? ""}
+                      onChange={e => onSelectManagedStudent(Number(e.target.value))}
+                      style={{
+                        fontSize: "var(--font-size-medium)",
+                        padding: "6px 8px",
+                        borderRadius: "var(--radius-sm)",
+                        border: "1px solid var(--stroke)",
+                        background: "transparent"
+                      }}
+                    >
+                      {parentStudents.map(s => (
+                        <option key={s.id} value={s.id}>
+                          {formatStudentLabel(s)}
+                        </option>
+                      ))}
+                    </select>
+                  ) : (
+                    formatStudentLabel(parentStudents[0] ?? null)
+                  )}
                 </span>
               </div>
             </div>

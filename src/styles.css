@@ -4846,6 +4846,27 @@ body.app-keyboard-open .app-main {
   opacity: 0.55;
 }
 
+.coach-student-switcher--single {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  max-width: 100%;
+}
+
+.parent-student-dropdown__single-label,
+.parent-header-student__label {
+  display: block;
+  max-width: 100%;
+  font-size: calc(15px * var(--parent-ui-scale, 1));
+  font-weight: var(--font-weight-semibold);
+  letter-spacing: -0.02em;
+  line-height: 1.25;
+  color: var(--text-strong);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 .parent-header-nav {
   flex: 0 0 auto;
   display: flex;
