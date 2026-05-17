@@ -1,0 +1,32 @@
+flowchart LR
+  subgraph DAY["일상 학습"]
+    D1[Legacy 플래너\n시간표·교재 계획]
+    D2[블록 완료·집중도 기록]
+    D3[생활 기록\n수면·스트레스]
+  end
+
+  subgraph COACH["AI 코치"]
+    C1[코치 대화]
+    C2[내일 계획 협업]
+    C3[패턴 인사이트]
+  end
+
+  subgraph DEVICE["기기·위치"]
+    E1[iOS 위치 heartbeat]
+    E2[독서실 체크인/아웃]
+    E3[MDM 상태 보고]
+  end
+
+  subgraph COMM["소통"]
+    F1[학부모 1:1 채팅]
+    F2[인앱·푸시 알림]
+  end
+
+  D1 --> API1["/api/student/*"]
+  D2 --> API1
+  D3 --> API1
+  C1 --> API2[OpenAI + DB]
+  C2 --> API2
+  E1 --> API1
+  E2 --> API1
+  F1 --> API1

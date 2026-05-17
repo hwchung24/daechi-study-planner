@@ -1,0 +1,18 @@
+flowchart TB
+  DEV[개발자] --> VITE[npm run dev\nVite HMR]
+  DEV --> BUILD[npm run build\n→ dist/]
+  BUILD --> CAP[npm run cap:sync\nCapacitor]
+  CAP --> XCODE[Xcode ios/App\nIPA 빌드]
+
+  BUILD --> SERVE[server/index.js\n정적 dist 서빙 가능]
+  DEV_SRV[cd server && npm start] --> PG[(PostgreSQL)]
+  SERVE --> PG
+
+  subgraph ENV["환경 변수"]
+    E1[DATABASE_URL]
+    E2[JWT_SECRET]
+    E3[OPENAI_API_KEY]
+    E4[SIMPLEMDM_API_KEY]
+    E5[APNS_* / SOLAPI_*]
+  end
+  DEV_SRV --> ENV

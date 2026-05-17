@@ -1,0 +1,46 @@
+flowchart LR
+  subgraph AUTH["/auth"]
+    A1[register / login]
+    A2[부모 전화 OTP]
+  end
+
+  subgraph STUDENT["/api/student"]
+    S1[플래너 study-days/blocks/plans]
+    S2[coach/chat · log · state]
+    S3[location/heartbeat]
+    S4[study-room-tracking]
+    S5[mdm-status]
+    S6[admin-channel]
+    S7[notifications]
+    S8[app-timetable-request]
+  end
+
+  subgraph PARENT["/api/parent"]
+    P1[students · 연결]
+    P2[device-control-state]
+    P3[app-mode-schedule]
+    P4[coach/state · pattern-insights]
+    P5[ai-daily-report · growth-report]
+    P6[admin-channel]
+    P7[plan-add-requests]
+    P8[study-room · visits]
+    P9[lock · kiosk · allowance]
+    P10[notifications]
+  end
+
+  subgraph SHARED["공통"]
+    M["GET /api/me"]
+    PUSH["POST /api/push/register-token"]
+    LOC["GET /api/location/naver"]
+  end
+
+  subgraph ADMIN["/api/super-admin"]
+    X1[사용자 관리]
+    X2[few-shot 관리]
+  end
+
+  CLIENT[React / iOS] --> AUTH
+  CLIENT --> STUDENT
+  CLIENT --> PARENT
+  CLIENT --> SHARED
+  CLIENT --> ADMIN

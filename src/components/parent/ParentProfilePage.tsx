@@ -4,8 +4,10 @@ import { useEffectiveBearer } from "../../lib/useEffectiveBearer";
 import { useModalReveal } from "../../lib/useModalReveal";
 import { DAECHI_LINKS_UPDATED_EVENT } from "../../lib/linkEvents";
 import ko from "../../coach/fallbacks/ko.json";
+import { tpl } from "../../coach/fallbacks/tpl";
 
 const coachPreviewFb = ko.parentCoachPreview;
+const coachSettingsFb = ko.parentCoachSettings;
 import type {
   ParentCoachCustomization,
   ParentStudentRow
@@ -97,6 +99,33 @@ function controlIntensitySliderFillPct(value: number) {
   return `${pct}%`;
 }
 
+function ParentCoachSettingsField(props: {
+  id: string;
+  label: string;
+  guide: string;
+  example: string;
+  rows: number;
+  value: string;
+  onChange: (value: string) => void;
+}) {
+  return (
+    <div className="field parent-coach-settings__field">
+      <label className="field-label" htmlFor={props.id}>
+        {props.label}
+      </label>
+      <p className="parent-coach-settings__guide">{props.guide}</p>
+      <p className="parent-coach-settings__example">{props.example}</p>
+      <textarea
+        id={props.id}
+        className="field-input parent-coach-settings__input"
+        rows={props.rows}
+        value={props.value}
+        onChange={e => props.onChange(e.target.value)}
+      />
+    </div>
+  );
+}
+
 export function ParentProfilePage(props: {
   authToken: string | null;
   apiBase: string;
@@ -179,6 +208,7 @@ export function ParentProfilePage(props: {
   const [coachCustomizationMessage, setCoachCustomizationMessage] = useState("");
   const [parentLinkFeedback, setParentLinkFeedback] = useState("");
   const [unlinkingStudentId, setUnlinkingStudentId] = useState<number | null>(null);
+  const [unlinkConfirmStudentId, setUnlinkConfirmStudentId] = useState<number | null>(null);
 
   const enabledAlarmCount = useMemo(() => {
     let count = 0;
@@ -214,6 +244,13 @@ export function ParentProfilePage(props: {
   const alarmSettingsModalReveal = useModalReveal(alarmSettingsModalOpen);
   const studentManagementModalReveal = useModalReveal(studentManagementModalOpen);
   const coachSettingsModalReveal = useModalReveal(coachSettingsModalOpen);
+  const coachPreviewMeta = useMemo(
+    () =>
+      tpl(coachSettingsFb.previewMetaTpl, {
+        label: controlIntensityLabel(coachCustomization.controlIntensity)
+      }),
+    [coachCustomization.controlIntensity]
+  );
 
   useEffect(() => {
     if (!coachSettingsModalOpen) return;
@@ -475,8 +512,43 @@ export function ParentProfilePage(props: {
   };
 
   const closeStudentManagementModal = () => {
-    studentManagementModalReveal.beginClose(() => setStudentManagementModalOpen(false));
+    studentManagementModalReveal.beginClose(() => {
+      setStudentManagementModalOpen(false);
+      setUnlinkConfirmStudentId(null);
+    });
   };
+
+  const requestStudentUnlink = useCallback(
+    async (studentId: number) => {
+      if (!token) return;
+      setUnlinkingStudentId(studentId);
+      try {
+        const res = await fetch(`${apiBase}/api/link/unlink`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`
+          },
+          body: JSON.stringify({ studentId })
+        });
+        const data = (await res.json().catch(() => ({}))) as { error?: string };
+        if (!res.ok) {
+          setParentLinkFeedback(String(data.error || "연결 끊기 요청에 실패했습니다."));
+          hapticWarning();
+          return;
+        }
+        setParentLinkFeedback("학생에게 연결 끊기 요청을 보냈습니다.");
+        setUnlinkConfirmStudentId(null);
+        hapticSuccess();
+      } catch {
+        setParentLinkFeedback("네트워크 오류로 요청을 보내지 못했습니다.");
+        hapticWarning();
+      } finally {
+        setUnlinkingStudentId(null);
+      }
+    },
+    [apiBase, hapticSuccess, hapticWarning, token]
+  );
 
   const openCoachSettingsModal = () => {
     setCoachSettingsModalOpen(true);
@@ -815,18 +887,32 @@ export function ParentProfilePage(props: {
               <span className="settings-label">로그아웃</span>
               <span className="settings-value">계정 전환</span>
             </button>
-            <button
-              type="button"
-              className="settings-item"
-              onClick={() => {
-                hapticWarning();
-                onWithdrawPress();
-              }}
-            >
-              <span className="settings-label">회원 탈퇴</span>
-              <span className="settings-value">계정 삭제</span>
-            </button>
           </div>
+        </Card>
+
+        <Card className="coach-card coach-card--padded student-profile-danger-card">
+          <div className="student-profile-danger-card__header">
+            <span className="student-profile-danger-card__badge" aria-hidden>
+              !
+            </span>
+            <div>
+              <h2 className="student-profile-danger-card__title">회원 탈퇴</h2>
+              <p className="student-profile-danger-card__desc">
+                탈퇴하면 연결된 학생·리포트·설정을 복구할 수 없습니다. 진행 전에 꼭 확인해
+                주세요.
+              </p>
+            </div>
+          </div>
+          <button
+            type="button"
+            className="student-profile-danger-btn student-profile-danger-btn--emphasis"
+            onClick={() => {
+              hapticWarning();
+              onWithdrawPress();
+            }}
+          >
+            회원 탈퇴하기
+          </button>
         </Card>
       </div>
 
@@ -1162,42 +1248,6 @@ export function ParentProfilePage(props: {
                         <div className="student-profile-schedule-item__body">
                           <div className="student-profile-schedule-item__title">{student.email}</div>
                         </div>
-                        <button
-                          type="button"
-                          className="student-profile-schedule-remove"
-                          disabled={unlinkingStudentId === student.id}
-                          onClick={async () => {
-                            if (!token) return;
-                            setUnlinkingStudentId(student.id);
-                            try {
-                              const res = await fetch(`${apiBase}/api/link/unlink`, {
-                                method: "POST",
-                                headers: {
-                                  "Content-Type": "application/json",
-                                  Authorization: `Bearer ${token}`
-                                },
-                                body: JSON.stringify({ studentId: student.id })
-                              });
-                              const data = (await res.json().catch(() => ({}))) as { error?: string };
-                              if (!res.ok) {
-                                setParentLinkFeedback(
-                                  String(data.error || "연결 끊기 요청에 실패했습니다.")
-                                );
-                                hapticWarning();
-                                return;
-                              }
-                              setParentLinkFeedback("학생에게 연결 끊기 요청을 보냈습니다.");
-                              hapticSuccess();
-                            } catch {
-                              setParentLinkFeedback("네트워크 오류로 요청을 보내지 못했습니다.");
-                              hapticWarning();
-                            } finally {
-                              setUnlinkingStudentId(null);
-                            }
-                          }}
-                        >
-                          {unlinkingStudentId === student.id ? "요청 중…" : "연결 끊기 요청"}
-                        </button>
                       </div>
                     ))}
                   </div>
@@ -1321,6 +1371,67 @@ export function ParentProfilePage(props: {
                 ))}
               </div>
             )}
+            {parentStudents.length > 0 ? (
+              <section
+                className="student-profile-danger-zone"
+                aria-labelledby="parent-student-unlink-danger-title"
+              >
+                <h3 id="parent-student-unlink-danger-title" className="student-profile-danger-zone__title">
+                  연결 끊기
+                </h3>
+                <p className="student-profile-danger-zone__hint">
+                  연결을 끊으면 학습·리포트 연동이 중단됩니다. 학생이 요청을 수락해야 최종
+                  해제됩니다.
+                </p>
+                <ul className="student-profile-danger-zone__list">
+                  {parentStudents.map(student => (
+                    <li key={student.id} className="student-profile-danger-zone__item">
+                      <span className="student-profile-danger-zone__email">{student.email}</span>
+                      {unlinkConfirmStudentId === student.id ? (
+                        <div className="student-profile-danger-zone__confirm">
+                          <p className="student-profile-danger-zone__confirm-text">
+                            {student.email}와(과)의 연결을 끊을까요?
+                          </p>
+                          <div className="student-profile-danger-zone__confirm-actions">
+                            <button
+                              type="button"
+                              className="student-profile-danger-btn student-profile-danger-btn--ghost"
+                              disabled={unlinkingStudentId === student.id}
+                              onClick={() => setUnlinkConfirmStudentId(null)}
+                            >
+                              취소
+                            </button>
+                            <button
+                              type="button"
+                              className="student-profile-danger-btn"
+                              disabled={unlinkingStudentId === student.id}
+                              onClick={() => void requestStudentUnlink(student.id)}
+                            >
+                              {unlinkingStudentId === student.id
+                                ? "요청 중…"
+                                : "연결 끊기 요청"}
+                            </button>
+                          </div>
+                        </div>
+                      ) : (
+                        <button
+                          type="button"
+                          className="student-profile-danger-btn"
+                          disabled={unlinkingStudentId != null}
+                          onClick={() => {
+                            hapticWarning();
+                            setUnlinkConfirmStudentId(student.id);
+                            setParentLinkFeedback("");
+                          }}
+                        >
+                          연결 끊기
+                        </button>
+                      )}
+                    </li>
+                  ))}
+                </ul>
+              </section>
+            ) : null}
           </div>
           <div className="dday-modal-footer">
             <button
@@ -1340,55 +1451,64 @@ export function ParentProfilePage(props: {
         }
         onClick={closeCoachSettingsModal}
       >
-        <div className="dday-modal-inner" onClick={e => e.stopPropagation()}>
+        <div
+          className="dday-modal-inner parent-coach-settings-modal"
+          onClick={e => e.stopPropagation()}
+        >
           <div className="dday-modal-header">
             <span className="dday-modal-title">코치 설정</span>
           </div>
-          <div className="dday-modal-body">
-            <p className="settings-hint" style={{ margin: 0, lineHeight: 1.5 }}>
-              연결된 학생들에게 적용할 AI 코치 말투와 지도 스타일을 여기서 조정할 수 있어요.
-            </p>
-            <div className="field" style={{ marginTop: 14 }}>
-              <label className="field-label" htmlFor="parent-coach-persona">
-                AI 코치 페르소나
-              </label>
-              <textarea
+          <div className="dday-modal-body parent-coach-settings">
+            <p className="parent-coach-settings__intro">{coachSettingsFb.modalIntro}</p>
+
+            <section
+              className="parent-coach-settings__preview-panel"
+              aria-labelledby="parent-coach-preview-title"
+              aria-live="polite"
+            >
+              <div className="parent-coach-settings__preview-head">
+                <span className="parent-coach-settings__preview-eyebrow">
+                  {coachSettingsFb.previewEyebrow}
+                </span>
+                <h3 id="parent-coach-preview-title" className="parent-coach-settings__preview-title">
+                  {coachSettingsFb.previewTitle}
+                </h3>
+                <p className="parent-coach-settings__preview-meta">{coachPreviewMeta}</p>
+              </div>
+              <div className="coach-bubble coach-bubble--coach parent-coach-settings__preview-bubble">
+                {coachPreviewText}
+              </div>
+              <p className="parent-coach-settings__preview-note">{coachSettingsFb.previewNote}</p>
+            </section>
+
+            <div className="parent-coach-settings__fields">
+              <ParentCoachSettingsField
                 id="parent-coach-persona"
-                className="field-input"
+                label="AI 코치 페르소나"
+                guide={coachSettingsFb.personaGuide}
+                example={coachSettingsFb.personaExample}
                 rows={3}
                 value={coachCustomization.persona}
-                onChange={e =>
-                  setCoachCustomization(prev => ({
-                    ...prev,
-                    persona: e.target.value
-                  }))
+                onChange={persona =>
+                  setCoachCustomization(prev => ({ ...prev, persona }))
                 }
-                placeholder="예: 다정하지만 기준이 분명한 입시 코치"
               />
-            </div>
-            <div className="field" style={{ marginTop: 12 }}>
-              <label className="field-label" htmlFor="parent-coach-tone">
-                말투와 화법
-              </label>
-              <textarea
+              <ParentCoachSettingsField
                 id="parent-coach-tone"
-                className="field-input"
+                label="말투와 화법"
+                guide={coachSettingsFb.toneGuide}
+                example={coachSettingsFb.toneExample}
                 rows={3}
                 value={coachCustomization.tone}
-                onChange={e =>
-                  setCoachCustomization(prev => ({
-                    ...prev,
-                    tone: e.target.value
-                  }))
-                }
-                placeholder="예: 공감은 짧게, 실행 지시는 분명하게 말해 주세요."
+                onChange={tone => setCoachCustomization(prev => ({ ...prev, tone }))}
               />
-            </div>
-            <div className="field" style={{ marginTop: 12 }}>
-              <label className="field-label" htmlFor="parent-coach-control-intensity">
-                통제 강도
-              </label>
-              <div className="record-slider-row parent-profile-control-slider-row">
+              <div className="field parent-coach-settings__field">
+                <label className="field-label" htmlFor="parent-coach-control-intensity">
+                  통제 강도
+                </label>
+                <p className="parent-coach-settings__guide">{coachSettingsFb.controlGuide}</p>
+                <p className="parent-coach-settings__example">{coachSettingsFb.controlExample}</p>
+                <div className="record-slider-row parent-profile-control-slider-row parent-coach-settings__slider">
                 <div className="record-slider-pill">
                   <div
                     className="record-slider-pill__fill"
@@ -1420,36 +1540,25 @@ export function ParentProfilePage(props: {
                   />
                 </div>
                 <span className="record-slider-value parent-profile-control-slider-value">
-                  {clampControlIntensity(coachCustomization.controlIntensity)}/5
+                  {clampControlIntensity(coachCustomization.controlIntensity)}/5 ·{" "}
+                  {controlIntensityLabel(coachCustomization.controlIntensity)}
                 </span>
+                </div>
               </div>
-            </div>
-            <div className="coach-card coach-card--padded parent-coach-preview" style={{ marginTop: 14 }}>
-              <p className="parent-type-caption">미리보기</p>
-              <div className="coach-bubble coach-bubble--coach parent-coach-preview__bubble">
-                {coachPreviewText}
-              </div>
-            </div>
-            <div className="field" style={{ marginTop: 12 }}>
-              <label className="field-label" htmlFor="parent-coach-focus-rules">
-                특히 강조할 원칙
-              </label>
-              <textarea
+              <ParentCoachSettingsField
                 id="parent-coach-focus-rules"
-                className="field-input"
+                label="특히 강조할 원칙"
+                guide={coachSettingsFb.focusRulesGuide}
+                example={coachSettingsFb.focusRulesExample}
                 rows={4}
                 value={coachCustomization.focusRules}
-                onChange={e =>
-                  setCoachCustomization(prev => ({
-                    ...prev,
-                    focusRules: e.target.value
-                  }))
+                onChange={focusRules =>
+                  setCoachCustomization(prev => ({ ...prev, focusRules }))
                 }
-                placeholder="예: 핑계보다 오늘 할 일 한 개를 바로 시작하게 이끌어 주세요."
               />
             </div>
             {coachCustomizationMessage ? (
-              <p className="settings-hint" style={{ marginTop: 12 }}>
+              <p className="parent-coach-settings__message" role="status">
                 {coachCustomizationMessage}
               </p>
             ) : null}

@@ -1,0 +1,59 @@
+flowchart TB
+  subgraph ACC["계정·가족"]
+    users[(users)]
+    parents[(parents)]
+    link[(parents_students)]
+    req[(link / unlink requests)]
+  end
+
+  subgraph PLAN["학습 플래너"]
+    days[(study_days)]
+    blocks[(study_blocks)]
+    books[(study_books)]
+    plans[(study_plans)]
+    lock[(planner_lock_sessions)]
+  end
+
+  subgraph COACH["코치·채팅"]
+    prof[(student_coach_profiles)]
+    logs[(student_coach_logs)]
+    msgs[(student_coach_messages)]
+    chat[(student_parent_chat_messages)]
+  end
+
+  subgraph REPORT["리포트"]
+    daily[(parent_ai_reports)]
+  end
+
+  subgraph MDM["MDM·앱 제어"]
+    allow[(mdm_app_allowance)]
+    kiosk[(mdm_kiosk)]
+    mode[(app_mode_schedules)]
+    weekly[(weekly_app_allowance)]
+  end
+
+  subgraph ROOM["독서실"]
+    room[(study_rooms)]
+    visits[(visit_sessions)]
+    loc[(last_known_locations)]
+  end
+
+  subgraph NOTIFY["알림"]
+    sn[(student_notifications)]
+    pn[(parent_notifications)]
+    push[(user_push_tokens)]
+  end
+
+  users --> parents
+  parents --> link
+  users --> days
+  days --> blocks
+  days --> plans
+  users --> prof
+  users --> logs
+  users --> chat
+  users --> daily
+  users --> allow
+  users --> room
+  users --> sn
+  users --> push

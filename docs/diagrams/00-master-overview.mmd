@@ -1,0 +1,68 @@
+%%{init: {'theme': 'base', 'themeVariables': { 'fontSize': '14px'}}}%%
+flowchart TB
+  subgraph USERS["👤 사용자"]
+    STU["학생\niOS 앱 / 웹 제한"]
+    PAR["학부모\n웹·앱"]
+    ADM["슈퍼 관리자\n허용 이메일"]
+  end
+
+  subgraph CLIENT["📱 클라이언트 · src/"]
+    direction TB
+    MAIN["main.tsx\nCapacitor·API URL·네이티브 헤더"]
+    APP["App.tsx\nJWT·해시 라우팅·전역 상태"]
+    MAIN --> APP
+    APP --> SCOACH_S["StudentCoachApp\n홈·코치·분석·채팅"]
+    APP --> LEG_S["StudentLegacyView\n플래너·스토어"]
+    APP --> SCOACH_P["ParentCoachApp\n홈·관리·알림·분석"]
+    APP --> LEG_P["ParentLegacyView"]
+    APP --> AUTH_UI["AuthScreen"]
+    APP --> SUPER["SuperAdminPage"]
+  end
+
+  subgraph SERVER["🖥 서버 · server/"]
+    direction TB
+    IDX["index.js\nExpress REST + 크론 기동"]
+    AUTH_R["routes/auth.js"]
+    SA_R["routes/superAdmin.js"]
+    DBL["db.js"]
+    PRM["prompts/*.js"]
+    IDX --> AUTH_R
+    IDX --> SA_R
+    IDX --> DBL
+    IDX --> PRM
+    subgraph CRON["백그라운드 크론"]
+      C1["일일 AI 리포트"]
+      C2["플래너 락"]
+      C3["앱 모드 스케줄"]
+      C4["주간 앱 허용"]
+    end
+    IDX --> CRON
+  end
+
+  subgraph DATA["💾 데이터·외부"]
+    PG[("PostgreSQL\nschema.sql")]
+    OAI["OpenAI"]
+    MDM["SimpleMDM"]
+    APNS["APNs 푸시"]
+    SOL["Solapi SMS/카카오"]
+    NAV["Naver 지역검색"]
+  end
+
+  subgraph IOS["🍎 iOS 네이티브"]
+    LOC["위치 추적"]
+    PUSH["푸시 토큰"]
+    KEY["키보드 입력"]
+    SCR["스크린타임"]
+  end
+
+  STU --> CLIENT
+  PAR --> CLIENT
+  ADM --> CLIENT
+  CLIENT <-->|HTTPS JWT| IDX
+  IDX --> PG
+  IDX --> OAI
+  IDX --> MDM
+  IDX --> APNS
+  IDX --> SOL
+  IDX --> NAV
+  MAIN <-->|Capacitor 플러그인| IOS

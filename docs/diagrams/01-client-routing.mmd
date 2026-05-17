@@ -1,0 +1,29 @@
+flowchart TD
+  START([앱 시작]) --> SPLASH[SplashScreen]
+  SPLASH --> JWT{JWT\nlocalStorage}
+
+  JWT -->|없음| AUTH["#/auth\nAuthScreen"]
+  AUTH --> LOGIN["POST /auth/login"]
+  LOGIN --> JWT_OK[JWT + role 저장]
+
+  JWT -->|있음| ROUTE{해시 라우트\nhashRouteUtils}
+
+  ROUTE -->|#/super-admin| SUPER[SuperAdminPage\n슈퍼 관리 콘솔]
+  ROUTE -->|#/parent| PARENT_SHELL[학부모 셸]
+  ROUTE -->|#/student| STUDENT_SHELL[학생 셸]
+
+  PARENT_SHELL --> PTAB{ParentCoachApp 탭}
+  PTAB --> PH[home · 실시간 KPI/AI]
+  PTAB --> PM[manage · 채팅/기기]
+  PTAB --> PN[notifications · 알림]
+  PTAB --> PA[analysis · 성장 리포트]
+  PTAB --> PP[profile · 설정]
+  PARENT_SHELL --> PLEG[ParentLegacyView\n레거시 플래너]
+
+  STUDENT_SHELL --> STAB{StudentCoachApp 탭}
+  STAB --> SH[home]
+  STAB --> SC[coach · AI 대화]
+  STAB --> SA[analysis]
+  STAB --> SM[admin · 학부모 채팅]
+  STUDENT_SHELL --> SLEG[StudentLegacyView]
+  STUDENT_SHELL --> PROF[프로필 페이지]

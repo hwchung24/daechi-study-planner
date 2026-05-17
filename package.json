@@ -9,7 +9,8 @@
     "lint": "eslint src --ext ts,tsx --report-unused-disable-directives --max-warnings 0",
     "cap:sync": "npm run build && npx cap sync",
     "cap:ios": "npx cap open ios",
-    "mobile:ios": "npm run cap:sync && npx cap open ios"
+    "mobile:ios": "npm run cap:sync && npx cap open ios",
+    "docs:diagrams": "bash scripts/render-architecture-diagrams.sh"
   },
   "dependencies": {
     "@capacitor-community/mdm-appconfig": "^6.0.0",

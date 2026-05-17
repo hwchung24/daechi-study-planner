@@ -13,7 +13,14 @@ import {
   User
 } from "lucide-react";
 import { getWeekStartKeySeoul } from "../../lib/weekDates";
-import { exportElementToPdf } from "../../lib/exportElementToPdf";
+import {
+  captureElementForPdf,
+  saveElementPdfCapture,
+  type ElementPdfCapture
+} from "../../lib/exportElementToPdf";
+import { resolveFocusEfficiencyDisplay } from "../../lib/growthReportFocusEfficiency";
+import { useModalReveal } from "../../lib/useModalReveal";
+import { ParentGrowthReportPdfPreviewModal } from "./ParentGrowthReportPdfPreviewModal";
 import type { ParentStudentRow } from "../../types/parent";
 import ko from "../fallbacks/ko.json";
 import { tpl } from "../fallbacks/tpl";
@@ -131,8 +138,13 @@ export function ParentGrowthReportTab(props: {
   const [data, setData] = useState<ParentGrowthReportPayload | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [pdfPreviewOpen, setPdfPreviewOpen] = useState(false);
+  const [pdfPreviewLoading, setPdfPreviewLoading] = useState(false);
+  const [pdfPreviewCapture, setPdfPreviewCapture] = useState<ElementPdfCapture | null>(null);
+  const [pdfPreviewError, setPdfPreviewError] = useState<string | null>(null);
   const [pdfExporting, setPdfExporting] = useState(false);
   const pdfCaptureRef = useRef<HTMLDivElement | null>(null);
+  const pdfPreviewReveal = useModalReveal(pdfPreviewOpen);
 
   const weekStart = useMemo(
     () => getWeekStartKeySeoul(props.parentWeekOffset),
@@ -210,19 +222,10 @@ export function ParentGrowthReportTab(props: {
     if (lifeDataSparse) return growthNarrativeFb.energyTipWhenSparseData;
     return n.energyParentTip;
   }, [lifeDataSparse, n]);
-  const focusEfficiencyContext = useMemo(() => {
-    if (!data) return null;
-    const pct = data.studyEfficiency.focusEfficiencyPct;
-    const studyH = data.studyEfficiency.actualStudyHours;
-    const focusH = data.studyEfficiency.focusBandHours;
-    if (pct != null && pct <= 0 && studyH > 0 && focusH <= 0) {
-      return tpl(growthFb.focusZeroWithStudyTpl, { hours: studyH.toFixed(1) });
-    }
-    if ((pct == null || pct <= 0) && studyH <= 0 && focusH <= 0) {
-      return growthFb.focusNoStudyYet;
-    }
-    return null;
-  }, [data]);
+  const focusEfficiencyDisplay = useMemo(
+    () => resolveFocusEfficiencyDisplay(data?.studyEfficiency),
+    [data?.studyEfficiency]
+  );
   const sleepBadgeText = useMemo(() => {
     if (!data?.daily?.length) return "수면 데이터 수집 중";
     const validSleep = data.daily
@@ -240,26 +243,74 @@ export function ParentGrowthReportTab(props: {
     return `평균 ${avgSleepHours.toFixed(1)}h · 수면 흐름 안정`;
   }, [data]);
 
-  const handleSavePdf = useCallback(async () => {
+  const pdfFileNameBase = useMemo(
+    () => (data ? `성장리포트_${data.studentName}_${weekStart}` : ""),
+    [data, weekStart]
+  );
+
+  const closePdfPreview = useCallback(() => {
+    pdfPreviewReveal.beginClose(() => {
+      setPdfPreviewOpen(false);
+      setPdfPreviewCapture(null);
+      setPdfPreviewError(null);
+      setPdfPreviewLoading(false);
+    });
+  }, [pdfPreviewReveal]);
+
+  const openPdfPreview = useCallback(() => {
+    if (!data?.narrative) return;
+    setPdfPreviewOpen(true);
+  }, [data?.narrative]);
+
+  useEffect(() => {
+    if (!pdfPreviewOpen || !data?.narrative) return;
     const root = pdfCaptureRef.current;
-    if (!root || !data?.narrative) return;
+    if (!root) return;
+
+    let cancelled = false;
+    setPdfPreviewLoading(true);
+    setPdfPreviewError(null);
+    setPdfPreviewCapture(null);
+
+    void captureElementForPdf(root, {
+      ignoreClassName: "parent-growth-report__pdf-skip"
+    })
+      .then(capture => {
+        if (!cancelled) setPdfPreviewCapture(capture);
+      })
+      .catch((e: unknown) => {
+        if (!cancelled) {
+          setPdfPreviewError(
+            e instanceof Error ? e.message : growthFb.pdfExportFailedGeneric
+          );
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setPdfPreviewLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [pdfPreviewOpen, data?.narrative, weekStart]);
+
+  const handleConfirmSavePdf = useCallback(() => {
+    if (!pdfPreviewCapture || !pdfFileNameBase) return;
     setPdfExporting(true);
     try {
-      await exportElementToPdf(root, `성장리포트_${data.studentName}_${weekStart}`, {
-        ignoreClassName: "parent-growth-report__pdf-skip",
+      saveElementPdfCapture(pdfPreviewCapture, pdfFileNameBase, {
         fitSinglePage: true,
         marginMm: 6
       });
+      closePdfPreview();
     } catch (e) {
       alert(
-        e instanceof Error
-          ? e.message
-          : growthFb.pdfExportFailedGeneric
+        e instanceof Error ? e.message : growthFb.pdfExportFailedGeneric
       );
     } finally {
       setPdfExporting(false);
     }
-  }, [data, weekStart]);
+  }, [closePdfPreview, pdfFileNameBase, pdfPreviewCapture]);
 
   return (
     <div className="coach-page parent-growth-report">
@@ -273,11 +324,11 @@ export function ParentGrowthReportTab(props: {
             <button
               type="button"
               className="parent-growth-report__pdf-btn coach-ghost-btn parent-growth-report__pdf-skip"
-              disabled={!n || loading || pdfExporting}
-              onClick={() => void handleSavePdf()}
+              disabled={!n || loading || pdfPreviewOpen}
+              onClick={openPdfPreview}
             >
               <FileDown size={18} aria-hidden />
-              {pdfExporting ? "PDF 만드는 중…" : "PDF 저장"}
+              {growthFb.pdfPreviewButton || "PDF 저장"}
             </button>
             <div className="parent-growth-report__week-nav">
             <button
@@ -365,12 +416,20 @@ export function ParentGrowthReportTab(props: {
                 {(data?.studyEfficiency.actualStudyHours ?? 0).toFixed(1)}h
               </strong>
             </div>
-            <div className="parent-growth-report__kpi-chip" role="listitem">
-              <span className="parent-type-caption">집중</span>
+            <div
+              className={
+                "parent-growth-report__kpi-chip" +
+                (focusEfficiencyDisplay?.kind === "insufficient"
+                  ? " parent-growth-report__kpi-chip--focus-insufficient"
+                  : focusEfficiencyDisplay?.kind === "low"
+                    ? " parent-growth-report__kpi-chip--focus-low"
+                    : "")
+              }
+              role="listitem"
+            >
+              <span className="parent-type-caption">집중 효율</span>
               <strong className="parent-type-kpi">
-                {data?.studyEfficiency.focusEfficiencyPct != null
-                  ? `${Math.round(data.studyEfficiency.focusEfficiencyPct)}%`
-                  : "—"}
+                {focusEfficiencyDisplay?.headline ?? "—"}
               </strong>
             </div>
             <div className="parent-growth-report__kpi-chip" role="listitem">
@@ -547,19 +606,36 @@ export function ParentGrowthReportTab(props: {
                   );
                 })}
               </div>
-              <div className="parent-growth-report__donut-wrap">
-                <DonutChart pct={data?.studyEfficiency.focusEfficiencyPct ?? null} />
+              <div
+                className={
+                  "parent-growth-report__donut-wrap" +
+                  (focusEfficiencyDisplay?.kind === "insufficient"
+                    ? " parent-growth-report__donut-wrap--insufficient"
+                    : focusEfficiencyDisplay?.kind === "low"
+                      ? " parent-growth-report__donut-wrap--low"
+                      : "")
+                }
+              >
+                <DonutChart pct={focusEfficiencyDisplay?.donutPct ?? null} />
                 <div className="parent-growth-report__donut-label">
-                  <strong>
-                    {data?.studyEfficiency.focusEfficiencyPct != null
-                      ? `${Math.round(data.studyEfficiency.focusEfficiencyPct)}%`
-                      : "—"}
-                  </strong>
+                  <strong>{focusEfficiencyDisplay?.headline ?? "—"}</strong>
                   <span>집중 효율</span>
-                  {focusEfficiencyContext ? (
-                    <span className="parent-growth-report__donut-context">{focusEfficiencyContext}</span>
+                  {focusEfficiencyDisplay?.context ? (
+                    <span
+                      className={
+                        "parent-growth-report__donut-context" +
+                        (focusEfficiencyDisplay.kind === "low"
+                          ? " parent-growth-report__donut-context--low"
+                          : focusEfficiencyDisplay.kind === "insufficient"
+                            ? " parent-growth-report__donut-context--insufficient"
+                            : "")
+                      }
+                    >
+                      {focusEfficiencyDisplay.context}
+                    </span>
                   ) : null}
-                  {data?.studyEfficiency.vsPrevWeekEfficiencyDeltaPct != null ? (
+                  {focusEfficiencyDisplay?.showVsPrevDelta &&
+                  data?.studyEfficiency.vsPrevWeekEfficiencyDeltaPct != null ? (
                     <span className="parent-growth-report__delta">
                       전주 대비{" "}
                       {data.studyEfficiency.vsPrevWeekEfficiencyDeltaPct >= 0 ? "+" : ""}
@@ -665,6 +741,24 @@ export function ParentGrowthReportTab(props: {
         <p className="coach-muted">표시할 데이터가 없습니다.</p>
       ) : null}
       </div>
+
+      <ParentGrowthReportPdfPreviewModal
+        open={pdfPreviewOpen}
+        revealed={pdfPreviewReveal.revealed}
+        loading={pdfPreviewLoading}
+        capture={pdfPreviewCapture}
+        error={pdfPreviewError}
+        fileLabel={pdfFileNameBase ? `${pdfFileNameBase}.pdf` : ""}
+        exporting={pdfExporting}
+        title={growthFb.pdfPreviewTitle || "PDF 미리보기"}
+        hint={growthFb.pdfPreviewHint || "저장 전에 아래 내용을 확인해 주세요."}
+        loadingLabel={growthFb.pdfPreviewLoading || "미리보기 준비 중…"}
+        cancelLabel={growthFb.pdfPreviewCancel || "취소"}
+        confirmLabel={growthFb.pdfPreviewConfirm || "PDF 저장"}
+        exportingLabel={growthFb.pdfPreviewExporting || "PDF 만드는 중…"}
+        onClose={closePdfPreview}
+        onConfirm={handleConfirmSavePdf}
+      />
     </div>
   );
 }

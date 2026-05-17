@@ -1,0 +1,16 @@
+flowchart TD
+  DB_OK[(DB 연결 성공)] --> START[connectDbWithRetry\n크론 1회 기동]
+
+  START --> C1[dailyReportCron.js\nKST 자정 · 일일 AI 리포트]
+  START --> C2[feedback few-shot 크론\n코치 품질 로그]
+  START --> C3[plannerLockCron.js\n계획표 락 해제/동기화]
+  START --> C4[weeklyAppAllowanceCron.js\nMDM 앱 허용 동기화]
+  START --> C5[parentAppModeSchedule\n요일·시간 모드 적용]
+  START --> C6[parentTimedFreeCron\n임시 자유 모드 만료]
+
+  C1 --> DB[(PostgreSQL)]
+  C3 --> DB
+  C4 --> MDM[SimpleMDM API]
+  C5 --> MDM
+  C1 --> OAI[OpenAI]
+  C1 --> NOTIFY[알림·푸시·카카오]

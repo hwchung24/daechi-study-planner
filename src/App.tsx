@@ -5300,7 +5300,10 @@ const App: React.FC = () => {
             }
           >
             <div
-              className="dday-modal-inner"
+              className={
+                "dday-modal-inner" +
+                (authConfirmKind === "withdraw" ? " dday-modal-inner--danger" : "")
+              }
               onClick={e => {
                 e.stopPropagation();
               }}
@@ -5311,11 +5314,20 @@ const App: React.FC = () => {
                 </span>
               </div>
               <div className="dday-modal-body">
-                <p className="settings-hint" style={{ margin: 0, lineHeight: 1.5 }}>
-                  {authConfirmKind === "logout"
-                    ? "정말 로그아웃할까요?"
-                    : "정말 회원 탈퇴할까요? 이 작업은 되돌릴 수 없습니다."}
-                </p>
+                {authConfirmKind === "withdraw" ? (
+                  <>
+                    <p className="auth-confirm-danger-text" style={{ margin: "0 0 8px" }}>
+                      계정과 연결 정보가 영구 삭제됩니다.
+                    </p>
+                    <p className="settings-hint" style={{ margin: 0, lineHeight: 1.5 }}>
+                      정말 탈퇴할까요? 이 작업은 되돌릴 수 없습니다.
+                    </p>
+                  </>
+                ) : (
+                  <p className="settings-hint" style={{ margin: 0, lineHeight: 1.5 }}>
+                    정말 로그아웃할까요?
+                  </p>
+                )}
               </div>
               <div className="dday-modal-footer">
                 <button
@@ -5329,7 +5341,11 @@ const App: React.FC = () => {
                 </button>
                 <button
                   type="button"
-                  className="modal-primary auth-confirm-btn-primary"
+                  className={
+                    authConfirmKind === "withdraw"
+                      ? "modal-primary auth-confirm-btn-danger"
+                      : "modal-primary auth-confirm-btn-primary"
+                  }
                   onClick={confirmAuthAction}
                 >
                   {authConfirmKind === "logout" ? "로그아웃" : "탈퇴하기"}

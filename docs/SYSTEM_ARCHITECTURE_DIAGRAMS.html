@@ -1,0 +1,178 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>대치루트 시스템 모식도</title>
+  <style>
+    :root {
+      --bg: #0f1419;
+      --card: #1a2332;
+      --text: #e7ecf3;
+      --muted: #8b9cb3;
+      --accent: #5b9fd4;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: "Pretendard", "Apple SD Gothic Neo", system-ui, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.5;
+    }
+    header {
+      padding: 1.5rem 1.25rem;
+      border-bottom: 1px solid #2a3548;
+      position: sticky;
+      top: 0;
+      background: rgba(15, 20, 25, 0.92);
+      backdrop-filter: blur(8px);
+      z-index: 10;
+    }
+    header h1 { margin: 0 0 0.35rem; font-size: 1.35rem; }
+    header p { margin: 0; color: var(--muted); font-size: 0.9rem; }
+    nav {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.4rem;
+      margin-top: 0.75rem;
+    }
+    nav a {
+      color: var(--accent);
+      text-decoration: none;
+      font-size: 0.8rem;
+      padding: 0.25rem 0.55rem;
+      border: 1px solid #2a3548;
+      border-radius: 6px;
+    }
+    nav a:hover { background: var(--card); }
+    main { max-width: 1280px; margin: 0 auto; padding: 1rem 1.25rem 3rem; }
+    section {
+      margin-bottom: 2.5rem;
+      background: var(--card);
+      border-radius: 12px;
+      overflow: hidden;
+      border: 1px solid #2a3548;
+    }
+    section h2 {
+      margin: 0;
+      padding: 0.85rem 1rem;
+      font-size: 1rem;
+      border-bottom: 1px solid #2a3548;
+      background: #141c28;
+    }
+    section figure { margin: 0; padding: 0.75rem; }
+    section img {
+      width: 100%;
+      height: auto;
+      display: block;
+      border-radius: 6px;
+      background: #fff;
+    }
+    section figcaption {
+      padding: 0.5rem 1rem 0.85rem;
+      font-size: 0.85rem;
+      color: var(--muted);
+    }
+    footer {
+      text-align: center;
+      color: var(--muted);
+      font-size: 0.8rem;
+      padding: 1rem;
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>대치루트 시스템 모식도</h1>
+    <p>전체 아키텍처를 10장의 그림으로 정리 · 상세 문서: <code>SYSTEM_ARCHITECTURE_KO.md</code></p>
+    <nav>
+      <a href="#d00">00 개요</a>
+      <a href="#d01">01 라우팅</a>
+      <a href="#d02">02 API</a>
+      <a href="#d03">03 DB</a>
+      <a href="#d04">04 학생</a>
+      <a href="#d05">05 학부모</a>
+      <a href="#d06">06 크론</a>
+      <a href="#d07">07 iOS</a>
+      <a href="#d08">08 요청</a>
+      <a href="#d09">09 빌드</a>
+    </nav>
+  </header>
+  <main>
+    <section id="d00">
+      <h2>00 · 마스터 개요</h2>
+      <figure>
+        <img src="diagrams/png/00-master-overview.png" alt="마스터 개요" />
+        <figcaption>사용자 → React/Capacitor → Express → PostgreSQL·OpenAI·MDM·푸시·Naver, iOS 네이티브 플러그인</figcaption>
+      </figure>
+    </section>
+    <section id="d01">
+      <h2>01 · 클라이언트 라우팅</h2>
+      <figure>
+        <img src="diagrams/png/01-client-routing.png" alt="클라이언트 라우팅" />
+        <figcaption>Splash → JWT → #/auth · #/student · #/parent · #/super-admin, 코치 탭 분기</figcaption>
+      </figure>
+    </section>
+    <section id="d02">
+      <h2>02 · API 맵</h2>
+      <figure>
+        <img src="diagrams/png/02-api-map.png" alt="API 맵" />
+        <figcaption>/auth, /api/student, /api/parent, 공통·슈퍼관리 엔드포인트 그룹</figcaption>
+      </figure>
+    </section>
+    <section id="d03">
+      <h2>03 · 데이터 도메인</h2>
+      <figure>
+        <img src="diagrams/png/03-data-domains.png" alt="데이터 도메인" />
+        <figcaption>계정·플래너·코치·리포트·MDM·독서실·알림 테이블 군</figcaption>
+      </figure>
+    </section>
+    <section id="d04">
+      <h2>04 · 학생 여정</h2>
+      <figure>
+        <img src="diagrams/png/04-student-journey.png" alt="학생 여정" />
+        <figcaption>플래너·기록 → API, AI 코치, 위치·MDM, 학부모 채팅</figcaption>
+      </figure>
+    </section>
+    <section id="d05">
+      <h2>05 · 학부모 여정</h2>
+      <figure>
+        <img src="diagrams/png/05-parent-journey.png" alt="학부모 여정" />
+        <figcaption>홈 KPI·리포트, 기기 제어·SimpleMDM, 알림·승인·채팅</figcaption>
+      </figure>
+    </section>
+    <section id="d06">
+      <h2>06 · 백그라운드 크론</h2>
+      <figure>
+        <img src="diagrams/png/06-cron-jobs.png" alt="크론 작업" />
+        <figcaption>일일 AI 리포트, 플래너 락, 앱 모드·허용, timed free</figcaption>
+      </figure>
+    </section>
+    <section id="d07">
+      <h2>07 · iOS 브리지</h2>
+      <figure>
+        <img src="diagrams/png/07-ios-bridge.png" alt="iOS 브리지" />
+        <figcaption>WebView TS ↔ Swift 플러그인 ↔ heartbeat·push·student API</figcaption>
+      </figure>
+    </section>
+    <section id="d08">
+      <h2>08 · 요청 생명주기</h2>
+      <figure>
+        <img src="diagrams/png/08-request-lifecycle.png" alt="요청 생명주기" />
+        <figcaption>사용자 액션 → JWT → authMiddleware → DB / OpenAI / MDM·APNs</figcaption>
+      </figure>
+    </section>
+    <section id="d09">
+      <h2>09 · 빌드·배포</h2>
+      <figure>
+        <img src="diagrams/png/09-deploy-build.png" alt="빌드·배포" />
+        <figcaption>Vite build → Capacitor sync → Xcode, server + PostgreSQL + env</figcaption>
+      </figure>
+    </section>
+  </main>
+  <footer>
+    PNG 재생성: <code>npm run docs:diagrams</code> · Mermaid 소스: <code>docs/diagrams/*.mmd</code>
+  </footer>
+</body>
+</html>

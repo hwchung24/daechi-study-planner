@@ -1,0 +1,33 @@
+flowchart LR
+  subgraph HOME["홈"]
+    H1[실시간 KPI\nParentHomeTab]
+    H2[SNU AI 인사이트]
+    H3[오늘 계획표 모달]
+    H4[독서실 지도/방문]
+  end
+
+  subgraph CONTROL["기기 제어"]
+    K1[모드 스케줄\n집중·허용·키오스크·이동]
+    K2[앱 허용 프로필]
+    K3[플래너 락]
+    K4[SimpleMDM 동기화]
+  end
+
+  subgraph REPORT["리포트"]
+    R1[일일 AI 리포트\n크론 생성]
+    R2[주간 성장 리포트\n섹션별 GPT]
+  end
+
+  subgraph OPS["운영"]
+    O1[관리 채팅]
+    O2[알림·유형 필터]
+    O3[계획 추가 승인]
+    O4[연결 요청 처리]
+  end
+
+  H1 --> API["/api/parent/*"]
+  K1 --> API
+  K4 --> MDM[SimpleMDM]
+  R1 --> AI[OpenAI]
+  R2 --> AI
+  O1 --> API

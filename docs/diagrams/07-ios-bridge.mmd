@@ -1,0 +1,30 @@
+flowchart LR
+  subgraph WEB["Capacitor WebView\nReact dist"]
+    R1[nativeStudyRoomTracking.ts]
+    R2[nativePushNotifications.ts]
+    R3[nativeKeyboardInput.ts]
+    R4[nativeAppShell.ts]
+    R5[installNativeClientFetchHeader]
+  end
+
+  subgraph SWIFT["ios/App/App/*.swift"]
+    S1[NativeStudyRoomTrackingPlugin\nCoreLocation·heartbeat]
+    S2[NativePushNotificationsPlugin\nAPNs]
+    S3[NativeKeyboardInputPlugin]
+    S4[AppShellPlugin]
+    S5[NativeOfflineScreenTimePlugin]
+  end
+
+  subgraph API["백엔드"]
+    HB["POST location/heartbeat"]
+    PT["POST push/register-token"]
+    REST["/api/student/* + native header"]
+  end
+
+  R1 <--> S1
+  R2 <--> S2
+  R3 <--> S3
+  R4 <--> S4
+  R5 --> REST
+  S1 --> HB
+  S2 --> PT

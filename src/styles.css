@@ -3613,6 +3613,121 @@ html.parent-session .dday-modal .dday-modal-title {
   margin-top: 8px;
 }
 
+.parent-coach-settings-modal .dday-modal-body {
+  max-height: min(78vh, 720px);
+  overflow-y: auto;
+}
+
+.parent-coach-settings__intro {
+  margin: 0;
+  font-size: var(--font-size-small);
+  line-height: 1.55;
+  color: var(--text-muted);
+}
+
+.parent-coach-settings__preview-panel {
+  margin-top: 14px;
+  padding: 16px 14px;
+  border-radius: var(--radius-lg);
+  border: 1px solid rgba(139, 124, 255, 0.35);
+  background: linear-gradient(
+    165deg,
+    rgba(139, 124, 255, 0.14) 0%,
+    rgba(94, 200, 212, 0.08) 55%,
+    rgba(255, 255, 255, 0.04) 100%
+  );
+  box-shadow: 0 8px 24px rgba(80, 70, 140, 0.12);
+}
+
+.parent-coach-settings__preview-eyebrow {
+  display: inline-block;
+  margin-bottom: 6px;
+  font-size: 11px;
+  font-weight: var(--font-weight-semibold);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--accent);
+}
+
+.parent-coach-settings__preview-title {
+  margin: 0;
+  font-size: 1.05rem;
+  font-weight: var(--font-weight-bold);
+  line-height: 1.35;
+  color: var(--text-strong);
+}
+
+.parent-coach-settings__preview-meta {
+  margin: 6px 0 0;
+  font-size: var(--font-size-small);
+  color: var(--text-muted);
+}
+
+.parent-coach-settings__preview-bubble {
+  margin-top: 12px;
+  padding: 14px 16px;
+  font-size: var(--font-size-body);
+  line-height: 1.55;
+  font-weight: var(--font-weight-medium);
+}
+
+.parent-coach-settings__preview-note {
+  margin: 10px 0 0;
+  font-size: 11px;
+  line-height: 1.4;
+  color: var(--text-muted);
+}
+
+.parent-coach-settings__fields {
+  margin-top: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.parent-coach-settings__field .field-label {
+  margin-bottom: 4px;
+}
+
+.parent-coach-settings__guide {
+  margin: 0 0 4px;
+  font-size: var(--font-size-small);
+  line-height: 1.45;
+  color: var(--text-sub);
+}
+
+.parent-coach-settings__example {
+  margin: 0 0 8px;
+  padding: 8px 10px;
+  border-radius: var(--radius-md);
+  font-size: var(--font-size-small);
+  line-height: 1.4;
+  color: var(--accent);
+  background: rgba(139, 124, 255, 0.08);
+  border: 1px dashed rgba(139, 124, 255, 0.28);
+}
+
+.parent-coach-settings__input {
+  margin-top: 0;
+}
+
+.parent-coach-settings__slider {
+  margin-top: 4px;
+}
+
+.parent-coach-settings__message {
+  margin: 14px 0 0;
+  font-size: var(--font-size-small);
+  line-height: 1.45;
+  color: var(--text-muted);
+}
+
+html.parent-session .dday-modal .parent-coach-settings__preview-bubble {
+  background: var(--surface-glass-strong);
+  border-color: var(--border-neutral);
+  color: var(--text-main);
+}
+
 .parent-home__status-kpi {
   margin: 0;
   text-align: center;
@@ -6724,6 +6839,221 @@ body.app-keyboard-open .app-main {
 
 .student-profile-link-action-btn--danger:hover {
   color: #b91c1c;
+}
+
+/* 프로필: 위험 영역(연결 끊기·회원 탈퇴) */
+.student-profile-danger-card {
+  margin-top: 14px;
+  border: 1px solid rgba(220, 53, 69, 0.35);
+  background: linear-gradient(
+    180deg,
+    rgba(220, 53, 69, 0.08) 0%,
+    rgba(255, 255, 255, 0.02) 100%
+  );
+}
+
+.student-profile-danger-card__header {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  margin-bottom: 14px;
+}
+
+.student-profile-danger-card__badge {
+  flex-shrink: 0;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 14px;
+  font-weight: var(--font-weight-bold);
+  color: #fff;
+  background: #dc3545;
+}
+
+.student-profile-danger-card__title {
+  margin: 0;
+  font-size: var(--font-size-body);
+  font-weight: var(--font-weight-bold);
+  color: #b91c1c;
+}
+
+.student-profile-danger-card__desc {
+  margin: 6px 0 0;
+  font-size: var(--font-size-small);
+  line-height: 1.5;
+  color: var(--text-muted);
+}
+
+.student-profile-danger-zone {
+  margin-top: 18px;
+  padding: 14px 12px;
+  border-radius: var(--radius-md);
+  border: 1px solid rgba(220, 53, 69, 0.32);
+  background: rgba(220, 53, 69, 0.06);
+}
+
+.student-profile-danger-zone__title {
+  margin: 0;
+  font-size: var(--font-size-small);
+  font-weight: var(--font-weight-bold);
+  color: #b91c1c;
+  letter-spacing: 0.02em;
+}
+
+.student-profile-danger-zone__hint {
+  margin: 8px 0 0;
+  font-size: var(--font-size-small);
+  line-height: 1.45;
+  color: var(--text-muted);
+}
+
+.student-profile-danger-zone__list {
+  margin: 12px 0 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.student-profile-danger-zone__item {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-top: 10px;
+  border-top: 1px solid rgba(220, 53, 69, 0.18);
+}
+
+.student-profile-danger-zone__item:first-child {
+  padding-top: 0;
+  border-top: none;
+}
+
+.student-profile-danger-zone__email {
+  font-size: var(--font-size-small);
+  font-weight: var(--font-weight-semibold);
+  color: var(--text-main);
+  word-break: break-all;
+}
+
+.student-profile-danger-zone__confirm {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.student-profile-danger-zone__confirm-text {
+  margin: 0;
+  font-size: var(--font-size-small);
+  line-height: 1.45;
+  color: #b91c1c;
+  font-weight: var(--font-weight-semibold);
+}
+
+.student-profile-danger-zone__confirm-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+.student-profile-danger-btn {
+  border: none;
+  background: transparent;
+  padding: 0;
+  font-size: var(--font-size-small);
+  font-weight: var(--font-weight-semibold);
+  color: #dc3545;
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.student-profile-danger-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.student-profile-danger-btn--ghost {
+  color: var(--text-muted);
+  text-decoration: none;
+}
+
+.student-profile-danger-btn--emphasis {
+  width: 100%;
+  padding: 12px 16px;
+  border-radius: var(--radius-md);
+  text-align: center;
+  text-decoration: none;
+  color: #fff;
+  background: #dc3545;
+  font-size: var(--font-size-body);
+}
+
+.student-profile-danger-btn--emphasis:active {
+  transform: scale(0.98);
+}
+
+html.parent-session .student-profile-danger-card {
+  border-color: rgba(248, 113, 113, 0.4);
+  background: linear-gradient(
+    180deg,
+    rgba(220, 53, 69, 0.14) 0%,
+    rgba(0, 0, 0, 0.12) 100%
+  );
+}
+
+html.parent-session .student-profile-danger-zone {
+  border-color: rgba(248, 113, 113, 0.35);
+  background: rgba(220, 53, 69, 0.1);
+}
+
+.app-root--parent .student-profile-page.section .student-profile-danger-card {
+  margin-top: 14px;
+}
+
+.dday-modal-inner--danger {
+  border: 1px solid rgba(220, 53, 69, 0.4);
+  box-shadow: 0 12px 32px rgba(185, 28, 28, 0.12);
+}
+
+.dday-modal-inner--danger .dday-modal-title {
+  color: #b91c1c;
+}
+
+.dday-modal-inner--danger .auth-confirm-danger-text {
+  color: #b91c1c;
+  font-weight: var(--font-weight-semibold);
+  font-size: var(--font-size-body);
+  line-height: 1.45;
+}
+
+.auth-confirm-btn-danger {
+  background: #dc3545 !important;
+  color: #fff !important;
+  border: none !important;
+}
+
+.auth-confirm-btn-danger:active {
+  transform: scale(0.98);
+}
+
+html.parent-session .dday-modal-inner--danger .dday-modal-title {
+  color: #f87171;
+}
+
+html.parent-session .dday-modal-inner--danger .auth-confirm-danger-text {
+  color: #fca5a5;
+  font-weight: var(--font-weight-semibold);
+}
+
+html.parent-session .auth-confirm-btn-danger {
+  background: #dc3545;
+  color: #fff;
+  border: none;
 }
 
 .coach-unified-tab-panel--fill {
@@ -13116,6 +13446,88 @@ html.parent-session.parent-dark .app-root--parent .coach-admin-chat__peer-header
   opacity: 0.55;
 }
 
+.parent-growth-report-pdf-preview .dday-modal-inner {
+  width: min(100%, 520px);
+  max-height: min(92vh, 820px);
+  display: flex;
+  flex-direction: column;
+}
+
+.parent-growth-report-pdf-preview__header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.parent-growth-report-pdf-preview__hint {
+  margin: 6px 0 0;
+  font-size: var(--font-size-small);
+  color: var(--text-muted);
+  line-height: 1.45;
+}
+
+.parent-growth-report-pdf-preview__file {
+  margin: 4px 0 0;
+  color: var(--text-muted);
+}
+
+.parent-growth-report-pdf-preview__close {
+  flex-shrink: 0;
+}
+
+.parent-growth-report-pdf-preview__body {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding-top: 8px;
+  padding-bottom: 12px;
+}
+
+.parent-growth-report-pdf-preview__status {
+  margin: 24px 0;
+  text-align: center;
+}
+
+.parent-growth-report-pdf-preview__page-wrap {
+  display: flex;
+  justify-content: center;
+  padding: 4px 0 8px;
+}
+
+.parent-growth-report-pdf-preview__page {
+  width: min(100%, 360px);
+  aspect-ratio: 210 / 297;
+  background: #fff;
+  border-radius: 8px;
+  box-shadow:
+    0 0 0 1px rgba(0, 0, 0, 0.08),
+    0 12px 32px rgba(0, 0, 0, 0.18);
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.parent-growth-report-pdf-preview__img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+.parent-growth-report-pdf-preview__footer {
+  display: flex;
+  gap: 10px;
+  justify-content: flex-end;
+}
+
+.parent-growth-report-pdf-preview__save {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
 .parent-growth-report__eyebrow {
   font-size: var(--font-size-small);
   color: var(--accent);
@@ -13446,6 +13858,36 @@ html.parent-session.parent-dark .app-root--parent .coach-admin-chat__peer-header
   font-weight: var(--font-weight-medium);
   line-height: 1.35;
   color: var(--text-muted);
+}
+
+.parent-growth-report__kpi-chip--focus-insufficient strong {
+  font-size: var(--font-size-body);
+  color: var(--text-muted);
+}
+
+.parent-growth-report__kpi-chip--focus-low strong {
+  color: #c45c2a;
+}
+
+.parent-growth-report__donut-wrap--insufficient {
+  --growth-donut-track: rgba(120, 130, 150, 0.22);
+}
+
+.parent-growth-report__donut-wrap--insufficient .parent-growth-report__donut-label strong {
+  font-size: var(--font-size-body);
+  color: var(--text-muted);
+}
+
+.parent-growth-report__donut-wrap--low .parent-growth-report__donut-label strong {
+  color: #c45c2a;
+}
+
+.parent-growth-report__donut-context--insufficient {
+  color: var(--text-muted);
+}
+
+.parent-growth-report__donut-context--low {
+  color: #b85a28;
 }
 
 .parent-growth-report__plan-empty-hint {

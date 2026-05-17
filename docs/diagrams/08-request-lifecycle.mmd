@@ -1,0 +1,32 @@
+sequenceDiagram
+  autonumber
+  participant U as 사용자
+  participant UI as React 화면
+  participant LS as localStorage JWT
+  participant API as Express index.js
+  participant MW as authMiddleware
+  participant DB as db.js
+  participant PR as prompts/*
+  participant AI as OpenAI
+  participant EXT as MDM/APNs/Solapi
+
+  U->>UI: 탭/입력
+  UI->>LS: 토큰 읽기
+  UI->>API: fetch Bearer + JSON
+  API->>MW: JWT 검증
+  alt 학생 + 웹 차단
+    MW-->>UI: 403
+  else 통과
+    MW->>DB: SQL
+    opt AI 필요
+      API->>PR: system/user 프롬프트
+      PR->>AI: chat.completions
+      AI-->>API: 텍스트/JSON
+    end
+    opt 푸시/MDM
+      API->>EXT: 외부 API
+    end
+    DB-->>API: rows
+    API-->>UI: JSON 응답
+    UI-->>U: 화면 갱신
+  end
