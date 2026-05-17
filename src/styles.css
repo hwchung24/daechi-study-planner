@@ -875,7 +875,7 @@ html.parent-session.parent-dark .app-root--parent {
 
 html.parent-session.parent-dark .app-root--parent .notifications-page__item {
   background: var(--surface-base);
-  border-bottom-color: var(--parent-line);
+  border-bottom: none;
 }
 
 html.parent-session.parent-dark .parent-linking-overlay {
@@ -1345,18 +1345,15 @@ html.parent-session .dday-modal .dday-modal-title {
 }
 
 .app-root--parent .parent-growth-report__insight {
-  border-color: rgba(var(--accent-rgb), 0.22);
   background: linear-gradient(
     165deg,
     rgba(var(--accent-rgb), 0.09) 0%,
     rgba(var(--accent-rgb), 0.03) 45%,
     var(--surface-glass) 70%
   );
-  box-shadow: var(--surface-hairline), inset 3px 0 0 var(--accent);
 }
 
 .app-root--parent .parent-growth-report__kpi-chip {
-  border-color: rgba(var(--accent-rgb), 0.2);
   background: var(--accent-muted);
 }
 
@@ -4084,7 +4081,7 @@ html.parent-session .dday-modal .parent-coach-settings__preview-bubble {
 
 .app-root--parent .student-profile-settings-card .student-profile-settings-list {
   margin-top: 12px;
-  border-top: var(--border-width) solid var(--border-neutral);
+  border-top: none;
   border-radius: 0;
   border-left: 0;
   border-right: 0;
@@ -4098,10 +4095,15 @@ html.parent-session .dday-modal .parent-coach-settings__preview-bubble {
 }
 
 .parent-student-settings.coach-page,
-.parent-growth-report.coach-page {
+.coach-page--parent-analysis {
+  background: #f4f6fa;
+}
+
+.coach-page--parent-analysis .parent-growth-report,
+.coach-page--parent-analysis .parent-growth-report-shell {
   display: flex;
   flex-direction: column;
-  gap: 14px;
+  gap: 24px;
 }
 
 .parent-home.coach-page {
@@ -4158,7 +4160,12 @@ html.parent-session .dday-modal .parent-coach-settings__preview-bubble {
 
 .app-root--parent .coach-shell__tab-panel--parent .parent-home__insight-card.coach-card,
 .app-root--parent .coach-shell__tab-panel--parent .parent-home__live-panel.coach-card,
-.app-root--parent .coach-shell__tab-panel--parent .parent-home__records-panel.coach-card {
+.app-root--parent .coach-shell__tab-panel--parent .parent-home__records-panel.coach-card,
+.app-root--parent .coach-page--parent-chat .coach-card,
+.app-root--parent .parent-notifications-page .coach-card,
+.app-root--parent .student-profile-page.section .coach-card:not(.student-profile-danger-card),
+.app-root--parent .parent-growth-report-card.coach-card,
+.app-root--parent .parent-growth-report .coach-card {
   border: none;
   box-shadow: none;
 }
@@ -4182,7 +4189,7 @@ html.parent-session .dday-modal .parent-coach-settings__preview-bubble {
   border: 0;
   border-radius: 0;
   box-shadow: none;
-  border-bottom: 1px solid rgba(148, 163, 184, 0.28);
+  border-bottom: none;
   padding: 12px 2px;
 }
 
@@ -4196,7 +4203,7 @@ html.parent-session .dday-modal .parent-coach-settings__preview-bubble {
 }
 
 .app-root--parent .coach-admin-chat-shell__rail {
-  border-top: 1px solid rgba(148, 163, 184, 0.28);
+  border-top: none;
 }
 
 .app-root--parent .coach-admin-chat-shell .coach-chat-input {
@@ -4356,20 +4363,20 @@ html.parent-session .dday-modal .parent-coach-settings__preview-bubble {
   font-weight: var(--font-weight-bold);
 }
 
-/* 설정 탭: 리스트 패딩/구분선/값 텍스트 통일 */
+/* 설정 탭: 리스트 패딩/값 텍스트 통일 (구분선 없음) */
 .app-root--parent .student-profile-settings-list {
   margin-top: 12px;
-  border-top: 1px solid var(--parent-line);
+  border-top: none;
 }
 
 .app-root--parent .student-profile-settings-list .settings-item {
   min-height: 46px;
   padding: 12px 0;
-  border-bottom: 1px solid var(--parent-line);
+  border-bottom: none;
 }
 
 .app-root--parent .student-profile-settings-list .settings-item:last-child {
-  border-bottom: 0;
+  border-bottom: none;
 }
 
 .app-root--parent .student-profile-settings-list .settings-value {
@@ -4393,15 +4400,10 @@ html.parent-session .dday-modal .parent-coach-settings__preview-bubble {
   padding-bottom: max(10px, env(safe-area-inset-bottom));
 }
 
-/* 알림: 구분선 full-width, 내부 텍스트 간격 통일 */
+/* 알림: 내부 텍스트 간격 통일 (구분선 없음) */
 .app-root--parent .notifications-page__item {
   padding: 12px 0;
-  border-bottom: 1px solid var(--parent-line);
-}
-
-/* 설정: 리스트 구분선 및 row rhythm 통일 */
-.app-root--parent .student-profile-settings-list {
-  border-top: 1px solid var(--parent-line);
+  border-bottom: none;
 }
 
 /* 학부모 버튼 높이/라운드 미세 통일 */
@@ -11221,6 +11223,23 @@ button:active:not(:disabled),
   margin-top: 0;
 }
 
+.parent-growth-report-card {
+  margin-top: 0;
+}
+
+.coach-page--parent-analysis > .parent-growth-report-card {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.coach-page--parent-analysis .parent-growth-report-card > .parent-growth-report {
+  flex: 1 1 auto;
+  min-height: 0;
+  padding-bottom: 8px;
+}
+
 .coach-page--parent-chat > .parent-manage-chat-card {
   flex: 1 1 auto;
   min-height: 0;
@@ -12505,6 +12524,11 @@ button:active:not(:disabled),
   background: var(--surface-elevated, #fff);
 }
 
+.app-root--parent .coach-page--parent-chat .coach-admin-chat__peer-header {
+  border-bottom: none;
+  background: transparent;
+}
+
 .coach-admin-chat__peer-header-text {
   display: flex;
   flex-direction: column;
@@ -13641,8 +13665,8 @@ html.parent-session.parent-dark .app-root--parent .coach-admin-chat__peer-header
   padding: 16px 16px 16px 44px;
   border-radius: var(--radius-lg);
   background: var(--surface-glass);
-  border: var(--border-width) solid var(--border-neutral);
-  box-shadow: var(--surface-hairline);
+  border: none;
+  box-shadow: none;
   backdrop-filter: blur(var(--glass-blur));
   -webkit-backdrop-filter: blur(var(--glass-blur));
 }
@@ -13664,8 +13688,8 @@ html.parent-session.parent-dark .app-root--parent .coach-admin-chat__peer-header
   padding: 10px 12px;
   border-radius: var(--radius-lg);
   background: var(--surface-glass-strong);
-  border: var(--border-width) solid var(--border-neutral);
-  box-shadow: var(--surface-hairline);
+  border: none;
+  box-shadow: none;
   display: flex;
   flex-direction: column;
   gap: 4px;
@@ -13682,7 +13706,7 @@ html.parent-session.parent-dark .app-root--parent .coach-admin-chat__peer-header
   margin: 12px 0 0;
   padding: 20px 16px;
   border-radius: var(--radius-lg);
-  border: var(--border-width) solid var(--border-neutral);
+  border: none;
   background: var(--accent-tint-bg);
   text-align: center;
   color: var(--text-sub);
@@ -13692,9 +13716,9 @@ html.parent-session.parent-dark .app-root--parent .coach-admin-chat__peer-header
   margin-top: 0;
   padding: 12px 14px;
   border-radius: var(--radius-lg);
-  border: var(--border-width) solid var(--border-neutral);
+  border: none;
   background: var(--surface-glass-strong);
-  box-shadow: var(--surface-hairline);
+  box-shadow: none;
 }
 
 .parent-growth-report__coach-comments summary {
@@ -13742,14 +13766,14 @@ html.parent-session.parent-dark .app-root--parent .coach-admin-chat__peer-header
   position: relative;
   padding: 16px 16px 16px 44px;
   border-radius: var(--radius-lg);
-  border: 1px solid rgba(var(--accent-rgb), 0.2);
+  border: none;
   background: linear-gradient(
     145deg,
     rgba(var(--accent-rgb), 0.1) 0%,
     rgba(var(--accent-rgb), 0.04) 48%,
     var(--surface-base) 100%
   );
-  box-shadow: var(--surface-hairline), inset 3px 0 0 var(--accent);
+  box-shadow: none;
 }
 
 .parent-growth-report__section-icon {
@@ -14153,7 +14177,8 @@ html.parent-session.parent-dark .app-root--parent .coach-admin-chat__peer-header
   align-items: flex-start;
   padding: 12px;
   border-radius: var(--radius-md);
-  box-shadow: var(--surface-hairline);
+  border: none;
+  box-shadow: none;
 }
 
 .parent-growth-report__plan-card--done {
@@ -14203,8 +14228,9 @@ html.parent-session.parent-dark .app-root--parent .coach-admin-chat__peer-header
 .parent-growth-report__suggest-card {
   padding: 14px;
   border-radius: var(--radius-lg);
+  border: none;
   background: linear-gradient(160deg, rgba(255, 252, 240, 0.95), rgba(255, 248, 235, 0.88));
-  box-shadow: var(--surface-hairline);
+  box-shadow: none;
 }
 
 .parent-growth-report__suggest-card--parent {
@@ -14231,5 +14257,12 @@ html.parent-session.parent-dark .app-root--parent .coach-admin-chat__peer-header
 .parent-growth-report__loading,
 .parent-growth-report__error {
   margin-top: 12px;
+}
+
+/* 성장 리포트: coach-card 계열·내부 블록 테두리 일괄 제거 */
+.parent-growth-report .coach-card,
+.parent-growth-report .coach-home-insight-card {
+  border: none;
+  box-shadow: none;
 }
 

@@ -214,6 +214,41 @@ const {
   listProfilesForAssignmentGroup,
   listDeviceProfiles
 } = require("./simpleMdmClient");
+const {
+  APP_ALLOWANCE_MODE_TO_PROFILE_NAME,
+  parentLocationRefreshAtByStudentId,
+  coachResponseLogSessionId,
+  applyCoachSignalFromPreviousTurn,
+  insertCoachResponseLogRow,
+  coachContextSnapshotFromStudentSnapshot,
+  coachContextSnapshotFromTomorrowContext,
+  resolveAppAllowanceModeFromProfileName,
+  isDaechiRootBulkLockOverride,
+  resolveMdmSurfaceModeForParent,
+  normalizeModeKey,
+  getPatternInsightsCache,
+  setPatternInsightsCache,
+  buildPatternCacheKey,
+  invalidatePatternInsightsCacheForStudent,
+  getResponseCache,
+  setResponseCache,
+  invalidateResponseCacheByPrefix,
+  buildParentStudyRoomVisitsCacheKey,
+  buildParentStudyRoomVisitsResponse,
+  requestStudentAppLocationRefresh,
+  getLockStatusCache,
+  setLockStatusCache,
+  invalidateLockStatusCacheForStudent,
+  asyncMapWithConcurrency,
+  applyNamedAppAllowanceProfileForStudent,
+  ensureBaselineAppAllowanceForStudent,
+  buildParentTimedFreeRestoreSnapshot,
+  restoreParentAppAllowanceAfterParentFree,
+  parseIsoMs,
+  getMergedStudyRoomTrackingSummary
+} = require("./runtimeHelpers");
+
+const buildWeeklySummaryLines = prompts.parentDailyAiReport.buildWeeklySummaryLines;
 
 const JWT_SECRET = String(process.env.JWT_SECRET || "");
 const PORT = process.env.PORT || 3000;
@@ -1336,6 +1371,19 @@ async function buildParentGrowthReportPayload(studentId, weekMondayIso, parentUs
       narrative.energyParentTip;
   }
 
+  const prevStudyRoomHours = Math.round(((prevStudyRoom.weeklyMinutes || 0) / 60) * 10) / 10;
+  const prevActualStudyHours = Math.round((prevStats.totalStudyMinutes / 60) * 10) / 10;
+  const observedDaysCount = daily.filter(
+    d =>
+      (d.studyMinutesFromLog != null && d.studyMinutesFromLog > 0) ||
+      d.studyRoomMinutes > 0 ||
+      d.sleepHours != null
+  ).length;
+  const weeklyStudyGoalHours = Math.max(
+    14,
+    Math.round(Math.max(actualStudyHours, studyRoomHours, 2) * 1.1 * 10) / 10
+  );
+
   return {
     weekStart: weekMondayIso,
     weekEnd,
@@ -1347,6 +1395,21 @@ async function buildParentGrowthReportPayload(studentId, weekMondayIso, parentUs
     badgeSleepRecovery,
     sleepGoalHours,
     daily,
+    meta: {
+      reportId: `RPT-${String(weekMondayIso).replace(/-/g, "")}-${studentId}`,
+      issuedAt: new Date().toISOString(),
+      studentGoal: toNullableString(profile?.goal, 120),
+      targetGrade: toNullableString(profile?.target_grade, 40),
+      observedDaysCount,
+      weeklyStudyGoalHours,
+      coachName: "대치루트 AI 코치"
+    },
+    prevWeek: {
+      studyRoomHours: prevStudyRoomHours,
+      actualStudyHours: prevActualStudyHours,
+      achievementPct: roundOrNull(avgPlanPrev, 1),
+      focusEfficiencyPct: roundOrNull(prevEff, 1)
+    },
     studyEfficiency: {
       studyRoomHours: Math.round(studyRoomHours * 10) / 10,
       actualStudyHours: Math.round(actualStudyHours * 10) / 10,

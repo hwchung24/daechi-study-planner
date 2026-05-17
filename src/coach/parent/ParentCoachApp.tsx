@@ -1795,7 +1795,7 @@ function ParentAnalysisTab(props: {
   setParentWeekOffset: React.Dispatch<React.SetStateAction<number>>;
 }) {
   return (
-    <div className="coach-page">
+    <div className="coach-page coach-page--parent-analysis">
       {!props.selectedStudent ? (
         <EmptyState title="학생을 선택하세요" />
       ) : (
