@@ -1,13 +1,12 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { getWeekStartKeySeoul } from "../../lib/weekDates";
 import {
-  captureElementForPdf,
-  saveElementPdfCapture,
-  type ElementPdfCapture
+  buildA4PagesPdfBlob,
+  captureA4PagesForPdf,
+  downloadPdfBlob
 } from "../../lib/exportElementToPdf";
-import { useModalReveal } from "../../lib/useModalReveal";
 import { ParentGrowthReportPremiumView } from "./growthReport/ParentGrowthReportPremiumView";
-import { ParentGrowthReportPdfPreviewModal } from "./ParentGrowthReportPdfPreviewModal";
+import { ParentGrowthReportPdfViewer } from "./growthReport/ParentGrowthReportPdfViewer";
 import type { ParentStudentRow } from "../../types/parent";
 import ko from "../fallbacks/ko.json";
 
@@ -77,9 +76,20 @@ export type ParentGrowthReportPayload = {
 };
 
 const GROWTH_REPORT_CACHE_PREFIX = "parent-growth-report-v2";
+const PDF_BUILD_CHART_WAIT_MS = 500;
 
 function buildGrowthReportCacheKey(studentId: number, weekStart: string) {
   return `${GROWTH_REPORT_CACHE_PREFIX}:${studentId}:${weekStart}`;
+}
+
+function waitForCharts() {
+  return new Promise<void>(resolve => {
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        window.setTimeout(resolve, PDF_BUILD_CHART_WAIT_MS);
+      });
+    });
+  });
 }
 
 export function ParentGrowthReportTab(props: {
@@ -92,13 +102,13 @@ export function ParentGrowthReportTab(props: {
   const [data, setData] = useState<ParentGrowthReportPayload | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [pdfPreviewOpen, setPdfPreviewOpen] = useState(false);
-  const [pdfPreviewLoading, setPdfPreviewLoading] = useState(false);
-  const [pdfPreviewCapture, setPdfPreviewCapture] = useState<ElementPdfCapture | null>(null);
-  const [pdfPreviewError, setPdfPreviewError] = useState<string | null>(null);
-  const [pdfExporting, setPdfExporting] = useState(false);
-  const pdfCaptureRef = useRef<HTMLDivElement | null>(null);
-  const pdfPreviewReveal = useModalReveal(pdfPreviewOpen);
+  const [strategyTab, setStrategyTab] = useState<"student" | "parent">("student");
+  const [pdfBlobUrl, setPdfBlobUrl] = useState<string | null>(null);
+  const [pdfBlob, setPdfBlob] = useState<Blob | null>(null);
+  const [pdfBuilding, setPdfBuilding] = useState(false);
+  const [pdfBuildError, setPdfBuildError] = useState<string | null>(null);
+  const pdfSourceRef = useRef<HTMLDivElement | null>(null);
+  const buildGenRef = useRef(0);
 
   const weekStart = useMemo(
     () => getWeekStartKeySeoul(props.parentWeekOffset),
@@ -175,115 +185,109 @@ export function ParentGrowthReportTab(props: {
     [data, weekStart]
   );
 
-  const closePdfPreview = useCallback(() => {
-    pdfPreviewReveal.beginClose(() => {
-      setPdfPreviewOpen(false);
-      setPdfPreviewCapture(null);
-      setPdfPreviewError(null);
-      setPdfPreviewLoading(false);
-    });
-  }, [pdfPreviewReveal]);
-
-  const openPdfPreview = useCallback(() => {
-    if (!data?.narrative) return;
-    setPdfPreviewOpen(true);
-  }, [data?.narrative]);
+  useEffect(() => {
+    return () => {
+      if (pdfBlobUrl) URL.revokeObjectURL(pdfBlobUrl);
+    };
+  }, [pdfBlobUrl]);
 
   useEffect(() => {
-    if (!pdfPreviewOpen || !data?.narrative) return;
-    const root = pdfCaptureRef.current;
-    if (!root) return;
+    if (!data?.narrative) {
+      setPdfBlobUrl(prev => {
+        if (prev) URL.revokeObjectURL(prev);
+        return null;
+      });
+      setPdfBlob(null);
+      setPdfBuildError(null);
+      setPdfBuilding(false);
+      return;
+    }
 
+    const gen = ++buildGenRef.current;
     let cancelled = false;
-    setPdfPreviewLoading(true);
-    setPdfPreviewError(null);
-    setPdfPreviewCapture(null);
 
-    void captureElementForPdf(root, {
-      ignoreClassName: "parent-growth-report__pdf-skip"
-    })
-      .then(capture => {
-        if (!cancelled) setPdfPreviewCapture(capture);
-      })
+    setPdfBuilding(true);
+    setPdfBuildError(null);
+    setPdfBlobUrl(prev => {
+      if (prev) URL.revokeObjectURL(prev);
+      return null;
+    });
+    setPdfBlob(null);
+
+    void (async () => {
+      await waitForCharts();
+      if (cancelled || buildGenRef.current !== gen) return;
+
+      const root = pdfSourceRef.current;
+      if (!root) {
+        throw new Error(growthFb.pdfExportFailedGeneric);
+      }
+
+      const captures = await captureA4PagesForPdf(root, {
+        ignoreClassName: "parent-growth-report__pdf-skip"
+      });
+      if (cancelled || buildGenRef.current !== gen) return;
+
+      const blob = buildA4PagesPdfBlob(captures, { fillPage: true, marginMm: 0 });
+      if (cancelled || buildGenRef.current !== gen) return;
+
+      const url = URL.createObjectURL(blob);
+      setPdfBlob(blob);
+      setPdfBlobUrl(url);
+    })()
       .catch((e: unknown) => {
-        if (!cancelled) {
-          setPdfPreviewError(
+        if (!cancelled && buildGenRef.current === gen) {
+          setPdfBuildError(
             e instanceof Error ? e.message : growthFb.pdfExportFailedGeneric
           );
         }
       })
       .finally(() => {
-        if (!cancelled) setPdfPreviewLoading(false);
+        if (!cancelled && buildGenRef.current === gen) {
+          setPdfBuilding(false);
+        }
       });
 
     return () => {
       cancelled = true;
     };
-  }, [pdfPreviewOpen, data?.narrative, weekStart]);
+  }, [data, weekStart, strategyTab]);
 
-  const handleConfirmSavePdf = useCallback(() => {
-    if (!pdfPreviewCapture || !pdfFileNameBase) return;
-    setPdfExporting(true);
-    try {
-      saveElementPdfCapture(pdfPreviewCapture, pdfFileNameBase, {
-        fitSinglePage: true,
-        marginMm: 6
-      });
-      closePdfPreview();
-    } catch (e) {
-      alert(
-        e instanceof Error ? e.message : growthFb.pdfExportFailedGeneric
-      );
-    } finally {
-      setPdfExporting(false);
-    }
-  }, [closePdfPreview, pdfFileNameBase, pdfPreviewCapture]);
+  const handleDownloadPdf = useCallback(() => {
+    if (!pdfBlob || !pdfFileNameBase) return;
+    downloadPdfBlob(pdfBlob, pdfFileNameBase);
+  }, [pdfBlob, pdfFileNameBase]);
 
   return (
     <div className="parent-growth-report-shell">
-      <div ref={pdfCaptureRef} className="parent-growth-report__pdf-root">
-        {data && n ? (
-          <ParentGrowthReportPremiumView
-            data={data}
-            loading={loading}
-            error={error}
+      {loading && !data ? <p className="pgr-loading">불러오는 중…</p> : null}
+      {error ? (
+        <p className="pgr-error" role="alert">
+          {error}
+        </p>
+      ) : null}
+
+      {data && n ? (
+        <>
+          <ParentGrowthReportPdfViewer
+            pdfUrl={pdfBlobUrl}
+            building={pdfBuilding || loading}
+            buildError={pdfBuildError}
+            fileNameBase={pdfFileNameBase}
             parentWeekOffset={props.parentWeekOffset}
             setParentWeekOffset={props.setParentWeekOffset}
-            onPdfPreview={openPdfPreview}
-            pdfPreviewDisabled={loading || pdfPreviewOpen}
+            strategyTab={strategyTab}
+            setStrategyTab={setStrategyTab}
+            onDownload={handleDownloadPdf}
+            downloadDisabled={pdfBuilding || !pdfBlob}
           />
-        ) : (
-          <>
-            {loading ? <p className="pgr-loading">불러오는 중…</p> : null}
-            {error ? (
-              <p className="pgr-error" role="alert">
-                {error}
-              </p>
-            ) : null}
-            {!loading && !error ? (
-              <p className="pgr-loading">표시할 데이터가 없습니다.</p>
-            ) : null}
-          </>
-        )}
-      </div>
-
-      <ParentGrowthReportPdfPreviewModal
-        open={pdfPreviewOpen}
-        revealed={pdfPreviewReveal.revealed}
-        loading={pdfPreviewLoading}
-        capture={pdfPreviewCapture}
-        error={pdfPreviewError}
-        fileLabel={pdfFileNameBase ? `${pdfFileNameBase}.pdf` : ""}
-        exporting={pdfExporting}
-        title={growthFb.pdfPreviewTitle || "PDF 미리보기"}
-        hint={growthFb.pdfPreviewHint || "저장 전에 아래 내용을 확인해 주세요."}
-        loadingLabel={growthFb.pdfPreviewLoading || "미리보기 준비 중…"}
-        cancelLabel={growthFb.pdfPreviewCancel || "취소"}
-        confirmLabel={growthFb.pdfPreviewConfirm || "PDF 저장"}
-        exportingLabel={growthFb.pdfPreviewExporting || "PDF 만드는 중…"}
-        onClose={closePdfPreview}
-        onConfirm={handleConfirmSavePdf}
-      />
+          <div ref={pdfSourceRef} className="parent-growth-report__pdf-source" aria-hidden="true">
+            <ParentGrowthReportPremiumView data={data} strategyTab={strategyTab} pdfSource />
+          </div>
+        </>
+      ) : !loading && !error ? (
+        <p className="pgr-loading">표시할 데이터가 없습니다.</p>
+      ) : null}
     </div>
   );
 }

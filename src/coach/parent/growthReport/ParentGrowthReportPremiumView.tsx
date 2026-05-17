@@ -1,16 +1,20 @@
-import React, { useMemo, useState } from "react";
+import React, { useMemo } from "react";
 import {
+  AlertCircle,
+  BookOpen,
   CheckCircle2,
-  ChevronLeft,
-  ChevronRight,
+  Circle,
+  CircleDot,
+  ClipboardList,
   Clock,
-  FileDown,
-  Home,
+  Lightbulb,
+  ListChecks,
   Lock,
+  Search,
+  Star,
   Target,
-  User,
-  Zap
 } from "lucide-react";
+import type { LucideIcon } from "lucide-react";
 import { getDateKeySeoul } from "../../../lib/weekDates";
 import {
   buildCoachBlocks,
@@ -39,6 +43,8 @@ import {
   SummaryDonut,
   WeeklyStudyBarChart
 } from "./GrowthReportCharts";
+import { PgrA4Page } from "./PgrA4Page";
+import { PGR_A4_CONTENT_WIDTH_PX } from "./pgrA4Constants";
 
 const growthFb = ko.gptOutputFallbacks.parentGrowthReport;
 const growthNarrativeFb = ko.parentGrowthReportNarrative;
@@ -85,30 +91,42 @@ function DeltaBadge(props: { delta: ReturnType<typeof formatMetricDelta> }) {
 }
 
 function PriorityTag(props: { priority: "high" | "medium" | "low" }) {
-  const map = {
-    high: { label: "중요", emoji: "🔴" },
-    medium: { label: "권장", emoji: "🟡" },
-    low: { label: "선택", emoji: "🟢" }
+  const map: Record<
+    "high" | "medium" | "low",
+    { label: string; Icon: LucideIcon }
+  > = {
+    high: { label: "중요", Icon: AlertCircle },
+    medium: { label: "권장", Icon: CircleDot },
+    low: { label: "선택", Icon: Circle }
   };
   const t = map[props.priority];
+  const Icon = t.Icon;
   return (
     <span className={`pgr-priority pgr-priority--${props.priority}`}>
-      {t.emoji} {t.label}
+      <Icon size={13} strokeWidth={2} aria-hidden />
+      {t.label}
     </span>
+  );
+}
+
+function CoachBlockTitle(props: { icon: LucideIcon; children: React.ReactNode }) {
+  const Icon = props.icon;
+  return (
+    <h3 className="pgr-coach-block__title">
+      <Icon className="pgr-icon pgr-icon--heading" size={15} strokeWidth={2} aria-hidden />
+      <span>{props.children}</span>
+    </h3>
   );
 }
 
 export function ParentGrowthReportPremiumView(props: {
   data: ParentGrowthReportPayload;
-  loading: boolean;
-  error: string | null;
-  parentWeekOffset: number;
-  setParentWeekOffset: React.Dispatch<React.SetStateAction<number>>;
-  onPdfPreview: () => void;
-  pdfPreviewDisabled: boolean;
+  strategyTab: "student" | "parent";
+  pdfSource?: boolean;
 }) {
   const { data, n } = { data: props.data, n: props.data.narrative };
-  const [strategyTab, setStrategyTab] = useState<"student" | "parent">("student");
+  const strategyTab = props.strategyTab;
+  const chartWidth = props.pdfSource ? PGR_A4_CONTENT_WIDTH_PX : undefined;
 
   const lifeDataSparse = useMemo(() => isLifeDataSparse(data.daily), [data.daily]);
   const todayKey = useMemo(() => getDateKeySeoul(), []);
@@ -178,8 +196,15 @@ export function ParentGrowthReportPremiumView(props: {
     lifeDataSparse ? growthNarrativeFb.energyTipWhenSparseData : n.energyParentTip;
 
   return (
-    <div className="parent-growth-report parent-growth-report--premium">
-      <header className="pgr-cover">
+    <div
+      className={
+        "parent-growth-report parent-growth-report--premium" +
+        (props.pdfSource ? " parent-growth-report--pdf-source" : "")
+      }
+    >
+      <div className="pgr-a4-document">
+        <PgrA4Page page={1}>
+          <header className="pgr-cover">
         <div className="pgr-cover__bar">
           <div className="pgr-cover__brand">
             <span className="pgr-cover__logo" aria-hidden>
@@ -190,36 +215,6 @@ export function ParentGrowthReportPremiumView(props: {
           <div className="pgr-cover__meta">
             <span>{coachName}</span>
             <span>{issuedLabel}</span>
-          </div>
-        </div>
-        <div className="pgr-cover__actions parent-growth-report__pdf-skip">
-          <button
-            type="button"
-            className="pgr-cover__pdf-btn"
-            disabled={props.pdfPreviewDisabled}
-            onClick={props.onPdfPreview}
-          >
-            <FileDown size={18} aria-hidden />
-            PDF 저장
-          </button>
-          <div className="pgr-cover__week-nav">
-            <button
-              type="button"
-              className="pgr-cover__week-btn"
-              aria-label="이전 주"
-              onClick={() => props.setParentWeekOffset(o => o + 1)}
-            >
-              <ChevronLeft size={18} />
-            </button>
-            <button
-              type="button"
-              className="pgr-cover__week-btn"
-              aria-label="다음 주"
-              disabled={props.parentWeekOffset <= 0}
-              onClick={() => props.setParentWeekOffset(o => (o > 0 ? o - 1 : 0))}
-            >
-              <ChevronRight size={18} />
-            </button>
           </div>
         </div>
         <h1 className="pgr-cover__student">
@@ -237,16 +232,7 @@ export function ParentGrowthReportPremiumView(props: {
         </div>
       </header>
 
-      {props.loading && !n ? (
-        <p className="pgr-loading">불러오는 중…</p>
-      ) : null}
-      {props.error ? (
-        <p className="pgr-error" role="alert">
-          {props.error}
-        </p>
-      ) : null}
-
-      <section className="pgr-summary-card" aria-labelledby="pgr-summary-title">
+          <section className="pgr-summary-card" aria-labelledby="pgr-summary-title">
         <div className="pgr-summary-card__inner">
           <div className="pgr-summary-card__gauge">
             <SummaryDonut pct={composite.score} grade={composite.grade} />
@@ -257,7 +243,7 @@ export function ParentGrowthReportPremiumView(props: {
           <div className="pgr-summary-card__metrics">
             <div className="pgr-summary-metric">
               <span className="pgr-summary-metric__icon" aria-hidden>
-                📚
+                <BookOpen size={18} strokeWidth={2} />
               </span>
               <div className="pgr-summary-metric__body">
                 <span className="pgr-summary-metric__label">학습량</span>
@@ -268,7 +254,7 @@ export function ParentGrowthReportPremiumView(props: {
             </div>
             <div className="pgr-summary-metric">
               <span className="pgr-summary-metric__icon" aria-hidden>
-                🎯
+                <Target size={18} strokeWidth={2} />
               </span>
               <div className="pgr-summary-metric__body">
                 <span className="pgr-summary-metric__label">집중도</span>
@@ -281,7 +267,7 @@ export function ParentGrowthReportPremiumView(props: {
             </div>
             <div className="pgr-summary-metric">
               <span className="pgr-summary-metric__icon" aria-hidden>
-                ✅
+                <ListChecks size={18} strokeWidth={2} />
               </span>
               <div className="pgr-summary-metric__body">
                 <span className="pgr-summary-metric__label">계획 달성률</span>
@@ -293,7 +279,9 @@ export function ParentGrowthReportPremiumView(props: {
           </div>
         </div>
       </section>
+        </PgrA4Page>
 
+        <PgrA4Page page={2}>
       <section className="pgr-section pgr-section--coach">
         <SectionHeader title="코치 진단 리포트" />
         <article className="pgr-coach-card">
@@ -308,11 +296,11 @@ export function ParentGrowthReportPremiumView(props: {
           </div>
           <div className="pgr-coach-card__blocks">
             <div className="pgr-coach-block">
-              <h3>🔍 이번 주 관찰</h3>
+              <CoachBlockTitle icon={Search}>이번 주 관찰</CoachBlockTitle>
               <p>{coachBlocks.observation}</p>
             </div>
             <div className="pgr-coach-block">
-              <h3>💡 진단</h3>
+              <CoachBlockTitle icon={Lightbulb}>진단</CoachBlockTitle>
               <p>
                 <strong>잘한 점</strong> {coachBlocks.diagnosisGood}
               </p>
@@ -321,7 +309,7 @@ export function ParentGrowthReportPremiumView(props: {
               </p>
             </div>
             <div className="pgr-coach-block">
-              <h3>📋 다음 주 처방</h3>
+              <CoachBlockTitle icon={ClipboardList}>다음 주 처방</CoachBlockTitle>
               <ul>
                 {(coachBlocks.prescriptions.length
                   ? coachBlocks.prescriptions
@@ -338,7 +326,9 @@ export function ParentGrowthReportPremiumView(props: {
         </article>
         <CoachQuote text={n.studyEfficiencyInsight} coachName={coachName} />
       </section>
+        </PgrA4Page>
 
+        <PgrA4Page page={3}>
       <section className="pgr-section">
         <SectionHeader title="학습량 분석" />
         <div className="pgr-card">
@@ -347,6 +337,7 @@ export function ParentGrowthReportPremiumView(props: {
               daily={data.daily}
               goalHoursPerDay={goalHoursDay}
               todayKey={todayKey}
+              layoutWidth={chartWidth}
             />
           ) : (
             <EmptyChartBlock />
@@ -384,11 +375,17 @@ export function ParentGrowthReportPremiumView(props: {
         </div>
         <CoachQuote text={n.studyEfficiencyInsight} coachName={coachName} />
       </section>
+        </PgrA4Page>
 
+        <PgrA4Page page={4}>
       <section className="pgr-section">
         <SectionHeader title="집중력 분석" />
         <div className="pgr-card">
-          <FocusRadarChart thisWeek={radar.thisWeek} prevWeek={radar.prevWeek} />
+          <FocusRadarChart
+            thisWeek={radar.thisWeek}
+            prevWeek={radar.prevWeek}
+            layoutWidth={chartWidth}
+          />
           <ul className="pgr-radar-scores">
             {RADAR_DIMENSIONS.map(dim => (
               <li key={dim}>
@@ -400,7 +397,9 @@ export function ParentGrowthReportPremiumView(props: {
           </ul>
         </div>
       </section>
+        </PgrA4Page>
 
+        <PgrA4Page page={5}>
       <section className="pgr-section">
         <SectionHeader title="계획 실행력" />
         <div className="pgr-card">
@@ -473,7 +472,9 @@ export function ParentGrowthReportPremiumView(props: {
         </div>
         <CoachQuote text={n.planExecutionSummary} coachName={coachName} />
       </section>
+        </PgrA4Page>
 
+        <PgrA4Page page={6}>
       <section className="pgr-section">
         <SectionHeader title="에너지 & 컨디션" />
         <div className="pgr-card">
@@ -482,22 +483,36 @@ export function ParentGrowthReportPremiumView(props: {
           ) : (
             <>
               <h3 className="pgr-card__h3">수면 시간 추이</h3>
-              <SleepLineChart daily={data.daily} sleepGoalHours={data.sleepGoalHours} />
+              <SleepLineChart
+                daily={data.daily}
+                sleepGoalHours={data.sleepGoalHours}
+                layoutWidth={chartWidth}
+              />
               <h3 className="pgr-card__h3">스트레스 지수</h3>
-              <StressBarChart daily={data.daily} />
+              <StressBarChart daily={data.daily} layoutWidth={chartWidth} />
               <div className="pgr-sleep-quality">
                 <span>수면의 질</span>
                 <div className="pgr-sleep-quality__stars" aria-label={`${sleepStars}점 만점 중`}>
-                  {Array.from({ length: 5 }, (_, i) => (
-                    <span
-                      key={i}
-                      className={
-                        i < sleepStars ? "pgr-sleep-quality__star--on" : "pgr-sleep-quality__star--off"
-                      }
-                    >
-                      ★
-                    </span>
-                  ))}
+                  {Array.from({ length: 5 }, (_, i) =>
+                    i < sleepStars ? (
+                      <Star
+                        key={i}
+                        size={17}
+                        strokeWidth={0}
+                        fill="currentColor"
+                        className="pgr-sleep-quality__star--on"
+                        aria-hidden
+                      />
+                    ) : (
+                      <Star
+                        key={i}
+                        size={17}
+                        strokeWidth={1.75}
+                        className="pgr-sleep-quality__star--off"
+                        aria-hidden
+                      />
+                    )
+                  )}
                 </div>
               </div>
             </>
@@ -508,34 +523,9 @@ export function ParentGrowthReportPremiumView(props: {
 
       <section className="pgr-section pgr-section--strategy">
         <SectionHeader title="다음 주 전략 제안" />
-        <div className="pgr-strategy-tabs" role="tablist">
-          <button
-            type="button"
-            role="tab"
-            aria-selected={strategyTab === "student"}
-            className={
-              "pgr-strategy-tabs__btn" +
-              (strategyTab === "student" ? " pgr-strategy-tabs__btn--active" : "")
-            }
-            onClick={() => setStrategyTab("student")}
-          >
-            <User size={16} aria-hidden />
-            학생에게
-          </button>
-          <button
-            type="button"
-            role="tab"
-            aria-selected={strategyTab === "parent"}
-            className={
-              "pgr-strategy-tabs__btn" +
-              (strategyTab === "parent" ? " pgr-strategy-tabs__btn--active" : "")
-            }
-            onClick={() => setStrategyTab("parent")}
-          >
-            <Home size={16} aria-hidden />
-            학부모님께
-          </button>
-        </div>
+        <p className="pgr-strategy-audience">
+          {strategyTab === "student" ? "학생에게" : "학부모님께"}
+        </p>
         <div className="pgr-strategy-cards">
           {strategyCards.length ? (
             strategyCards.map((card, i) => (
@@ -559,6 +549,8 @@ export function ParentGrowthReportPremiumView(props: {
           )}
         </div>
       </section>
+        </PgrA4Page>
+      </div>
     </div>
   );
 }

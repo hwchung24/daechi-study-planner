@@ -273,7 +273,7 @@ export function sleepQualityStars(daily: ParentGrowthReportPayload["daily"], goa
 }
 
 export function planGaugeColor(pct: number): string {
-  if (pct >= 70) return "#2E7D5E";
-  if (pct >= 40) return "#E8A020";
-  return "#C0392B";
+  if (pct >= 70) return "#243b6b";
+  if (pct >= 40) return "#5a6d8c";
+  return "#c0392b";
 }

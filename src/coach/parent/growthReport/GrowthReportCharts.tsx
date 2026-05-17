@@ -22,6 +22,39 @@ import { RADAR_DIMENSIONS, type RadarScores } from "../../../lib/parentGrowthRep
 
 const WEEK_SHORT = ["월", "화", "수", "목", "금", "토", "일"] as const;
 
+/** Matches --accent (#243b6b) in parent app theme */
+const CHART_ACCENT = "#243b6b";
+const CHART_ACCENT_SOFT = "#5a6d8c";
+const CHART_GRID = "rgba(0, 0, 0, 0.08)";
+const CHART_TICK = "#6b6b70";
+const CHART_MUTED_BAR = "#d1d1d6";
+const CHART_PREV = "#a8a8ad";
+
+function PgrChartFrame(props: {
+  className: string;
+  layoutWidth?: number;
+  height: number;
+  children: (size: { width: number; height: number }) => React.ReactElement;
+}) {
+  if (props.layoutWidth) {
+    return (
+      <div
+        className={props.className}
+        style={{ width: props.layoutWidth, height: props.height }}
+      >
+        {props.children({ width: props.layoutWidth, height: props.height })}
+      </div>
+    );
+  }
+  return (
+    <div className={props.className}>
+      <ResponsiveContainer width="100%" height={props.height}>
+        {props.children({ width: -1, height: props.height })}
+      </ResponsiveContainer>
+    </div>
+  );
+}
+
 export function SummaryDonut(props: { pct: number; size?: number; grade?: string }) {
   const gradId = React.useId().replace(/:/g, "");
   const size = props.size ?? 120;
@@ -54,8 +87,8 @@ export function SummaryDonut(props: { pct: number; size?: number; grade?: string
         />
         <defs>
           <linearGradient id={`pgrDonut-${gradId}`} x1="0" y1="0" x2="1" y2="1">
-            <stop offset="0%" stopColor="#C9A84C" />
-            <stop offset="100%" stopColor="#1E4FD8" />
+            <stop offset="0%" stopColor="rgba(255,255,255,0.95)" />
+            <stop offset="100%" stopColor="rgba(255,255,255,0.55)" />
           </linearGradient>
         </defs>
       </svg>
@@ -72,8 +105,10 @@ export function WeeklyStudyBarChart(props: {
   daily: ParentGrowthReportPayload["daily"];
   goalHoursPerDay: number;
   todayKey?: string;
+  layoutWidth?: number;
 }) {
   const goalMin = props.goalHoursPerDay * 60;
+  const chartHeight = props.layoutWidth ? 155 : 200;
   const rows = props.daily.map((row, i) => ({
     label: WEEK_SHORT[i] ?? row.weekdayLabel,
     minutes: row.studyMinutesFromLog ?? 0,
@@ -87,29 +122,38 @@ export function WeeklyStudyBarChart(props: {
 
   return (
     <div className="pgr-chart pgr-chart--study-bar">
-      <ResponsiveContainer width="100%" height={200}>
-        <BarChart data={rows} margin={{ top: 24, right: 8, left: -16, bottom: 0 }}>
-          <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#E2E8F0" />
-          <XAxis dataKey="label" tick={{ fontSize: 12, fill: "#6B7280" }} />
-          <YAxis
-            tick={{ fontSize: 11, fill: "#6B7280" }}
-            width={32}
-            tickFormatter={v => `${Math.round(Number(v) / 60)}h`}
-          />
-          <Tooltip
-            formatter={(v: number) => [`${(Number(v) / 60).toFixed(1)}시간`, "학습"]}
-          />
-          <ReferenceLine y={goalMin} stroke="#1E4FD8" strokeDasharray="4 4" label="" />
-          <Bar dataKey="minutes" radius={[6, 6, 0, 0]} maxBarSize={36}>
-            {rows.map((row, idx) => (
-              <Cell
-                key={idx}
-                fill={row.isToday ? "#1E4FD8" : row.hasData ? "#4A7AE8" : "#CBD5E1"}
-              />
-            ))}
-          </Bar>
-        </BarChart>
-      </ResponsiveContainer>
+      <PgrChartFrame className="pgr-chart__frame" layoutWidth={props.layoutWidth} height={chartHeight}>
+        {({ width, height }) => (
+          <BarChart
+            data={rows}
+            width={width > 0 ? width : undefined}
+            height={width > 0 ? height : undefined}
+            margin={{ top: 24, right: 8, left: -16, bottom: 0 }}
+          >
+            <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={CHART_GRID} />
+            <XAxis dataKey="label" tick={{ fontSize: 12, fill: CHART_TICK }} />
+            <YAxis
+              tick={{ fontSize: 11, fill: CHART_TICK }}
+              width={32}
+              tickFormatter={v => `${Math.round(Number(v) / 60)}h`}
+            />
+            <Tooltip
+              formatter={(v: number) => [`${(Number(v) / 60).toFixed(1)}시간`, "학습"]}
+            />
+            <ReferenceLine y={goalMin} stroke={CHART_ACCENT} strokeDasharray="4 4" label="" />
+            <Bar dataKey="minutes" radius={[6, 6, 0, 0]} maxBarSize={36}>
+              {rows.map((row, idx) => (
+                <Cell
+                  key={idx}
+                  fill={
+                    row.isToday ? CHART_ACCENT : row.hasData ? CHART_ACCENT_SOFT : CHART_MUTED_BAR
+                  }
+                />
+              ))}
+            </Bar>
+          </BarChart>
+        )}
+      </PgrChartFrame>
       <p className="pgr-chart-legend">
         <span className="pgr-chart-legend__line pgr-chart-legend__line--goal" />
         일일 목표 {props.goalHoursPerDay.toFixed(1)}h
@@ -118,7 +162,12 @@ export function WeeklyStudyBarChart(props: {
   );
 }
 
-export function FocusRadarChart(props: { thisWeek: RadarScores; prevWeek: RadarScores }) {
+export function FocusRadarChart(props: {
+  thisWeek: RadarScores;
+  prevWeek: RadarScores;
+  layoutWidth?: number;
+}) {
+  const chartHeight = props.layoutWidth ? 220 : 280;
   const data = RADAR_DIMENSIONS.map(dim => ({
     subject: dim,
     thisWeek: props.thisWeek[dim],
@@ -127,30 +176,39 @@ export function FocusRadarChart(props: { thisWeek: RadarScores; prevWeek: RadarS
 
   return (
     <div className="pgr-chart pgr-chart--radar">
-      <ResponsiveContainer width="100%" height={280}>
-        <RadarChart data={data} cx="50%" cy="50%" outerRadius="72%">
-          <PolarGrid stroke="#E2E8F0" />
-          <PolarAngleAxis dataKey="subject" tick={{ fontSize: 11, fill: "#1A1F36" }} />
-          <PolarRadiusAxis angle={30} domain={[0, 10]} tick={{ fontSize: 10 }} />
-          <Radar
-            name="지난 주"
-            dataKey="prevWeek"
-            stroke="#94A3B8"
-            fill="#94A3B8"
-            fillOpacity={0.15}
-            strokeWidth={2}
-          />
-          <Radar
-            name="이번 주"
-            dataKey="thisWeek"
-            stroke="#1E4FD8"
-            fill="#1E4FD8"
-            fillOpacity={0.25}
-            strokeWidth={2}
-          />
-          <Tooltip formatter={(v: number) => [`${Number(v).toFixed(1)} / 10`, ""]} />
-        </RadarChart>
-      </ResponsiveContainer>
+      <PgrChartFrame className="pgr-chart__frame" layoutWidth={props.layoutWidth} height={chartHeight}>
+        {({ width, height }) => (
+          <RadarChart
+            data={data}
+            width={width > 0 ? width : undefined}
+            height={width > 0 ? height : undefined}
+            cx={width > 0 ? width / 2 : "50%"}
+            cy={width > 0 ? height / 2 : "50%"}
+            outerRadius={width > 0 ? Math.min(width, height) * 0.34 : "72%"}
+          >
+            <PolarGrid stroke={CHART_GRID} />
+            <PolarAngleAxis dataKey="subject" tick={{ fontSize: 11, fill: CHART_TICK }} />
+            <PolarRadiusAxis angle={30} domain={[0, 10]} tick={{ fontSize: 10, fill: CHART_TICK }} />
+            <Radar
+              name="지난 주"
+              dataKey="prevWeek"
+              stroke={CHART_PREV}
+              fill={CHART_PREV}
+              fillOpacity={0.12}
+              strokeWidth={2}
+            />
+            <Radar
+              name="이번 주"
+              dataKey="thisWeek"
+              stroke={CHART_ACCENT}
+              fill={CHART_ACCENT}
+              fillOpacity={0.2}
+              strokeWidth={2}
+            />
+            <Tooltip formatter={(v: number) => [`${Number(v).toFixed(1)} / 10`, ""]} />
+          </RadarChart>
+        )}
+      </PgrChartFrame>
       <div className="pgr-radar-legend">
         <span>
           <i className="pgr-radar-legend__swatch pgr-radar-legend__swatch--this" />
@@ -168,7 +226,9 @@ export function FocusRadarChart(props: { thisWeek: RadarScores; prevWeek: RadarS
 export function SleepLineChart(props: {
   daily: ParentGrowthReportPayload["daily"];
   sleepGoalHours: number;
+  layoutWidth?: number;
 }) {
+  const chartHeight = props.layoutWidth ? 150 : 180;
   const rows = props.daily.map((row, i) => ({
     label: WEEK_SHORT[i] ?? row.weekdayLabel,
     hours: row.sleepHours
@@ -176,29 +236,37 @@ export function SleepLineChart(props: {
 
   return (
     <div className="pgr-chart pgr-chart--sleep">
-      <ResponsiveContainer width="100%" height={180}>
-        <LineChart data={rows} margin={{ top: 8, right: 8, left: -16, bottom: 0 }}>
-          <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#E2E8F0" />
-          <XAxis dataKey="label" tick={{ fontSize: 12, fill: "#6B7280" }} />
-          <YAxis domain={[0, 12]} tick={{ fontSize: 11, fill: "#6B7280" }} width={28} />
-          <Tooltip formatter={(v: number) => [`${Number(v).toFixed(1)}시간`, "수면"]} />
-          <ReferenceLine
-            y={props.sleepGoalHours}
-            stroke="#2E7D5E"
-            strokeDasharray="4 4"
-          />
-          <ReferenceLine y={7} stroke="#2E7D5E" strokeOpacity={0.2} />
-          <ReferenceLine y={9} stroke="#2E7D5E" strokeOpacity={0.2} />
-          <Line
-            type="monotone"
-            dataKey="hours"
-            stroke="#1E4FD8"
-            strokeWidth={2.5}
-            dot={{ r: 4, fill: "#1E4FD8" }}
-            connectNulls={false}
-          />
-        </LineChart>
-      </ResponsiveContainer>
+      <PgrChartFrame className="pgr-chart__frame" layoutWidth={props.layoutWidth} height={chartHeight}>
+        {({ width, height }) => (
+          <LineChart
+            data={rows}
+            width={width > 0 ? width : undefined}
+            height={width > 0 ? height : undefined}
+            margin={{ top: 8, right: 8, left: -16, bottom: 0 }}
+          >
+            <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={CHART_GRID} />
+            <XAxis dataKey="label" tick={{ fontSize: 12, fill: CHART_TICK }} />
+            <YAxis domain={[0, 12]} tick={{ fontSize: 11, fill: CHART_TICK }} width={28} />
+            <Tooltip formatter={(v: number) => [`${Number(v).toFixed(1)}시간`, "수면"]} />
+            <ReferenceLine
+              y={props.sleepGoalHours}
+              stroke={CHART_ACCENT}
+              strokeDasharray="4 4"
+              strokeOpacity={0.55}
+            />
+            <ReferenceLine y={7} stroke={CHART_ACCENT} strokeOpacity={0.12} />
+            <ReferenceLine y={9} stroke={CHART_ACCENT} strokeOpacity={0.12} />
+            <Line
+              type="monotone"
+              dataKey="hours"
+              stroke={CHART_ACCENT}
+              strokeWidth={2}
+              dot={{ r: 3, fill: CHART_ACCENT }}
+              connectNulls={false}
+            />
+          </LineChart>
+        )}
+      </PgrChartFrame>
       <p className="pgr-chart-legend">
         <span className="pgr-chart-legend__band" />
         권장 수면 7~9시간 · 목표 {props.sleepGoalHours}h
@@ -213,7 +281,11 @@ const STRESS_COLORS: Record<string, string> = {
   low: "#2E7D5E"
 };
 
-export function StressBarChart(props: { daily: ParentGrowthReportPayload["daily"] }) {
+export function StressBarChart(props: {
+  daily: ParentGrowthReportPayload["daily"];
+  layoutWidth?: number;
+}) {
+  const chartHeight = props.layoutWidth ? 130 : 160;
   const rows = props.daily.map((row, i) => ({
     label: WEEK_SHORT[i] ?? row.weekdayLabel,
     score: row.stressScore ?? 0,
@@ -222,23 +294,28 @@ export function StressBarChart(props: { daily: ParentGrowthReportPayload["daily"
 
   return (
     <div className="pgr-chart pgr-chart--stress">
-      <ResponsiveContainer width="100%" height={160}>
-        <BarChart data={rows} margin={{ top: 8, right: 8, left: -20, bottom: 0 }}>
-          <XAxis dataKey="label" tick={{ fontSize: 12, fill: "#6B7280" }} />
-          <YAxis domain={[0, 5]} tick={{ fontSize: 11, fill: "#6B7280" }} width={24} />
-          <Tooltip />
-          <Bar dataKey="score" radius={[4, 4, 0, 0]} maxBarSize={28}>
-            {rows.map((row, idx) => (
-              <Cell
-                key={idx}
-                fill={
-                  row.band ? STRESS_COLORS[row.band] ?? "#94A3B8" : "#E2E8F0"
-                }
-              />
-            ))}
-          </Bar>
-        </BarChart>
-      </ResponsiveContainer>
+      <PgrChartFrame className="pgr-chart__frame" layoutWidth={props.layoutWidth} height={chartHeight}>
+        {({ width, height }) => (
+          <BarChart
+            data={rows}
+            width={width > 0 ? width : undefined}
+            height={width > 0 ? height : undefined}
+            margin={{ top: 8, right: 8, left: -20, bottom: 0 }}
+          >
+            <XAxis dataKey="label" tick={{ fontSize: 12, fill: CHART_TICK }} />
+            <YAxis domain={[0, 5]} tick={{ fontSize: 11, fill: CHART_TICK }} width={24} />
+            <Tooltip />
+            <Bar dataKey="score" radius={[4, 4, 0, 0]} maxBarSize={28}>
+              {rows.map((row, idx) => (
+                <Cell
+                  key={idx}
+                  fill={row.band ? STRESS_COLORS[row.band] ?? CHART_PREV : CHART_MUTED_BAR}
+                />
+              ))}
+            </Bar>
+          </BarChart>
+        )}
+      </PgrChartFrame>
     </div>
   );
 }
@@ -259,7 +336,7 @@ export function FocusShareDonut(props: { pct: number | null; label: string }) {
           cy={size / 2}
           r={r}
           fill="none"
-          stroke="#E2E8F0"
+          stroke={CHART_MUTED_BAR}
           strokeWidth={stroke}
         />
         <circle
@@ -275,8 +352,8 @@ export function FocusShareDonut(props: { pct: number | null; label: string }) {
         />
         <defs>
           <linearGradient id={`pgrFocus-${gradId}`} x1="0" y1="0" x2="1" y2="1">
-            <stop offset="0%" stopColor="#1E4FD8" />
-            <stop offset="100%" stopColor="#2E7D5E" />
+            <stop offset="0%" stopColor={CHART_ACCENT} />
+            <stop offset="100%" stopColor={CHART_ACCENT_SOFT} />
           </linearGradient>
         </defs>
       </svg>

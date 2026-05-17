@@ -4094,16 +4094,30 @@ html.parent-session .dday-modal .parent-coach-settings__preview-bubble {
   margin-bottom: 0;
 }
 
-.parent-student-settings.coach-page,
-.coach-page--parent-analysis {
-  background: #f4f6fa;
+.parent-student-settings.coach-page {
+  background: var(--bg);
 }
 
-.coach-page--parent-analysis .parent-growth-report,
+.coach-page--parent-analysis {
+  background: var(--bg);
+}
+
 .coach-page--parent-analysis .parent-growth-report-shell {
   display: flex;
   flex-direction: column;
-  gap: 24px;
+  width: 100%;
+  min-height: min(72dvh, 720px);
+}
+
+.app-root--parent .coach-page--parent-analysis {
+  padding: calc(8px * var(--parent-ui-scale, 1)) calc(8px * var(--parent-ui-scale, 1))
+    calc(24px * var(--parent-ui-scale, 1));
+}
+
+/* Growth report actions — reuse parent shell button styles */
+.app-root--parent .pgr-cover__pdf-btn.coach-ghost-btn,
+.app-root--parent .pgr-cover__week-btn.coach-ghost-btn {
+  border-radius: var(--radius-button);
 }
 
 .parent-home.coach-page {
@@ -13492,8 +13506,8 @@ html.parent-session.parent-dark .app-root--parent .coach-admin-chat__peer-header
 }
 
 .parent-growth-report-pdf-preview .dday-modal-inner {
-  width: min(100%, 520px);
-  max-height: min(92vh, 820px);
+  width: min(100%, 400px);
+  max-height: min(92vh, 860px);
   display: flex;
   flex-direction: column;
 }
@@ -13534,10 +13548,27 @@ html.parent-session.parent-dark .app-root--parent .coach-admin-chat__peer-header
   text-align: center;
 }
 
+.parent-growth-report-pdf-preview__pages {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+  padding: 4px 0 8px;
+}
+
 .parent-growth-report-pdf-preview__page-wrap {
   display: flex;
-  justify-content: center;
-  padding: 4px 0 8px;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+}
+
+.parent-growth-report-pdf-preview__page-label {
+  margin: 0;
+  font-size: var(--font-size-small);
+  color: var(--text-muted);
+  letter-spacing: 0.04em;
 }
 
 .parent-growth-report-pdf-preview__page {

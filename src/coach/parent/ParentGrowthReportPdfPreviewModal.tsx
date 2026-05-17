@@ -8,6 +8,7 @@ export function ParentGrowthReportPdfPreviewModal(props: {
   revealed: boolean;
   loading: boolean;
   capture: ElementPdfCapture | null;
+  captures?: ElementPdfCapture[];
   error: string | null;
   fileLabel: string;
   exporting: boolean;
@@ -21,6 +22,13 @@ export function ParentGrowthReportPdfPreviewModal(props: {
   onConfirm: () => void;
 }) {
   if (!props.open) return null;
+
+  const pages =
+    props.captures && props.captures.length > 0
+      ? props.captures
+      : props.capture
+        ? [props.capture]
+        : [];
 
   return createPortal(
     <div
@@ -60,17 +68,29 @@ export function ParentGrowthReportPdfPreviewModal(props: {
             <p className="parent-growth-report-pdf-preview__status" role="alert">
               {props.error}
             </p>
-          ) : props.capture ? (
-            <div className="parent-growth-report-pdf-preview__page-wrap">
-              <div className="parent-growth-report-pdf-preview__page" aria-label={props.title}>
-                <img
-                  src={props.capture.imgData}
-                  alt=""
-                  className="parent-growth-report-pdf-preview__img"
-                  width={props.capture.width}
-                  height={props.capture.height}
-                />
-              </div>
+          ) : pages.length > 0 ? (
+            <div className="parent-growth-report-pdf-preview__pages">
+              {pages.map((page, index) => (
+                <div key={index} className="parent-growth-report-pdf-preview__page-wrap">
+                  <div
+                    className="parent-growth-report-pdf-preview__page"
+                    aria-label={`${props.title} ${index + 1}페이지`}
+                  >
+                    <img
+                      src={page.imgData}
+                      alt=""
+                      className="parent-growth-report-pdf-preview__img"
+                      width={page.width}
+                      height={page.height}
+                    />
+                  </div>
+                  {pages.length > 1 ? (
+                    <p className="parent-growth-report-pdf-preview__page-label">
+                      {index + 1} / {pages.length}
+                    </p>
+                  ) : null}
+                </div>
+              ))}
             </div>
           ) : null}
         </div>
@@ -82,7 +102,7 @@ export function ParentGrowthReportPdfPreviewModal(props: {
           <button
             type="button"
             className="coach-primary-btn parent-growth-report-pdf-preview__save"
-            disabled={props.loading || !!props.error || !props.capture || props.exporting}
+            disabled={props.loading || !!props.error || pages.length === 0 || props.exporting}
             onClick={props.onConfirm}
           >
             <FileDown size={18} aria-hidden />
